@@ -1,8 +1,6 @@
 defmodule Ankole.Ecto.JSONPayloadTest do
   use ExUnit.Case, async: true
 
-  import Ecto.Changeset
-
   alias Ankole.Ecto.JSONPayload
 
   test "rejects NUL bytes before a nested JSONB value reaches PostgreSQL" do
@@ -20,27 +18,13 @@ defmodule Ankole.Ecto.JSONPayloadTest do
              JSONPayload.normalize_map(%{:name => "atom", "name" => "string"})
   end
 
-  test "reports a normalized key collision as a changeset error" do
-    changeset =
-      {%{}, %{payload: :map}}
-      |> cast(%{payload: %{:name => "atom", "name" => "string"}}, [:payload])
-      |> JSONPayload.validate_map(:payload)
-
-    refute changeset.valid?
-
-    assert {"must be JSON-serializable object: duplicate normalized key name", []} =
-             changeset.errors[:payload]
+  test "resource JSON objects report normalized key collisions before persistence" do
+    assert {:error, message: "must be JSON-serializable object: duplicate normalized key"} =
+             Ankole.Ash.Types.JSONMap.cast_input(%{:name => "atom", "name" => "string"}, [])
   end
 
-  test "adds a changeset error instead of leaving Postgrex to raise" do
-    changeset =
-      {%{}, %{payload: :map}}
-      |> cast(%{payload: %{"delta" => "before\0after"}}, [:payload])
-      |> JSONPayload.validate_map(:payload)
-
-    refute changeset.valid?
-
-    assert {"must be JSON-serializable object: unsupported_nul_byte", []} =
-             changeset.errors[:payload]
+  test "resource JSON objects reject NUL bytes before Postgrex" do
+    assert {:error, message: "must be JSON-serializable object: unsupported_nul_byte"} =
+             Ankole.Ash.Types.JSONMap.cast_input(%{"delta" => "before\0after"}, [])
   end
 end

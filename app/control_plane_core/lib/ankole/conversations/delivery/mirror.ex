@@ -16,32 +16,29 @@ defmodule Ankole.Conversations.Delivery.Mirror do
   end
 
   defp mark_intent_succeeded(repo, intent, result) do
-    recovery_state = result_map(result, :recovery_state, %{})
+    recovery_state = result_map(result, :recovery_state, intent.recovery_state)
     payload = result_map(result, :payload, intent.payload)
     delivered_operation_attrs = delivered_operation_attrs(intent, result)
 
     with {:ok, recovery_state} <-
            JSONPayload.normalize_map(recovery_state, allow_datetime: true),
          {:ok, payload} <- JSONPayload.normalize_map(payload, allow_datetime: true) do
-      intent
-      |> Intent.changeset(
+      Ankole.Ash.update(
+        intent,
+        :succeed,
         Map.merge(
           %{
-            status: :sent,
             created_provider_message_id:
               created_provider_message_id_after_success(intent, result),
             provider_thread_id: provider_thread_id_after_success(intent, result),
             payload: payload,
             fallback_visible_text:
               result_text(result, :fallback_visible_text) || intent.fallback_visible_text,
-            last_error: %{},
-            next_attempt_at: nil,
             recovery_state: recovery_state
           },
           delivered_operation_attrs
         )
       )
-      |> repo.update()
       |> case do
         {:ok, succeeded} ->
           with :ok <-
@@ -89,10 +86,6 @@ defmodule Ankole.Conversations.Delivery.Mirror do
     result_text(result, :provider_thread_id) || intent.provider_thread_id
   end
 
-  # Exponential backoff: delay = 5s * 2^(attempt-1), clamped to the 5m ceiling
-  # (so 5s, 10s, 20s, 40s, … capped at 300s). Returning nil once attempts are
-  # exhausted is what makes the deadline handler no-op on the row — the retry
-  # loop ends without a separate "give up" flag.
   defp mirror_intent_success(
          repo,
          %Intent{operation: operation} = intent,
@@ -116,7 +109,7 @@ defmodule Ankole.Conversations.Delivery.Mirror do
     end)
     |> case do
       {:ok, current, first_id} ->
-        current |> Intent.changeset(%{created_message_id: first_id}) |> repo.update()
+        Ankole.Ash.update(current, :link_message, %{created_message_id: first_id})
 
       {:error, _} = error ->
         error
@@ -215,8 +208,12 @@ defmodule Ankole.Conversations.Delivery.Mirror do
   defp prior_delivery_observation(repo, conversation_id, provider_message_id) do
     External.get_message(repo, conversation_id, provider_message_id) ||
       %{
-        message: %Ankole.Conversations.Message{},
-        external_ref: %Ankole.Conversations.ExternalMessageRef{}
+        message: %{attachments: [], links: [], mentions: []},
+        external_ref: %{
+          reply_to_provider_message_id: nil,
+          provider_thread_id: nil,
+          metadata: %{}
+        }
       }
   end
 

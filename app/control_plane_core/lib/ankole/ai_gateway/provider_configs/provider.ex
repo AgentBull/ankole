@@ -1,106 +1,181 @@
 defmodule Ankole.AIGateway.ProviderConfigs.Provider do
-  @moduledoc """
-  Operator-configured AIGateway provider endpoint and inline credential pool.
-  """
+  @moduledoc "Operator-configured endpoint settings and an encrypted credential pool."
 
-  use Ankole.Schema, tenancy: :site
+  use Ankole.Ash.Resource,
+    tenancy: :site,
+    domain: Ankole.AIGateway.ProviderConfigs.Domain
 
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2, normalize_lower: 2]
+  postgres do
+    table("ai_gateway_providers")
+    repo(Ankole.Repo)
+    migrate?(false)
+    identity_index_names(provider_id: "ai_gateway_providers_provider_id_index")
 
-  alias Ankole.AIGateway.Providers
-  alias Ankole.Ecto.JSONPayload
-
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-  @timestamps_opts [type: :utc_datetime_usec]
-  @slug_format ~r/\A[a-z][a-z0-9_-]{0,62}\z/
-  @provider_kind_format ~r/\A[a-z][a-z0-9_]{0,62}\z/
-
-  schema "ai_gateway_providers" do
-    field(:provider_id, :string)
-    field(:provider_kind, :string)
-    field(:base_url, :string)
-    field(:credential_pool, :map, default: %{"strategy" => "fill_first", "entries" => []})
-    field(:connection_options, :map, default: %{})
-    field(:disabled_at, :utc_datetime_usec)
-
-    timestamps()
+    check_constraints do
+      check_constraint(:provider_id, "ai_gateway_providers_provider_id_format")
+      check_constraint(:provider_kind, "ai_gateway_providers_provider_kind_format")
+      check_constraint(:base_url, "ai_gateway_providers_base_url_present")
+      check_constraint(:connection_options, "ai_gateway_providers_connection_options_object")
+      check_constraint(:credential_pool, "ai_gateway_providers_credential_pool_object")
+    end
   end
 
-  @doc """
-  Builds a changeset for AIGateway provider rows.
-
-  PostgreSQL only enforces slug/object shape for extensible fields such as
-  `provider_kind`. The selected provider implementation performs the semantic
-  validation so plugins can add provider kinds without a database migration.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(provider, attrs) do
-    provider
-    |> cast(attrs, [
-      :provider_id,
-      :provider_kind,
-      :base_url,
-      :credential_pool,
-      :connection_options,
-      :disabled_at
-    ])
-    |> normalize_blank([:provider_id, :provider_kind, :base_url])
-    |> normalize_lower([:provider_id, :provider_kind])
-    |> validate_required([:provider_id, :provider_kind, :connection_options, :credential_pool])
-    |> validate_format(:provider_id, @slug_format)
-    |> validate_format(:provider_kind, @provider_kind_format)
-    |> validate_base_url()
-    |> validate_provider_kind()
-    |> validate_connection_options()
-    |> JSONPayload.validate_map(:connection_options, allow_datetime: false)
-    |> JSONPayload.validate_map(:credential_pool, allow_datetime: false)
-    |> unique_constraint(:provider_id, name: :ai_gateway_providers_provider_id_index)
-    |> check_constraint(:provider_id, name: :ai_gateway_providers_provider_id_format)
-    |> check_constraint(:provider_kind, name: :ai_gateway_providers_provider_kind_format)
-    |> check_constraint(:base_url, name: :ai_gateway_providers_base_url_present)
-    |> check_constraint(:connection_options,
-      name: :ai_gateway_providers_connection_options_object
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0
     )
-    |> check_constraint(:credential_pool,
-      name: :ai_gateway_providers_credential_pool_object
+
+    attribute(:provider_id, :string,
+      allow_nil?: false,
+      public?: true,
+      constraints: [match: ~r/\A[a-z][a-z0-9_-]{0,62}\z/]
     )
+
+    attribute(:provider_kind, :string,
+      allow_nil?: false,
+      public?: true,
+      constraints: [match: ~r/\A[a-z][a-z0-9_]{0,62}\z/]
+    )
+
+    attribute(:base_url, :string, public?: true)
+
+    attribute(:connection_options, Ankole.Ash.Types.JSONMap,
+      allow_nil?: false,
+      default: %{},
+      public?: true
+    )
+
+    attribute(:credential_pool, Ankole.Ash.Types.JSONMap,
+      allow_nil?: false,
+      sensitive?: true,
+      default: %{"strategy" => "fill_first", "entries" => []}
+    )
+
+    attribute(:disabled_at, :utc_datetime_usec, public?: true)
+    create_timestamp(:inserted_at)
+    update_timestamp(:updated_at)
   end
 
-  # Provider kind is an implementation id, not a DB enum. This validates against
-  # built-ins and active plugin providers at the application boundary.
-  defp validate_provider_kind(changeset) do
-    validate_change(changeset, :provider_kind, fn :provider_kind, provider_kind ->
-      case Providers.fetch(provider_kind) do
-        {:ok, _provider} -> []
-        {:error, reason} -> [provider_kind: inspect(reason)]
-      end
-    end)
+  identities do
+    identity(:provider_id, [:provider_id])
   end
 
-  defp validate_base_url(changeset) do
-    validate_change(changeset, :base_url, fn :base_url, base_url ->
-      case URI.new(base_url) do
-        {:ok, %URI{scheme: scheme, host: host}}
-        when scheme in ["http", "https"] and is_binary(host) ->
-          []
+  actions do
+    defaults([:read])
 
-        _value ->
-          [base_url: "must be an absolute http(s) URL"]
-      end
-    end)
+    create :create do
+      accept([])
+      argument(:input, :map, allow_nil?: false, sensitive?: true)
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+
+      change(Ankole.AIGateway.ProviderConfigs.Changes.PrepareConfiguration,
+        only_when_valid?: true
+      )
+
+      validate(Ankole.AIGateway.ProviderConfigs.ValidateURL)
+    end
+
+    in_tx_update :configure do
+      accept([])
+      argument(:input, :map, allow_nil?: false, sensitive?: true)
+
+      change(Ankole.AIGateway.ProviderConfigs.Changes.PrepareConfiguration,
+        only_when_valid?: true
+      )
+
+      validate(Ankole.AIGateway.ProviderConfigs.ValidateURL)
+    end
+
+    in_tx_update :enable do
+      accept([])
+
+      change({Ankole.AIGateway.ProviderConfigs.Changes.PrepareConfiguration, enable?: true},
+        only_when_valid?: true
+      )
+
+      validate(Ankole.AIGateway.ProviderConfigs.ValidateURL)
+    end
+
+    in_tx_update :disable do
+      accept([])
+      change(Ankole.AIGateway.ProviderConfigs.Changes.RequireUnused, only_when_valid?: true)
+      change(set_attribute(:disabled_at, &DateTime.utc_now/0))
+    end
+
+    in_tx_update :add_credential do
+      accept([])
+      argument(:input, :map, allow_nil?: false, sensitive?: true)
+
+      change({Ankole.AIGateway.ProviderConfigs.Changes.Credentials, operation: :add},
+        only_when_valid?: true
+      )
+    end
+
+    in_tx_update :replace_credential do
+      accept([])
+      argument(:credential_id, :string, allow_nil?: false)
+      argument(:input, :map, allow_nil?: false, sensitive?: true)
+
+      change({Ankole.AIGateway.ProviderConfigs.Changes.Credentials, operation: :replace},
+        only_when_valid?: true
+      )
+    end
+
+    in_tx_update :remove_credential do
+      accept([])
+      argument(:credential_id, :string, allow_nil?: false)
+
+      change({Ankole.AIGateway.ProviderConfigs.Changes.Credentials, operation: :remove},
+        only_when_valid?: true
+      )
+    end
+
+    in_tx_update :select_strategy do
+      accept([])
+      argument(:strategy, :string, allow_nil?: false)
+
+      change({Ankole.AIGateway.ProviderConfigs.Changes.Credentials, operation: :strategy},
+        only_when_valid?: true
+      )
+    end
+
+    in_tx_update :refresh_credential do
+      accept([])
+      argument(:credential_id, :string, allow_nil?: false)
+      argument(:credential, :map, allow_nil?: false, sensitive?: true)
+
+      change({Ankole.AIGateway.ProviderConfigs.Changes.Credentials, operation: :refresh},
+        only_when_valid?: true
+      )
+    end
+
+    in_tx_update :cooldown do
+      accept([])
+      argument(:credential, :map, allow_nil?: false, sensitive?: true)
+      argument(:until, :struct, allow_nil?: false, constraints: [instance_of: DateTime])
+      argument(:reason, :term, allow_nil?: false)
+
+      change({Ankole.AIGateway.ProviderConfigs.Changes.Credentials, operation: :cooldown},
+        only_when_valid?: true
+      )
+    end
+
+    destroy :remove do
+      transaction?(false)
+      require_atomic?(false)
+      atomic_upgrade?(false)
+      change(Ankole.Ash.RequireTransaction)
+      validate(present(:disabled_at))
+      change(Ankole.AIGateway.ProviderConfigs.Changes.RequireUnused, only_when_valid?: true)
+    end
   end
 
-  # Connection options are provider-specific, so their allowed keys come from
-  # the selected provider module instead of a global schema.
-  defp validate_connection_options(changeset) do
-    validate_change(changeset, :connection_options, fn :connection_options, options ->
-      provider_kind = get_field(changeset, :provider_kind)
+  @type t :: %__MODULE__{}
 
-      case Providers.normalize_connection_options(provider_kind, options) do
-        {:ok, _options} -> []
-        {:error, reason} -> [connection_options: inspect(reason)]
-      end
-    end)
-  end
+  @doc false
+  def normalize_id(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
+  def normalize_id(value), do: value
 end

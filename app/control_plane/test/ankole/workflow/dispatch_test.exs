@@ -40,13 +40,15 @@ defmodule Ankole.Workflow.CreationTest do
   test "create rejects oversized and non-object arguments" do
     %{principal: agent} = agent_fixture()
 
-    assert {:error, %Ecto.Changeset{}} =
+    assert {:error,
+            %Ash.Error.Invalid{errors: [%Ash.Error.Changes.InvalidAttribute{field: :args}]}} =
              agent.uid
              |> valid_attrs()
              |> Map.put("args", %{"payload" => String.duplicate("x", 65_536)})
              |> Workflow.create_with_dispatch()
 
-    assert {:error, %Ecto.Changeset{}} =
+    assert {:error,
+            %Ash.Error.Invalid{errors: [%Ash.Error.Changes.InvalidAttribute{field: :args}]}} =
              agent.uid
              |> valid_attrs()
              |> Map.put("args", ["not", "an", "object"])

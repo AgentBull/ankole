@@ -4,9 +4,8 @@ defmodule Ankole.Sessions.ReceiptsTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.Sessions.Receipts
-  alias Ankole.Sessions.PendingCall
   alias Ankole.Sessions.Run
-  alias Ankole.Sessions.ToolRound
+  alias Ankole.Sessions.Turn
   alias Ankole.Sessions.Tools
 
   alias Ankole.Principals.Principal
@@ -51,9 +50,16 @@ defmodule Ankole.Sessions.ReceiptsTest do
       {:ok, Tools.result(%{"ok" => true}), []}
     end
 
-    assert {:ok, receipt} = Receipts.execute(run, "resp_1", "call_1", operation)
+    assert {:ok, receipt} =
+             Receipts.execute(run, "resp_1", "call_1", prepare_operation(operation))
+
     Repo.update!(change(Repo.get!(Principal, run.agent_uid), display_name: "Operator edit"))
-    assert {:ok, ^receipt} = Receipts.execute(run, "resp_1", "call_1", operation)
+
+    assert {:ok, recovered} =
+             Receipts.execute(run, "resp_1", "call_1", prepare_operation(operation))
+
+    assert_persisted_equal(recovered, receipt)
+
     assert Repo.get!(Principal, run.agent_uid).display_name == "Operator edit"
   end
 
@@ -65,9 +71,76 @@ defmodule Ankole.Sessions.ReceiptsTest do
       {:error, :failed}
     end
 
-    assert {:error, :failed} = Receipts.execute(run, "resp_1", "call_1", operation)
+    assert {:error, :failed} =
+             Receipts.execute(run, "resp_1", "call_1", prepare_operation(operation))
+
     assert Repo.get!(Principal, run.agent_uid).display_name == original
     assert {:error, :receipt_not_found} = Receipts.fetch("resp_1", "call_1")
+  end
+
+  test "failed preparation rolls back provisional facts before a commit function exists", %{
+    run: run
+  } do
+    original = Repo.get!(Principal, run.agent_uid).display_name
+
+    prepare = fn repo ->
+      repo.update!(change(repo.get!(Principal, run.agent_uid), display_name: "Provisional"))
+      {:error, :preparation_failed}
+    end
+
+    assert {:error, :preparation_failed} =
+             Receipts.execute(run, "resp_prepare", "call_1", prepare)
+
+    assert Repo.get!(Principal, run.agent_uid).display_name == original
+    assert {:error, :receipt_not_found} = Receipts.fetch("resp_prepare", "call_1")
+  end
+
+  test "invalid durable JSON rolls back the tool effect and its receipt", %{run: run} do
+    principal = Repo.get!(Principal, run.agent_uid)
+
+    for value <- [:runtime_atom, {:runtime_tuple, 1}, self()] do
+      operation = fn _repo ->
+        {:ok, _} = Ankole.Ash.update(principal, :profile_in_tx, %{display_name: "Uncommitted"})
+
+        {:ok, %Ankole.Sessions.ToolResult{details: %{"invalid" => value}, output: "Uncommitted"},
+         []}
+      end
+
+      assert {:error, %Ash.Error.Invalid{} = error} =
+               Receipts.execute(run, "resp_invalid_json", "call_1", prepare_operation(operation))
+
+      assert [%{path: "result"}] = Ankole.Ash.validation_details(error)
+      assert Repo.get!(Principal, run.agent_uid).display_name == principal.display_name
+      assert {:error, :receipt_not_found} = Receipts.fetch("resp_invalid_json", "call_1")
+    end
+  end
+
+  test "PostgreSQL rejects non-object round journals" do
+    for field <- [:pages, :results] do
+      error =
+        assert_raise Postgrex.Error, fn ->
+          Repo.query!(
+            "INSERT INTO session_round_states (tenant_id, message_id, #{field}) " <>
+              "VALUES ($1::text::uuid, $2::text::uuid, '[]'::jsonb)",
+            [Repo.tenant_id!(), Ankole.Ecto.UUIDv7.autogenerate()],
+            mode: :savepoint
+          )
+        end
+
+      assert error.postgres.constraint == "session_round_states_#{field}_object"
+    end
+  end
+
+  test "receipts reject a surrounding transaction before preparing any effect", %{run: run} do
+    assert_raise ArgumentError, fn ->
+      Repo.transact(fn _ ->
+        Receipts.execute(run, "resp_outer", "call_1", fn _ ->
+          flunk("nested preparation executed")
+        end)
+      end)
+    end
+
+    assert {:error, :receipt_not_found} = Receipts.fetch("resp_outer", "call_1")
   end
 
   test "a stale driver cannot write after the receipt moved to tape (G6)", %{
@@ -75,9 +148,14 @@ defmodule Ankole.Sessions.ReceiptsTest do
     workspace: workspace
   } do
     assert {:ok, _} =
-             Receipts.execute(run, "resp_1", "call_1", fn _ ->
-               {:ok, Tools.result(%{"ok" => true}), []}
-             end)
+             Receipts.execute(
+               run,
+               "resp_1",
+               "call_1",
+               prepare_operation(fn _ ->
+                 {:ok, Tools.result(%{"ok" => true}), []}
+               end)
+             )
 
     Repo.transact(fn repo ->
       Receipts.delete_round_in_tx(repo, run, "resp_1")
@@ -86,19 +164,78 @@ defmodule Ankole.Sessions.ReceiptsTest do
     end)
 
     assert {:error, :stale_driver} =
-             Receipts.execute(run, "resp_1", "call_1", fn _ -> flunk("stale tool executed") end)
+             Receipts.execute(
+               run,
+               "resp_1",
+               "call_1",
+               prepare_operation(fn _ -> flunk("stale tool executed") end)
+             )
+  end
+
+  for reason <- [:stale_driver, :run_closed] do
+    @reason reason
+    test "the tool boundary preserves #{@reason} as a Driver control result", %{
+      run: run,
+      workspace: workspace
+    } do
+      case @reason do
+        :stale_driver ->
+          Repo.update!(change(workspace, epoch: workspace.epoch + 1))
+
+        :run_closed ->
+          event = Repo.get!(Ankole.Signals.Signal, run.signal_id)
+
+          Repo.update!(
+            change(event, status: :completed, completed_at: DateTime.utc_now(:microsecond))
+          )
+      end
+
+      run =
+        struct!(
+          Run,
+          Map.merge(run, %{
+            event: Repo.get!(Ankole.Signals.Signal, run.signal_id),
+            model_response: %{id: "resp_fenced_tool"}
+          })
+        )
+
+      tool =
+        Tools.Workflow.declarations()
+        |> Enum.find(&(&1["name"] == "workflow"))
+        |> Ankole.Sessions.Tool.new(Tools.Workflow)
+
+      call = %{"name" => "workflow", "call_id" => "fenced-call"}
+      args = %{"title" => "Fenced workflow", "script" => "return 42;"}
+
+      assert {:error, @reason} == Tools.execute(run, call, tool, args)
+      assert {:error, :receipt_not_found} = Receipts.fetch("resp_fenced_tool", "fenced-call")
+
+      refute Repo.exists?(
+               from r in Ankole.Workflow.Schemas.Run, where: r.agent_uid == ^run.agent_uid
+             )
+    end
   end
 
   test "equal call ids in different Responses hold independent results (G3)", %{run: run} do
     assert {:ok, first} =
-             Receipts.execute(run, "resp_1", "call_1", fn _ ->
-               {:ok, Tools.result(%{"value" => 1}), []}
-             end)
+             Receipts.execute(
+               run,
+               "resp_1",
+               "call_1",
+               prepare_operation(fn _ ->
+                 {:ok, Tools.result(%{"value" => 1}), []}
+               end)
+             )
 
     assert {:ok, second} =
-             Receipts.execute(run, "resp_2", "call_1", fn _ ->
-               {:ok, Tools.result(%{"value" => 2}), []}
-             end)
+             Receipts.execute(
+               run,
+               "resp_2",
+               "call_1",
+               prepare_operation(fn _ ->
+                 {:ok, Tools.result(%{"value" => 2}), []}
+               end)
+             )
 
     assert first.result["details"] == %{"value" => 1}
     assert second.result["details"] == %{"value" => 2}
@@ -111,30 +248,50 @@ defmodule Ankole.Sessions.ReceiptsTest do
       {:ok, Tools.result(%{"ok" => true}), [fn -> send(owner, :committed) end]}
     end
 
-    assert {:ok, _} = Receipts.execute(run, "resp_1", "call_1", operation)
+    assert {:ok, _} = Receipts.execute(run, "resp_1", "call_1", prepare_operation(operation))
     assert_receive :committed
-    assert {:ok, _} = Receipts.execute(run, "resp_1", "call_1", operation)
+    assert {:ok, _} = Receipts.execute(run, "resp_1", "call_1", prepare_operation(operation))
     refute_receive :committed
   end
 
   test "a failed notification preserves the committed result and does not repeat the write (G3)",
        %{run: run} do
+    secret = "private-notification-token-/srv/private/receipt"
+
     operation = fn repo ->
       repo.update!(change(repo.get!(Principal, run.agent_uid), display_name: "Committed"))
-      {:ok, Tools.result(%{"ok" => true}), [fn -> raise "notification unavailable" end]}
+      {:ok, Tools.result(%{"ok" => true}), [fn -> raise secret end]}
     end
 
-    assert ExUnit.CaptureLog.capture_log(fn ->
-             assert {:ok, receipt} =
-                      Receipts.execute(run, "resp_notification", "call_1", operation)
+    log =
+      ExUnit.CaptureLog.capture_log([format: "$metadata $message\n", metadata: :all], fn ->
+        assert {:ok, receipt} =
+                 Receipts.execute(
+                   run,
+                   "resp_notification",
+                   "call_1",
+                   prepare_operation(operation)
+                 )
 
-             refute receipt.result["is_error"]
+        refute receipt.result["is_error"]
 
-             assert {:ok, ^receipt} =
-                      Receipts.execute(run, "resp_notification", "call_1", fn _ ->
-                        flunk("write repeated")
-                      end)
-           end) =~ "notification unavailable"
+        assert {:ok, recovered} =
+                 Receipts.execute(
+                   run,
+                   "resp_notification",
+                   "call_1",
+                   prepare_operation(fn _ ->
+                     flunk("write repeated")
+                   end)
+                 )
+
+        assert_persisted_equal(recovered, receipt)
+      end)
+
+    assert log =~ "sessions.receipt.notification_failed"
+    assert log =~ "RuntimeError"
+    assert log =~ "receipts_test.exs"
+    refute log =~ secret
 
     assert Repo.get!(Principal, run.agent_uid).display_name == "Committed"
   end
@@ -166,8 +323,14 @@ defmodule Ankole.Sessions.ReceiptsTest do
         })
       )
 
-    assert {:execute, %{tool: selected, args: args}, pending, [activity]} =
-             ToolRound.next(run, PendingCall.new_round(run.calls, false))
+    turn = %Turn{key: %{agent_uid: run.agent_uid, session_id: run.session_id}, run: run}
+    {turn, _} = Turn.step(%{turn | stage: :boundary}, {:resume, run.epoch, :executing_tools})
+    {turn, commands} = Turn.step(turn, :tools)
+
+    assert {:tool, _, %{tool: selected, args: args}} =
+             Enum.find(commands, &match?({:tool, _, _}, &1))
+
+    assert {:present, [activity]} = Enum.find(commands, &match?({:present, [_]}, &1))
 
     assert %{
              "kind" => "tool.activity",
@@ -185,8 +348,10 @@ defmodule Ankole.Sessions.ReceiptsTest do
     assert attachment["path"] == "reports/q3.txt"
     assert attachment["blob_ref"] == Base.encode16(original.sha256, case: :lower)
 
-    assert {completed, empty_pending, [activity]} =
-             ToolRound.accept(run, pending, "attachment-1", result)
+    assert {%{run: completed, pending: empty_pending}, commands} =
+             Turn.step(turn, {:completed, {:tool, "attachment-1"}, result})
+
+    assert {:present, [activity]} = Enum.find(commands, &match?({:present, [_]}, &1))
 
     assert empty_pending == %{}
     assert completed.results["attachment-1"] == result
@@ -210,5 +375,9 @@ defmodule Ankole.Sessions.ReceiptsTest do
                run,
                Map.put(call, "arguments", ~s({"drive_path":"reports/q3.txt","mimeType":""}))
              )
+  end
+
+  defp prepare_operation(operation) do
+    fn repo -> {:ok, [], fn -> operation.(repo) end} end
   end
 end

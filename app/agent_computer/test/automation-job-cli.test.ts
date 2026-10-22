@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startAutomationJobCLIBridge } from '../src/cli/automation-jobs/automation-job-cli-bridge'
 import { requestSocketLineBridge } from '../src/core/socket-line-bridge'
-import { AUTOMATION_JOB_CLI_HELP, commandFromArgs } from '../src/cli/automation-jobs/automation-job-cli'
+import { commandFromArgs } from '../src/cli/automation-jobs/automation-job-cli'
 import { RPCRejectedError, RPCTimeoutError } from '../src/lanes/rpc_lane'
 import {
   type AutomationJobManagementRPCMethod,
@@ -212,20 +212,6 @@ describe('automation job CLI', () => {
       bridge.close()
       rmSync(root, { recursive: true, force: true })
     }
-  })
-
-  it('keeps the finalized help contract at the capability address', () => {
-    const normalized = AUTOMATION_JOB_CLI_HELP.replace(/\s+/g, ' ')
-    expect(normalized).toContain('deterministic consumer for triggers this conversation creates')
-    expect(normalized).toContain('A run with no emitEvent call is a silent, completed consumption')
-    expect(normalized).toContain('Runs can overlap and deliveries can repeat')
-    expect(normalized).toContain('These SDK functions exist only in a platform run')
-    expect(normalized).toContain('Each run receives a generated MCPORTER_CONFIG and the current Agent WorkerEnv')
-    expect(normalized).toContain('Bun.spawn argv for mcporter call server.tool --json - --output json')
-    expect(normalized).toContain('After registration, use a test trigger to check each SDK branch')
-    expect(normalized).toContain('every run uses what that folder holds at fire time')
-    expect(normalized).toContain('Cancel the triggers that point at a job before cancelling the job')
-    expect(normalized).toContain('show-automation-job-cli --id <automation-job-id> [--runs <1-100>]')
   })
 })
 

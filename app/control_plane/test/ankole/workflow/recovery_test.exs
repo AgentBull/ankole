@@ -46,9 +46,9 @@ defmodule Ankole.Workflow.RecoveryTest do
     assert_enqueued(worker: PokeRun, args: %{run_id: run.id})
     assert :ok = perform_job(PokeRun, %{run_id: run.id})
     call = wait_for(fn -> Repo.get_by(AgentCall, run_id: run.id, call_seq: 0) end)
-    assert call.status == "queued"
+    assert call.status == :queued
 
-    assert %Signal{input_state: "open"} =
+    assert %Signal{status: :queued} =
              Repo.get_by!(Signal, source_event_id: "workflow:call:#{call.id}:dispatch")
   end
 
@@ -86,10 +86,10 @@ defmodule Ankole.Workflow.RecoveryTest do
     call = wait_for(fn -> Repo.get_by(AgentCall, run_id: run.id, call_seq: 0) end)
     wait_for_idle_server(run.id, server)
 
-    assert {:ok, %{run: %Run{status: "cancelled"}}} =
+    assert {:ok, %{run: %Run{status: :cancelled}}} =
              Repo.transact(fn repo -> Workflow.cancel_in_tx(repo, run.id, agent.uid) end)
 
-    assert %AgentCall{status: "cancelled"} = Repo.get!(AgentCall, call.id)
+    assert %AgentCall{status: :cancelled} = Repo.get!(AgentCall, call.id)
     stop_server(server)
 
     assert :ok = perform_job(Reconciler, %{})
@@ -158,29 +158,40 @@ defmodule Ankole.Workflow.RecoveryTest do
   end
 
   defp run_fixture(agent_uid) do
-    Repo.insert!(
-      Run.creation_changeset(%Run{}, %{
-        authorization_kind: "service",
-        agent_uid: agent_uid,
-        owner_session_id: "owner-#{System.unique_integer([:positive])}",
-        reply_route: %{"binding_name" => "bot"},
-        source_tool_call_id: "tool-#{System.unique_integer([:positive])}",
-        title: "Recover Workflow",
-        script: "return await agent('Recover the task');",
-        args: %{},
-        status: "running",
-        concurrency: 8,
-        max_agent_calls: 256,
-        error: %{}
-      })
-    )
-    |> Ankole.SessionsCase.stub_workflow_drivers()
+    {:ok, run} =
+      Repo.transact(fn ->
+        Ankole.Ash.create(Run, :create_run, %{
+          authorization_kind: "service",
+          agent_uid: agent_uid,
+          owner_session_id: "owner-#{System.unique_integer([:positive])}",
+          reply_route: %{"binding_name" => "bot"},
+          source_tool_call_id: "tool-#{System.unique_integer([:positive])}",
+          title: "Recover Workflow",
+          script: "return await agent('Recover the task');",
+          args: %{},
+          concurrency: 8,
+          max_agent_calls: 256,
+          error: %{}
+        })
+      end)
+
+    Ankole.SessionsCase.stub_workflow_drivers(run)
   end
 
   defp terminalize(run, status) do
-    run
-    |> Run.changeset(%{status: status, completed_at: DateTime.utc_now(:microsecond)})
-    |> Repo.update!()
+    action =
+      case status do
+        :completed -> :complete
+        :failed -> :fail
+        :cancelled -> :stop
+      end
+
+    {:ok, terminal} =
+      Repo.transact(fn ->
+        Ankole.Ash.update(run, action, %{completed_at: DateTime.utc_now(:microsecond)})
+      end)
+
+    terminal
   end
 
   defp stop_server(pid) do

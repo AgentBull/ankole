@@ -1,5 +1,5 @@
 defmodule Ankole.Conversations.AttachmentsTest do
-  use Ankole.DataCase, async: false
+  use Ankole.DataCase, async: true
 
   alias Ankole.Repo
   alias Ankole.Conversations.Conversation
@@ -167,7 +167,8 @@ defmodule Ankole.Conversations.AttachmentsTest do
     end
 
     foreign = observed_dm(other_binding, peer, "foreign")
-    assert {:ok, ^foreign} = External.existing_direct_conversation(other_binding, peer.uid)
+    assert {:ok, resolved} = External.existing_direct_conversation(other_binding, peer.uid)
+    assert_persisted_equal(resolved, foreign)
 
     assert {:error, :principal_conversation_not_observed} =
              External.existing_direct_conversation(binding, peer.uid)
@@ -175,11 +176,13 @@ defmodule Ankole.Conversations.AttachmentsTest do
     own = observed_dm(binding, peer, "own")
 
     for adapter <- [Ankole.Plugins.LarkAdapter.Delivery, Ankole.Plugins.SlackAdapter.Delivery] do
-      assert {:ok, ^own} = adapter.open_conversation(binding, peer.uid)
-      assert {:ok, ^own} = adapter.open_conversation(binding, peer.uid)
+      assert {:ok, resolved} = adapter.open_conversation(binding, peer.uid)
+      assert_persisted_equal(resolved, own)
+      assert {:ok, resolved} = adapter.open_conversation(binding, peer.uid)
+      assert_persisted_equal(resolved, own)
     end
 
-    assert Repo.get_by!(Conversation, id: own.id) == own
+    Ankole.DataCase.assert_persisted_equal(Repo.get_by!(Conversation, id: own.id), own)
 
     _second = observed_dm(binding, peer, "second")
 

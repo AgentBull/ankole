@@ -11,7 +11,6 @@ defmodule Ankole.Conversations.DeliveryWakeupRecoveryIntegrationTest do
   alias Ankole.Plugins.LarkAdapter.Config
 
   alias Ankole.Conversations.{Conversation, External}
-  alias Ankole.Conversations.Delivery
   alias Ankole.Conversations.Delivery.Intent
   alias Ankole.Conversations.Delivery.Jobs.Dispatch
 
@@ -56,7 +55,7 @@ defmodule Ankole.Conversations.DeliveryWakeupRecoveryIntegrationTest do
           from c in Conversation, where: c.provider_conversation_id == ^"lark:#{chat_id}"
         )
 
-        Repo.delete!(tenant)
+        cleanup_tenant!(tenant)
       end)
     end)
 

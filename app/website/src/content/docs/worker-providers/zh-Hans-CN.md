@@ -7,6 +7,8 @@ order: 317
 
 WorkerProvider 决定 Agent 的电脑运行在哪里，以及 Home 和缓存如何保存。每个 Agent 固定使用一个 provider，独享一台 Worker。provider 属于站点，凭据在 Console 的独立字段加密保存；不要把凭据写入配置 YAML。创建与日常操作见 [工作节点](../worker-management/)。
 
+Vercel 需要启用 `vercel-worker-provider` 控制面插件。阿里云函数计算需要启用 `china-market-ai-providers`，这个插件同时提供模型适配器。启用所需插件并重启控制面后再使用。已有部署须在升级前选中对应的插件 ID。只要仍有 Agent 引用插件的 Worker 提供方，就不能关闭插件；暂停中和等待删除的 Agent 也计入引用。
+
 ## 先区分三种存储
 
 | 存储 | 内容 | 持久性要求 |

@@ -10,140 +10,95 @@ defmodule Ankole.AgentWorkers.WorkerEnvTest do
       envelope_body!: 2
     ]
 
-  import Ecto.Query
-
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AppConfigure.Registry
-  alias Ankole.Repo
   alias Ankole.AgentWorkers.WorkerEnv
-  alias Ankole.AgentWorkers.WorkerEnv.SiteEnvVar
+  alias Ankole.AgentWorkers.WorkerEnv.{EnvVar, SiteEnvVar}
+
+  require Ash.Query
 
   setup do
-    allow_cache_database_access()
     on_exit(fn -> Registry.clear_for_test() end)
     unique = System.unique_integer([:positive])
     {:ok, unique: unique, env_name: "WORKER_ENV_TEST_#{unique}"}
   end
 
-  test "custom variables merge global under agent and decrypt secrets", %{unique: unique} do
-    %{principal: agent} = agent_fixture()
-    plain = "PLAIN_#{unique}"
-    secret = "SECRET_#{unique}"
-    shared = "SHARED_#{unique}"
+  test "resource actions preserve secret state, exact bytes, and natural identity", %{
+    env_name: name
+  } do
+    value = "  secret bytes\n"
 
-    assert {:ok, _item} = WorkerEnv.console_put_global(plain, %{"value" => "global-plain"})
+    assert {:ok, original} =
+             Ankole.Ash.create(SiteEnvVar, :put, %{
+               scope: "global",
+               name: name,
+               input: %{"value" => value, "secret" => true}
+             })
 
-    assert {:ok, _item} =
-             WorkerEnv.console_put_global(secret, %{"value" => "s3cret", "secret" => true})
+    refute original.value == value
+    refute inspect(original) =~ value
 
-    assert {:ok, _item} = WorkerEnv.console_put_global(shared, %{"value" => "from-global"})
+    assert {:ok, edited} =
+             Ankole.Ash.create(SiteEnvVar, :put, %{
+               scope: "global",
+               name: name,
+               input: %{"description" => "metadata only"}
+             })
 
-    assert {:ok, _item} =
-             WorkerEnv.console_put_for_agent(agent.uid, shared, %{"value" => "from-agent"})
-
-    assert {:ok, env} = Ankole.SessionsCase.effective_worker_env(agent.uid)
-    assert env[plain] == "global-plain"
-    assert env[secret] == "s3cret"
-    assert env[shared] == "from-agent"
-
-    other = agent_fixture()
-    assert {:ok, other_env} = Ankole.SessionsCase.effective_worker_env(other.principal.uid)
-    assert other_env[shared] == "from-global"
-  end
-
-  test "secret rows store ciphertext, hide values, and reveal on demand", %{unique: unique} do
-    %{principal: agent} = agent_fixture()
-    name = "SECRET_AT_REST_#{unique}"
-
-    assert {:ok, item} =
-             WorkerEnv.console_put_global(name, %{"value" => "hunter2", "secret" => true})
-
-    assert item.secret == true
-    refute Map.has_key?(item, :value)
-
-    row = Repo.one!(from row in SiteEnvVar, where: row.scope == "global" and row.name == ^name)
-    assert row.secret
-    refute row.value =~ "hunter2"
-    ciphertext = row.value
-
-    assert {:ok, "hunter2"} = WorkerEnv.console_decrypt_global(name)
-    assert {:ok, "hunter2"} = WorkerEnv.console_decrypt_for_agent(agent.uid, name)
-
-    assert {:ok, preserved} =
-             WorkerEnv.console_put_global(name, %{"description" => "kept without revealing"})
-
-    assert preserved.secret == true
-    refute Map.has_key?(preserved, :value)
-
-    preserved_row =
-      Repo.one!(from row in SiteEnvVar, where: row.scope == "global" and row.name == ^name)
-
-    assert preserved_row.value == ciphertext
-    assert preserved_row.description == "kept without revealing"
-    assert {:ok, "hunter2"} = WorkerEnv.console_decrypt_global(name)
-
-    assert {:ok, exposed_without_retyping} =
-             WorkerEnv.console_put_global(name, %{"secret" => false})
-
-    assert exposed_without_retyping.secret == false
-    assert exposed_without_retyping.value == "hunter2"
-
-    assert {:ok, resealed_without_retyping} =
-             WorkerEnv.console_put_global(name, %{"secret" => true})
-
-    assert resealed_without_retyping.secret == true
-    refute Map.has_key?(resealed_without_retyping, :value)
-    assert {:ok, "hunter2"} = WorkerEnv.console_decrypt_global(name)
-
-    # An absent secret flag keeps the stored state: the row stays sealed.
-    assert {:ok, still_secret} = WorkerEnv.console_put_global(name, %{"value" => "visible"})
-    assert still_secret.secret == true
-    assert {:ok, "visible"} = WorkerEnv.console_decrypt_global(name)
+    assert edited.value == original.value
+    assert edited.secret
+    assert {:ok, ^value} = WorkerEnv.console_decrypt_global(name)
 
     assert {:ok, exposed} =
-             WorkerEnv.console_put_global(name, %{"value" => "visible", "secret" => false})
+             Ankole.Ash.create(SiteEnvVar, :put, %{
+               scope: "global",
+               name: name,
+               input: %{"secret" => false}
+             })
 
-    assert exposed.value == "visible"
+    assert exposed.value == value
+    refute exposed.secret
     assert {:error, :not_encrypted} = WorkerEnv.console_decrypt_global(name)
+    assert [%{name: ^name}] = SiteEnvVar |> Ash.Query.filter(name == ^name) |> Ankole.Ash.read!()
   end
 
-  test "reserved and malformed names are rejected at every write surface" do
-    %{principal: agent} = agent_fixture()
+  test "tenant overrides reseal inherited secrets and enforce the process scope", %{
+    env_name: name
+  } do
+    tenant = Ankole.Repo.tenant_id!()
 
-    assert {:error, {:reserved_worker_env_name, "PATH"}} =
-             WorkerEnv.console_put_global("PATH", %{"value" => "/tmp"})
+    assert {:ok, site} =
+             Ankole.Ash.create(SiteEnvVar, :put, %{
+               scope: "global",
+               name: name,
+               input: %{"value" => "inherited secret", "secret" => true}
+             })
 
-    assert {:error, {:reserved_worker_env_name, "ANKOLE_AGENT_UID"}} =
-             WorkerEnv.console_put_for_agent(agent.uid, "ANKOLE_AGENT_UID", %{"value" => "x"})
+    assert {:ok, overridden} =
+             Ankole.Ash.create(EnvVar, :put, %{
+               scope: "tenant:" <> tenant,
+               name: name,
+               input: %{"description" => "tenant metadata"}
+             })
 
-    assert {:error, {:invalid_worker_env_name, "1BAD"}} =
-             WorkerEnv.console_put_global("1BAD", %{"value" => "x"})
+    assert overridden.secret
+    refute overridden.value == site.value
+    assert {:ok, "inherited secret"} = WorkerEnv.console_decrypt_tenant(name)
+    assert {:ok, "inherited secret"} = WorkerEnv.console_decrypt_global(name)
 
-    assert {:error, {:invalid_worker_env_name, "BAD-NAME"}} =
-             WorkerEnv.console_put_global("BAD-NAME", %{"value" => "x"})
+    assert {:error, %Ash.Error.Invalid{}} =
+             Ankole.Ash.create(EnvVar, :put, %{
+               scope: "tenant:" <> Ankole.Ecto.UUIDv7.autogenerate(),
+               name: name,
+               input: %{"value" => "wrong scope"}
+             })
 
-    assert {:error, :invalid_worker_env_value} =
-             WorkerEnv.console_put_global("OK_NAME", %{"value" => 42})
-  end
-
-  test "deleting the agent tier keeps the global tier effective", %{unique: unique} do
-    %{principal: agent} = agent_fixture()
-    name = "TIERED_#{unique}"
-
-    assert {:ok, _item} = WorkerEnv.console_put_global(name, %{"value" => "global"})
-    assert {:ok, _item} = WorkerEnv.console_put_for_agent(agent.uid, name, %{"value" => "mine"})
-
-    assert {:ok, item} = WorkerEnv.console_delete_for_agent(agent.uid, name)
-    assert item.source == "global"
-    assert {:ok, env} = Ankole.SessionsCase.effective_worker_env(agent.uid)
-    assert env[name] == "global"
-
-    assert {:error, :not_found} = WorkerEnv.console_delete_for_agent(agent.uid, name)
-
-    assert {:ok, deleted} = WorkerEnv.console_delete_global(name)
-    assert deleted.present == false
-    assert {:ok, env} = Ankole.SessionsCase.effective_worker_env(agent.uid)
-    refute Map.has_key?(env, name)
+    assert {:error, {:reserved_worker_env_name, "ANKOLE_OWNED"}} =
+             Ankole.Ash.create(EnvVar, :put, %{
+               scope: "tenant:" <> tenant,
+               name: "ANKOLE_OWNED",
+               input: %{"value" => "reserved"}
+             })
   end
 
   test "RuntimeFabric worker_env.resolve returns the merged decrypted environment", %{

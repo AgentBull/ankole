@@ -8,7 +8,6 @@ defmodule Ankole.Sessions.ReplyRouteTest do
   alias Ankole.AutomationJobs.RPCBroker, as: AutomationBroker
   alias Ankole.AutomationJobs.Schemas.Run, as: AutomationRun
   alias Ankole.BackgroundAgentJobs
-  alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Sessions.JobTurnRef
   alias Ankole.Sessions.RunRef
   alias Ankole.Principals.WorkAccess
@@ -59,7 +58,9 @@ defmodule Ankole.Sessions.ReplyRouteTest do
                :write
              )
 
-    source |> change(completed_at: DateTime.utc_now(:microsecond)) |> Repo.update!()
+    source
+    |> change(status: :completed, completed_at: DateTime.utc_now(:microsecond))
+    |> Repo.update!()
 
     assert {:error, :run_closed} =
              Ankole.AgentWorkers.WorkerRouteAuth.authorize_turn(
@@ -282,13 +283,17 @@ defmodule Ankole.Sessions.ReplyRouteTest do
 
     token = "wh_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
 
-    endpoint =
-      %WebhookEndpoint{}
-      |> WebhookEndpoint.changeset(
-        endpoint_attrs(parent.dispatch_event)
-        |> Map.merge(%{token_digest: Webhooks.token_digest(token), status: "active"})
-      )
-      |> Repo.insert!()
+    {:ok, endpoint} =
+      Repo.transact(fn _repo ->
+        attrs =
+          Map.put(
+            endpoint_attrs(parent.dispatch_event),
+            :token_digest,
+            Webhooks.token_digest(token)
+          )
+
+        Ankole.Ash.create(WebhookEndpoint, :create, attrs)
+      end)
 
     finish_job!(parent.job)
     assert {:ok, %{signal: receipt}} = Webhooks.receive(token, [], "legacy")
@@ -304,7 +309,7 @@ defmodule Ankole.Sessions.ReplyRouteTest do
     )
 
     assert {:error, :long_lived_reply_owner_not_found} = Webhooks.receive(token, [], "orphan")
-    assert Repo.reload!(endpoint).status == "active"
+    assert Repo.reload!(endpoint).status == :active
     assert [legacy] = Webhooks.list_endpoints(agent.uid, nil)
     assert legacy.id == endpoint.id
     assert {:ok, %{status: :cancelled}} = Webhooks.cancel_endpoint(agent.uid, nil, endpoint.id)
@@ -333,6 +338,11 @@ defmodule Ankole.Sessions.ReplyRouteTest do
                AutomationJobs.enqueue_run_in_tx(repo, job.id, agent.uid, %{"id" => "trigger"})
              end)
 
+    assert {:ok, _worker} =
+             Ankole.SessionsCase.admit_worker("automation-test-#{agent.uid}", %{
+               worker_id: agent.uid
+             })
+
     assert {:ok, %{run: run}} = AutomationJobs.start_attempt(queued.id)
     finish_job!(parent.job)
     assert {:ok, emitted} = AutomationJobs.emit_event(agent.uid, run.id, run.attempt_id, %{})
@@ -350,7 +360,7 @@ defmodule Ankole.Sessions.ReplyRouteTest do
     assert {:error, :long_lived_reply_owner_not_found} =
              AutomationJobs.emit_event(agent.uid, run.id, run.attempt_id, %{})
 
-    assert {:ok, %AutomationRun{status: "failed", error: error}} =
+    assert {:ok, %AutomationRun{status: :failed, error: error}} =
              AutomationJobs.finish_attempt(run.id, run.attempt_id, %{
                "status" => "failed",
                "error" => String.duplicate("script rejected emission ", 4_000)
@@ -414,32 +424,34 @@ defmodule Ankole.Sessions.ReplyRouteTest do
   end
 
   defp workflow_task!(source) do
-    run =
-      %Run{}
-      |> Run.changeset(%{
-        agent_uid: source.agent_uid,
-        owner_session_id: source.session_id,
-        source_signal_id: source.id,
-        source_tool_call_id: Ecto.UUID.generate(),
-        reply_route: Route.snapshot(ref(source)),
-        title: "B07 workflow",
-        script: "return await agent('Prepare callback');",
-        args: %{},
-        concurrency: 1,
-        max_agent_calls: 1,
-        authorization_kind: "service"
-      })
-      |> Repo.insert!()
+    {:ok, call} =
+      Repo.transact(fn ->
+        with {:ok, run} <-
+               Ankole.Ash.create(Run, :create_run, %{
+                 agent_uid: source.agent_uid,
+                 owner_session_id: source.session_id,
+                 source_signal_id: source.id,
+                 source_tool_call_id: Ecto.UUID.generate(),
+                 reply_route: Route.snapshot(ref(source)),
+                 title: "B07 workflow",
+                 script: "return await agent('Prepare callback');",
+                 args: %{},
+                 concurrency: 1,
+                 max_agent_calls: 1,
+                 authorization_kind: "service"
+               }),
+             {:ok, queued} <-
+               Ankole.Ash.create(AgentCall, :create_call, %{
+                 run_id: run.id,
+                 agent_uid: source.agent_uid,
+                 call_seq: 0,
+                 arguments: %{"task" => "Prepare callback"}
+               }) do
+          Ankole.Ash.update(queued, :claim, %{})
+        end
+      end)
 
-    %AgentCall{}
-    |> AgentCall.changeset(%{
-      run_id: run.id,
-      agent_uid: source.agent_uid,
-      call_seq: 0,
-      arguments: %{"task" => "Prepare callback"},
-      status: "running"
-    })
-    |> Repo.insert!()
+    call
   end
 
   defp ref(source),
@@ -458,11 +470,16 @@ defmodule Ankole.Sessions.ReplyRouteTest do
       attempt: 1
     }
 
-  defp finish_job!(job),
-    do:
-      job
-      |> Job.changeset(%{status: "succeeded", completed_at: DateTime.utc_now(:microsecond)})
-      |> Repo.update!()
+  defp finish_job!(job) do
+    assert {:ok, completed} =
+             Repo.transact(fn _ ->
+               Ankole.Ash.update(job, :external_complete, %{
+                 completed_at: DateTime.utc_now(:microsecond)
+               })
+             end)
+
+    completed
+  end
 
   defp webhook_request,
     do: %Proto.WebhookEndpointCreateRequest{

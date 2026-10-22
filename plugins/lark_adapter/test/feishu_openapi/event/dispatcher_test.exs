@@ -4,6 +4,67 @@ defmodule FeishuOpenAPI.Event.DispatcherTest do
   alias FeishuOpenAPI.{Client, Event}
   alias FeishuOpenAPI.Event.Dispatcher
 
+  test "callback failures keep their cause and call site without logging private input" do
+    owner = self()
+    handler_id = {__MODULE__, make_ref()}
+    telemetry_event = [:feishu_openapi, :event, :handler_error]
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        telemetry_event,
+        fn name, _, metadata, pid ->
+          if self() == pid, do: send(pid, {name, metadata})
+        end,
+        owner
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    secret = "private-event-input-should-not-escape"
+
+    for {kind, failure} <- [error: "Elixir.ArgumentError", throw: "throw", exit: "exit"] do
+      dispatcher =
+        Dispatcher.new()
+        |> Dispatcher.on("im.message.receive_v1", fn _, event ->
+          value = event.content["private"]
+
+          case kind do
+            :error -> :erlang.binary_to_integer(value)
+            :throw -> throw(value)
+            :exit -> exit(value)
+          end
+        end)
+
+      log =
+        ExUnit.CaptureLog.capture_log([format: "$metadata$message\n", metadata: :all], fn ->
+          assert {:error, {:handler_crashed, cause}} =
+                   Dispatcher.dispatch(
+                     dispatcher,
+                     {:decoded,
+                      %{
+                        "schema" => "2.0",
+                        "header" => %{"event_type" => "im.message.receive_v1"},
+                        "event" => %{"private" => secret}
+                      }}
+                   )
+
+          if kind == :error,
+            do: assert(%ArgumentError{} = cause),
+            else: assert(cause == {kind, secret})
+
+          assert_receive {^telemetry_event, %{kind: ^kind, reason: reason, stacktrace: frames}}
+          assert is_list(frames)
+          assert reason == if(kind == :error, do: cause, else: secret)
+        end)
+
+      assert log =~ "feishu_openapi.event.handler_crashed"
+      assert log =~ "failure=#{failure}"
+      assert log =~ "dispatcher_test.exs:"
+      refute log =~ secret
+    end
+  end
+
   describe "challenge handshake" do
     test "returns {:challenge, echo} for url_verification when token matches" do
       d = Dispatcher.new(verification_token: "vt_x")

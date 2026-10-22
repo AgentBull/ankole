@@ -8,9 +8,9 @@ defmodule Ankole.VercelWorkerStorageIntegrationTest do
   alias Ankole.AgentWorkers.Config
   alias Ankole.AgentWorkers.ProviderKind
   alias Ankole.AgentWorkers.Providers
-  alias Ankole.AgentWorkers.Vercel
+  alias Ankole.Plugins.VercelWorkerProvider.Provider, as: Vercel
 
-  alias Ankole.AgentWorkers.Vercel.Client
+  alias Ankole.Plugins.VercelWorkerProvider.Provider.Client
   alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.AgentWorkers.WorkerBootstrap
 
@@ -60,7 +60,7 @@ defmodule Ankole.VercelWorkerStorageIntegrationTest do
 
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn -> cleanup_storage!(uids, ids, owner.uid) end)
 
-      Repo.delete!(tenant)
+      cleanup_tenant!(tenant)
     end)
 
     %{uids: uids, replacement: replacement, runtime: previous}
@@ -69,8 +69,8 @@ defmodule Ankole.VercelWorkerStorageIntegrationTest do
   test "real Drives survive deletion, a stopped VM, and image replacement; Agent deletion removes only its Drive",
        context do
     [uid, peer_uid] = context.uids
-    first = await_worker_state!(uid, "ready")
-    peer = await_worker_state!(peer_uid, "ready")
+    first = await_worker_state!(uid, :ready)
+    peer = await_worker_state!(peer_uid, :ready)
     {:ok, provider} = Providers.load(first.provider_id)
     {:ok, peer_provider} = Providers.load(peer.provider_id)
     assert_worker_user!(provider, first)
@@ -86,14 +86,14 @@ defmodule Ankole.VercelWorkerStorageIntegrationTest do
     assert_proof!(first, "HOME-BEFORE-DELETE")
 
     assert {:ok, _} = Principals.delete_agent(uid)
-    assert %AgentWorker{generation: nil} = await_worker_state!(uid, "absent")
+    assert %AgentWorker{generation: nil} = await_worker_state!(uid, :absent)
     assert {:ok, []} = Vercel.list_instances(provider, uid)
     assert [%{"name" => home}] = drives!(provider, uid)
     assert home == ProviderKind.storage_name(provider.runtime.installation, uid)
 
     assert {:ok, _} = Principals.enable_agent(uid)
     assert :ok = AgentWorkers.request(uid)
-    restored = await_worker_state!(uid, "ready")
+    restored = await_worker_state!(uid, :ready)
     refute restored.generation == first.generation
     refute restored.instance_ref == first.instance_ref
     assert_proof!(restored, "HOME-BEFORE-DELETE")
@@ -109,12 +109,12 @@ defmodule Ankole.VercelWorkerStorageIntegrationTest do
                "/v2/sandboxes/sessions/#{restored.instance_ref}/stop"
              )
 
-    recovered = await_worker_state!(uid, "ready", restored.generation)
+    recovered = await_worker_state!(uid, :ready, restored.generation)
     assert_proof!(recovered, "HOME-BEFORE-VM-STOP")
 
     put_proof!(recovered, "HOME-BEFORE-IMAGE-CHANGE")
     :ok = Config.put(context.runtime |> Map.to_list() |> Keyword.put(:image, context.replacement))
-    changed = await_worker_state!(uid, "ready", recovered.generation)
+    changed = await_worker_state!(uid, :ready, recovered.generation)
     assert changed.image == context.replacement
     assert_proof!(changed, "HOME-BEFORE-IMAGE-CHANGE")
     assert {:ok, _} = Principals.delete_agent(uid)

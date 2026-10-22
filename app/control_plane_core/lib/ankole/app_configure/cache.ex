@@ -5,7 +5,7 @@ defmodule Ankole.AppConfigure.Cache do
 
   use GenServer
 
-  import Ecto.Query
+  require Ash.Query
 
   alias Ankole.AppConfigure.AppConfig
   alias Ankole.Logging
@@ -64,14 +64,7 @@ defmodule Ankole.AppConfigure.Cache do
   @spec load(String.t(), String.t()) :: {:ok, row_state()} | {:error, term()}
   def load(scope, key) do
     assert_scope!(scope)
-    generation = refresh_generation()
-    loaded_at = monotonic_ms()
-    read_result = read_one(scope, key)
-
-    GenServer.call(
-      __MODULE__,
-      {:publish_load, scope, key, Repo.tenant_id(), generation, loaded_at, read_result}
-    )
+    publish_read(scope, key, Repo.tenant_id(), refresh_generation())
   end
 
   @doc """
@@ -81,12 +74,9 @@ defmodule Ankole.AppConfigure.Cache do
   no load that began earlier can publish (see `load/2`). A failed read then
   leaves the key empty until a later load.
 
-  The read runs inside the cache process, so concurrent refreshes serialize and
-  each one reads the row state as of its turn; a delayed publisher therefore
-  cannot replace a newer database value with an older captured envelope. The
-  query names the requesting process as `:caller`: write owners call this
-  outside their transaction, the SQL Sandbox then uses the writer's test
-  connection, and normal pools ignore the option.
+  The read runs in the caller's process and transaction. The cache owner first
+  invalidates the key and returns its refresh generation. The existing load
+  publisher rejects a result if a later refresh began before publication.
   """
   @spec refresh(String.t(), String.t()) :: {:ok, row_state()} | {:error, term()}
   def refresh(scope, key) do
@@ -100,7 +90,9 @@ defmodule Ankole.AppConfigure.Cache do
       {:invalidate, scope, key, tenant_id}
     )
 
-    GenServer.call(__MODULE__, {:refresh, scope, key, tenant_id})
+    with {:ok, generation} <- GenServer.call(__MODULE__, {:refresh, scope, key, tenant_id}) do
+      publish_read(scope, key, tenant_id, generation)
+    end
   end
 
   if Mix.env() == :test do
@@ -164,13 +156,9 @@ defmodule Ankole.AppConfigure.Cache do
     end
   end
 
-  def handle_call({:refresh, scope, key, tenant_id}, {caller, _tag}, server_state) do
-    loaded =
-      if tenant_id,
-        do: Repo.with_tenant(tenant_id, fn -> load_one(scope, key, caller) end),
-        else: Repo.without_tenant(fn -> load_one(scope, key, caller) end)
-
-    {:reply, loaded, server_state}
+  def handle_call({:refresh, scope, key, tenant_id}, _from, server_state) do
+    invalidate(scope, key, tenant_id)
+    {:reply, {:ok, refresh_generation()}, server_state}
   end
 
   if Mix.env() == :test do
@@ -196,7 +184,7 @@ defmodule Ankole.AppConfigure.Cache do
   # durable source of truth, and later cache misses can load individual rows.
   defp load_all do
     loaded_at = monotonic_ms()
-    rows = Repo.all(Ankole.AppConfigure.SiteConfig)
+    rows = Ankole.Ash.read!(Ankole.AppConfigure.SiteConfig)
 
     Enum.each(rows, &write_row(&1, loaded_at))
     :ok
@@ -213,35 +201,21 @@ defmodule Ankole.AppConfigure.Cache do
       {:error, {:load_failed, Exception.message(error)}}
   end
 
-  # Refresh path: invalidates the key before reading PostgreSQL so a failed or
-  # missing row cannot leave an old value behind in the projection.
-  defp load_one(scope, key, caller) do
-    invalidate(scope, key, Repo.tenant_id())
+  defp publish_read(scope, key, tenant_id, generation) do
     loaded_at = monotonic_ms()
+    read_result = read_one(scope, key)
 
-    AppConfig.for_scope(scope)
-    |> where([row], row.scope == ^scope and row.key == ^key)
-    |> Repo.one(caller: caller)
-    |> case do
-      nil ->
-        write_state(scope, key, :absent, loaded_at)
-        {:ok, :absent}
-
-      %{value: _} = row ->
-        write_row(row, loaded_at)
-        {:ok, {:row, row.value}}
-    end
-  rescue
-    error ->
-      reason = {:load_failed, scope, key, Exception.message(error)}
-      {:error, reason}
+    GenServer.call(
+      __MODULE__,
+      {:publish_load, scope, key, tenant_id, generation, loaded_at, read_result}
+    )
   end
 
-  # Runs in the process that called `load/2`, not in the cache process.
+  # Both misses and refreshes use the caller's current database connection.
   defp read_one(scope, key) do
     AppConfig.for_scope(scope)
-    |> where([row], row.scope == ^scope and row.key == ^key)
-    |> Repo.one()
+    |> Ash.Query.filter(scope == ^scope and key == ^key)
+    |> Ankole.Ash.read_one!()
     |> case do
       nil -> {:ok, :absent}
       %{value: _} = row -> {:ok, {:row, row.value}}

@@ -11,6 +11,7 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
   import Ecto.Query, warn: false
 
   alias Ankole.AIAgent.Library
+  alias Ankole.AIAgent.Library.AgentPlugins.Config
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Sessions.JobTurnRef
   alias Ankole.Signals.Signal
@@ -20,32 +21,32 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
 
   @type capability :: {:agent_plugin, String.t()} | {:skill, String.t()}
 
-  @spec notify_global(capability(), keyword()) :: :ok
-  def notify_global(capability, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    repo
-    |> active_agent_uids()
-    |> Enum.each(&notify_agent(&1, capability, opts))
+  @spec notify_global(capability()) :: :ok
+  def notify_global(capability) do
+    active_agent_uids()
+    |> Enum.each(&notify_agent(&1, capability))
 
     :ok
   end
 
   @spec notify_agent(String.t(), capability(), keyword()) :: :ok
   def notify_agent(agent_uid, capability, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
     capabilities =
       case Keyword.get(opts, :capabilities) do
-        %{} = current -> {:ok, current}
-        _value -> Library.capabilities_for_agent(agent_uid, repo: repo)
+        %{} = current ->
+          {:ok, current}
+
+        _value ->
+          with {:ok, defaults} <- Config.defaults_in_tx() do
+            Library.capabilities_for_agent(agent_uid, agent_library_defaults: defaults)
+          end
       end
 
     case capabilities do
       {:ok, current} ->
         current
         |> disabled_skill_names(capability)
-        |> dispatch(repo, agent_uid)
+        |> dispatch(agent_uid)
 
       {:error, reason} ->
         Logging.warning(
@@ -90,22 +91,22 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
 
   defp disabled_skill_names(_capabilities, _capability), do: []
 
-  defp active_agent_uids(repo) do
-    repo.all(from j in Job, where: j.status == "running", select: j.agent_uid, distinct: true)
+  defp active_agent_uids do
+    Repo.all(from j in Job, where: j.status == :running, select: j.agent_uid, distinct: true)
   end
 
-  defp dispatch([], _repo, _agent_uid), do: :ok
+  defp dispatch([], _agent_uid), do: :ok
 
-  defp dispatch(skill_names, repo, agent_uid) do
-    repo.all(from j in Job, where: j.agent_uid == ^agent_uid and j.status == "running")
+  defp dispatch(skill_names, agent_uid) do
+    Repo.all(from j in Job, where: j.agent_uid == ^agent_uid and j.status == :running)
     |> Enum.flat_map(fn job ->
       session = Ankole.Sessions.Key.job(job.id)
 
-      case repo.one(
+      case Repo.one(
              from e in Signal,
                where:
                  e.agent_uid == ^agent_uid and e.session_id == ^session and
-                   e.input_state == "open" and is_nil(e.completed_at),
+                   e.status in [:queued, :running],
                order_by: e.queue_sequence,
                limit: 1
            ) do

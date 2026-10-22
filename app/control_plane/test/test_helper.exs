@@ -4,5 +4,5 @@ real_llm_exclude =
     _ -> [real_llm: true]
   end
 
-ExUnit.start(exclude: real_llm_exclude)
+ExUnit.start(exclude: [:regenerate_golden | real_llm_exclude])
 Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :manual)

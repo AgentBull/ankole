@@ -97,7 +97,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
     assert {:ok, result} = Run.finalize(run, :dead_letter, %{"code" => "test_failure"})
     assert %Message{kind: :notice, text: text} = result.posted.messages |> List.first()
     assert is_binary(text) and text != ""
-    assert Repo.reload!(context.event).input_state == "dead_letter"
+    assert Repo.reload!(context.event).status == :dead_letter
     assert Ankole.Sessions.status(context.key).state == :idle
     assert_receive {:conversation_event, _, :message}
     assert_no_adapter_rows()

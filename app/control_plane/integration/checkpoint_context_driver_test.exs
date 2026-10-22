@@ -202,7 +202,7 @@ defmodule Ankole.Sessions.CheckpointContextDriverTest do
 
     requests =
       Enum.filter(history, fn row ->
-        row.type == "message" and is_map(row.metadata["request_metadata"]) and
+        row.type == :message and is_map(row.metadata["request_metadata"]) and
           row.metadata["tool_result_journal"] != true
       end)
 
@@ -222,7 +222,7 @@ defmodule Ankole.Sessions.CheckpointContextDriverTest do
       refute Ankole.JSON.encode!(originals) =~ "DRIVER_TASK_MEMORY"
     end
 
-    checkpoints = Enum.filter(history, &(&1.type == "checkpoint"))
+    checkpoints = Enum.filter(history, &(&1.type == :checkpoint))
     assert length(checkpoints) == 2
 
     for checkpoint <- checkpoints do
@@ -250,7 +250,7 @@ defmodule Ankole.Sessions.CheckpointContextDriverTest do
 
     refute Repo.exists?(
              from(message in Message,
-               where: message.subject_uid == ^agent.uid and message.status == "generating"
+               where: message.subject_uid == ^agent.uid and message.status == :generating
              )
            )
   end
@@ -340,7 +340,7 @@ defmodule Ankole.Sessions.CheckpointContextDriverTest do
       %Signal{completed_at: %DateTime{}} = event ->
         event
 
-      %Signal{input_state: "dead_letter"} = event ->
+      %Signal{status: :dead_letter} = event ->
         flunk("Driver input failed: #{inspect(event)}")
 
       _ ->

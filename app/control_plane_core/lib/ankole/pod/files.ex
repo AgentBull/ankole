@@ -241,6 +241,9 @@ defmodule Ankole.Pod.Files do
              {:ok, routes} <- Ankole.Kernel.AppletRuntime.inspect(source, limits) do
           {:ok, routes}
         else
+          {:error, %{"code" => "applet_busy"}} ->
+            {:error, :applet_busy}
+
           {:error, %{"message" => message}} ->
             {:error, {:invalid_applet_routes, %{reason: message}}}
 
@@ -278,11 +281,8 @@ defmodule Ankole.Pod.Files do
   defp revision(%{revision: revision}, revision), do: :ok
   defp revision(%{revision: revision}, _expected), do: {:error, {:revision_conflict, revision}}
 
-  defp advance(repo, page),
-    do:
-      page
-      |> Ecto.Changeset.change(revision: page.revision + 1, updated_at: DateTime.utc_now())
-      |> repo.update()
+  defp advance(_repo, page),
+    do: Ankole.Ash.update(page, :advance_revision, %{updated_at: DateTime.utc_now()})
 
   defp maybe_advance(repo, %{type: :file} = page), do: advance(repo, page)
   defp maybe_advance(_repo, page), do: {:ok, page}

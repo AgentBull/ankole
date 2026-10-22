@@ -29,6 +29,7 @@ defmodule Ankole.AppConfigure.Declarations do
       WorkerAuthKey.definition(),
       WorkerWebFetchConfig.definition(),
       BackgroundAgentJobCap.definition(),
+      Ankole.AgentWorkers.SlotLock.automation_capacity_definition(),
       DeadLetterNoticeConfig.definition()
     ] ++
       WorkflowWorkerConfig.definitions() ++

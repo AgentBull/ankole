@@ -2237,7 +2237,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
               agent_uid: agent_uid,
               binding_name: "lark",
               conversation_id: external_conversation_id("lark:oc_group"),
-              batch_state: "open"
+              batch_state: :open
             )
           end)
 
@@ -3105,13 +3105,16 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  group_id: managed_group.id
                })
 
-      Repo.insert!(%Ankole.AuthZ.ExternalBinding{
-        provider: "lark-main",
-        external_kind: :directory_department,
-        external_id: "od_manual",
-        group_id: unmarked_group.id,
-        metadata: %{}
-      })
+      assert {:ok, _binding} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.create(ExternalBinding, :bind_in_tx, %{
+                   provider: "lark-main",
+                   external_kind: :directory_department,
+                   external_id: "od_manual",
+                   group_id: unmarked_group.id,
+                   metadata: %{}
+                 })
+               end)
 
       assert {:ok, observed} =
                IdentityProvider.upsert_user("lark-main", %{

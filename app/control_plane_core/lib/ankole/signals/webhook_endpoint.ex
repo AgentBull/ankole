@@ -6,157 +6,153 @@ defmodule Ankole.Signals.WebhookEndpoint do
   only in the create response and in the external system that receives it.
   """
 
-  use Ankole.Schema, tenancy: :tenant
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Signals.Domain,
+    extensions: [AshStateMachine]
 
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
-  import Ecto.Changeset
-
-  alias Ankole.Ecto.JSONPayload
-  alias Ankole.AutomationJobs.Schemas.Job, as: AutomationJob
-  alias Ankole.Principals.Principal
-  alias Ankole.Signals.Signal
-
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
   @modes ~w(one_shot standing)
-  @statuses ~w(armed active fired expired cancelled)
-
   @type t :: %__MODULE__{}
 
-  schema "signal_webhook_endpoints" do
-    field :token_digest, :string
-    field :event_format, :string, default: "raw"
+  postgres do
+    table("signal_webhook_endpoints")
+    repo(Ankole.Repo)
+    migrate?(false)
 
-    belongs_to :agent, Principal,
-      foreign_key: :agent_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
+    foreign_key_names([
+      {:agent_uid, "signal_webhook_endpoints_agent_uid_fkey"},
+      {:source_signal_id, "signal_webhook_endpoints_source_signal_id_fkey"},
+      {:conversation_id, "signal_webhook_endpoints_conversation_id_fkey"},
+      {:automation_job_id, "signal_webhook_endpoints_automation_job_id_fkey"}
+    ])
 
-    field :binding_name, :string
-    field :session_id, :string
-    field :conversation_id, Ankole.Ecto.UUIDv7
-    field :provider_thread_id, :string
+    unique_index_names([{[:token_digest], "signal_webhook_endpoints_token_digest_index"}])
 
-    belongs_to :source_signal, Signal,
-      foreign_key: :source_signal_id,
-      type: Ecto.UUID
-
-    field :provider_message_id, :string
-    field :source_provenance, :map, default: %{}
-    field :label, :string
-    field :mode, :string
-    field :status, :string
-    field :expires_at, :utc_datetime_usec
-    field :fired_at, :utc_datetime_usec
-    field :cancelled_at, :utc_datetime_usec
-    belongs_to :automation_job, AutomationJob, type: :id
-
-    timestamps()
+    check_constraints do
+      check_constraint(:mode, "signal_webhook_endpoints_mode_check")
+      check_constraint(:event_format, "signal_webhook_endpoints_event_format_check")
+      check_constraint(:agent_uid, "signal_webhook_endpoints_raw_target_check")
+      check_constraint(:status, "signal_webhook_endpoints_status_check")
+      check_constraint(:status, "signal_webhook_endpoints_lifecycle_check")
+      check_constraint(:token_digest, "signal_webhook_endpoints_token_digest_length")
+      check_constraint(:label, "signal_webhook_endpoints_label_present")
+      check_constraint(:binding_name, "signal_webhook_endpoints_binding_name_present")
+      check_constraint(:session_id, "signal_webhook_endpoints_session_id_present")
+      check_constraint(:source_provenance, "signal_webhook_endpoints_source_provenance_object")
+    end
   end
 
-  @doc """
-  Builds a changeset for a webhook endpoint.
-  """
-  @spec changeset(t(), map()) :: Ecto.Changeset.t()
-  def changeset(endpoint, attrs) do
-    endpoint
-    |> cast(attrs, [
-      :token_digest,
-      :event_format,
-      :agent_uid,
-      :binding_name,
-      :session_id,
-      :conversation_id,
-      :provider_thread_id,
-      :source_signal_id,
-      :provider_message_id,
-      :source_provenance,
-      :label,
-      :mode,
-      :status,
-      :expires_at,
-      :fired_at,
-      :cancelled_at,
-      :automation_job_id
-    ])
-    |> normalize_blank([
-      :token_digest,
-      :event_format,
-      :agent_uid,
-      :binding_name,
-      :session_id,
-      :conversation_id,
-      :provider_thread_id,
-      :provider_message_id,
-      :label,
-      :mode,
-      :status
-    ])
-    |> validate_required([
-      :token_digest,
-      :source_provenance,
-      :label,
-      :mode,
-      :status,
-      :expires_at
-    ])
-    |> validate_route()
-    |> validate_inclusion(:event_format, ~w(raw cloudevents))
-    |> validate_length(:token_digest, is: 43)
-    |> validate_length(:label, max: 500)
-    |> validate_change(:label, fn :label, text ->
-      if String.valid?(text) and not String.contains?(text, <<0>>),
-        do: [],
-        else: [label: "must be valid text without NUL"]
-    end)
-    |> validate_inclusion(:mode, @modes)
-    |> validate_inclusion(:status, @statuses)
-    |> validate_mode_status()
-    |> JSONPayload.validate_map(:source_provenance)
-    |> foreign_key_constraint(:agent_uid)
-    |> foreign_key_constraint(:source_signal_id)
-    |> foreign_key_constraint(:automation_job_id)
-    |> unique_constraint(:token_digest,
-      name: :signal_webhook_endpoints_token_digest_index
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Kernel.gen_uuid_v7/0,
+      public?: true
     )
-    |> check_constraint(:mode, name: :signal_webhook_endpoints_mode_check)
-    |> check_constraint(:event_format, name: :signal_webhook_endpoints_event_format_check)
-    |> check_constraint(:agent_uid, name: :signal_webhook_endpoints_raw_target_check)
-    |> check_constraint(:status, name: :signal_webhook_endpoints_status_check)
-    |> check_constraint(:token_digest,
-      name: :signal_webhook_endpoints_token_digest_length
+
+    attribute(:token_digest, :string,
+      allow_nil?: false,
+      constraints: [min_length: 43, max_length: 43],
+      public?: true
     )
-    |> check_constraint(:label, name: :signal_webhook_endpoints_label_present)
-    |> check_constraint(:binding_name,
-      name: :signal_webhook_endpoints_binding_name_present
+
+    attribute(:event_format, :string, allow_nil?: false, default: "raw", public?: true)
+    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, public?: true)
+    attribute(:binding_name, :string, public?: true)
+    attribute(:session_id, :string, public?: true)
+    attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:provider_thread_id, :string, public?: true)
+    attribute(:source_signal_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:provider_message_id, :string, public?: true)
+
+    attribute(:source_provenance, Ankole.Ash.Types.JSONMap,
+      allow_nil?: false,
+      default: %{},
+      public?: true
     )
-    |> check_constraint(:session_id,
-      name: :signal_webhook_endpoints_session_id_present
-    )
-    |> check_constraint(:source_provenance,
-      name: :signal_webhook_endpoints_source_provenance_object
-    )
+
+    attribute(:label, :string, allow_nil?: false, constraints: [max_length: 500], public?: true)
+    attribute(:mode, :string, allow_nil?: false, public?: true)
+    attribute(:expires_at, :utc_datetime_usec, allow_nil?: false, public?: true)
+    attribute(:fired_at, :utc_datetime_usec, public?: true)
+    attribute(:cancelled_at, :utc_datetime_usec, public?: true)
+    attribute(:automation_job_id, :integer, public?: true)
+    timestamps(type: :utc_datetime_usec)
   end
 
-  defp validate_route(changeset) do
-    if get_field(changeset, :event_format) == "raw",
-      do: validate_required(changeset, [:agent_uid, :session_id]),
-      else: changeset
+  state_machine do
+    state_attribute(:status)
+    initial_states([:armed, :active])
+    default_initial_state(:armed)
+
+    transitions do
+      transition(:fire, from: :armed, to: :fired)
+      transition(:cancel, from: [:armed, :active], to: :cancelled)
+      transition(:expire, from: [:armed, :active], to: :expired)
+    end
   end
 
-  defp validate_mode_status(changeset) do
-    mode = get_field(changeset, :mode)
-    status = get_field(changeset, :status)
+  actions do
+    defaults([:read])
 
-    valid? =
-      (mode == "one_shot" and status in ~w(armed fired expired cancelled)) or
-        (mode == "standing" and status in ~w(active expired cancelled))
+    create :create do
+      primary?(true)
+      transaction?(false)
 
-    if mode in @modes and status in @statuses and not valid? do
-      add_error(changeset, :status, "is not valid for the selected mode")
-    else
-      changeset
+      accept([
+        :token_digest,
+        :event_format,
+        :agent_uid,
+        :binding_name,
+        :session_id,
+        :conversation_id,
+        :provider_thread_id,
+        :source_signal_id,
+        :provider_message_id,
+        :source_provenance,
+        :label,
+        :mode,
+        :expires_at,
+        :automation_job_id
+      ])
+
+      change(Ankole.Ash.RequireTransaction)
+
+      change(transition_state(:active), where: [attribute_equals(:mode, "standing")])
+      validate(one_of(:mode, @modes))
+      validate(one_of(:event_format, ["raw", "cloudevents"]))
+
+      validate(present([:agent_uid, :session_id]),
+        where: [attribute_equals(:event_format, "raw")]
+      )
+
+      validate(
+        fn changeset, _context ->
+          label = Ash.Changeset.get_attribute(changeset, :label)
+
+          if String.valid?(label) and not String.contains?(label, <<0>>),
+            do: :ok,
+            else: {:error, field: :label, message: "must be valid text without NUL"}
+        end,
+        only_when_valid?: true
+      )
+    end
+
+    in_tx_update :fire do
+      accept([:fired_at])
+      change(transition_state(:fired))
+      validate(present(:fired_at))
+    end
+
+    in_tx_update :cancel do
+      accept([:cancelled_at])
+      change(transition_state(:cancelled))
+      validate(present(:cancelled_at))
+    end
+
+    atomic_in_tx_update :expire do
+      accept([])
+      change(transition_state(:expired))
     end
   end
 end

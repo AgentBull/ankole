@@ -166,7 +166,15 @@ foreign-key cascades to perform bulk deletion.
 
 ## Documents and collaboration
 
-`Ankole.Pod.Documents` owns revisions and writes. `page_contents` stores
+`Ankole.Pod.Documents` owns revisions and writes. Ash resources own the persisted
+Page, PageContent, PageChange, and PageUserState facts. Their actions require the
+calling aggregate transaction. Page revision increments run as database
+expressions. PageChange entries are immutable; the write transaction appends and
+prunes them with the content update. Favorite and visit upserts change only the
+fields that the caller supplies. The existing tree lock and AuthZ proof remain
+part of the aggregate transaction.
+
+`page_contents` stores
 canonical page-tree XML and derived plain text. The Rust kernel validates the
 same XML vocabulary and normalization as `@ankole/block-editor`. The complete
 path is XML to document, normalization, ChangeSet application, normalization,
@@ -224,6 +232,16 @@ a selection or an Agent document rewrite leaves the page in the tree.
 `db_tables`, `db_fields`, `db_views`, and `db_records` share
 their Database page's access and lifecycle. Schema operations do not run DDL.
 A table has one primary field and at most 100,000 records.
+
+The four models are Ash resources in `Ankole.Pod.Domain`. Create actions set
+identity and ownership once. Field and view updates advance their stored
+version with SQL expressions. The locked write journal advances each affected
+table's stored version and counters once per commit. PostgreSQL checks reject
+negative counters, record counts above the limit, nonpositive schema versions,
+and JSON values that are not objects. Database authorization and sorted table
+locks remain in the aggregate write transaction. Record copy, field conversion,
+and field-value removal use typed resource actions with bounded SQL processing.
+Purge uses the same resource destroy actions in batches of 1,000 rows.
 
 Records use JSONB maps keyed by field UUID. The `versions` map holds a separate
 compare-and-set value per field. An update supplies the versions of changed
@@ -469,6 +487,8 @@ WebAssembly, or Web API shims. State cannot carry to the next invocation.
 `pod.applet.limits` sets total `timeout_ms` (default 60000) and `heap_mb` (default
 128), including typed-array external memory. Timeout, memory exhaustion, and
 client disconnection cancel that invocation. Already committed writes remain.
+At most four Applet isolates run at the same time; when all slots are busy, the
+runtime returns HTTP 503 with `applet_busy`.
 The isolate shares the control-plane OS process; it does not protect that
 process from a native V8 vulnerability.
 

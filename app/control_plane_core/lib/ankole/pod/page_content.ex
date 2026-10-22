@@ -1,34 +1,48 @@
 defmodule Ankole.Pod.PageContent do
-  @moduledoc """
-  The document of one page: its canonical page-tree XML and the plain text that
-  the kernel derives from it for search.
+  @moduledoc "Canonical page XML and the plain text derived by the kernel."
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod.Domain
 
-  The content matches the revision on its page row.
-  """
+  postgres do
+    table("page_contents")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:page_id, "page_contents_tenant_id_page_id_fkey"}])
+    unique_index_names([{[:page_id], "page_contents_pkey"}])
+  end
 
-  use Ankole.Schema, tenancy: :tenant
+  attributes do
+    attribute(:page_id, Ankole.Ash.Types.UUIDv7, primary_key?: true, allow_nil?: false)
+    attribute(:content, :string, allow_nil?: false, constraints: [trim?: false])
 
-  import Ecto.Changeset
+    attribute(:plain_text, :string,
+      allow_nil?: false,
+      default: "",
+      constraints: [trim?: false, allow_empty?: true]
+    )
 
-  alias Ankole.Ecto.ActorRef
+    attribute(:updated_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
+    attribute(:updated_at, :utc_datetime_usec, allow_nil?: false)
+  end
 
-  @primary_key {:page_id, Ankole.Ecto.UUIDv7, []}
+  actions do
+    defaults([:read])
 
-  schema "page_contents" do
-    field :content, :string
-    field :plain_text, :string, default: ""
-    field :updated_by, ActorRef
-    field :updated_at, :utc_datetime_usec
+    create :create_in_tx do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+      accept([:page_id, :content, :plain_text, :updated_by, :updated_at])
+    end
+
+    in_tx_update :replace do
+      accept([:content, :plain_text, :updated_by, :updated_at])
+    end
+
+    destroy :purge do
+      transaction?(false)
+      require_atomic?(true)
+      change(Ankole.Ash.RequireTransaction.Atomic)
+    end
   end
 
   @type t :: %__MODULE__{}
-
-  @spec changeset(t(), map()) :: Ecto.Changeset.t()
-  def changeset(content, attrs) do
-    content
-    |> cast(attrs, [:page_id, :content, :plain_text, :updated_by, :updated_at], empty_values: [])
-    |> validate_required([:page_id, :content, :plain_text, :updated_by, :updated_at])
-    |> foreign_key_constraint(:page_id, name: :page_contents_tenant_id_page_id_fkey)
-    |> unique_constraint(:page_id, name: :page_contents_pkey)
-  end
 end

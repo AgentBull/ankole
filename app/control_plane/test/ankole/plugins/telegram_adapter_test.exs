@@ -628,7 +628,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
           binding_name: "telegram-media",
           conversation_id:
             external_conversation_id(external_conversation_id("telegram:606:chat:501")),
-          batch_state: "open"
+          batch_state: :open
         )
       end
 

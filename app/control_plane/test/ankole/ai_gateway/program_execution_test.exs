@@ -2,6 +2,7 @@ defmodule Ankole.AIGateway.ProgramExecutionTest do
   use ExUnit.Case, async: false
 
   alias Ankole.AIGateway.ProgramExecution
+  alias Ankole.Kernel.ProgramRunner
 
   defp job(call_id, code \\ ~s|text("ok");|) do
     %{call_id: call_id, code: code, runtime_bindings: [], memo: []}
@@ -32,11 +33,12 @@ defmodule Ankole.AIGateway.ProgramExecutionTest do
              )
   end
 
-  test "an admitted native task carries one monitored run id" do
+  test "an admitted native task carries native cancellation handles" do
     {:ok, supervisor} = Task.Supervisor.start_link()
 
     assert {:ok, handle} = ProgramExecution.start(self(), [job("prog_1")], supervisor: supervisor)
-    assert is_binary(handle.run_id)
+    assert [native_handle] = handle.native_handles
+    assert is_reference(native_handle)
     refute Map.has_key?(handle, :lease)
     refute Map.has_key?(handle, :guardian)
 
@@ -103,34 +105,38 @@ defmodule Ankole.AIGateway.ProgramExecutionTest do
     assert_completed(next_handle, "prog_next")
   end
 
-  test "owner death does not add a second task guardian" do
+  test "owner death cancels its native batch without cancelling a sibling execution" do
     {:ok, supervisor} = Task.Supervisor.start_link()
-    test_pid = self()
     owner = spawn(fn -> Process.sleep(:infinity) end)
-
-    runner = fn _code, _bindings, _memo ->
-      send(test_pid, {:program_runner_started, self()})
-
-      receive do
-        :finish -> {:ok, %{status: :completed, output: [], pending_calls: []}}
-      end
-    end
+    sibling = ProgramRunner.new_handle()
+    assert {:ok, ^sibling} = ProgramRunner.start(sibling, "for (;;) {}", [], [])
 
     assert {:ok, handle} =
-             ProgramExecution.start(owner, [job("prog_orphan")],
-               supervisor: supervisor,
-               runner: runner
+             ProgramExecution.start(
+               owner,
+               [job("prog_orphan_1", "for (;;) {}"), job("prog_orphan_2", "for (;;) {}")],
+               supervisor: supervisor
              )
 
-    assert_receive {:program_runner_started, task_pid}, 1_000
-    assert task_pid == handle.pid
-    Process.exit(owner, :kill)
-    refute_receive {:DOWN, _monitor, :process, ^task_pid, _reason}, 50
-    send(task_pid, :finish)
+    try do
+      assert Enum.any?(1..100, fn _ ->
+               Process.sleep(10)
+               ProgramRunner.active_runs() == 2
+             end)
 
-    assert_receive {:DOWN, monitor, :process, pid, :normal}, 1_000
-    assert monitor == handle.monitor
-    assert pid == handle.pid
+      Process.exit(owner, :kill)
+      assert_receive {:DOWN, monitor, :process, pid, :normal}, 1_000
+      assert monitor == handle.monitor
+      assert pid == handle.pid
+      assert ProgramRunner.active_runs() == 1
+    after
+      ProgramExecution.cancel(handle)
+      ProgramRunner.cancel(sibling)
+      ProgramRunner.await(sibling)
+      Process.exit(owner, :kill)
+    end
+
+    assert ProgramRunner.active_runs() == 0
   end
 
   test "an already dead owner is rejected before native admission" do

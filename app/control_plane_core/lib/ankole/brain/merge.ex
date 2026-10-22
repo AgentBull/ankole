@@ -15,17 +15,17 @@ defmodule Ankole.Brain.Merge do
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
+  alias Ankole.Brain.Chunks
   alias Ankole.Brain.Links
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Scope
-  alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.MergeSuggestion
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.ObjectAlias
   alias Ankole.Brain.Schemas.SchemaType
   alias Ankole.Brain.Schemas.SlugAlias
-  alias Ankole.Ecto.UUIDv7
   alias Ankole.Principals.Principal
   alias Ankole.Repo
 
@@ -33,15 +33,15 @@ defmodule Ankole.Brain.Merge do
   @suggestion_batch_limit 50
 
   @doc "Lists merge suggestions for the Console read model."
-  @spec list_for_console(String.t(), keyword()) :: [MergeSuggestion.t()]
+  @spec list_for_console(String.t(), keyword()) :: {:ok, [MergeSuggestion.t()]} | {:error, term()}
   def list_for_console(status, opts) when is_binary(status) and is_list(opts) do
     limit = Keyword.fetch!(opts, :limit)
 
     MergeSuggestion
-    |> where([suggestion], suggestion.status == ^status)
-    |> order_by([suggestion], desc: suggestion.created_at)
-    |> limit(^limit)
-    |> Repo.all()
+    |> Ash.Query.filter(status == ^status)
+    |> Ash.Query.sort(created_at: :desc)
+    |> Ash.Query.limit(limit)
+    |> Ankole.Ash.read()
   end
 
   @doc """
@@ -59,22 +59,20 @@ defmodule Ankole.Brain.Merge do
 
     now = DateTime.utc_now(:microsecond)
 
-    Enum.each(fresh, fn {a, b, reason} ->
-      Repo.insert!(
-        %MergeSuggestion{
-          id: UUIDv7.autogenerate(),
-          a_slug: a,
-          b_slug: b,
-          reason: reason,
-          status: "pending",
-          created_at: now
-        },
-        on_conflict: :nothing,
-        conflict_target: [:tenant_id, :a_slug, :b_slug]
-      )
-    end)
+    written =
+      Enum.count(fresh, fn {a, b, reason} ->
+        case Ankole.Ash.create(MergeSuggestion, :suggest, %{
+               a_slug: a,
+               b_slug: b,
+               reason: reason,
+               created_at: now
+             }) do
+          {:ok, suggestion} -> not Map.get(suggestion.__metadata__, :upsert_skipped, false)
+          {:error, error} -> raise Ash.Error.to_error_class(error)
+        end
+      end)
 
-    %{status: :ok, suggested: length(fresh), candidates: length(candidates)}
+    %{status: :ok, suggested: written, candidates: length(candidates)}
   end
 
   @doc """
@@ -87,26 +85,28 @@ defmodule Ankole.Brain.Merge do
     Repo.transact(fn repo ->
       with {:ok, suggestion} <- fetch_pending(repo, suggestion_id),
            {:ok, target_slug} <- required_canonical(attrs),
-           {:ok, first} <- resolve_live(repo, suggestion.a_slug),
-           {:ok, second} <- resolve_live(repo, suggestion.b_slug),
+           {:ok, first} <- resolve_live(suggestion.a_slug),
+           {:ok, second} <- resolve_live(suggestion.b_slug),
            :ok <- guard_pair_unmanaged(first, second) do
         if first.id == second.id do
           # Both slugs already resolve to one page: an earlier merge or slug
           # redirect settled this pair, so approval only closes the row.
-          with {:ok, _suggestion} <- decide(repo, suggestion, "approved", decided_by) do
+          with {:ok, _suggestion} <-
+                 Ankole.Ash.update(suggestion, :approve, %{decided_by: decided_by}) do
             {:ok, %{status: :already_merged, canonical_slug: first.slug}}
           end
         else
-          with {:ok, canonical, duplicate} <- orient(repo, first, second, target_slug),
+          with {:ok, canonical, duplicate} <- orient(first, second, target_slug),
                {:ok, canonical, duplicate} <- lock_pair(repo, canonical, duplicate),
                :ok <- guard_duplicate_mergeable(duplicate),
                {:ok, moved} <- repoint_children(repo, canonical, duplicate),
-               {:ok, _alias} <- keep_duplicate_name(repo, canonical, duplicate),
-               {:ok, _duplicate} <- repo.delete(duplicate),
+               {:ok, _alias} <- keep_duplicate_name(canonical, duplicate),
+               {:ok, _duplicate} <- Ankole.Ash.destroy(duplicate, :merge_duplicate),
                {:ok, _redirect} <- insert_redirect(repo, canonical, duplicate),
                {:ok, canonical} <- Objects.refresh_content_hash_in_tx(repo, canonical),
-               {:ok, _object} <- Objects.reconcile_chunks(canonical, repo: repo),
-               {:ok, _suggestion} <- decide(repo, suggestion, "approved", decided_by) do
+               {:ok, _object} <- Chunks.reconcile(canonical),
+               {:ok, _suggestion} <-
+                 Ankole.Ash.update(suggestion, :approve, %{decided_by: decided_by}) do
             {:ok,
              %{
                status: :merged,
@@ -128,7 +128,7 @@ defmodule Ankole.Brain.Merge do
   def reject(suggestion_id, decided_by) do
     Repo.transact(fn repo ->
       with {:ok, suggestion} <- fetch_pending(repo, suggestion_id) do
-        decide(repo, suggestion, "rejected", decided_by)
+        Ankole.Ash.update(suggestion, :reject, %{decided_by: decided_by})
       end
     end)
   end
@@ -182,17 +182,18 @@ defmodule Ankole.Brain.Merge do
     |> where(
       [merge_candidate_a: _a, merge_candidate_b: _b],
       not exists(
-        from suggestion in MergeSuggestion,
+        from(suggestion in MergeSuggestion,
           where:
             suggestion.a_slug == parent_as(:merge_candidate_a).slug and
               suggestion.b_slug == parent_as(:merge_candidate_b).slug,
           select: 1
+        )
       )
     )
     |> where(
       [merge_candidate_a: _a, merge_candidate_b: _b],
       not (exists(
-             from principal in Principal,
+             from(principal in Principal,
                where:
                  (principal.type == :human and
                     parent_as(:merge_candidate_a).slug ==
@@ -201,9 +202,10 @@ defmodule Ankole.Brain.Merge do
                       parent_as(:merge_candidate_a).slug ==
                         fragment("'agents/' || ?", principal.uid)),
                select: 1
+             )
            ) and
              exists(
-               from principal in Principal,
+               from(principal in Principal,
                  where:
                    (principal.type == :human and
                       parent_as(:merge_candidate_b).slug ==
@@ -212,6 +214,7 @@ defmodule Ankole.Brain.Merge do
                         parent_as(:merge_candidate_b).slug ==
                           fragment("'agents/' || ?", principal.uid)),
                  select: 1
+               )
              ))
     )
   end
@@ -223,8 +226,8 @@ defmodule Ankole.Brain.Merge do
     end
   end
 
-  defp resolve_live(repo, slug) do
-    with {:ok, object} <- Objects.resolve_slug(slug, repo: repo) do
+  defp resolve_live(slug) do
+    with {:ok, object} <- Objects.resolve_slug(slug) do
       case object.deleted_at do
         nil -> {:ok, object}
         _deleted -> {:error, {:object_deleted, object.slug}}
@@ -232,8 +235,8 @@ defmodule Ankole.Brain.Merge do
     end
   end
 
-  defp orient(repo, first, second, target_slug) do
-    case Objects.resolve_slug(target_slug, repo: repo) do
+  defp orient(first, second, target_slug) do
+    case Objects.resolve_slug(target_slug) do
       {:ok, %Object{id: id}} when id == first.id -> {:ok, first, second}
       {:ok, %Object{id: id}} when id == second.id -> {:ok, second, first}
       _other -> {:error, {:canonical_slug_not_in_pair, target_slug}}
@@ -282,35 +285,41 @@ defmodule Ankole.Brain.Merge do
     do: {:error, {:library_managed, slug}}
 
   defp repoint_children(repo, canonical, duplicate) do
-    now = DateTime.utc_now(:microsecond)
     canon = canonical.slug
     dup = duplicate.slug
 
-    {claims, _rows} =
-      Claim
-      |> where([claim], claim.object_slug == ^dup)
-      |> repo.update_all(set: [object_slug: canon, updated_at: now])
+    {claims, holders} = Ankole.Brain.Claims.repoint_in_tx(dup, canon)
 
-    {holders, _rows} =
-      Claim
-      |> where([claim], claim.holder == ^dup)
-      |> repo.update_all(set: [holder: canon, updated_at: now])
-
-    {redirects, _rows} =
+    redirects =
       SlugAlias
-      |> where([alias], alias.canonical_slug == ^dup)
-      |> repo.update_all(set: [canonical_slug: canon])
+      |> Ash.Query.filter(canonical_slug == ^dup)
+      |> Ankole.Ash.bulk_update(:repoint, %{canonical_slug: canon},
+        strategy: [:atomic],
+        return_records?: true,
+        return_errors?: true
+      )
 
-    {:ok,
-     %{
-       claims: claims,
-       holders: holders,
-       redirects: redirects,
-       timelines: repoint_timelines(repo, canon, dup),
-       aliases: repoint_unique_rows(repo, "brain_object_aliases", "alias_norm", canon, dup),
-       tags: repoint_unique_rows(repo, "brain_tags", "tag", canon, dup),
-       links: repoint_links(repo, canon, dup)
-     }}
+    case redirects do
+      %Ash.BulkResult{status: :success, records: redirects} ->
+        timelines = repoint_timelines(repo, canon, dup)
+        aliases = repoint_unique_rows(repo, "brain_object_aliases", "alias_norm", canon, dup)
+        tags = repoint_unique_rows(repo, "brain_tags", "tag", canon, dup)
+        links = repoint_links(repo, canon, dup)
+
+        {:ok,
+         %{
+           claims: claims,
+           holders: holders,
+           redirects: length(redirects),
+           timelines: timelines,
+           aliases: aliases,
+           tags: tags,
+           links: links
+         }}
+
+      %Ash.BulkResult{errors: errors} ->
+        {:error, Ash.Error.to_error_class(errors)}
+    end
   end
 
   defp repoint_timelines(repo, canon, dup) do
@@ -430,16 +439,15 @@ defmodule Ankole.Brain.Merge do
     moved
   end
 
-  defp keep_duplicate_name(repo, canonical, duplicate) do
+  defp keep_duplicate_name(canonical, duplicate) do
     case Links.normalize_alias(duplicate.title || "") do
       "" -> {:ok, :untitled}
-      _name -> Links.add_alias(canonical.slug, duplicate.title, repo: repo)
+      _name -> Links.add_alias(canonical.slug, duplicate.title)
     end
   end
 
-  defp insert_redirect(repo, canonical, duplicate) do
-    repo.insert(%SlugAlias{
-      id: UUIDv7.autogenerate(),
+  defp insert_redirect(_repo, canonical, duplicate) do
+    Ankole.Ash.create(SlugAlias, :add, %{
       alias_slug: duplicate.slug,
       canonical_slug: canonical.slug,
       notes: "merge of duplicate page",
@@ -467,19 +475,9 @@ defmodule Ankole.Brain.Merge do
     |> lock("FOR UPDATE")
     |> repo.one()
     |> case do
-      %MergeSuggestion{status: "pending"} = suggestion -> {:ok, suggestion}
+      %MergeSuggestion{status: :pending} = suggestion -> {:ok, suggestion}
       %MergeSuggestion{} -> {:error, :suggestion_not_pending}
       nil -> {:error, :not_found}
     end
-  end
-
-  defp decide(repo, suggestion, status, decided_by) do
-    suggestion
-    |> Ecto.Changeset.change(
-      status: status,
-      decided_by: decided_by,
-      decided_at: DateTime.utc_now(:microsecond)
-    )
-    |> repo.update()
   end
 end

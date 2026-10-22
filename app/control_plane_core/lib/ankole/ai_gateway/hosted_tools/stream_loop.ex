@@ -1,12 +1,12 @@
 defmodule Ankole.AIGateway.HostedTools.StreamLoop do
   @moduledoc """
-  Coordinates hosted tools over one public response.
+  Coordinates the provider rounds and output items of one public response.
 
-  The loop rewrites provider `function_call` events for the synthesized search
-  tool into public `tool_search_call` items and executes search, Brain, and
-  program effects. It turns intermediate provider terminals into continuation
-  rounds. One public response can span several provider responses. The loop
-  accumulates raw provider items for the continuation input.
+  An ordinary response uses a single-round loop with zero gateway effects. When
+  Tool Search, Brain, or Programmatic Tool Calling is active, the loop rewrites
+  synthesized provider `function_call` events into public items, executes
+  gateway effects, and turns intermediate provider terminals into continuation
+  rounds. One public response can span several provider responses.
 
   Internal rounds share one budget: search, Brain, and program continuations
   cannot amplify provider spend independently.
@@ -45,9 +45,11 @@ defmodule Ankole.AIGateway.HostedTools.StreamLoop do
 
   @type t :: %__MODULE__{}
 
-  @spec new(t() | map() | nil) :: t() | nil
-  def new(nil), do: nil
+  @spec new(t() | map() | nil) :: t()
+  def new(loop_or_opts \\ nil)
+  def new(nil), do: %__MODULE__{}
   def new(%__MODULE__{} = loop), do: loop
+  def new(%{plan: nil}), do: %__MODULE__{}
 
   def new(%{plan: %ToolSearch.Plan{} = plan, provider_request: %{} = provider_request}) do
     base_items = provider_request |> Map.get("input") |> input_items()
@@ -61,6 +63,28 @@ defmodule Ankole.AIGateway.HostedTools.StreamLoop do
       provider_history_item_bytes: base_bytes,
       provider_history_error: history_error
     }
+  end
+
+  @doc "Returns the zero-based provider round index."
+  @spec round(t()) :: non_neg_integer()
+  def round(%__MODULE__{rounds: rounds}), do: rounds
+
+  @doc "Returns whether the public response has advanced past its first provider round."
+  @spec multi_round?(t()) :: boolean()
+  def multi_round?(%__MODULE__{rounds: rounds}), do: rounds > 0
+
+  @doc "Returns the tool-call budget scope for the current provider round."
+  @spec budget_scope(t()) :: {:provider_round, non_neg_integer()}
+  def budget_scope(%__MODULE__{rounds: rounds}), do: {:provider_round, rounds}
+
+  @doc "Finds a raw provider output item recorded during the current round."
+  @spec find_round_item(t(), (map() -> boolean())) :: {:ok, map()} | :error
+  def find_round_item(%__MODULE__{current_round_items_rev: items}, matcher)
+      when is_function(matcher, 1) do
+    case Enum.find(items, matcher) do
+      %{} = item -> {:ok, item}
+      nil -> :error
+    end
   end
 
   @doc "Returns whether this loop executes built-in effects inside AIGateway."
@@ -254,6 +278,12 @@ defmodule Ankole.AIGateway.HostedTools.StreamLoop do
           {:finalize, [map()], [map()], t()}
           | {:round, map(), [map()], t()}
           | {:local, [map()], map(), t()}
+  def intercept_terminal(%__MODULE__{plan: nil} = loop, _event_type, %{} = response) do
+    # State retains admitted public items for an ordinary response. Raw round
+    # items can include calls that its budget rejected.
+    {:finalize, response |> Map.get("output") |> list_of_maps(), [], loop}
+  end
+
   def intercept_terminal(%__MODULE__{} = loop, event_type, %{} = response) do
     loop = accumulate_usage(loop, response)
     output = terminal_output(loop, response)
@@ -440,22 +470,26 @@ defmodule Ankole.AIGateway.HostedTools.StreamLoop do
   defp observe_item_done(loop, event),
     do: {:emit, event, loop}
 
-  defp rewritable_call_item?(loop, item) do
-    ToolSearch.search_call_item?(loop.plan, item) or
-      PTC.call_item?(loop.plan.ptc, item) or
-      Brain.call_item?(loop.plan.brain, item)
+  defp rewritable_call_item?(%__MODULE__{plan: nil}, _item), do: false
+
+  defp rewritable_call_item?(%__MODULE__{plan: %ToolSearch.Plan{} = plan}, item) do
+    ToolSearch.search_call_item?(plan, item) or
+      PTC.call_item?(plan.ptc, item) or
+      Brain.call_item?(plan.brain, item)
   end
 
-  defp rewrite_call_item(loop, item) do
+  defp rewrite_call_item(%__MODULE__{plan: nil}, item), do: item
+
+  defp rewrite_call_item(%__MODULE__{plan: %ToolSearch.Plan{} = plan}, item) do
     cond do
-      ToolSearch.search_call_item?(loop.plan, item) ->
-        ToolSearch.public_search_call(loop.plan, item)
+      ToolSearch.search_call_item?(plan, item) ->
+        ToolSearch.public_search_call(plan, item)
 
-      PTC.call_item?(loop.plan.ptc, item) ->
-        PTC.public_item(loop.plan.ptc, item)
+      PTC.call_item?(plan.ptc, item) ->
+        PTC.public_item(plan.ptc, item)
 
-      Brain.call_item?(loop.plan.brain, item) ->
-        Brain.public_call(loop.plan.brain, item)
+      Brain.call_item?(plan.brain, item) ->
+        Brain.public_call(plan.brain, item)
 
       true ->
         item
@@ -690,14 +724,15 @@ defmodule Ankole.AIGateway.HostedTools.StreamLoop do
     end)
   end
 
-  @doc false
+  @doc "Public output items for the round ended by `response`."
   @spec round_output_items(t(), map()) :: [map()]
   def round_output_items(%__MODULE__{} = loop, %{} = response),
-    do: rewrite_items(loop, terminal_output(loop, response))
+    do: rewrite_public_items(loop, terminal_output(loop, response))
 
-  @doc false
+  @doc "Rewrites raw provider items into their public representations."
   @spec rewrite_public_items(t() | nil, [map()]) :: [map()]
   def rewrite_public_items(nil, items), do: items
+  def rewrite_public_items(%__MODULE__{plan: nil}, items), do: items
   def rewrite_public_items(%__MODULE__{} = loop, items), do: rewrite_items(loop, items)
 
   defp accumulate_usage(loop, response) do

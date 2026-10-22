@@ -197,7 +197,7 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
                })
              )
 
-    assert Repo.get!(Principals.Principal, human.uid) == original
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(Principals.Principal, human.uid), original)
     assert {:error, :not_found} = Principals.resolve_platform_subject("lark-main", "ou_stranger")
     assert Repo.aggregate(Membership, :count) == membership_count
     refute Repo.get_by(Group, name: String.downcase("signal_source:#{agent.uid}:b18-known"))
@@ -222,8 +222,12 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
                })
              )
 
-    assert Repo.get!(Principals.ExternalIdentity, identity.id) == identity
-    assert Repo.get!(Principals.Principal, human.uid) == original
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.get!(Principals.ExternalIdentity, identity.id),
+      identity
+    )
+
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(Principals.Principal, human.uid), original)
     assert Repo.aggregate(Membership, :count) == membership_count
     refute Repo.get_by(Group, name: String.downcase("signal_source:#{agent.uid}:b18-known"))
   end
@@ -335,12 +339,10 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
     tenant_a = Repo.tenant_id!()
 
     tenant_b =
-      %Ankole.Tenants.Tenant{}
-      |> Ankole.Tenants.Tenant.changeset(%{
+      create_tenant(%{
         slug: "admission-" <> Ecto.UUID.generate(),
         display_name: "Other tenant"
       })
-      |> Repo.insert!()
 
     %{principal: agent_a} = agent_fixture()
     %{principal: human_a} = human_fixture()
@@ -416,13 +418,14 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
     # with a domain mismatch, so the admission cannot complete.
     group_name = String.downcase("signal_source:#{agent.uid}:lark-adm")
 
-    Repo.insert!(%Group{
-      name: group_name,
-      display_name: "collision",
-      domain: :operator,
-      kind: :static,
-      metadata: %{}
-    })
+    assert {:ok, _group} =
+             Ankole.AuthZ.create_principal_group(%{
+               name: group_name,
+               display_name: "collision",
+               domain: :operator,
+               kind: :static,
+               metadata: %{}
+             })
 
     assert {:error, {:signal_source_group, _reason}} =
              Observe.emit_entry(agent.uid, "lark-adm", dm_entry(stranger_author()))

@@ -253,7 +253,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   defp lock_source_event(repo, binding, fact, callback) do
     source_event_query(binding, fact, callback)
     |> lock("FOR UPDATE")
-    |> repo.one()
+    |> repo.one(lock_identity: {"signals", callback.source_signal_id})
     |> accepted_reply_surface(fact.provider_message_id, binding)
   end
 
@@ -384,7 +384,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     )
     |> order_by([event, preview], asc: event.queue_sequence)
     |> lock("FOR UPDATE OF s0")
-    |> repo.all()
+    |> repo.lock_all("signals")
   end
 
   defp supersede_events_in_tx(events, repo, newer_event, now) do
@@ -433,7 +433,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     |> where([candidate], candidate.session_id == ^event.session_id)
     |> where([candidate], candidate.queue_sequence > ^event.queue_sequence)
     |> where([candidate], candidate.type == "session.reset_due" and candidate.producer == :kernel)
-    |> where([candidate], candidate.input_state == "open")
+    |> where([candidate], candidate.status in [:queued, :running])
     |> order_by([candidate], asc: candidate.queue_sequence)
     |> limit(1)
     |> repo.one()

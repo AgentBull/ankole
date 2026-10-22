@@ -7,6 +7,61 @@ defmodule Ankole.Repo do
     otp_app: :ankole,
     adapter: Ecto.Adapters.Postgres
 
+  @behaviour AshPostgres.Repo
+
+  @impl true
+  def installed_extensions, do: ["ash-functions"]
+  @impl true
+  def min_pg_version, do: %Version{major: 16, minor: 0, patch: 0}
+  @impl true
+  def migrate_extensions?, do: false
+  @impl true
+  def on_transaction_begin(_reason), do: :ok
+  @impl true
+  def all_tenants, do: []
+  @impl true
+  def tenant_migrations_path, do: nil
+  @impl true
+  def migrations_path, do: nil
+  @impl true
+  def default_prefix, do: "public"
+  @impl true
+  def create_schemas_in_migrations?, do: false
+  @impl true
+  def prefer_transaction?, do: false
+  @impl true
+  def prefer_transaction_for_atomic_updates?, do: false
+  @impl true
+  def default_constraint_match_type(_type, _name), do: :exact
+  @impl true
+  def override_migration_type(type), do: type
+  @impl true
+  def use_timestamptz?, do: false
+  @impl true
+  def use_builtin_uuidv7_function?, do: false
+  @impl true
+  def create?, do: true
+  @impl true
+  def drop?, do: true
+  @impl true
+  def disable_atomic_actions?, do: false
+  @impl true
+  def include_upsert_action?, do: true
+  @impl true
+  def disable_expr_error?, do: false
+  @impl true
+  def immutable_expr_error?, do: false
+
+  @impl Ecto.Repo
+  def init(_type, config) do
+    {:ok,
+     config
+     |> Keyword.put(:installed_extensions, installed_extensions())
+     |> Keyword.put(:tenant_migrations_path, tenant_migrations_path())
+     |> Keyword.put(:migrations_path, migrations_path())
+     |> Keyword.put(:default_prefix, default_prefix())}
+  end
+
   import Ecto.Query, only: [from: 1, from: 2, where: 3, update: 3, dynamic: 2]
 
   @tenant_key {__MODULE__, :tenant}
@@ -30,13 +85,25 @@ defmodule Ankole.Repo do
     end
   end
 
-  defoverridable insert_all: 3
+  defoverridable insert_all: 3, transact: 2, transaction: 2
+
+  @impl true
+  def transact(fun_or_multi, opts) do
+    Ankole.LockOrder.with_transaction(fn -> super(fun_or_multi, opts) end)
+    |> Ankole.Ash.normalize_result()
+  end
+
+  @impl true
+  def transaction(fun_or_multi, opts) do
+    Ankole.LockOrder.with_transaction(fn -> super(fun_or_multi, opts) end)
+    |> Ankole.Ash.normalize_result()
+  end
 
   @impl true
   def insert_all(schema_or_source, entries, opts) do
-    if tenancy({schema_or_source, schema_module(schema_or_source)}) == :tenant do
-      tenant = Keyword.get(opts, :tenant, Process.get(@tenant_key))
+    tenant = Keyword.get(opts, :tenant, Process.get(@tenant_key))
 
+    if tenancy({schema_or_source, schema_module(schema_or_source)}) == :tenant do
       case {entries, tenant} do
         {rows, _} when is_list(rows) ->
           Enum.each(rows, &check_write_tenant!(&1[:tenant_id], tenant, false))
@@ -53,7 +120,11 @@ defmodule Ankole.Repo do
       end
     end
 
-    super(schema_or_source, entries, scope_conflict(schema_or_source, opts))
+    super(
+      schema_or_source,
+      scope_entry_queries(entries, tenant),
+      scope_conflict(schema_or_source, opts)
+    )
   end
 
   @doc "Sets the tenant for a process that serves only that tenant."
@@ -90,6 +161,9 @@ defmodule Ankole.Repo do
   @doc "Explicitly permits a function to query all tenants."
   def across_tenants(fun) when is_function(fun, 0), do: with_context(:all, fun)
 
+  @doc "Returns whether the caller explicitly selected all tenants."
+  def across_tenants?, do: Process.get(@tenant_key) == :all
+
   @doc "Runs a site function without an inherited tenant context."
   def without_tenant(fun) when is_function(fun, 0), do: with_context(nil, fun)
 
@@ -104,11 +178,20 @@ defmodule Ankole.Repo do
 
   @impl true
   def prepare_query(_operation, query, opts) do
+    Ankole.LockOrder.check_query(query, opts[:lock_identity])
+
     if opts[:ecto_query] == :schema_migration do
       {query, opts}
     else
       {scope_query(query, opts[:tenant]), opts}
     end
+  end
+
+  @doc "Locks a selection and checks the ids of the rows it returned."
+  def lock_all(%Ecto.Query{lock: lock} = query, table, key \\ :id) when not is_nil(lock) do
+    rows = all(query, lock_identity: {:rows, table, key})
+    Ankole.LockOrder.check_rows(table, Enum.map(rows, &Map.fetch!(&1, key)))
+    rows
   end
 
   @doc "Escapes PostgreSQL LIKE wildcard characters for a literal pattern fragment."
@@ -188,7 +271,7 @@ defmodule Ankole.Repo do
          match?({:id, _}, tenant) and action not in [:raise, :nothing] do
       query = conflict_query(source, action)
       check_tenant_updates!(query)
-      Keyword.put(opts, :on_conflict, scope_tenant(query, tenant))
+      Keyword.put(opts, :on_conflict, scope_query(query, tenant))
     else
       opts
     end
@@ -239,6 +322,21 @@ defmodule Ankole.Repo do
   defp schema_module(source) when is_binary(source), do: nil
   defp schema_module(schema), do: schema
 
+  defp scope_entry_queries(%Ecto.Query{} = query, tenant), do: scope_query(query, tenant)
+
+  defp scope_entry_queries(entries, tenant) when is_list(entries),
+    do: Enum.map(entries, &scope_entry_queries(&1, tenant))
+
+  defp scope_entry_queries({key, value}, tenant),
+    do: {key, scope_entry_queries(value, tenant)}
+
+  defp scope_entry_queries(%{__struct__: _} = value, _tenant), do: value
+
+  defp scope_entry_queries(entries, tenant) when is_map(entries),
+    do: Map.new(entries, fn {key, value} -> {key, scope_entry_queries(value, tenant)} end)
+
+  defp scope_entry_queries(value, _tenant), do: value
+
   # Query expressions own their subqueries, including EXISTS and IN. Traverse
   # those expressions even when the outer source is a site table.
   defp scope_query(query, tenant) do
@@ -251,6 +349,7 @@ defmodule Ankole.Repo do
           |> Enum.map(fn {join, index} -> scope_join(join, query, tenant, index) end),
         wheres: Enum.map(query.wheres, &scope_expression(&1, tenant)),
         havings: Enum.map(query.havings, &scope_expression(&1, tenant)),
+        updates: Enum.map(query.updates, &scope_expression(&1, tenant)),
         select: scope_expression(query.select, tenant),
         order_bys: Enum.map(query.order_bys, &scope_expression(&1, tenant)),
         group_bys: Enum.map(query.group_bys, &scope_expression(&1, tenant)),
@@ -304,6 +403,10 @@ defmodule Ankole.Repo do
     end)
   end
 
+  defp tenant_join?({name, nil} = source, %{queries: queries}) when is_binary(name) do
+    not Enum.any?(queries, &(elem(&1, 0) == name)) and tenancy(source) == :tenant
+  end
+
   defp tenant_join?(source, _ctes), do: tenancy(source) == :tenant
 
   defp scope_tenant(query, {:id, tenant_id}),
@@ -316,6 +419,8 @@ defmodule Ankole.Repo do
     do: raise(ArgumentError, "invalid tenant query option: #{inspect(tenant)}")
 
   defp tenancy(%Ecto.SubQuery{}), do: :subquery
+  defp tenancy(%Ecto.Query{}), do: :subquery
+  defp tenancy({:fragment, _, [raw: "(VALUES(1))"]}), do: :site
   defp tenancy({_source, Ecto.Migration.SchemaMigration}), do: :site
   defp tenancy({_source, Oban.Job}), do: :site
   defp tenancy({source, nil}) when source in ["oban_jobs", "oban_peers"], do: :site
@@ -333,6 +438,9 @@ defmodule Ankole.Repo do
 
   defp scope_source(%{source: %Ecto.SubQuery{} = subquery} = expression, tenant),
     do: %{expression | source: %{subquery | query: scope_query(subquery.query, tenant)}}
+
+  defp scope_source(%{source: %Ecto.Query{} = query} = expression, tenant),
+    do: %{expression | source: scope_query(query, tenant)}
 
   defp scope_source(expression, _tenant), do: expression
 
@@ -378,6 +486,11 @@ defmodule Ankole.Repo do
   defp join_tenancy(%{source: nil, assoc: {parent, name}}, query) do
     schema = binding_schema(query, parent).__schema__(:association, name).related
     tenancy({schema.__schema__(:source), schema})
+  end
+
+  defp join_tenancy(%{source: {name, nil}} = join, %{with_ctes: %{queries: queries}})
+       when is_binary(name) do
+    if Enum.any?(queries, &(elem(&1, 0) == name)), do: :subquery, else: tenancy(join.source)
   end
 
   defp join_tenancy(%{source: {:fragment, _, [{:raw, source}]}}, %{with_ctes: %{queries: queries}}) do

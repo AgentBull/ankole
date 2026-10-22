@@ -199,7 +199,7 @@ defmodule AnkoleWeb.TenantController do
   defp error(conn, :not_found),
     do: ConsoleErrors.not_found(conn, "Tenant not found")
 
-  defp error(conn, %Ecto.Changeset{} = changeset),
+  defp error(conn, %module{} = changeset) when module in [Ash.Changeset, Ash.Error.Invalid],
     do: ConsoleErrors.changeset(conn, changeset, "The tenant request is invalid")
 
   defp error(conn, reason) when is_atom(reason),

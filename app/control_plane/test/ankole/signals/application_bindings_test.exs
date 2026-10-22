@@ -10,7 +10,6 @@ defmodule Ankole.Signals.ApplicationBindingsTest do
   alias Ankole.Signals.Bindings
 
   setup do
-    allow_cache_database_access()
     :ok
   end
 

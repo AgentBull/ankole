@@ -52,7 +52,7 @@ defmodule Ankole.Pod.Pages do
           updated_at: now
         }
 
-        with {:ok, page} <- Repo.insert(Page.changeset(%Page{}, attrs)),
+        with {:ok, page} <- Ankole.Ash.create(Page, :create_in_tx, attrs),
              :ok <- initial_content(page, uid) do
           {:ok, page}
         end
@@ -70,8 +70,10 @@ defmodule Ankole.Pod.Pages do
               {key, Ankole.Attrs.get(attrs, key, Map.get(page, key))}
             end)
 
-          Repo.update(
-            Page.changeset(page, Map.put(changes, :updated_at, DateTime.utc_now(:microsecond)))
+          Ankole.Ash.update(
+            page,
+            :edit,
+            Map.put(changes, :updated_at, DateTime.utc_now(:microsecond))
           )
         end
       end,
@@ -93,14 +95,12 @@ defmodule Ankole.Pod.Pages do
            # Recheck the destination after the complete subtree policy proof.
            :ok <- destination(uid, parent, owner, false),
            {:ok, position} <- move_position(page, parent, owner, attrs) do
-        Repo.update(
-          Page.changeset(page, %{
-            parent_id: parent,
-            private_owner_uid: owner,
-            position: position,
-            updated_at: DateTime.utc_now(:microsecond)
-          })
-        )
+        Ankole.Ash.update(page, :move, %{
+          parent_id: parent,
+          private_owner_uid: owner,
+          position: position,
+          updated_at: DateTime.utc_now(:microsecond)
+        })
       end
     end)
   end
@@ -149,7 +149,7 @@ defmodule Ankole.Pod.Pages do
         {:ok, key}
 
       {sibling, key}, result ->
-        from(p in Page, where: p.id == ^sibling.id) |> Repo.update_all(set: [position: key])
+        {:ok, _} = Ankole.Ash.update(sibling, :position, %{position: key})
         result
     end)
   end
@@ -157,8 +157,7 @@ defmodule Ankole.Pod.Pages do
   defp siblings(parent, owner, moving_id) do
     from(p in Page,
       where: p.id != ^moving_id and is_nil(p.deleted_at),
-      order_by: [asc: p.position, asc: p.id],
-      select: %{id: p.id, position: p.position}
+      order_by: [asc: p.position, asc: p.id]
     )
     |> in_destination(parent, owner)
     |> Repo.all()
@@ -182,7 +181,7 @@ defmodule Ankole.Pod.Pages do
       with {:ok, page} <- lock(id),
            {:ok, _} <- Access.authorize(uid, page, "page_manage"),
            {:ok, page} <-
-             Repo.update(Page.changeset(page, %{deleted_at: DateTime.utc_now(:microsecond)})),
+             Ankole.Ash.update(page, :trash, %{}),
            :ok <- schedule_purge(page) do
         {:ok, page}
       end
@@ -207,7 +206,7 @@ defmodule Ankole.Pod.Pages do
   defp delete_embedded_child(uid, child) do
     with {:ok, _} <- Access.authorize(uid, child, "page_manage"),
          {:ok, child} <-
-           Repo.update(Page.changeset(child, %{deleted_at: DateTime.utc_now(:microsecond)})),
+           Ankole.Ash.update(child, :trash, %{}),
          :ok <- schedule_purge(child),
          do: {:ok, nil}
   end
@@ -222,7 +221,7 @@ defmodule Ankole.Pod.Pages do
            true <- is_nil(page.purge_started_at),
            {:ok, path} <- Access.path(page),
            true <- Enum.all?(Enum.drop(path, -1), &is_nil(&1.deleted_at)) do
-        Repo.update(Page.changeset(page, %{deleted_at: nil}))
+        Ankole.Ash.update(page, :restore, %{})
       else
         false -> {:error, :cannot_restore}
         error -> error
@@ -310,18 +309,14 @@ defmodule Ankole.Pod.Pages do
   defp put_state(state, changes) do
     Repo.transact(fn _repo ->
       with {:ok, updated} <-
-             Repo.insert(PageUserState.changeset(state, changes),
-               conflict_target: [:tenant_id, :principal_uid, :page_id],
-               on_conflict: [set: Map.to_list(changes)],
-               returning: true
+             Ankole.Ash.create(
+               PageUserState,
+               :put,
+               Map.merge(changes, Map.take(state, [:principal_uid, :page_id])),
+               upsert_fields: Map.keys(changes)
              ) do
         if is_nil(updated.favorited_at) and is_nil(updated.visited_at) do
-          Repo.delete_all(
-            from s in PageUserState,
-              where:
-                s.principal_uid == ^state.principal_uid and s.page_id == ^state.page_id and
-                  is_nil(s.favorited_at) and is_nil(s.visited_at)
-          )
+          {:ok, _} = Ankole.Ash.destroy(updated, :remove_empty)
         end
 
         {:ok, updated}
@@ -365,12 +360,10 @@ defmodule Ankole.Pod.Pages do
            :ok <- sharing_cas(page, Ankole.Attrs.get(attrs, :sharing_version)),
            {:ok, grants} <- normalize_grants(Ankole.Attrs.get(attrs, :grants, :unchanged)),
            {:ok, page} <-
-             Repo.update(
-               Page.changeset(page, %{
-                 inherit_permissions:
-                   Ankole.Attrs.get(attrs, :inherit_permissions, page.inherit_permissions)
-               })
-             ),
+             Ankole.Ash.update(page, :sharing, %{
+               inherit_permissions:
+                 Ankole.Attrs.get(attrs, :inherit_permissions, page.inherit_permissions)
+             }),
            :ok <- replace_grants(id, grants),
            :ok <- retain_manager(uid, page) do
         {:ok, page}
@@ -503,7 +496,7 @@ defmodule Ankole.Pod.Pages do
   @doc "Locks tree changes before page, table, or permission rows in the transaction."
   def lock_tree do
     :ok = Repo.require_transaction(Repo)
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", ["pod-tree:" <> Repo.tenant_id!()])
+    Ankole.AdvisoryLock.lock!(Repo, "pod-tree:" <> Repo.tenant_id!())
     :ok
   end
 
@@ -584,15 +577,13 @@ defmodule Ankole.Pod.Pages do
   defp initial_content(%{type: :doc} = page, uid) do
     with {:ok, parsed} <- Ankole.Kernel.page_validate("<page />"),
          {:ok, _} <-
-           Repo.insert(
-             PageContent.changeset(%PageContent{}, %{
-               page_id: page.id,
-               content: parsed.xml,
-               plain_text: parsed.plain_text,
-               updated_by: ActorRef.from_writer(uid, Repo.tenant_id!(), []),
-               updated_at: page.updated_at
-             })
-           ),
+           Ankole.Ash.create(PageContent, :create_in_tx, %{
+             page_id: page.id,
+             content: parsed.xml,
+             plain_text: parsed.plain_text,
+             updated_by: ActorRef.from_writer(uid, Repo.tenant_id!(), []),
+             updated_at: page.updated_at
+           }),
          do: :ok
   end
 

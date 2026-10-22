@@ -67,7 +67,10 @@ defmodule Ankole.Sessions.Tools.Message do
   # every adapter delivers all of them. The text post keeps the call's key and
   # attachment posts extend it.
   @impl true
-  def execute_in_tx(repo, run, call, args) do
+  def prepare_in_tx(repo, run, call, args),
+    do: {:ok, [], fn -> commit_tool_in_tx(repo, run, call, args) end}
+
+  defp commit_tool_in_tx(repo, run, call, args) do
     destination = args["destination"]
     key = "tool:#{Run.response_id(run.model_response)}:#{Run.call_id(call)}"
 

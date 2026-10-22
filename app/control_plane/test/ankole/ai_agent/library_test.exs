@@ -92,7 +92,7 @@ defmodule Ankole.AIAgent.LibraryTest do
       assert %AgentSkill{
                enabled_override: nil,
                default_enabled: true,
-               source_kind: "builtin",
+               source_kind: :builtin,
                agent_plugin_id: "lark"
              } =
                Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: skill_name)
@@ -139,16 +139,29 @@ defmodule Ankole.AIAgent.LibraryTest do
   test "rejects unimplemented library source kinds" do
     %{principal: agent} = agent_fixture()
 
-    changeset =
-      AgentLibraryContainerEntry.changeset(%AgentLibraryContainerEntry{}, %{
-        agent_uid: agent.uid,
-        path: "SETTING.md",
-        source_kind: "setting",
-        content: "unused",
-        metadata: %{}
-      })
+    assert {:ok, changeset} =
+             Repo.transact(fn ->
+               {:ok,
+                Ankole.Ash.for_create(AgentLibraryContainerEntry, :put, %{
+                  agent_uid: agent.uid,
+                  path: "SETTING.md",
+                  source_kind: "setting",
+                  content: "unused",
+                  metadata: %{}
+                })}
+             end)
 
-    assert "is invalid" in errors_on(changeset).source_kind
+    refute changeset.valid?
+
+    assert Enum.any?(
+             changeset.errors,
+             &match?(%Ash.Error.Changes.InvalidAttribute{field: :source_kind}, &1)
+           )
+
+    refute Repo.exists?(
+             from entry in AgentLibraryContainerEntry,
+               where: entry.agent_uid == ^agent.uid and entry.path == "SETTING.md"
+           )
   end
 
   test "skill_view merges canonical skill body with delivered skill lessons" do
@@ -179,7 +192,7 @@ defmodule Ankole.AIAgent.LibraryTest do
                context
              )
 
-    assert lesson.author_kind == "dreaming"
+    assert lesson.author_kind == :dreaming
     assert lesson.checked_release == "test-release"
     assert is_binary(lesson.checked_skill_hash)
     assert %DateTime{} = lesson.review_after
@@ -252,7 +265,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     disabled = Enum.find(lessons, &(&1["skill_name"] == "pdf"))
     refute disabled["effective_enabled"]
 
-    assert {:ok, %AgentSkillLesson{retire_reason: "human_revoked"}} =
+    assert {:ok, %AgentSkillLesson{retire_reason: :human_revoked}} =
              Library.retire_skill_lesson(agent.uid, pdf_lesson.id)
 
     assert {:error, :skill_lesson_already_retired} =
@@ -389,7 +402,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:error, {:skill_source_name_conflicts, ["pdf"]}} =
              Library.sync_agent_skills(agent.uid)
 
-    assert %AgentSkill{source_kind: "builtin", agent_plugin_id: nil} =
+    assert %AgentSkill{source_kind: :builtin, agent_plugin_id: nil} =
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "pdf")
 
     root = tmp_library_root!("plugin-collision")

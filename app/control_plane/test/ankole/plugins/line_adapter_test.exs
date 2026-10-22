@@ -242,7 +242,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
       %{principal: agent} = agent_fixture()
       assert {:ok, _binding} = put_line_binding(agent.uid, "line-quote")
 
-      Repo.insert!(%Intent{
+      Ankole.SignalsFixtures.delivery_fixture!(%{
         agent_uid: agent.uid,
         binding_name: "line-quote",
         outbound_key: "ai-reply:1",
@@ -901,7 +901,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
       # The clarify reply row carries the presentation; sending it pushes the
       # buttons and records the sent message as the event's reply surface.
       card_row =
-        Repo.insert!(%Intent{
+        Ankole.SignalsFixtures.delivery_fixture!(%{
           agent_uid: agent.uid,
           binding_name: "line-action",
           outbound_key: "ai-reply:clarify-1",
@@ -1150,7 +1150,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
       stale_row = fn key, age_seconds ->
         started_at = DateTime.add(now, -age_seconds, :second)
 
-        Repo.insert!(%Intent{
+        Ankole.SignalsFixtures.delivery_fixture!(%{
           agent_uid: agent.uid,
           binding_name: "line-expiry",
           outbound_key: key,
@@ -1228,7 +1228,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
         refute_received {:push, _path}
       end
 
-      flagged = %{aged | recovery_state: %{"possible_duplicate" => true}}
+      flagged = %{aged | possible_duplicate: true}
       assert {:ok, %{created_provider_message_id: "sent-late"}} = Delivery.deliver(flagged)
       assert_received {:push, "/v2/bot/message/push"}
 

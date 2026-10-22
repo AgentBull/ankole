@@ -131,25 +131,10 @@ defmodule Ankole.Principals.HumanAccess do
               r.reason == ^attrs.reason and is_nil(r.cleared_at)
       ) || %AccessRestriction{}
 
-    version = principal.access_version + if(principal.status == :active, do: 1, else: 0)
-
     with {:ok, _restriction} <-
-           restriction
-           |> AccessRestriction.changeset(Map.put(attrs, :principal_uid, principal.uid))
-           |> Ecto.Changeset.put_change(:recovery_verified_at, nil)
-           |> repo.insert_or_update(),
+           persist_restriction(restriction, Map.put(attrs, :principal_uid, principal.uid)),
          {:ok, disabled} <-
-           principal
-           |> Ecto.Changeset.change(
-             status: :disabled,
-             access_version: version,
-             access_revoked_at:
-               if(principal.status == :active,
-                 do: DateTime.utc_now(),
-                 else: principal.access_revoked_at
-               )
-           )
-           |> repo.update(),
+           Ankole.Ash.update(principal, :revoke_human_in_tx, %{}),
          {:ok, _event} <- record(repo, principal, disabled, "disable", attrs),
          :ok <-
            Ankole.OIDC.Sessions.revoke_human_in_tx(repo, disabled.uid, disabled.access_version),
@@ -157,6 +142,22 @@ defmodule Ankole.Principals.HumanAccess do
       {:ok, disabled}
     end
   end
+
+  defp persist_restriction(%AccessRestriction{id: nil}, attrs),
+    do:
+      Ankole.Ash.create(
+        AccessRestriction,
+        :restrict_in_tx,
+        Map.take(attrs, [:principal_uid, :source, :reason, :operation_id, :provider_time])
+      )
+
+  defp persist_restriction(restriction, attrs),
+    do:
+      Ankole.Ash.update(
+        restriction,
+        :repeat_restriction_in_tx,
+        Map.take(attrs, [:source, :reason, :operation_id, :provider_time])
+      )
 
   defp stale_provider_observation?(repo, uid, %{
          source: "provider:" <> _ = source,
@@ -182,7 +183,11 @@ defmodule Ankole.Principals.HumanAccess do
               r.principal_uid == ^principal.uid and r.source == ^source and is_nil(r.cleared_at)
 
         newly_verified? = repo.exists?(from r in active, where: is_nil(r.recovery_verified_at))
-        repo.update_all(active, set: [recovery_verified_at: now, updated_at: now])
+
+        Enum.each(repo.all(active), fn restriction ->
+          {:ok, _} =
+            Ankole.Ash.update(restriction, :verify_recovery_in_tx, %{recovery_verified_at: now})
+        end)
 
         if not newly_verified? do
           {:ok, principal}
@@ -210,9 +215,7 @@ defmodule Ankole.Principals.HumanAccess do
           restriction ->
             with :ok <- recovery_allowed(restriction),
                  {:ok, _} <-
-                   restriction
-                   |> Ecto.Changeset.change(cleared_at: DateTime.utc_now())
-                   |> repo.update() do
+                   Ankole.Ash.update(restriction, :clear_in_tx, %{cleared_at: DateTime.utc_now()}) do
               record(repo, principal, principal, "clear_restriction", %{
                 source: "manual",
                 reason: reason,
@@ -240,7 +243,7 @@ defmodule Ankole.Principals.HumanAccess do
              ),
            {:ok, %{fingerprint: ^review_fingerprint} = review} <- AuthZ.restoration_review(uid),
            {:ok, restored} <-
-             principal |> Principal.status_changeset(%{status: :active}) |> repo.update(),
+             Ankole.Ash.update(principal, :enable_in_tx, %{}),
            {:ok, _} <-
              record(repo, principal, restored, "restore", %{
                source: "manual",
@@ -284,9 +287,10 @@ defmodule Ankole.Principals.HumanAccess do
 
   defp recovery_allowed(_), do: {:error, :provider_recovery_not_verified}
 
-  defp record(repo, before, after_state, action, attrs) do
-    %AccessEvent{}
-    |> Ecto.Changeset.change(
+  defp record(_repo, before, after_state, action, attrs) do
+    Ankole.Ash.create(
+      AccessEvent,
+      :record_in_tx,
       Map.merge(
         Map.take(attrs, [
           :operation_id,
@@ -305,10 +309,5 @@ defmodule Ankole.Principals.HumanAccess do
         }
       )
     )
-    |> Ecto.Changeset.validate_required([:operation_id, :source, :reason])
-    |> Ecto.Changeset.unique_constraint(:operation_id,
-      name: :human_access_events_source_operation_id_principal_uid_index
-    )
-    |> repo.insert()
   end
 end

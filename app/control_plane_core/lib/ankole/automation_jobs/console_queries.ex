@@ -9,7 +9,7 @@ defmodule Ankole.AutomationJobs.ConsoleQueries do
       from(run in Run,
         join: job in Job,
         on: job.id == run.automation_job_id and job.tenant_id == run.tenant_id,
-        where: job.agent_uid == ^agent_uid and run.status in ["queued", "running"],
+        where: job.agent_uid == ^agent_uid and run.status in [:queued, :running],
         order_by: [desc: run.id],
         limit: ^(limit + 1),
         select: %{

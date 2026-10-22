@@ -21,24 +21,11 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
   @story_timeout 3_600_000
 
   setup_all do
-    previous = Application.fetch_env!(:ankole, Repo)
-
-    on_exit(fn ->
-      :ok = Supervisor.terminate_child(Ankole.Supervisor, Repo)
-      Application.put_env(:ankole, Repo, previous)
-      assert {:ok, _} = Supervisor.restart_child(Ankole.Supervisor, Repo)
-      :ok = Ecto.Adapters.SQL.Sandbox.mode(Repo, :manual)
-    end)
-
-    :ok = Supervisor.terminate_child(Ankole.Supervisor, Repo)
-    Application.put_env(:ankole, Repo, Keyword.put(previous, :pool, DBConnection.ConnectionPool))
-    assert {:ok, _} = Supervisor.restart_child(Ankole.Supervisor, Repo)
-
-    :ok
+    Ankole.E2E.Harness.start_committed_repo!()
   end
 
   setup do
-    tenant = Ankole.DataCase.create_tenant()
+    tenant = Ankole.DataCase.create_committed_tenant()
     Repo.put_tenant_id(tenant.id)
     {:ok, tenant: tenant}
   end
@@ -194,7 +181,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     assert delivered?,
            """
            The final Conversation did not deliver a clickable saved report.
-           completion=#{inspect(Map.take(Repo.reload!(completion), [:input_state, :completed_at, :dead_letter_at]))}
+           completion=#{inspect(Map.take(Repo.reload!(completion), [:status, :completed_at, :dead_letter_at]))}
            messages=#{inspect(Enum.map(detail.messages, &Map.take(&1, [:author_type, :text, :links, :signal_id])), printable_limit: 12_000)}
            """
 
@@ -580,6 +567,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
 
     assert delivered_after?(detail, request["message_id"], ctx.agent.uid, report.id)
     delivery_evidence(ctx, completion, detail, true)
+
     Browser.inventory!(ctx, owner, request["conversation_id"], report.id, applet.id, :reserve)
 
     assert {:ok, %{records: [reserved]}} = Database.query(owner, table.id, %{})

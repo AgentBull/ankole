@@ -19,6 +19,17 @@ defmodule Ankole.Principals.WorkCleanup do
     with {:ok, _} <- Oban.insert(new(%{"human_uid" => uid, "version" => version})), do: :ok
   end
 
+  def jobs_for_human(uid) do
+    Repo.all(
+      from job in Oban.Job,
+        where:
+          job.worker == "Ankole.Principals.WorkCleanup" and
+            fragment("?->>'human_uid' = ?", job.args, ^uid),
+        order_by: [desc: job.id],
+        limit: 20
+    )
+  end
+
   # The audit row commits with the stop mutations. Tenant teardown can process
   # a bounded batch without inventing a second cleanup checkpoint.
   def pending_for_tenant(limit) do
@@ -70,29 +81,22 @@ defmodule Ankole.Principals.WorkCleanup do
 
   def cleanup(uid, version) do
     Repo.transact(fn repo ->
-      principal = repo.one!(from p in Principal, where: p.uid == ^uid, lock: "FOR UPDATE")
+      principal =
+        repo.one!(from(p in Principal, where: p.uid == ^uid, lock: "FOR UPDATE"),
+          lock_identity: {"principals", uid}
+        )
+
       now = DateTime.utc_now()
 
       results =
         Repo.across_tenants(fn ->
-          [
-            {"cron", Ankole.Schedule.Cron.stop_human_work_in_tx(repo, uid, version, now)},
-            {"scheduled_events",
-             Ankole.Schedule.Checkbacks.stop_human_work_in_tx(repo, uid, version, now)},
-            {"background_jobs",
-             Ankole.BackgroundAgentJobs.Lifecycle.stop_human_work_in_tx(repo, uid, version, now)},
-            {"workflow_calls", Ankole.Workflow.stop_human_work_in_tx(repo, uid, version, now)},
-            {"automation_runs",
-             Ankole.AutomationJobs.stop_human_work_in_tx(repo, uid, version, now)},
-            {"signals", Ankole.Sessions.Queue.stop_human_work_in_tx(repo, uid, version, now)}
-          ]
-          |> Map.new(fn {kind, {count, _}} -> {kind, count} end)
+          Ankole.Work.Owner.revoke_human_work_in_tx(repo, uid, version, now)
         end)
 
       running = Repo.across_tenants(fn -> running_count(repo, uid, version) end)
 
-      repo.insert!(
-        Ecto.Changeset.change(%AccessEvent{}, %{
+      {:ok, _event} =
+        Ankole.Ash.create(AccessEvent, :record_once_in_tx, %{
           principal_uid: uid,
           operation_id: "access-version:#{version}",
           source: "work_cleanup",
@@ -102,10 +106,7 @@ defmodule Ankole.Principals.WorkCleanup do
           status: principal.status,
           access_version: version,
           details: Map.put(results, "admitted_attempts_allowed_to_finish", running)
-        }),
-        on_conflict: :nothing,
-        conflict_target: [:source, :operation_id, :principal_uid]
-      )
+        })
 
       {:ok, %{running: running, stopped: results}}
     end)
@@ -115,15 +116,16 @@ defmodule Ankole.Principals.WorkCleanup do
     events =
       from e in Ankole.Signals.Signal,
         where:
-          e.human_uid == ^uid and e.human_access_version < ^version and is_nil(e.completed_at),
+          e.human_uid == ^uid and e.human_access_version < ^version and
+            e.status in [:queued, :running],
         select: e.id
 
     deliveries =
       repo.aggregate(
         from(e in Ankole.Signals.Signal,
           where:
-            e.id in subquery(events) and not is_nil(e.last_attempt_at) and is_nil(e.completed_at) and
-              e.input_state == "open"
+            e.id in subquery(events) and not is_nil(e.last_attempt_at) and
+              e.status in [:queued, :running]
         ),
         :count
       )
@@ -136,7 +138,7 @@ defmodule Ankole.Principals.WorkCleanup do
     deliveries +
       repo.aggregate(
         from(r in Ankole.AutomationJobs.Schemas.Run,
-          where: r.automation_job_id in subquery(jobs) and r.status == "running"
+          where: r.automation_job_id in subquery(jobs) and r.status == :running
         ),
         :count
       )

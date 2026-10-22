@@ -196,7 +196,7 @@ defmodule Ankole.AIGateway.StatefulLifecycleTest do
            }
 
     assert stateful_context.message.conversation_id == conversation.id
-    assert stateful_context.message.status == "generating"
+    assert stateful_context.message.status == :generating
   end
 
   test "websocket stateful requests reject wires that cannot replay Responses history" do
@@ -846,8 +846,8 @@ defmodule Ankole.AIGateway.StatefulLifecycleTest do
       )
 
     checkpoint = Repo.get!(Message, failed_run.previous_message_id)
-    assert checkpoint.type == "checkpoint"
-    assert checkpoint.status == "complete"
+    assert checkpoint.type == :checkpoint
+    assert checkpoint.status == :complete
     assert checkpoint.previous_message_id == m3.id
 
     artifact = Repo.get!(CompactionArtifact, checkpoint.id)
@@ -969,7 +969,7 @@ defmodule Ankole.AIGateway.StatefulLifecycleTest do
     assert terminal_response_body!(events)["status"] == "failed"
     assert Agent.get(request_counts, & &1) == %{light: 0, primary: 1}
 
-    refute Repo.exists?(from(message in Message, where: message.type == "checkpoint"))
+    refute Repo.exists?(from(message in Message, where: message.type == :checkpoint))
   end
 
   test "automatic stateful continuation closes client tool calls interrupted before durable output" do
@@ -1399,7 +1399,7 @@ defmodule Ankole.AIGateway.StatefulLifecycleTest do
       |> Enum.filter(&(get_in(&1.metadata, ["request_metadata", "signal_id"]) == signal.id))
 
     assert run.previous_message_id == first.id
-    assert run.status == "error"
+    assert run.status == :error
     assert run.content == current_input
     assert run.metadata["error"]["stage"] == "socket_open"
     assert is_nil(Repo.get!(Signal, signal.id).completed_at)

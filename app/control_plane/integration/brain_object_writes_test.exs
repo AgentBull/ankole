@@ -4,8 +4,10 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
 
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
 
+  alias Ankole.Brain.Chunks
   alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
+  alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.ObjectVersion
   alias Ecto.Adapters.SQL.Sandbox
@@ -13,20 +15,7 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
   setup %{tenant: tenant} do
     on_exit(fn ->
       Sandbox.unboxed_run(Repo, fn ->
-        Repo.with_tenant(tenant.id, fn ->
-          {:ok, :removed} =
-            Repo.transact(fn repo ->
-              repo.delete_all(Object)
-
-              for table <-
-                    ~w(brain_schema_calibration_domains brain_schema_link_types brain_schema_types brain_schema_packs) do
-                repo.query!("DELETE FROM #{table} WHERE tenant_id = $1::text::uuid", [tenant.id])
-              end
-
-              repo.delete!(tenant)
-              {:ok, :removed}
-            end)
-        end)
+        Repo.with_tenant(tenant.id, fn -> cleanup_tenant!(tenant) end)
       end)
     end)
 
@@ -112,6 +101,45 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
 
   # Match the existing transaction suites: these tasks use independent,
   # committed PostgreSQL connections rather than a shared Sandbox owner.
+
+  test "an embedding result commits once and a later body edit invalidates its position",
+       context do
+    chunk = Repo.get_by!(Chunk, object_id: context.object.id, chunk_index: 0)
+    vector = Pgvector.new(List.duplicate(0.5, 4096))
+    embedded = hold(fn -> Chunks.record_embedding(chunk, {:ok, vector, "current-model"}) end)
+
+    late_failure =
+      start(fn -> Chunks.record_embedding(chunk, {:error, "late failure", "old-model"}) end)
+
+    assert_blocked_by(late_failure, embedded)
+    send(embedded.task.pid, :commit)
+    assert {:ok, :updated} = Task.await(embedded.task, 5_000)
+    assert {:ok, :stale} = Task.await(late_failure.task, 5_000)
+
+    stored = Repo.get!(Chunk, chunk.id)
+    assert stored.embedding != nil
+    assert stored.embedding_signature == "current-model"
+    assert stored.embedding_error == nil
+    assert stored.embedded_at != nil
+
+    assert {:ok, _object} =
+             Objects.update_object(
+               context.object.slug,
+               %{
+                 body: "Changed after embedding",
+                 expected_content_hash: context.object.content_hash
+               },
+               :system
+             )
+
+    replaced = Repo.get!(Chunk, chunk.id)
+    assert replaced.chunk_text == "Changed after embedding"
+    assert replaced.embedding == nil
+    assert replaced.embedding_signature == nil
+    assert replaced.embedding_error == nil
+    assert replaced.embedded_at == nil
+  end
+
   defp start(fun) do
     parent = self()
     tenant_id = Repo.tenant_id!()

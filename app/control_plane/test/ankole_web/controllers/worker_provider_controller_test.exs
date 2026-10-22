@@ -9,16 +9,15 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
   alias Ankole.Setup.Config, as: SetupConfig
 
   alias Ankole.AgentWorkers.Cloudflare
-  alias Ankole.AgentWorkers.FunctionCompute
+  alias Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute
   alias Ankole.AgentWorkers.Lambda
   alias Ankole.AgentWorkers.Providers
-  alias Ankole.AgentWorkers.Vercel
+  alias Ankole.Plugins.VercelWorkerProvider.Provider, as: Vercel
 
   alias Ankole.AgentWorkers.Providers.Provider
   alias Ankole.AgentWorkers.AgentWorker
 
   setup do
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
@@ -27,6 +26,86 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
 
     :ok = SetupConfig.delete_bootstrap_activation_code()
     %{providers_before: Repo.all(from p in Provider, order_by: p.provider_id)}
+  end
+
+  test "an inactive Plugin keeps its provider visible and explains recovery", %{conn: conn} do
+    alias Ankole.Plugins.Registry, as: PluginRegistry
+    original = :sys.get_state(PluginRegistry)
+
+    on_exit(fn ->
+      :sys.replace_state(PluginRegistry, fn _state -> original end)
+
+      Ankole.AgentWorkers.ProviderKind.refresh_from_specs(
+        Map.values(original.discovered),
+        Map.values(original.active)
+      )
+    end)
+
+    conn = console_conn(conn)
+
+    {:ok, provider} =
+      Providers.create(%{
+        provider_id: "saved-vercel",
+        kind: "vercel",
+        display_name: "Saved Vercel",
+        config: Vercel.definition().example,
+        credentials: %{"token" => "secret"}
+      })
+
+    {:ok, _} = Ankole.Plugins.put_configured_enabled("vercel-worker-provider", false)
+    {:ok, snapshot} = PluginRegistry.prepare_snapshot()
+    :sys.replace_state(PluginRegistry, fn _state -> snapshot end)
+
+    Ankole.AgentWorkers.ProviderKind.refresh_from_specs(
+      Map.values(snapshot.discovered),
+      Map.values(snapshot.active)
+    )
+
+    response =
+      conn |> recycle_api() |> get(~p"/api/v1/site/worker-provider-kinds") |> json_response(200)
+
+    refute Enum.any?(response["worker_provider_kinds"], &(&1["kind"] == "vercel"))
+
+    response =
+      conn |> recycle_api() |> get(~p"/api/v1/site/worker-providers") |> json_response(200)
+
+    row = Enum.find(response["worker_providers"], &(&1["provider_id"] == provider.provider_id))
+    refute row["selectable"]
+    assert row["config"] == provider.config
+    assert row["credentials"] == %{"token" => "********"}
+
+    response =
+      conn
+      |> recycle_api()
+      |> get(~p"/api/v1/site/worker-providers/saved-vercel/check")
+      |> json_response(422)
+
+    assert response["error"]["message"] =~ "vercel-worker-provider"
+    assert response["error"]["message"] =~ "restart"
+
+    %{principal: owner} = human_fixture()
+
+    response =
+      conn
+      |> recycle_api()
+      |> post(~p"/api/v1/agents", %{
+        worker_provider_id: provider.provider_id,
+        handle: "inactive-plugin-agent",
+        display_name: "Inactive",
+        role: "Research Analyst",
+        owner_principal_uid: owner.uid
+      })
+      |> json_response(422)
+
+    assert response["error"]["code"] == "invalid_worker_provider"
+    assert response["error"]["message"] =~ "vercel-worker-provider"
+
+    assert response["error"]["details"] == [
+             %{
+               "path" => "kind",
+               "message" => "requires active and configured Plugin vercel-worker-provider"
+             }
+           ]
   end
 
   test "admin saves the original YAML, reads the type contract, and sees every YAML error location",
@@ -195,7 +274,7 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     assert response == %{"agent_uid" => agent_uid, "provider_id" => "local"}
 
     Repo.get!(AgentWorker, agent_uid)
-    |> Ecto.Changeset.change(state: "deleting")
+    |> Ecto.Changeset.change(state: :deleting)
     |> Repo.update!()
 
     response =

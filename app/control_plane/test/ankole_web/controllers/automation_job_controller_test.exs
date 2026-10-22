@@ -15,7 +15,6 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
   alias Ankole.Setup.Config, as: SetupConfig
 
   setup do
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
@@ -51,6 +50,11 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
                  }
                )
              end)
+
+    assert {:ok, _worker} =
+             Ankole.SessionsCase.admit_worker("automation-test-#{agent.uid}", %{
+               worker_id: agent.uid
+             })
 
     assert {:ok, %{run: attempt}} = AutomationJobs.start_attempt(run.id)
 

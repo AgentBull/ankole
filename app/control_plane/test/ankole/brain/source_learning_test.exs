@@ -19,7 +19,6 @@ defmodule Ankole.Brain.SourceLearningTest do
   alias Ankole.AgentWorkers.WorkerRoute
 
   setup do
-    allow_cache_database_access()
     AppConfigure.Cache.clear_for_test()
     on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
 
@@ -171,7 +170,7 @@ defmodule Ankole.Brain.SourceLearningTest do
       assert {:error, {:extraction_failed, :invalid_extraction_response}} =
                SourceLearning.learn(source.id)
 
-      assert Repo.get_by!(Object, slug: slug) == original
+      Ankole.DataCase.assert_persisted_equal(Repo.get_by!(Object, slug: slug), original)
       assert source_claims(source) == original_facts
       assert Repo.get!(Source, source.id).upstream_revision == revision
     end

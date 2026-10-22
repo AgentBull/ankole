@@ -26,6 +26,7 @@ defmodule AnkoleWeb.PodAppletController do
     422 => {"Error", "application/json", ErrorEnvelope},
     500 => {"Error", "application/json", ErrorEnvelope},
     502 => {"Error", "application/json", ErrorEnvelope},
+    503 => {"Error", "application/json", ErrorEnvelope},
     504 => {"Error", "application/json", ErrorEnvelope}
   }
 

@@ -271,12 +271,10 @@ defmodule AnkoleWeb.PrincipalController do
   defp error(conn, :not_human),
     do: ConsoleErrors.render(conn, 422, "not_human", "local passwords apply to human users only")
 
-  defp error(conn, %Ecto.Changeset{} = changeset) do
+  defp error(conn, %module{} = changeset) when module in [Ash.Changeset, Ash.Error.Invalid] do
     details = ConsoleErrors.changeset_details(changeset)
 
-    # The create path derives the principal uid from the email, so a duplicate
-    # uid means the same thing to the operator as a duplicate email.
-    case Enum.any?(details, &(&1.path in ["email", "uid"] and &1.message =~ "taken")) do
+    case Enum.any?(details, &(&1.path == "email" and &1.message =~ "taken")) do
       true ->
         ConsoleErrors.render(
           conn,

@@ -1,65 +1,101 @@
 defmodule Ankole.OIDC.AuthorizationCode do
   @moduledoc false
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.OIDC.Domain
 
-  use Ankole.Schema, tenancy: :tenant
+  postgres do
+    table("oidc_authorization_codes")
+    repo(Ankole.Repo)
+    migrate?(false)
 
-  import Ecto.Changeset
+    foreign_key_names(
+      client_id: "oidc_authorization_codes_client_id_fkey",
+      principal_uid: "oidc_authorization_codes_principal_uid_fkey",
+      session_id: "oidc_authorization_codes_session_id_fkey",
+      family_id: "oidc_authorization_codes_family_id_fkey"
+    )
 
-  alias Ankole.OIDC.Client
-  alias Ankole.Principals.Principal
-
-  @primary_key {:digest, :string, autogenerate: false}
-  @foreign_key_type :binary_id
-  @timestamps_opts [type: :utc_datetime_usec, updated_at: false]
-
-  schema "oidc_authorization_codes" do
-    belongs_to :client, Client
-
-    belongs_to :principal, Principal,
-      foreign_key: :principal_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
-
-    field :redirect_uri, :string
-    field :scope, :string
-    field :state, :string
-    field :nonce, :string
-    field :code_challenge_digest, :string
-    field :code_challenge_method, :string
-    field :expires_at, :utc_datetime_usec
-    field :session_id, Ankole.Ecto.UUIDv7
-
-    timestamps()
+    check_constraints do
+      check_constraint(:code_challenge, "oidc_authorization_codes_pkce_s256")
+      check_constraint(:finalized, "oidc_authorization_codes_finalization")
+    end
   end
 
-  def changeset(code, attrs) do
-    code
-    |> cast(attrs, [
-      :digest,
-      :client_id,
-      :principal_uid,
-      :redirect_uri,
-      :scope,
-      :state,
-      :nonce,
-      :code_challenge_digest,
-      :code_challenge_method,
-      :expires_at,
-      :session_id
-    ])
-    |> validate_required([
-      :digest,
-      :client_id,
-      :principal_uid,
-      :redirect_uri,
-      :scope,
-      :code_challenge_digest,
-      :code_challenge_method,
-      :expires_at,
-      :session_id
-    ])
-    |> foreign_key_constraint(:client_id)
-    |> foreign_key_constraint(:principal_uid)
-    |> check_constraint(:code_challenge_method, name: :oidc_authorization_codes_pkce_s256)
+  attributes do
+    attribute(:digest, :string,
+      primary_key?: true,
+      public?: true,
+      allow_nil?: false,
+      constraints: [trim?: false]
+    )
+
+    attribute(:client_id, Ankole.Ash.Types.UUIDv7, public?: true, allow_nil?: false)
+    attribute(:principal_uid, Ankole.Ash.Types.PrincipalKey, public?: true, allow_nil?: false)
+    attribute(:session_id, Ankole.Ash.Types.UUIDv7, public?: true, allow_nil?: false)
+
+    attribute(:redirect_uri, :string,
+      public?: true,
+      allow_nil?: false,
+      constraints: [trim?: false]
+    )
+
+    attribute(:scope, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
+    attribute(:nonce, :string, public?: true, constraints: [trim?: false, allow_empty?: true])
+
+    attribute(:code_challenge, :string,
+      public?: true,
+      allow_nil?: false,
+      constraints: [match: ~r/^[A-Za-z0-9_-]{43}$/]
+    )
+
+    attribute(:expires_at, :utc_datetime_usec, public?: true, allow_nil?: false)
+    attribute(:consumed_at, :utc_datetime_usec, public?: true)
+    attribute(:finalized, :boolean, public?: true, allow_nil?: false, default: false)
+    attribute(:family_id, :string, public?: true, constraints: [trim?: false])
+    attribute(:replay_retain_until, :utc_datetime_usec, public?: true)
+    create_timestamp(:inserted_at, type: :utc_datetime_usec)
+  end
+
+  actions do
+    defaults([:read])
+
+    create :issue_in_tx do
+      accept([
+        :digest,
+        :client_id,
+        :principal_uid,
+        :session_id,
+        :redirect_uri,
+        :scope,
+        :nonce,
+        :code_challenge,
+        :expires_at
+      ])
+
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+    end
+
+    atomic_in_tx_update :consume_in_tx do
+      accept([])
+      argument(:at, :utc_datetime_usec, allow_nil?: false)
+      change(filter(expr(is_nil(consumed_at))))
+      change(set_attribute(:consumed_at, arg(:at)))
+    end
+
+    atomic_in_tx_update :finalize_in_tx do
+      accept([])
+      argument(:family_id, :string, constraints: [trim?: false])
+      argument(:replay_retain_until, :utc_datetime_usec, allow_nil?: false)
+      change(filter(expr(not finalized and not is_nil(consumed_at))))
+      change(set_attribute(:finalized, true))
+      change(set_attribute(:family_id, arg(:family_id)))
+      change(set_attribute(:replay_retain_until, arg(:replay_retain_until)))
+    end
+
+    destroy :expire_in_tx do
+      transaction?(false)
+      require_atomic?(true)
+      change(Ankole.Ash.RequireTransaction.Atomic)
+    end
   end
 end

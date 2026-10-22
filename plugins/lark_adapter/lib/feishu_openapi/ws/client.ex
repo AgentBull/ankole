@@ -14,6 +14,7 @@ defmodule FeishuOpenAPI.WS.Client do
 
   require Logger
 
+  alias Ankole.Logging
   alias FeishuOpenAPI.{Client, Event.Envelope, WS.Frame, WS.Protocol, Event.Dispatcher}
   alias IMTransport.WebSocket
 
@@ -191,9 +192,21 @@ defmodule FeishuOpenAPI.WS.Client do
       {nil, _} ->
         {:noreply, state}
 
-      {{frame, _event_type, start_ms}, rest} ->
+      {{frame, event_type, start_ms}, rest} ->
         duration_ms = System.monotonic_time(:millisecond) - start_ms
-        Logger.error("feishu_openapi ws dispatch task crashed: #{inspect(reason)}")
+
+        stacktrace =
+          case reason do
+            {exception, frames} when is_exception(exception) and is_list(frames) -> frames
+            _ -> []
+          end
+
+        Logging.error(
+          "feishu_openapi.ws.dispatch_crashed",
+          "Feishu WebSocket dispatch task exited",
+          Map.put(Logging.failure_fields(:exit, reason, stacktrace), :event_type, event_type)
+        )
+
         state = %{state | dispatch_tasks: rest}
 
         {:noreply,
@@ -435,8 +448,15 @@ defmodule FeishuOpenAPI.WS.Client do
   end
 
   defp log_dispatch_result(%Frame{} = frame, event_type, result, duration_ms, state) do
-    Logger.info(
-      "feishu_openapi ws dispatch result app_id=#{state.client.app_id} frame_type=#{frame_type(frame)} event_type=#{event_type} result=#{dispatch_result(result)} duration_ms=#{duration_ms}"
+    Logging.info(
+      "feishu_openapi.ws.dispatch_result",
+      "Feishu WebSocket event dispatched",
+      Map.merge(dispatch_result(result), %{
+        app_id: state.client.app_id,
+        frame_type: frame_type(frame),
+        event_type: event_type,
+        duration_ms: duration_ms
+      })
     )
   end
 
@@ -504,12 +524,24 @@ defmodule FeishuOpenAPI.WS.Client do
     end
   end
 
-  defp dispatch_result({:ok, :no_handler}), do: "no_handler"
-  defp dispatch_result({:ok, :unknown_event}), do: "unknown_event"
-  defp dispatch_result({:ok, _result}), do: "handled"
-  defp dispatch_result({:challenge, _challenge}), do: "challenge"
-  defp dispatch_result({:error, reason}), do: "error:#{inspect(reason)}"
-  defp dispatch_result(other), do: inspect(other)
+  defp dispatch_result({:ok, :no_handler}), do: %{result: "no_handler"}
+  defp dispatch_result({:ok, :unknown_event}), do: %{result: "unknown_event"}
+  defp dispatch_result({:ok, _result}), do: %{result: "handled"}
+  defp dispatch_result({:challenge, _challenge}), do: %{result: "challenge"}
+
+  defp dispatch_result({:error, {:handler_crashed, {kind, reason}}})
+       when kind in [:exit, :throw],
+       do: Map.put(Logging.failure_fields(kind, reason, []), :result, "handler_crashed")
+
+  defp dispatch_result({:error, {status, reason}})
+       when status in [:handler_crashed, :handler_failed],
+       do: Map.put(Logging.failure_fields(:error, reason, []), :result, Atom.to_string(status))
+
+  defp dispatch_result({:error, reason}),
+    do: Map.put(Logging.failure_fields(:error, reason, []), :result, "error")
+
+  defp dispatch_result(other),
+    do: Map.put(Logging.failure_fields(:error, other, []), :result, "invalid_result")
 
   defp reassemble(%Frame{} = frame, state) do
     case Frame.fragmentation(frame) do

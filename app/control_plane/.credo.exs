@@ -78,6 +78,7 @@
           {ExSlop.Check.Warning.QueryInEnumMap, []},
           {ExSlop.Check.Warning.RepoAllThenFilter, []},
           {Ankole.Credo.AppendInLoop, []},
+          {Ankole.Credo.AshActions, []},
           {Credo.Check.Refactor.Nesting, [max_nesting: 4]},
           {Credo.Check.Refactor.CyclomaticComplexity, [max_complexity: 20]}
         ]

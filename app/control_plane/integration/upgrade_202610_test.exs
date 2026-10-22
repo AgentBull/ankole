@@ -11,10 +11,8 @@ defmodule Ankole.Upgrade202610IntegrationTest do
   alias Ankole.AppConfigure.AppConfig
   alias Ankole.AppConfigure.SiteConfig
   alias Ankole.AppConfigure.Crypto
-  alias Ankole.AuthZ.Group
   alias Ankole.Plugins.LarkAdapter.Config, as: LarkConfig
   alias Ankole.Plugins.Microsoft365Adapter.Config, as: TeamsConfig
-  alias Ankole.Principals.Principal
   alias Ankole.Signals.Binding
   alias Ankole.Signals.Bindings
 
@@ -40,18 +38,14 @@ defmodule Ankole.Upgrade202610IntegrationTest do
     on_exit(fn ->
       Sandbox.unboxed_run(Repo, fn ->
         Repo.with_tenant(tenant.id, fn ->
-          Repo.delete_all(from binding in Binding, where: binding.agent_uid in ^agent_uids)
           Enum.each(agent_uids, &delete_agent_fixture_rows/1)
-          Repo.delete_all(Group)
-          Repo.delete_all(Principal)
-          Repo.delete_all(from job in Oban.Job, where: job.args["tenant_id"] == ^tenant.id)
-          Repo.delete!(tenant)
+          cleanup_tenant!(tenant)
         end)
 
-        Repo.delete_all(from config in SiteConfig, where: config.key in ^keys)
+        Repo.delete_all(from(config in SiteConfig, where: config.key in ^keys))
 
         Repo.with_tenant(original.id, fn ->
-          Repo.delete_all(from config in AppConfig, where: config.key in ^[idp_key, active_key])
+          Repo.delete_all(from(config in AppConfig, where: config.key in ^[idp_key, active_key]))
           if previous_active, do: Repo.insert!(Ecto.put_meta(previous_active, state: :built))
         end)
       end)
@@ -89,14 +83,13 @@ defmodule Ankole.Upgrade202610IntegrationTest do
     seed_config(binding_key, binding_config)
 
     for uid <- agent_uids do
-      %Binding{}
-      |> Binding.changeset(%{
-        agent_uid: uid,
-        name: name,
-        adapter: "teams",
-        config_ref: "app-config://#{binding_key}"
-      })
-      |> Repo.insert!()
+      assert {:ok, _binding} =
+               Ankole.SignalsFixtures.raw_binding_fixture(%{
+                 agent_uid: uid,
+                 name: name,
+                 adapter: "teams",
+                 config_ref: "app-config://#{binding_key}"
+               })
     end
 
     %{
@@ -184,11 +177,11 @@ defmodule Ankole.Upgrade202610IntegrationTest do
   end
 
   defp configuration_rows(original_id, keys) do
-    site = Repo.all(from config in SiteConfig, where: config.key in ^keys, order_by: config.key)
+    site = Repo.all(from(config in SiteConfig, where: config.key in ^keys, order_by: config.key))
 
     tenant =
       Repo.with_tenant(original_id, fn ->
-        Repo.all(from config in AppConfig, where: config.key in ^keys, order_by: config.key)
+        Repo.all(from(config in AppConfig, where: config.key in ^keys, order_by: config.key))
       end)
 
     {site, tenant}

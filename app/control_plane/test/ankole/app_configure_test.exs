@@ -2,6 +2,7 @@ defmodule Ankole.AppConfigureTest do
   use Ankole.DataCase, async: false
 
   import Ecto.Query
+  require Ash.Query
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Ankole.AppConfigure
@@ -12,11 +13,185 @@ defmodule Ankole.AppConfigureTest do
   alias Ankole.AppConfigure.Schema
 
   setup do
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
     {:ok, prefix: "__test.app_configure.#{System.unique_integer([:positive])}"}
+  end
+
+  test "resource writes own declaration validation, scope, and encryption", %{prefix: prefix} do
+    secret =
+      AppConfigure.define(
+        key: key(prefix, "action-secret"),
+        encrypted: true,
+        scope: :global,
+        schema: Schema.non_empty_string()
+      )
+
+    assert :ok = Registry.register_definitions([secret])
+
+    assert {:ok, row} =
+             Ankole.Ash.create(Ankole.AppConfigure.SiteConfig, :put, %{
+               scope: "global",
+               key: secret.key,
+               input: "private-value"
+             })
+
+    assert %{"type" => "cipher", "value" => ciphertext} = row.value
+    refute ciphertext == "private-value"
+
+    assert {:ok, "private-value"} =
+             Ankole.AppConfigure.Codec.load(secret, "global", secret.key, row.value)
+
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.get_by!(Ankole.AppConfigure.SiteConfig, scope: "global", key: secret.key),
+      row
+    )
+
+    assert {:error, {:global_scope_only, rejected_key}} =
+             Ankole.Ash.create(AppConfig, :put, %{
+               scope: "tenant:" <> Repo.tenant_id!(),
+               key: secret.key,
+               input: "rejected"
+             })
+
+    assert rejected_key == secret.key
+
+    unknown_key = key(prefix, "undeclared")
+
+    assert {:error, {:unknown_key, ^unknown_key}} =
+             Ankole.Ash.create(Ankole.AppConfigure.SiteConfig, :put, %{
+               scope: "global",
+               key: unknown_key,
+               input: "rejected"
+             })
+
+    refute Repo.get_by(Ankole.AppConfigure.SiteConfig, scope: "global", key: unknown_key)
+
+    assert MapSet.new(AppConfig.__schema__(:primary_key)) ==
+             MapSet.new([:tenant_id, :scope, :key])
+
+    assert MapSet.new(Ankole.AppConfigure.SiteConfig.__schema__(:primary_key)) ==
+             MapSet.new([:scope, :key])
+  end
+
+  test "atomic platform identity metadata preserves encrypted envelopes in both scopes", %{
+    prefix: prefix
+  } do
+    definition =
+      AppConfigure.define(
+        key: key(prefix, "platform-metadata"),
+        encrypted: true,
+        scope: :tenant,
+        schema: Schema.non_empty_string()
+      )
+
+    assert :ok = Registry.register_definitions([definition])
+
+    for scope <- ["global", "tenant:" <> Repo.tenant_id!()] do
+      resource = AppConfig.for_scope(scope)
+
+      assert {:ok, row} =
+               Ankole.Ash.create(resource, :put, %{
+                 scope: scope,
+                 key: definition.key,
+                 input: "secret"
+               })
+
+      envelope = row.value
+      query = Ash.Query.filter(resource, scope == ^scope and key == ^definition.key)
+
+      assert {:ok, :recorded} =
+               Repo.transact(fn _repo ->
+                 result =
+                   Ankole.Ash.bulk_update(
+                     query,
+                     :record_platform_application,
+                     %{application: "provider:application"},
+                     strategy: [:atomic],
+                     return_errors?: true,
+                     return_records?: true
+                   )
+
+                 assert %{status: :success, records: [updated]} = result
+
+                 assert updated.value ==
+                          Map.put(envelope, "platform_application", "provider:application")
+
+                 assert {:ok, "secret"} =
+                          Ankole.AppConfigure.Codec.load(
+                            definition,
+                            scope,
+                            definition.key,
+                            updated.value
+                          )
+
+                 {:ok, :recorded}
+               end)
+
+      assert {:ok, :removed} =
+               Repo.transact(fn _repo ->
+                 assert %{status: :success} =
+                          Ankole.Ash.bulk_destroy(query, :remove, %{},
+                            strategy: [:atomic],
+                            return_errors?: true
+                          )
+
+                 {:ok, :removed}
+               end)
+
+      assert [] = Ankole.Ash.read!(query)
+    end
+  end
+
+  @tag sandbox: false
+  test "committed E2E cleanup restores changed and deleted global values and removes new keys", %{
+    prefix: prefix
+  } do
+    definitions =
+      for suffix <- ["changed", "deleted", "created"] do
+        AppConfigure.define(
+          key: key(prefix, suffix),
+          encrypted: false,
+          scope: :global,
+          schema: Schema.object()
+        )
+      end
+
+    [changed, deleted, created] = definitions
+    assert :ok = Registry.register_definitions(definitions)
+    assert {:ok, _} = AppConfigure.put_global(changed, %{"value" => "before"})
+    assert {:ok, _} = AppConfigure.put_global(deleted, %{"value" => "before"})
+
+    # Register verification first: ExUnit runs the real Harness cleanup before it.
+    on_exit(fn ->
+      try do
+        assert {:ok, %{"value" => "before"}} =
+                 AppConfigure.get_global_by_key_in_tx(Repo, changed.key)
+
+        assert {:ok, %{"value" => "before"}} =
+                 AppConfigure.get_global_by_key_in_tx(Repo, deleted.key)
+
+        assert :error = AppConfigure.get_global_by_key_in_tx(Repo, created.key)
+      after
+        Enum.each(definitions, &delete_unboxed_global_row(&1.key))
+        Cache.clear_for_test()
+      end
+    end)
+
+    Ankole.E2E.Harness.cleanup_committed_fixtures_on_exit!()
+
+    assert {:ok, _} = AppConfigure.put_global(changed, %{"value" => "after"})
+    assert :ok = AppConfigure.delete_global(deleted)
+    assert {:ok, _} = AppConfigure.put_global(created, %{"value" => "new"})
+
+    assert {:ok, %{"value" => "after"}} =
+             AppConfigure.get_global_by_key_in_tx(Repo, changed.key)
+
+    assert :error = AppConfigure.get_global_by_key_in_tx(Repo, deleted.key)
+
+    assert {:ok, %{"value" => "new"}} =
+             AppConfigure.get_global_by_key_in_tx(Repo, created.key)
   end
 
   @tag timeout: 15_000
@@ -53,13 +228,12 @@ defmodule Ankole.AppConfigureTest do
 
       Repo.delete_all(from(c in Ankole.AppConfigure.SiteConfig, where: c.key == ^deleted.key))
 
-      Repo.insert!(
-        Ankole.AppConfigure.SiteConfig.changeset(%Ankole.AppConfigure.SiteConfig{}, %{
+      {:ok, _row} =
+        Ankole.Ash.create(Ankole.AppConfigure.SiteConfig, :put, %{
           scope: "global",
           key: created.key,
-          value: %{"type" => "plaintext", "value" => %{"value" => "created"}}
+          input: %{"value" => "created"}
         })
-      )
     end)
 
     assert {:ok, %{"value" => "before"}} = AppConfigure.get(changed)
@@ -563,12 +737,10 @@ defmodule Ankole.AppConfigureTest do
     assert {:ok, stored_value} = AppConfigure.put_global_by_key(key, value)
 
     other =
-      %Ankole.Tenants.Tenant{}
-      |> Ankole.Tenants.Tenant.changeset(%{
+      create_tenant(%{
         slug: "binding-config-#{Ecto.UUID.generate()}",
         display_name: "Other"
       })
-      |> Repo.insert!()
 
     for tenant_id <- [Repo.tenant_id!(), other.id] do
       Repo.with_tenant(tenant_id, fn ->
@@ -642,15 +814,18 @@ defmodule Ankole.AppConfigureTest do
 
   defp insert_row!(scope, key, value) do
     schema = AppConfig.for_scope(scope)
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-    row =
-      if scope == "global",
-        do: struct!(schema),
-        else: struct!(schema, tenant_id: Repo.tenant_id!())
+    attrs = %{scope: scope, key: key, value: value, inserted_at: now, updated_at: now}
+
+    attrs =
+      if schema.__tenancy__() == :tenant,
+        do: Map.put(attrs, :tenant_id, Repo.tenant_id!()),
+        else: attrs
+
+    {1, [row]} = Repo.insert_all(schema, [attrs], returning: true)
 
     row
-    |> schema.changeset(%{scope: scope, key: key, value: value})
-    |> Repo.insert!()
   end
 
   defp delete_unboxed_global_row(key) do

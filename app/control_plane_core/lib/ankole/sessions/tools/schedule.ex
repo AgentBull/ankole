@@ -389,8 +389,11 @@ defmodule Ankole.Sessions.Tools.Schedule do
   end
 
   @impl true
-  def execute_in_tx(_repo, run, call, args) do
-    with {:ok, result} <- execute(run, call, args), do: {:ok, result, []}
+  def prepare_in_tx(_repo, run, call, args) do
+    # Schedule operations write only definitions, due events, and Oban jobs.
+    # The receipt fence and these writes commit in the same transaction.
+    with {:ok, result} <- execute(run, call, args),
+         do: {:ok, [], fn -> {:ok, result, []} end}
   end
 
   defp invoke(run, call, args) do
@@ -749,7 +752,7 @@ defmodule Ankole.Sessions.Tools.Schedule do
 
       origin_schedule_id ->
         case Schedule.get_cron_schedule(origin_schedule_id) do
-          {:ok, %{status: "deleted"}} -> []
+          {:ok, %{status: :deleted}} -> []
           {:ok, schedule} when schedule.agent_uid == turn_ref.agent_uid -> [schedule]
           _other -> []
         end

@@ -32,6 +32,8 @@ defmodule GoogleOpenAPI.Auth do
         scope: Enum.join(Keyword.get(opts, :scopes, ["openid", "email", "profile"]), " ")
       }
       |> maybe_put(:hd, Keyword.get(opts, :hd))
+      |> maybe_put(:nonce, Keyword.get(opts, :nonce))
+      |> maybe_put(:prompt, Keyword.get(opts, :prompt))
 
     "#{auth_base_url}/o/oauth2/v2/auth?#{URI.encode_query(params)}"
   end

@@ -60,15 +60,15 @@ impl SSEParser {
             // arrive in the next network chunk and belongs to this boundary.
             self.pending_lf =
                 self.buffer.len() == index + boundary_len && self.buffer.last() == Some(&b'\r');
-            let mut raw = self.buffer.drain(..index).collect::<Vec<_>>();
-            self.buffer.drain(..boundary_len);
+            let mut raw = &self.buffer[..index];
+            while let Some(stripped) = raw.strip_suffix(b"\n").or_else(|| raw.strip_suffix(b"\r")) {
+                raw = stripped;
+            }
+            let event = parse_sse_event(raw);
+            self.buffer.drain(..index + boundary_len);
             self.scan_from = 0;
 
-            while raw.ends_with(b"\n") || raw.ends_with(b"\r") {
-                raw.pop();
-            }
-
-            if let Some(event) = parse_sse_event(&raw) {
+            if let Some(event) = event {
                 events.push(event);
             }
         }
@@ -241,15 +241,20 @@ impl AWSEventStreamParser {
                 break;
             }
 
-            let frame = self.buffer.drain(..total_length).collect::<Vec<_>>();
-            validate_crc(&frame)?;
-
             let headers_start = 12;
             let headers_end = headers_start + headers_length;
             let payload_end = total_length - 4;
-            let mut message = parse_eventstream_headers(&frame[headers_start..headers_end])?;
-            message.payload = frame[headers_end..payload_end].to_vec();
-            messages.push(message);
+            let result = {
+                let frame = &self.buffer[..total_length];
+                validate_crc(frame).and_then(|()| {
+                    let mut message =
+                        parse_eventstream_headers(&frame[headers_start..headers_end])?;
+                    message.payload = frame[headers_end..payload_end].to_vec();
+                    Ok(message)
+                })
+            };
+            self.buffer.drain(..total_length);
+            messages.push(result?);
         }
 
         Ok(messages)

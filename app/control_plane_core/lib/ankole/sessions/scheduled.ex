@@ -34,7 +34,7 @@ defmodule Ankole.Sessions.Scheduled do
         where:
           event.signal_id == ^id and event.agent_uid == ^agent and
             event.session_id == ^session and event.kind == ^kind and
-            event.status == "fired" and not is_nil(event.fired_at)
+            event.status == :fired and not is_nil(event.fired_at)
       )
     )
   end
@@ -92,7 +92,10 @@ defmodule Ankole.Sessions.Scheduled do
 
   def normalize("finish_scheduled", args), do: args
 
-  def execute_in_tx(_repo, run, _call, args) do
+  def prepare_in_tx(repo, run, call, args),
+    do: {:ok, [], fn -> commit_tool_in_tx(repo, run, call, args) end}
+
+  defp commit_tool_in_tx(_repo, run, _call, args) do
     case {args["outcome"], args["reply"]} do
       {"reply", reply} when is_binary(reply) ->
         text = Text.normalize_visible_text(reply)

@@ -1316,7 +1316,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
   end
 
   defp card_row(agent, binding_name, event, presentation) do
-    Repo.insert!(%Intent{
+    Ankole.SignalsFixtures.delivery_fixture!(%{
       agent_uid: agent.uid,
       binding_name: binding_name,
       outbound_key: "ai-reply:clarify-#{binding_name}",

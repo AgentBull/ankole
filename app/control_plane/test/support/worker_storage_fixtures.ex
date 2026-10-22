@@ -50,7 +50,7 @@ defmodule Ankole.WorkerStorageFixtures do
   def await_worker_state!(uid, state, previous \\ nil) do
     assert {:ok, result} =
              wait_until(deadline(1_200_000), fn ->
-               if state == "ready", do: AgentWorkers.request(uid)
+               if state == :ready, do: AgentWorkers.request(uid)
 
                case ReconcileJob.perform(%Oban.Job{
                       args: Ankole.Job.arguments(:tenant, %{"agent_uid" => uid})

@@ -17,6 +17,7 @@ defmodule Ankole.E2E.FakeSlack.State do
             usergroups: [],
             channels: [],
             members: %{},
+            oidc: nil,
             inbound_files: %{},
             uploads: %{},
             upload_seq: 0
@@ -33,7 +34,8 @@ defmodule Ankole.E2E.FakeSlack.State do
        users: Keyword.get(opts, :users, []),
        usergroups: Keyword.get(opts, :usergroups, []),
        channels: Keyword.get(opts, :channels, []),
-       members: Keyword.get(opts, :members, %{})
+       members: Keyword.get(opts, :members, %{}),
+       oidc: Keyword.get(opts, :oidc)
      }}
   end
 
@@ -56,6 +58,11 @@ defmodule Ankole.E2E.FakeSlack.State do
   def usergroups(pid), do: GenServer.call(pid, :usergroups)
   def channels(pid), do: GenServer.call(pid, :channels)
   def members(pid, channel), do: GenServer.call(pid, {:members, channel})
+  def exchange_oidc_code(pid, params), do: GenServer.call(pid, {:exchange_oidc_code, params})
+  def oidc_jwks(pid), do: GenServer.call(pid, :oidc_jwks)
+
+  def oidc_user_info(pid, authorization),
+    do: GenServer.call(pid, {:oidc_user_info, authorization})
 
   def put_inbound_file(pid, file_id, name, content),
     do: GenServer.call(pid, {:put_inbound_file, file_id, name, content})
@@ -71,6 +78,50 @@ defmodule Ankole.E2E.FakeSlack.State do
   @impl true
   def handle_call(:credentials, _from, state),
     do: {:reply, Map.take(state, [:bot_token, :app_token, :bot_user_id, :team_id]), state}
+
+  def handle_call({:exchange_oidc_code, params}, _from, %{oidc: %{code: code} = oidc} = state)
+      when is_binary(code) do
+    expected = %{
+      "grant_type" => "authorization_code",
+      "client_id" => oidc.client_id,
+      "client_secret" => oidc.client_secret,
+      "code" => code,
+      "redirect_uri" => oidc.redirect_uri
+    }
+
+    if Map.take(params, Map.keys(expected)) == expected do
+      token = %{
+        "access_token" => oidc.access_token,
+        "id_token" => oidc.id_token,
+        "token_type" => "Bearer",
+        "scope" => oidc.scope
+      }
+
+      {:reply, {:ok, token}, %{state | oidc: %{oidc | code: nil}}}
+    else
+      {:reply, {:error, :invalid_grant}, state}
+    end
+  end
+
+  def handle_call({:exchange_oidc_code, _params}, _from, state),
+    do: {:reply, {:error, :invalid_grant}, state}
+
+  def handle_call(:oidc_jwks, _from, %{oidc: %{jwks: jwks}} = state),
+    do: {:reply, {:ok, jwks}, state}
+
+  def handle_call(:oidc_jwks, _from, state),
+    do: {:reply, {:error, :oidc_not_configured}, state}
+
+  def handle_call(
+        {:oidc_user_info, ["Bearer " <> token]},
+        _from,
+        %{oidc: %{access_token: expected, user_info: user_info}} = state
+      )
+      when token == expected,
+      do: {:reply, {:ok, user_info}, state}
+
+  def handle_call({:oidc_user_info, _authorization}, _from, state),
+    do: {:reply, {:error, :invalid_auth}, state}
 
   def handle_call({:register_conn, conn}, _from, state) do
     ref = Process.monitor(conn)

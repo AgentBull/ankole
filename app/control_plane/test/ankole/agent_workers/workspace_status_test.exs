@@ -34,9 +34,9 @@ defmodule Ankole.AgentWorkers.WorkspaceStatusTest do
 
     set_row(uid, AgentWorker.error_fields("Retry error", "transient"))
     assert {:wait, :retrying} = AgentWorkers.workspace_status(uid)
-    set_row(uid, state: "paused")
+    set_row(uid, state: :paused)
     assert {:wait, :resuming} = AgentWorkers.workspace_status(uid)
-    set_row(uid, state: "draining", drain_reason: "rebuild")
+    set_row(uid, state: :draining, drain_reason: "rebuild")
     assert {:wait, :replacing} = AgentWorkers.workspace_status(uid)
   end
 
@@ -45,9 +45,10 @@ defmodule Ankole.AgentWorkers.WorkspaceStatusTest do
     set_row(uid, AgentWorker.error_fields("Old platform log", "transient"))
     {:ok, row} = SessionsCase.admit_worker(SessionsCase.unique_route(), %{worker_id: uid})
     assert row.last_error == nil and row.last_error_kind == nil
-    assert {:ok, ^row} = AgentWorkers.workspace_status(uid)
-    set_row(uid, state: "draining")
-    assert {:ok, %{state: "draining"}} = AgentWorkers.workspace_status(uid)
+    assert {:ok, usable} = AgentWorkers.workspace_status(uid)
+    assert_persisted_equal(usable, row)
+    set_row(uid, state: :draining)
+    assert {:ok, %{state: :draining}} = AgentWorkers.workspace_status(uid)
   end
 
   test "missing assignment, inactive Agent, and deleted row return terminal categories", %{
@@ -57,7 +58,7 @@ defmodule Ankole.AgentWorkers.WorkspaceStatusTest do
     assert {:error, :worker_provider_missing} = AgentWorkers.workspace_status(uid)
     {:ok, _} = disable_principal_fixture(uid)
     assert {:error, :agent_not_active} = AgentWorkers.workspace_status(uid)
-    set_row(uid, state: "deleting")
+    set_row(uid, state: :deleting)
     assert {:error, :agent_worker_unavailable} = AgentWorkers.workspace_status(uid)
     Repo.delete!(Repo.get!(AgentWorker, uid))
     assert {:error, :agent_worker_unavailable} = AgentWorkers.workspace_status(uid)

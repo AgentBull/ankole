@@ -9,7 +9,11 @@ defmodule Ankole.TokenSigning do
   @clock_leeway_seconds 60
 
   @spec issuer() :: String.t()
-  def issuer, do: Boruta.Config.issuer() |> String.trim_trailing("/")
+  def issuer,
+    do:
+      Application.fetch_env!(:ankole, __MODULE__)
+      |> Keyword.fetch!(:issuer)
+      |> String.trim_trailing("/")
 
   @spec sign(map(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def sign(claims, typ) when is_map(claims) and is_binary(typ) do

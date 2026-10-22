@@ -917,10 +917,11 @@ export type BackgroundActivityWorkflowCall = {
   run_status: string
   run_title: string
   sleep_note: string | null
-  sleeping_until: string | null
   status: 'queued' | 'running' | 'sleeping'
   task_session_id: string
   updated_at: string | null
+  wake_at: string | null
+  wake_kind: 'sleep' | 'agent_capacity' | null
 }
 
 /**
@@ -1301,6 +1302,10 @@ export type WorkerProvider = {
   is_default: boolean
   kind: string
   provider_id: string
+  /**
+   * The kind is active and its Plugin is selected for the next start. This does not check cloud connectivity.
+   */
+  selectable: boolean
 }
 
 /**
@@ -1337,7 +1342,7 @@ export type BackgroundAgentJobItem = {
   source_signal_id?: string | null
   source_tool_call_id: string
   started_at?: string | null
-  status: 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
+  status: BackgroundAgentJobStatus
   task: string
   title: string
   /**
@@ -1446,6 +1451,11 @@ export type BrainPageLinks = {
 }
 
 /**
+ * BackgroundAgentJobStatus
+ */
+export type BackgroundAgentJobStatus = 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
+
+/**
  * BackgroundAgentJobListItem
  */
 export type BackgroundAgentJobListItem = {
@@ -1455,7 +1465,7 @@ export type BackgroundAgentJobListItem = {
   execution_failures: number
   id: number
   inserted_at: string
-  status: 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
+  status: BackgroundAgentJobStatus
   title: string
   workspace_template_id: string | null
 }
@@ -5111,7 +5121,7 @@ export type AnkoleWebBackgroundAgentJobControllerIndexData = {
   body?: never
   path?: never
   query?: {
-    status?: 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
+    status?: BackgroundAgentJobStatus
     agent?: string
     /**
      * Matches an exact Job ID or a case-insensitive title fragment.

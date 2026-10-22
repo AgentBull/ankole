@@ -189,7 +189,7 @@ defmodule Ankole.AgentWorkers.CloudflareTest do
     assert :ok = perform_job(ReconcileJob, %{agent_uid: uid})
 
     assert %AgentWorker{
-             state: "absent",
+             state: :absent,
              generation: nil,
              token_ciphertext: nil,
              storage_ref: @backup,
@@ -210,7 +210,7 @@ defmodule Ankole.AgentWorkers.CloudflareTest do
     assert {:error, {:cloudflare_adapter, 503, "unavailable", nil}} =
              perform_job(ReconcileJob, %{agent_uid: uid})
 
-    assert %AgentWorker{state: "draining", generation: ^generation, last_error: reason} =
+    assert %AgentWorker{state: :draining, generation: ^generation, last_error: reason} =
              Repo.get!(AgentWorker, uid)
 
     assert reason =~ "unavailable"
@@ -260,7 +260,7 @@ defmodule Ankole.AgentWorkers.CloudflareTest do
 
     Repo.update_all(from(w in AgentWorker, where: w.agent_uid == ^agent.uid),
       set: [
-        state: "draining",
+        state: :draining,
         drain_reason: "idle_release",
         wanted_until: nil,
         initial_start_pending: false,

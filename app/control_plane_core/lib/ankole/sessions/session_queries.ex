@@ -67,7 +67,7 @@ defmodule Ankole.Sessions.SessionQueries do
 
   defp cron_sessions(agent_uid) do
     CronSchedule
-    |> where([s], s.agent_uid == ^agent_uid and s.status != "deleted")
+    |> where([s], s.agent_uid == ^agent_uid and s.status != :deleted)
     |> group_by([s], s.owner_session_id)
     |> select([s], %{session_id: s.owner_session_id, at: max(s.updated_at)})
     |> Repo.all()
@@ -103,7 +103,7 @@ defmodule Ankole.Sessions.SessionQueries do
         session_id: BackgroundAgentJobs.job_session_id(job_id),
         kind: "job",
         title: title,
-        status: status,
+        status: Atom.to_string(status),
         last_activity_at: at
       }
     end)

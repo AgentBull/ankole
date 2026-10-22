@@ -165,6 +165,9 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
     ConsoleErrors.not_found(conn, "Agent Library capability was not found")
   end
 
+  defp error(conn, %module{} = changeset) when module in [Ash.Changeset, Ash.Error.Invalid],
+    do: ConsoleErrors.changeset(conn, changeset)
+
   defp error(conn, reason) do
     ConsoleErrors.render(conn, 422, "validation_failed", "Agent Library capability is invalid", [
       %{reason: inspect(reason)}

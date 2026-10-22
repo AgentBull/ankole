@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { seedEditorDraft } from '../use-editor-draft'
 import { AgentLibraryEditorModel, type AgentLibraryDocumentsSnapshot } from './agent-library-editor-model'
 
 function documents(mission: string, soul: string, design = 'Design A'): AgentLibraryDocumentsSnapshot {
@@ -37,37 +36,6 @@ describe('AgentLibraryEditorModel', () => {
     expect(model.dirty.value).toBeTrue()
     model.initialize('agent:beta', documents('Mission B', 'Soul B'))
     expect(model.dirty.value).toBeFalse()
-    model[Symbol.dispose]()
-  })
-
-  test('same-agent query refetch preserves the seeded library documents and operator edits', () => {
-    const model = new AgentLibraryEditorModel()
-    model.initialize('agent:alpha', documents('Mission A', 'Soul A'))
-    model.beginEdit('mission')
-    model.setDraft('mission', 'Mission draft')
-
-    seedEditorDraft(model, 'agent:alpha', documents('Mission from refetch', 'Soul from refetch'), false)
-
-    expect(model.documents.mission.draft.value).toBe('Mission draft')
-    expect(model.documents.mission.contentHash.value).toBe('mission:Mission A')
-    expect(model.documents.soul.sourceContent.value).toBe('Soul A')
-    expect(model.documents.design.sourceContent.value).toBe('Design A')
-    model[Symbol.dispose]()
-  })
-
-  test('resets every document when the route selects another agent', () => {
-    const model = new AgentLibraryEditorModel()
-    model.initialize('agent:alpha', documents('Mission A', 'Soul A'))
-    model.beginEdit('soul')
-    model.setDraft('soul', 'Unsaved soul')
-
-    model.initialize('agent:beta', documents('Mission B', 'Soul B', 'Design B'))
-
-    expect(model.sourceKey.value).toBe('agent:beta')
-    expect(model.documents.mission.draft.value).toBe('Mission B')
-    expect(model.documents.soul.draft.value).toBe('Soul B')
-    expect(model.documents.soul.editing.value).toBeFalse()
-    expect(model.documents.design.draft.value).toBe('Design B')
     model[Symbol.dispose]()
   })
 

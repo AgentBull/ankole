@@ -22,9 +22,10 @@ defmodule Ankole.Brain.PromotionTest do
   end
 
   defp pending_suggestion(kind, term, attrs \\ %{}) do
-    Repo.insert!(
-      struct!(
+    {:ok, suggestion} =
+      Ankole.Ash.create(
         SchemaSuggestion,
+        :suggest,
         Map.merge(
           %{
             id: UUIDv7.autogenerate(),
@@ -32,13 +33,13 @@ defmodule Ankole.Brain.PromotionTest do
             term: term,
             evidence_count: 100,
             rationale: "test evidence",
-            status: "pending",
             created_at: DateTime.utc_now(:microsecond)
           },
           attrs
         )
       )
-    )
+
+    suggestion
   end
 
   describe "approve/3 new_type" do
@@ -158,7 +159,7 @@ defmodule Ankole.Brain.PromotionTest do
       assert Repo.all(Ankole.Brain.Schemas.Link)
              |> Enum.map(& &1.from_object_slug) == ["reconciliations/reconciliation-q2"]
 
-      assert Repo.get_by(SchemaSuggestion, id: suggestion.id).status == "approved"
+      assert Repo.get_by(SchemaSuggestion, id: suggestion.id).status == :approved
     end
   end
 
@@ -182,7 +183,7 @@ defmodule Ankole.Brain.PromotionTest do
     test "rejection keeps the record and refuses a second decision", %{human: human} do
       suggestion = pending_suggestion("new_type", "retainer")
 
-      assert {:ok, %SchemaSuggestion{status: "rejected"}} =
+      assert {:ok, %SchemaSuggestion{status: :rejected}} =
                Promotion.reject(suggestion.id, Ankole.ActorRef.from_principal(human))
 
       assert {:error, :suggestion_not_pending} =

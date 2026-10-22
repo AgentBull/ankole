@@ -106,7 +106,7 @@ defmodule Ankole.Kernel.ProgramRunnerTest do
     bindings = [tool(nil, "agent", "agent")]
 
     assert {:ok, %{status: :pending, pending_calls: pending_calls}} =
-             ProgramRunner.run(ProgramRunner.new_run_id(), program, bindings, [],
+             ProgramRunner.run(ProgramRunner.new_handle(), program, bindings, [],
                max_pending_calls: 1024,
                max_pending_bytes: 8 * 1024 * 1024,
                max_memo_bytes: 8 * 1024 * 1024
@@ -127,7 +127,7 @@ defmodule Ankole.Kernel.ProgramRunnerTest do
 
     assert {:ok, %{status: :failed, error_code: "program_memo_limit_exceeded"}} =
              ProgramRunner.run(
-               ProgramRunner.new_run_id(),
+               ProgramRunner.new_handle(),
                "await tools.agent({});",
                bindings,
                memo,
@@ -135,14 +135,131 @@ defmodule Ankole.Kernel.ProgramRunnerTest do
              )
 
     assert {:error, "unsupported program run options: :other"} =
-             ProgramRunner.run(ProgramRunner.new_run_id(), "text(1);", [], [], other: 1)
+             ProgramRunner.run(ProgramRunner.new_handle(), "text(1);", [], [], other: 1)
   end
 
-  test "cancelling before native registration does not poison a later run" do
-    run_id = ProgramRunner.new_run_id()
-    assert :ok = ProgramRunner.cancel(run_id)
+  test "cancellation before execution cannot miss the isolate" do
+    handle = ProgramRunner.new_handle()
+    assert :ok = ProgramRunner.cancel(handle)
 
-    assert {:ok, %{status: :completed, output: [%{value: "late"}]}} =
-             ProgramRunner.run(run_id, ~s|text("late");|, [], [])
+    assert {:ok, %{error_code: "program_cancelled"}} =
+             ProgramRunner.run(handle, "for (;;) {}", [], [])
+  end
+
+  test "timeout_ms bounds the native execution" do
+    handle = ProgramRunner.new_handle()
+
+    assert {:ok, %{status: :failed, error_code: "program_timeout"}} =
+             ProgramRunner.run(handle, "for (;;) {}", [], [], timeout_ms: 20)
+
+    assert ProgramRunner.active_runs() == 0
+  end
+
+  test "a completed handle cannot start another execution" do
+    handle = ProgramRunner.new_handle()
+    assert {:ok, %{status: :completed}} = ProgramRunner.run(handle, "text(1)", [], [])
+
+    assert {:error, "program handle has already started"} =
+             ProgramRunner.run(handle, "text(2)", [], [])
+  end
+
+  test "owner exit terminates native execution and releases its slot" do
+    owner = spawn(fn -> ProgramRunner.run("for (;;) {}", [], []) end)
+    assert wait_for(fn -> ProgramRunner.active_runs() == 1 end)
+    Process.exit(owner, :kill)
+    assert wait_for(fn -> ProgramRunner.active_runs() == 0 end)
+  end
+
+  test "an owner that exits before admission leaves its handle cancelled" do
+    owner = spawn(fn -> Process.sleep(:infinity) end)
+    monitor = Process.monitor(owner)
+    handle = ProgramRunner.new_handle(owner)
+    Process.exit(owner, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^owner, :killed}
+
+    assert {:ok, %{error_code: "program_cancelled"}} =
+             ProgramRunner.run(handle, "for (;;) {}", [], [])
+
+    assert ProgramRunner.active_runs() == 0
+  end
+
+  test "a handle created for a dead owner cannot execute" do
+    owner = spawn(fn -> Process.sleep(:infinity) end)
+    monitor = Process.monitor(owner)
+    Process.exit(owner, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^owner, :killed}
+    handle = ProgramRunner.new_handle(owner)
+
+    assert {:ok, %{error_code: "program_cancelled"}} =
+             ProgramRunner.run(handle, "for (;;) {}", [], [])
+
+    assert ProgramRunner.active_runs() == 0
+  end
+
+  test "full admission returns busy synchronously without a scheduler message" do
+    handles =
+      for _ <- 1..4 do
+        handle = ProgramRunner.new_handle()
+        assert {:ok, ^handle} = ProgramRunner.start(handle, "for (;;) {}", [], [])
+        handle
+      end
+
+    try do
+      extra = ProgramRunner.new_handle()
+
+      assert {:error, {:program_runner_busy, %{error_code: "program_runtime_busy"}}} =
+               ProgramRunner.start(extra, "text(1)", [], [])
+
+      refute_receive {:program_runner, ^extra, _}, 20
+    after
+      Enum.each(handles, &ProgramRunner.cancel/1)
+      Enum.each(handles, &ProgramRunner.await/1)
+    end
+
+    assert ProgramRunner.active_runs() == 0
+  end
+
+  test "native programs leave the single dirty CPU scheduler available to AuthZ" do
+    original = :erlang.system_flag(:dirty_cpu_schedulers_online, 1)
+    handles = for _ <- 1..4, do: ProgramRunner.new_handle()
+
+    try do
+      Enum.each(handles, fn handle ->
+        assert {:ok, ^handle} =
+                 ProgramRunner.start(handle, "for (;;) {}", [], [], timeout_ms: 2_000)
+      end)
+
+      request = %{
+        principal: %{uid: "alice", type: "human", status: "active"},
+        staticGroupIDs: [],
+        computedGroups: [],
+        grants: [],
+        resource: "workspace:default",
+        action: "read",
+        context: %{}
+      }
+
+      # Load the NIF and its evaluator before the latency assertion.
+      assert %{"status" => "deny"} = Ankole.Kernel.authz_authorize(request)
+      {elapsed, decision} = :timer.tc(fn -> Ankole.Kernel.authz_authorize(request) end)
+      assert %{"status" => "deny"} = decision
+      assert elapsed < 20_000
+    after
+      :erlang.system_flag(:dirty_cpu_schedulers_online, original)
+      Enum.each(handles, &ProgramRunner.cancel/1)
+      Enum.each(handles, &ProgramRunner.await/1)
+    end
+  end
+
+  defp wait_for(check, attempts \\ 200)
+  defp wait_for(_check, 0), do: false
+
+  defp wait_for(check, attempts) do
+    if check.() do
+      true
+    else
+      Process.sleep(10)
+      wait_for(check, attempts - 1)
+    end
   end
 end

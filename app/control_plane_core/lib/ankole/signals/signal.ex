@@ -2,176 +2,295 @@ defmodule Ankole.Signals.Signal do
   @moduledoc """
   Durable stimulus accepted by Signals and consumed by Sessions.
 
-  A signal is a durable lifecycle row in the session queue. Normal
-  completion is recorded as a timestamp rather than as a state enum, and
-  `input_state` is constrained to only `open | dead_letter`.
+  The state machine owns queue admission, retry, completion, and dead-lettering.
+  Timestamps record when those transitions occurred; they do not define state.
   """
 
-  use Ankole.Schema, tenancy: :tenant
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Signals.Domain,
+    extensions: [AshStateMachine]
 
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
+  use Ankole.Work.Provenance,
+    kind: "signal",
+    cleanup_key: "signals",
+    review_states: [:queued, :running, :dead_letter],
+    reauthorizable_states: [:queued, :running],
+    revoke_action: {Ankole.Sessions.Queue, :stop_human_work_in_tx}
 
-  alias Ankole.Conversations.Delivery.PreviewState
-  alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JSONPayload
   alias Ankole.Conversations.ExternalMessageRef
   alias Ankole.Repo
 
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
-  @states ~w(open dead_letter)
   @turn_outcomes ~w(loop_finished iteration_exhausted silent)
-
   @type t :: %__MODULE__{}
 
-  schema "signals" do
-    has_one :preview, PreviewState, foreign_key: :signal_id
-    field(:producer, Ecto.Enum, values: [:kernel, :external], default: :external)
-    field(:authorization_kind, :string, default: "review_required")
-    field(:human_uid, Ankole.Ecto.PrincipalKey)
-    field(:human_access_version, :integer)
+  postgres do
+    table("signals")
+    repo(Ankole.Repo)
+    migrate?(false)
+    identity_index_names(source_identity: "signals_signal_idempotency_index")
 
-    belongs_to(:agent, Principal,
-      foreign_key: :agent_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
+    foreign_key_names([
+      {:agent_uid, "signals_agent_uid_fkey"},
+      {:message_id, "signals_message_id_fkey"},
+      {:ambient_asked_message_id, "signals_ambient_asked_message_id_fkey"},
+      {:conversation_id, "signals_conversation_id_fkey"}
+    ])
+
+    unique_index_names([
+      {[:tenant_id, :agent_uid, :session_id, :queue_sequence], "signals_queue_sequence_index"}
+    ])
+
+    check_constraints do
+      check_constraint(:authorization_kind, "signals_work_authorization_check")
+      check_constraint(:status, "signals_status_check")
+      check_constraint(:status, "signals_lifecycle_check")
+      check_constraint(:attempt_count, "signals_attempt_count_non_negative")
+      check_constraint(:provider_capacity_attempt_count, "signals_capacity_attempt_count_check")
+      check_constraint(:final_response_id, "signals_completion_anchor_check")
+      check_constraint(:turn_outcome, "signals_turn_outcome_check")
+      check_constraint(:producer, "signals_producer_check")
+    end
+  end
+
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Kernel.gen_uuid_v7/0,
+      public?: true
     )
 
-    field(:source, :string)
-    field(:subject, :string)
-    field(:occurred_at, :utc_datetime_usec)
-    field(:reply_binding_name, :string)
-    field(:message_id, Ankole.Ecto.UUIDv7)
-    field(:session_id, :string)
-    field(:source_event_id, :string)
-    field(:conversation_id, Ankole.Ecto.UUIDv7)
-    field(:provider_thread_id, :string)
-    field(:provider_message_id, :string)
-    # Ambient attribution: when the recognizer accepts an asked_by message,
-    # replies anchor to that entry instead of the batch tail provider_message_id.
-    field(:ambient_asked_message_id, Ankole.Ecto.UUIDv7)
-    field(:type, :string)
-    field(:available_at, :utc_datetime_usec)
-    field(:attempt_count, :integer, default: 0)
-    field(:provider_capacity_attempt_count, :integer, default: 0)
-    field(:last_attempt_at, :utc_datetime_usec)
-    # Per-session sequence for ordering currently open signals.
-    field(:queue_sequence, :integer)
-    # Only open | dead_letter. Normal completion is recorded separately.
-    field(:input_state, :string, default: "open")
-    field(:completed_at, :utc_datetime_usec)
-    field(:final_response_id, :string)
-    field(:turn_outcome, :string)
-    field(:sender_key, :string)
-    field(:data, Ankole.Types.JSONValue, default: %{})
-    field(:extensions, :map, default: %{})
-    field(:dead_letter_at, :utc_datetime_usec)
-    # Bounded, redacted copy of the failure that dead-lettered the event.
-    field(:dead_letter_reason, :map)
+    ash_attributes()
 
-    timestamps()
+    attribute(:producer, Ankole.Ash.Types.State,
+      constraints: [one_of: [:kernel, :external]],
+      default: :external,
+      allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:source, :string, allow_nil?: false, public?: true)
+    attribute(:subject, :string, public?: true)
+    attribute(:reply_binding_name, :string, public?: true)
+    attribute(:session_id, :string, allow_nil?: false, public?: true)
+    attribute(:source_event_id, :string, allow_nil?: false, public?: true)
+    attribute(:provider_thread_id, :string, public?: true)
+    attribute(:provider_message_id, :string, public?: true)
+    attribute(:type, :string, allow_nil?: false, public?: true)
+    attribute(:final_response_id, :string, public?: true)
+    attribute(:turn_outcome, :string, public?: true)
+    attribute(:sender_key, :string, public?: true)
+    attribute(:message_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:ambient_asked_message_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:occurred_at, :utc_datetime_usec, allow_nil?: false, public?: true)
+    attribute(:available_at, :utc_datetime_usec, allow_nil?: false, public?: true)
+    attribute(:last_attempt_at, :utc_datetime_usec, public?: true)
+    attribute(:completed_at, :utc_datetime_usec, public?: true)
+    attribute(:dead_letter_at, :utc_datetime_usec, public?: true)
+
+    attribute(:attempt_count, :integer,
+      default: 0,
+      allow_nil?: false,
+      constraints: [min: 0],
+      public?: true
+    )
+
+    attribute(:provider_capacity_attempt_count, :integer,
+      constraints: [min: 0],
+      default: 0,
+      allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:queue_sequence, :integer, allow_nil?: false, public?: true)
+    attribute(:data, Ankole.Ash.Types.JSONValue, default: %{}, public?: true)
+    attribute(:extensions, Ankole.Ash.Types.JSONMap, default: %{}, public?: true)
+    attribute(:dead_letter_reason, Ankole.Ash.Types.JSONMap, public?: true)
+    timestamps(type: :utc_datetime_usec)
+  end
+
+  relationships do
+    has_one :preview, Ankole.Conversations.Delivery.PreviewState do
+      source_attribute(:id)
+      destination_attribute(:signal_id)
+      public?(false)
+    end
+  end
+
+  identities do
+    identity(:source_identity, [:agent_uid, :source, :source_event_id])
+  end
+
+  state_machine do
+    state_attribute(:status)
+    initial_states([:queued])
+    default_initial_state(:queued)
+
+    transitions do
+      transition(:admit, from: [:queued, :running], to: :running)
+      transition(:retry_triage, from: :queued, to: :queued)
+      transition(:start_attempt, from: [:queued, :running], to: :running)
+      transition(:defer, from: [:queued, :running], to: :queued)
+      transition(:reset_attempts, from: [:queued, :running], to: :queued)
+      transition(:complete, from: [:queued, :running, :completed], to: :completed)
+      transition(:dead_letter, from: [:queued, :running, :dead_letter], to: :dead_letter)
+      transition(:revoke_unstarted, from: :queued, to: :dead_letter)
+    end
+  end
+
+  validations do
+    validate(attribute_in(:turn_outcome, [nil | @turn_outcomes]))
+  end
+
+  actions do
+    defaults([:read])
+
+    create :accept do
+      primary?(true)
+      transaction?(false)
+      upsert?(true)
+      upsert_identity(:source_identity)
+      upsert_fields([:source_event_id])
+
+      accept([
+        :producer,
+        :authorization_kind,
+        :human_uid,
+        :human_access_version,
+        :agent_uid,
+        :source,
+        :subject,
+        :reply_binding_name,
+        :session_id,
+        :source_event_id,
+        :conversation_id,
+        :provider_thread_id,
+        :provider_message_id,
+        :ambient_asked_message_id,
+        :type,
+        :available_at,
+        :queue_sequence,
+        :sender_key,
+        :data,
+        :extensions,
+        :occurred_at,
+        :message_id
+      ])
+
+      change(Ankole.Ash.RequireTransaction)
+    end
+
+    in_tx_update :admit do
+      require_attributes([:last_attempt_at])
+      accept([:last_attempt_at, :data])
+      change(atomic_update(:attempt_count, expr(attempt_count + 1)))
+      change(transition_state(:running))
+    end
+
+    in_tx_update :retry_triage do
+      accept([:available_at])
+      change(atomic_update(:attempt_count, expr(attempt_count + 1)))
+      change(transition_state(:queued))
+    end
+
+    in_tx_update :refund_attempt do
+      accept([])
+      validate(attribute_in(:status, [:queued, :running]))
+
+      change(
+        atomic_update(
+          :attempt_count,
+          expr(
+            if(attempt_count > provider_capacity_attempt_count,
+              do: attempt_count - 1,
+              else: attempt_count
+            )
+          )
+        )
+      )
+    end
+
+    in_tx_update :start_attempt do
+      require_attributes([:last_attempt_at])
+      accept([:last_attempt_at])
+      change(transition_state(:running))
+    end
+
+    in_tx_update :defer do
+      accept([:available_at])
+      argument(:provider_capacity?, :boolean, default: false, allow_nil?: false)
+
+      change(
+        atomic_update(
+          :provider_capacity_attempt_count,
+          expr(provider_capacity_attempt_count + 1)
+        ),
+        where: [argument_equals(:provider_capacity?, true)]
+      )
+
+      change(transition_state(:queued))
+    end
+
+    atomic_in_tx_update :reset_attempts do
+      accept([:available_at])
+      change(set_attribute(:attempt_count, 0))
+      change(set_attribute(:provider_capacity_attempt_count, 0))
+      change(set_attribute(:last_attempt_at, nil))
+      change(transition_state(:queued))
+    end
+
+    in_tx_update :complete do
+      require_attributes([:completed_at])
+      accept([:completed_at, :final_response_id, :turn_outcome, :data])
+      change(transition_state(:completed))
+    end
+
+    in_tx_update :dead_letter do
+      require_attributes([:dead_letter_at, :dead_letter_reason])
+      accept([:dead_letter_at, :dead_letter_reason])
+      change(transition_state(:dead_letter))
+    end
+
+    in_tx_update :revise_input do
+      accept([:data, :occurred_at, :provider_message_id, :available_at])
+    end
+
+    in_tx_update :update_metadata do
+      accept([
+        :data,
+        :extensions,
+        :queue_sequence,
+        :provider_thread_id,
+        :provider_message_id,
+        :ambient_asked_message_id,
+        :message_id,
+        :occurred_at
+      ])
+    end
+
+    in_tx_update :reauthorize do
+      accept([:authorization_kind, :human_uid, :human_access_version])
+    end
+
+    destroy :remove do
+      transaction?(false)
+      require_atomic?(false)
+      change(Ankole.Ash.RequireTransaction)
+    end
+
+    atomic_in_tx_update :revoke_unstarted do
+      require_attributes([:dead_letter_at, :dead_letter_reason])
+      accept([:dead_letter_at, :dead_letter_reason])
+      change(transition_state(:dead_letter))
+    end
   end
 
   @doc "Checks private intake provenance, independent of CloudEvent facts."
   @spec produced_by_kernel?(term()) :: boolean()
   def produced_by_kernel?(%__MODULE__{producer: :kernel}), do: true
   def produced_by_kernel?(_signal), do: false
-
-  @doc """
-  Builds a changeset for signal rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(input, attrs) do
-    input
-    |> cast(attrs, [
-      :producer,
-      :authorization_kind,
-      :human_uid,
-      :human_access_version,
-      :agent_uid,
-      :source,
-      :subject,
-      :reply_binding_name,
-      :session_id,
-      :source_event_id,
-      :conversation_id,
-      :provider_thread_id,
-      :provider_message_id,
-      :ambient_asked_message_id,
-      :type,
-      :available_at,
-      :attempt_count,
-      :provider_capacity_attempt_count,
-      :last_attempt_at,
-      :queue_sequence,
-      :input_state,
-      :completed_at,
-      :final_response_id,
-      :turn_outcome,
-      :sender_key,
-      :data,
-      :extensions,
-      :occurred_at,
-      :message_id,
-      :dead_letter_at,
-      :dead_letter_reason
-    ])
-    |> normalize_blank([
-      :agent_uid,
-      :source,
-      :subject,
-      :reply_binding_name,
-      :session_id,
-      :source_event_id,
-      :conversation_id,
-      :provider_thread_id,
-      :provider_message_id,
-      :ambient_asked_message_id,
-      :type,
-      :input_state,
-      :final_response_id,
-      :turn_outcome,
-      :sender_key
-    ])
-    |> validate_required([
-      :producer,
-      :agent_uid,
-      :source,
-      :session_id,
-      :source_event_id,
-      :type,
-      :available_at,
-      :queue_sequence,
-      :input_state,
-      :occurred_at
-    ])
-    |> check_constraint(:producer, name: :signals_producer_check)
-    |> validate_inclusion(:input_state, @states)
-    |> validate_inclusion(:turn_outcome, @turn_outcomes, allow_nil: true)
-    |> validate_number(:attempt_count, greater_than_or_equal_to: 0)
-    |> validate_number(:provider_capacity_attempt_count, greater_than_or_equal_to: 0)
-    |> check_constraint(:provider_capacity_attempt_count,
-      name: :signals_capacity_attempt_count_check
-    )
-    |> JSONPayload.validate_json(:data)
-    |> JSONPayload.validate_map(:extensions)
-    |> JSONPayload.validate_map(:dead_letter_reason)
-    |> foreign_key_constraint(:agent_uid)
-    |> unique_constraint([:tenant_id, :agent_uid, :source, :source_event_id],
-      name: :signals_signal_idempotency_index
-    )
-    |> unique_constraint([:tenant_id, :agent_uid, :session_id, :queue_sequence],
-      name: :signals_queue_sequence_index
-    )
-    |> foreign_key_constraint(:message_id)
-    |> foreign_key_constraint(:conversation_id, name: :signals_conversation_id_fkey)
-    |> check_constraint(:input_state, name: :signals_input_state_check)
-    |> check_constraint(:attempt_count, name: :signals_attempt_count_non_negative)
-    |> check_constraint(:turn_outcome, name: :signals_turn_outcome_check)
-    |> check_constraint(:final_response_id, name: :signals_completion_anchor_check)
-  end
 
   @doc "Returns the CloudEvent encoded from the canonical signal facts."
   def envelope(%__MODULE__{} = signal) do

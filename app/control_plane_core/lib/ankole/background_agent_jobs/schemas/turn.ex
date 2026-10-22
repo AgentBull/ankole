@@ -7,19 +7,16 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   rows store sanitized thread items that are projected to ChatML on read.
   """
 
-  use Ankole.Schema, tenancy: :tenant
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.BackgroundAgentJobs.Domain,
+    extensions: [AshStateMachine]
 
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
-
-  alias Ankole.Ecto.JSONPayload
-  alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Trajectory
-  alias Ankole.BackgroundAgentJobs.TurnState
 
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
+  @kinds ~w(agent compaction)
+  @terminal_statuses [:completed, :failed, :interrupted]
+  @statuses [:in_progress | @terminal_statuses]
   @plan_statuses ~w(pending in_progress completed)
   @max_tools_used 128
   @max_tool_execution_mechanisms 256
@@ -29,10 +26,18 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   @max_plan_steps 100
 
   @type t :: %__MODULE__{}
+  @type status :: :in_progress | :completed | :failed | :interrupted
+
+  @spec kinds() :: [String.t()]
+  def kinds, do: @kinds
 
   @doc "Checks the canonical turn transition table."
-  @spec transition_allowed?(String.t(), String.t()) :: boolean()
-  defdelegate transition_allowed?(current, next), to: TurnState
+  @spec transition_allowed?(status(), status()) :: boolean()
+  def transition_allowed?(current, next) when is_atom(current) and is_atom(next) do
+    __MODULE__
+    |> AshStateMachine.Info.state_machine_transitions(:checkpoint)
+    |> Enum.any?(&(current in List.wrap(&1.from) and next in List.wrap(&1.to)))
+  end
 
   @doc "Whether the turn ran on the given lead thread."
   @spec lead?(t(), String.t() | nil) :: boolean()
@@ -60,18 +65,58 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   defp datetime_key(%DateTime{} = datetime), do: DateTime.to_unix(datetime, :microsecond)
   defp datetime_key(_datetime), do: 0
 
-  schema "background_agent_job_turns" do
-    belongs_to(:job, Job, type: :id)
+  postgres do
+    table("background_agent_job_turns")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:job_id, "background_agent_job_turns_job_id_fkey"}])
+    identity_index_names(runtime_turn: "background_agent_job_turns_runtime_turn_index")
 
-    field(:attempt, :integer)
-    field(:runtime_thread_id, :string)
-    field(:runtime_turn_id, :string)
-    field(:kind, :string, default: "agent")
-    field(:status, :string)
-    field(:revision, :integer)
-    field(:trajectory, :map)
+    check_constraints do
+      check_constraint(:attempt, "background_agent_job_turns_attempt_positive")
+      check_constraint(:revision, "background_agent_job_turns_revision_nonnegative")
+      check_constraint(:kind, "background_agent_job_turns_kind_check")
+      check_constraint(:status, "background_agent_job_turns_status_check")
+      check_constraint(:trajectory, "background_agent_job_turns_trajectory_check")
+      check_constraint(:progress, "background_agent_job_turns_progress_object")
+      check_constraint(:usage, "background_agent_job_turns_usage_object")
+      check_constraint(:error, "background_agent_job_turns_error_object")
+      check_constraint(:completed_at, "background_agent_job_turns_completion_check")
+    end
+  end
 
-    field(:progress, :map,
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+    )
+
+    attribute(:job_id, :integer, allow_nil?: false, public?: true)
+    attribute(:attempt, :integer, allow_nil?: false, constraints: [min: 1], public?: true)
+    attribute(:runtime_thread_id, :string, allow_nil?: false, public?: true)
+    attribute(:runtime_turn_id, :string, allow_nil?: false, public?: true)
+    attribute(:kind, :string, default: "agent", allow_nil?: false, public?: true)
+
+    attribute(:status, Ankole.Ash.Types.State,
+      constraints: [one_of: @statuses],
+      allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:revision, :integer, allow_nil?: false, constraints: [min: 0], public?: true)
+
+    attribute(:trajectory, Ankole.Ash.Types.JSONMap,
+      allow_nil?: false,
+      public?: true,
+      constraints: [allow_datetime?: true]
+    )
+
+    attribute(:progress, Ankole.Ash.Types.JSONMap,
+      constraints: [allow_datetime?: true],
+      allow_nil?: false,
+      public?: true,
       default: %{
         "completed_items" => 0,
         "tool_calls" => 0,
@@ -80,101 +125,167 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
       }
     )
 
-    field(:usage, :map)
-    field(:error, :map, default: %{})
-    field(:started_at, :utc_datetime_usec)
-    field(:completed_at, :utc_datetime_usec)
-
-    timestamps()
-  end
-
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(turn, attrs) do
-    turn
-    |> cast(attrs, [
-      :job_id,
-      :attempt,
-      :runtime_thread_id,
-      :runtime_turn_id,
-      :kind,
-      :status,
-      :revision,
-      :trajectory,
-      :progress,
-      :usage,
-      :error,
-      :started_at,
-      :completed_at
-    ])
-    |> normalize_blank([:runtime_thread_id, :runtime_turn_id, :kind, :status])
-    |> validate_required([
-      :job_id,
-      :attempt,
-      :runtime_thread_id,
-      :runtime_turn_id,
-      :kind,
-      :status,
-      :revision,
-      :trajectory,
-      :progress,
-      :error,
-      :started_at
-    ])
-    |> validate_number(:attempt, greater_than: 0)
-    |> validate_number(:revision, greater_than_or_equal_to: 0)
-    |> validate_inclusion(:kind, TurnState.kinds())
-    |> validate_inclusion(:status, TurnState.statuses())
-    |> JSONPayload.validate_map(:trajectory, allow_datetime: true)
-    |> JSONPayload.validate_map(:progress, allow_datetime: true)
-    |> validate_optional_json_map(:usage)
-    |> JSONPayload.validate_map(:error, allow_datetime: true)
-    |> validate_trajectory()
-    |> validate_progress()
-    |> validate_usage()
-    |> validate_completion()
-    |> foreign_key_constraint(:job_id)
-    |> unique_constraint([:job_id, :runtime_turn_id],
-      name: :background_agent_job_turns_runtime_turn_index
+    attribute(:usage, Ankole.Ash.Types.JSONMap,
+      public?: true,
+      constraints: [allow_datetime?: true]
     )
-    |> check_constraint(:attempt, name: :background_agent_job_turns_attempt_positive)
-    |> check_constraint(:revision, name: :background_agent_job_turns_revision_nonnegative)
-    |> check_constraint(:kind, name: :background_agent_job_turns_kind_check)
-    |> check_constraint(:status, name: :background_agent_job_turns_status_check)
-    |> check_constraint(:trajectory, name: :background_agent_job_turns_trajectory_check)
-    |> check_constraint(:progress, name: :background_agent_job_turns_progress_object)
-    |> check_constraint(:usage, name: :background_agent_job_turns_usage_object)
-    |> check_constraint(:error, name: :background_agent_job_turns_error_object)
-    |> check_constraint(:completed_at, name: :background_agent_job_turns_completion_check)
+
+    attribute(:error, Ankole.Ash.Types.JSONMap,
+      default: %{},
+      allow_nil?: false,
+      public?: true,
+      constraints: [allow_datetime?: true]
+    )
+
+    attribute(:started_at, :utc_datetime_usec, allow_nil?: false, public?: true)
+    attribute(:completed_at, :utc_datetime_usec, public?: true)
+    timestamps(type: :utc_datetime_usec)
   end
 
-  defp validate_trajectory(changeset) do
-    validate_change(changeset, :trajectory, fn :trajectory, trajectory ->
-      cond do
-        trajectory["format"] != "ankole_chatml" or trajectory["version"] != 1 ->
-          [trajectory: "must be an ankole_chatml v1 header"]
-
-        Trajectory.valid_header?(trajectory) ->
-          []
-
-        true ->
-          [trajectory: "must contain only canonical header metadata"]
-      end
-    end)
+  identities do
+    identity(:runtime_turn, [:job_id, :runtime_turn_id], all_tenants?: true)
   end
 
-  defp validate_optional_json_map(changeset, field) do
-    case fetch_change(changeset, field) do
-      {:ok, nil} -> changeset
-      _value -> JSONPayload.validate_map(changeset, field, allow_datetime: true)
+  state_machine do
+    state_attribute(:status)
+    initial_states(@statuses)
+
+    transitions do
+      transition(:checkpoint,
+        from: :in_progress,
+        to: @statuses
+      )
+
+      transition(:checkpoint, from: :completed, to: :completed)
+      transition(:checkpoint, from: :failed, to: :failed)
+      transition(:checkpoint, from: :interrupted, to: :interrupted)
+      transition(:interrupt, from: :in_progress, to: :interrupted)
     end
   end
 
-  defp validate_progress(changeset) do
-    validate_change(changeset, :progress, fn :progress, progress ->
-      if valid_progress?(progress),
-        do: [],
-        else: [progress: "must be a valid runtime progress snapshot"]
-    end)
+  @checkpoint_attributes [
+    :job_id,
+    :attempt,
+    :runtime_thread_id,
+    :runtime_turn_id,
+    :kind,
+    :revision,
+    :trajectory,
+    :progress,
+    :usage,
+    :error,
+    :started_at,
+    :completed_at
+  ]
+
+  validations do
+    validate(attribute_in(:kind, @kinds))
+
+    validate(present(:completed_at),
+      where: [attribute_in(:status, @terminal_statuses)]
+    )
+
+    validate(absent(:completed_at), where: [attribute_equals(:status, :in_progress)])
+  end
+
+  actions do
+    defaults([:read])
+
+    create :record do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+      accept([:status | @checkpoint_attributes])
+
+      validate(fn changeset, _context -> validate_checkpoint(changeset) end,
+        only_when_valid?: true
+      )
+    end
+
+    in_tx_update :checkpoint do
+      accept(@checkpoint_attributes -- [:job_id, :attempt, :runtime_thread_id, :runtime_turn_id])
+
+      argument(:next_status, Ankole.Ash.Types.State,
+        constraints: [one_of: @statuses],
+        allow_nil?: false
+      )
+
+      change(Ankole.BackgroundAgentJobs.Changes.TransitionToArgument)
+
+      validate(fn changeset, _context -> validate_checkpoint(changeset) end,
+        only_when_valid?: true
+      )
+
+      validate(fn changeset, _context ->
+        if Ash.Changeset.get_attribute(changeset, :revision) > changeset.data.revision,
+          do: :ok,
+          else: {:error, field: :revision, message: "must advance the recorded checkpoint"}
+      end)
+
+      change(fn changeset, _context ->
+        Ash.Changeset.filter(changeset,
+          status: changeset.data.status,
+          revision: changeset.data.revision
+        )
+      end)
+    end
+
+    atomic_in_tx_update :interrupt do
+      accept([])
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      argument(:error, Ankole.Ash.Types.JSONMap,
+        allow_nil?: false,
+        constraints: [allow_datetime?: true]
+      )
+
+      change(filter(expr(status == :in_progress)))
+      change(transition_state(:interrupted))
+      change(set_attribute(:completed_at, arg(:now)))
+      change(set_attribute(:updated_at, arg(:now)))
+      change(set_attribute(:error, arg(:error)))
+      change(atomic_update(:revision, expr(revision + 1)))
+      change(atomic_update(:progress, expr(fragment("? - 'active_item'", progress))))
+    end
+
+    in_tx_update :mark_content_truncated do
+      accept([])
+
+      change(
+        atomic_update(
+          :trajectory,
+          expr(
+            fragment(
+              "jsonb_set(?, '{metadata}', COALESCE(?->'metadata', '{}'::jsonb) || '{\"content_truncated\":true}'::jsonb)",
+              trajectory,
+              trajectory
+            )
+          )
+        )
+      )
+    end
+  end
+
+  defp validate_checkpoint(changeset) do
+    trajectory = Ash.Changeset.get_attribute(changeset, :trajectory)
+    progress = Ash.Changeset.get_attribute(changeset, :progress)
+    usage = Ash.Changeset.get_attribute(changeset, :usage)
+
+    cond do
+      trajectory["format"] != "ankole_chatml" or trajectory["version"] != 1 ->
+        {:error, field: :trajectory, message: "must be an ankole_chatml v1 header"}
+
+      not Trajectory.valid_header?(trajectory) ->
+        {:error, field: :trajectory, message: "must contain only canonical header metadata"}
+
+      not valid_progress?(progress) ->
+        {:error, field: :progress, message: "must be a valid runtime progress snapshot"}
+
+      not is_nil(usage) and not valid_usage?(usage) ->
+        {:error, field: :usage, message: "must be a valid official thread usage snapshot"}
+
+      true ->
+        :ok
+    end
   end
 
   defp valid_progress?(
@@ -300,14 +411,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
 
   defp tool_identity(value), do: {Map.get(value, "namespace") || "", value["name"]}
 
-  defp validate_usage(changeset) do
-    validate_change(changeset, :usage, fn :usage, usage ->
-      if is_nil(usage) or valid_usage?(usage),
-        do: [],
-        else: [usage: "must be a valid official thread usage snapshot"]
-    end)
-  end
-
   defp valid_usage?(%{"thread_total" => total, "last_model_call" => last} = usage) do
     Map.keys(usage) -- ~w(thread_total last_model_call model_context_window) == [] and
       valid_usage_breakdown?(total) and valid_usage_breakdown?(last) and
@@ -335,20 +438,4 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   end
 
   defp string_list?(_value, _limit), do: false
-
-  defp validate_completion(changeset) do
-    status = get_field(changeset, :status)
-    completed_at = get_field(changeset, :completed_at)
-
-    cond do
-      status in TurnState.terminal_statuses() and is_nil(completed_at) ->
-        add_error(changeset, :completed_at, "is required for a terminal turn")
-
-      status not in TurnState.terminal_statuses() and not is_nil(completed_at) ->
-        add_error(changeset, :completed_at, "must be empty for an active turn")
-
-      true ->
-        changeset
-    end
-  end
 end

@@ -99,6 +99,25 @@ defmodule Ankole.FilesTest do
       assert %Blob{deleting: false} = Repo.get!(Blob, digest)
       assert {:ok, "revived"} = ObjectStore.read(Files.object_key(digest))
     end
+
+    test "storing existing content renews its collection lease and preserves its creation time" do
+      assert {:ok, %{sha256: sha256}} = Files.store("renewed lease")
+      digest = Base.decode16!(sha256, case: :lower)
+      original = Repo.get!(Blob, digest)
+      expired = DateTime.add(original.last_referenced_at, -172_800)
+
+      Repo.update_all(where(Blob, sha256: ^digest),
+        set: [last_referenced_at: expired, deleting: true]
+      )
+
+      assert {:ok, %{sha256: ^sha256}} = Files.store("renewed lease")
+      renewed = Repo.get!(Blob, digest)
+
+      assert renewed.created_at == original.created_at
+      assert DateTime.compare(renewed.last_referenced_at, expired) == :gt
+      refute renewed.deleting
+      assert {:ok, 0} = CollectUnreferenced.mark_unreferenced()
+    end
   end
 
   describe "commit/3" do
@@ -489,9 +508,10 @@ defmodule Ankole.FilesTest do
       assert {:ok, _content} =
                Ankole.Conversations.Delivery.attachment_content(hd(intent.payload["attachments"]))
 
-      intent
-      |> Ankole.Conversations.Delivery.Intent.changeset(%{status: :sent})
-      |> Repo.update!()
+      assert {:ok, _sent} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.update(intent, :succeed, %{})
+               end)
 
       assert {:ok, 1} = CollectUnreferenced.mark_unreferenced()
       assert CollectUnreferenced.remove_marked(0) == 1

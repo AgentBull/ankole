@@ -107,6 +107,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
         capabilities: [
           "oidc_authorization",
           "oidc_code_exchange",
+          "oidc_fresh_authentication",
           "directory_full_sync",
           "directory_realtime_sync"
         ]

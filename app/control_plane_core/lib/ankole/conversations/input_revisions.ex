@@ -27,7 +27,7 @@ defmodule Ankole.Conversations.InputRevisions do
 
     candidates
     |> lock("FOR UPDATE")
-    |> repo.all()
+    |> repo.lock_all("signals")
     |> Enum.map(&retract_source_entry_from_event(repo, &1, fact, kind, now))
     |> Ankole.Attrs.collect_results()
     |> case do
@@ -110,7 +110,7 @@ defmodule Ankole.Conversations.InputRevisions do
     do: {:ok, :not_supplement}
 
   defp classify_attachment_supplement(
-         %Signal{completed_at: %DateTime{} = completed_at} = event,
+         %Signal{status: :completed, completed_at: completed_at} = event,
          repo,
          _fact,
          entry,
@@ -132,12 +132,13 @@ defmodule Ankole.Conversations.InputRevisions do
   end
 
   defp classify_attachment_supplement(
-         %Signal{input_state: "open", completed_at: nil} = event,
+         %Signal{status: live_status} = event,
          repo,
          _fact,
          entry,
          now
-       ) do
+       )
+       when live_status in [:queued, :running] do
     if latest_session_event?(repo, event),
       do: merge_into_open_event(repo, event, entry, now, false),
       else: {:ok, :not_supplement}
@@ -177,11 +178,11 @@ defmodule Ankole.Conversations.InputRevisions do
 
       :cancel ->
         with {:ok, _} <- Deletion.commit_source_in_tx(repo, event),
-             {:ok, _} <- repo.delete(event),
+             {:ok, _} <- Ankole.Ash.destroy(event, :remove),
              do: {:ok, :removed}
 
       {:update, attrs} ->
-        event |> Signal.changeset(attrs) |> repo.update()
+        event |> Ankole.Ash.update(:revise_input, attrs)
     end
   end
 
@@ -228,8 +229,7 @@ defmodule Ankole.Conversations.InputRevisions do
     |> where([event], event.conversation_id == ^fact.conversation_id)
     |> where([event], event.session_id == ^session_id)
     |> where([event], event.type == "conversation.message.addressed")
-    |> where([event], event.input_state == "open")
-    |> where([event], is_nil(event.completed_at))
+    |> where([event], event.status in [:queued, :running])
     |> exact_event_thread(fact.provider_thread_id)
     |> where(
       [event],
@@ -243,7 +243,8 @@ defmodule Ankole.Conversations.InputRevisions do
     |> order_by([event], desc: event.queue_sequence)
     |> limit(1)
     |> lock("FOR UPDATE")
-    |> repo.one()
+    |> repo.lock_all("signals")
+    |> List.first()
   end
 
   defp event_for_supplement_source_entry(_repo, _fact, _provider_message_id), do: nil
@@ -262,7 +263,8 @@ defmodule Ankole.Conversations.InputRevisions do
     |> order_by([event], desc: event.queue_sequence)
     |> limit(1)
     |> lock("FOR UPDATE")
-    |> repo.one()
+    |> repo.lock_all("signals")
+    |> List.first()
   end
 
   defp exact_event_thread(query, nil), do: where(query, [event], is_nil(event.provider_thread_id))
@@ -310,8 +312,7 @@ defmodule Ankole.Conversations.InputRevisions do
     |> where([input], input.agent_uid == ^fact.agent_uid)
     |> where([input], input.reply_binding_name == ^fact.binding_name)
     |> where([input], input.conversation_id == ^fact.conversation_id)
-    |> where([input], input.input_state == "open")
-    |> where([input], is_nil(input.completed_at))
+    |> where([input], input.status in [:queued, :running])
     |> maybe_where_thread(fact.provider_thread_id)
     |> where(
       [input],

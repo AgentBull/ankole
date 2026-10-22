@@ -11,9 +11,9 @@ defmodule Ankole.Conversations.AdapterSignalRoundtripTest do
   alias Ankole.AppConfigure
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
-  alias Ankole.Conversations.{AdapterContext, Conversation, Message}
-  alias Ankole.Conversations.Delivery
+  alias Ankole.Conversations.{AdapterContext, Message}
   alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Delivery.Jobs.Dispatch
   alias Ankole.Signals.Signal
   alias Ankole.SessionsCase, as: RuntimeCase
 
@@ -74,12 +74,6 @@ defmodule Ankole.Conversations.AdapterSignalRoundtripTest do
         RuntimeCase.stop_new_drivers(drivers)
         RuntimeCase.stop_new_preview_handlers(previews)
 
-        Repo.delete_all(Conversation)
-
-        Repo.delete_all(
-          from job in Oban.Job, where: job.args["agent_uid"] in ^[agent.uid, other.uid]
-        )
-
         for uid <- [agent.uid, other.uid] do
           {:ok, bindings} = Ankole.Signals.Bindings.list_bindings(uid)
 
@@ -87,7 +81,6 @@ defmodule Ankole.Conversations.AdapterSignalRoundtripTest do
             :ok = AppConfigure.delete_global_by_key(key)
           end
 
-          :ok = Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(Repo, uid)
           Ankole.PrincipalsFixtures.delete_agent_fixture_rows(uid)
         end
 
@@ -98,10 +91,7 @@ defmodule Ankole.Conversations.AdapterSignalRoundtripTest do
         end
 
         {:ok, _} = ProviderConfigs.delete_provider(profile["provider_id"])
-        Repo.delete_all(Ankole.Brain.Schemas.Object)
-        Repo.delete_all(Ankole.AuthZ.Group)
-        Repo.delete_all(Ankole.Principals.Principal)
-        Repo.delete!(tenant)
+        cleanup_tenant!(tenant)
       end)
     )
 
@@ -182,7 +172,7 @@ defmodule Ankole.Conversations.AdapterSignalRoundtripTest do
       assert continued.attempt_count == 1
       deliver_reply(continued, ctx.answer)
       assert :counters.get(ctx.requests, 1) == 2
-      refute Repo.exists?(from s in Signal, where: s.agent_uid == ^ctx.other.uid)
+      refute Repo.exists?(from(s in Signal, where: s.agent_uid == ^ctx.other.uid))
 
       assert Repo.aggregate(
                from(i in Intent,
@@ -221,7 +211,7 @@ defmodule Ankole.Conversations.AdapterSignalRoundtripTest do
     assert {:ok, signal} =
              wait_until(deadline(10_000), fn ->
                signals =
-                 Repo.all(from s in Signal, where: s.agent_uid == ^uid, order_by: s.inserted_at)
+                 Repo.all(from(s in Signal, where: s.agent_uid == ^uid, order_by: s.inserted_at))
 
                if length(signals) == count and Enum.all?(signals, & &1.completed_at),
                  do: List.last(signals)
@@ -234,26 +224,51 @@ defmodule Ankole.Conversations.AdapterSignalRoundtripTest do
   defp deliver_reply(signal, answer) do
     intent =
       Repo.one!(
-        from i in Intent,
+        from(i in Intent,
           where: i.source_signal_id == ^signal.id and i.delivery_class == :durable_ai_reply
+        )
       )
 
     assert intent.conversation_id == signal.conversation_id
     assert intent.fallback_visible_text =~ answer
 
     unless intent.status == :sent do
-      assert {:ok, _} =
-               Delivery.dispatch_by_key(
-                 intent.agent_uid,
-                 intent.binding_name,
-                 intent.outbound_key
+      assert [job] =
+               all_enqueued(
+                 worker: Dispatch,
+                 args: %{
+                   tenant_id: signal.tenant_id,
+                   agent_uid: intent.agent_uid,
+                   binding_name: intent.binding_name,
+                   outbound_key: intent.outbound_key
+                 }
                )
+
+      assert :ok = perform_dispatch_job(job, deadline(10_000))
     end
 
     stored = Repo.get_by!(Intent, Ecto.primary_key(intent))
 
     assert %{status: :sent} = stored
     stored
+  end
+
+  defp perform_dispatch_job(job, deadline) do
+    assert System.monotonic_time(:millisecond) < deadline, "Delivery job did not finish in time"
+
+    case Dispatch.perform(job) do
+      {:snooze, seconds} ->
+        wait_ms = seconds * 1_000
+
+        assert wait_ms < deadline - System.monotonic_time(:millisecond),
+               "Delivery job cannot finish within its deadline"
+
+        Process.sleep(wait_ms)
+        perform_dispatch_job(job, deadline)
+
+      result ->
+        result
+    end
   end
 
   defp assert_source_output(%{adapter: "email", answer: answer} = ctx, _intent) do

@@ -4,6 +4,7 @@ defmodule Ankole.OIDC do
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.SecretKeyBase
   alias Ankole.AIAgent.ModelProfiles
@@ -12,11 +13,41 @@ defmodule Ankole.OIDC do
   alias Ankole.OIDC.AuthorizationCode
   alias Ankole.OIDC.Client
   alias Ankole.OIDC.ClientGroup
-  alias Ankole.OIDC.LogoutDelivery
+  alias Ankole.OIDC.Validations.ClientPolicy
   alias Ankole.OIDC.LogoutRequest
   alias Ankole.OIDC.Session
   alias Ankole.OIDC.RefreshToken
   alias Ankole.Repo
+
+  @allow_http_issuer Mix.env() in [:dev, :test]
+
+  def attesto_config do
+    issuer = Ankole.TokenSigning.issuer()
+
+    options = [
+      issuer: issuer,
+      audience: Ankole.OIDC.Tokens.userinfo_audience(),
+      keystore: Ankole.OIDC.Keystore,
+      principal_kinds: [Attesto.PrincipalKind.new("human", "usr_")]
+    ]
+
+    case URI.parse(issuer) do
+      %URI{scheme: "https"} ->
+        Attesto.Config.new(options)
+
+      %URI{scheme: "http", host: host, query: nil, fragment: nil, userinfo: nil}
+      when is_binary(host) and host != "" ->
+        if @allow_http_issuer do
+          :ok = Attesto.Keystore.validate!(Ankole.OIDC.Keystore)
+          struct!(Attesto.Config, options)
+        else
+          raise ArgumentError, "HTTP OIDC issuers are restricted to development and tests"
+        end
+
+      _ ->
+        raise ArgumentError, "invalid OIDC issuer"
+    end
+  end
 
   @ai_gateway_scope "ai_gateway.write"
 
@@ -26,8 +57,8 @@ defmodule Ankole.OIDC do
   @spec list_clients() :: [map()]
   def list_clients do
     Client
-    |> order_by([client], asc: client.inserted_at)
-    |> Repo.all()
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ankole.Ash.read!()
     |> Enum.map(&projection/1)
   end
 
@@ -35,7 +66,7 @@ defmodule Ankole.OIDC do
   @spec get_client(String.t()) :: client_result()
   def get_client(id) do
     with {:ok, id} <- cast_uuid(id) do
-      case Repo.get(Client, id) do
+      case find_client(id, false) do
         %Client{} = client -> {:ok, client}
         nil -> {:error, :not_found}
       end
@@ -46,11 +77,115 @@ defmodule Ankole.OIDC do
   @spec get_active_client(String.t()) :: client_result()
   def get_active_client(id) do
     with {:ok, id} <- cast_uuid(id) do
-      case Repo.get_by(Client, id: id, enabled: true) do
+      case find_client(id, true) do
         %Client{} = client -> {:ok, client}
         nil -> {:error, :not_found}
       end
     end
+  end
+
+  def discovery_metadata do
+    issuer = Ankole.TokenSigning.issuer()
+
+    metadata =
+      Attesto.OpenIDDiscovery.metadata(attesto_config(),
+        authorization_endpoint: issuer <> "/oauth/authorize",
+        userinfo_endpoint: issuer <> "/oauth/userinfo",
+        introspection_endpoint: issuer <> "/oauth/introspect",
+        introspection_endpoint_auth_methods_supported: ["client_secret_basic"],
+        end_session_endpoint: issuer <> "/oauth/logout",
+        jwks_uri: issuer <> "/.well-known/jwks.json",
+        backchannel_logout_supported: true,
+        backchannel_logout_session_supported: true,
+        response_types_supported: ["code"],
+        response_modes_supported: ["query"],
+        grant_types_supported: ["authorization_code", "refresh_token"],
+        token_endpoint_auth_methods_supported: ["none", "client_secret_basic"],
+        scopes_supported: Client.supported_scopes(),
+        claims_supported: ~w(sub name preferred_username picture email auth_time sid)
+      )
+
+    # Attesto always advertises DPoP. This server does not accept DPoP requests.
+    Map.delete(metadata, "dpop_signing_alg_values_supported")
+  end
+
+  def authorization_request(params) do
+    protocol =
+      if is_list(params["prompt"]),
+        do: Map.put(params, "prompt", Enum.join(params["prompt"], " ")),
+        else: params
+
+    with {:ok, client} <- Ankole.OIDC.ClientAuthentication.put_client_tenant(params["client_id"]),
+         {:ok, req} <-
+           protocol_request(protocol, client.redirect_uris),
+         :ok <- authorization_policy(req, protocol),
+         true <- req.openid? and MapSet.subset?(MapSet.new(req.scope), MapSet.new(client.scopes)) do
+      normalized =
+        params
+        |> Map.merge(%{
+          "prompt" => req.prompt,
+          "max_age" => req.max_age,
+          "auth_time_essential?" => auth_time_essential?(req.claims),
+          "scope" => Enum.join(req.scope, " ")
+        })
+
+      {:ok, client, normalized}
+    else
+      {:error, :not_found} -> {:error, {:direct, :invalid_client}}
+      {:error, _, _} = error -> error
+      {:error, _} = error -> error
+      false -> {:error, "invalid_scope", "Client scope or response mode is not supported"}
+    end
+  end
+
+  defp protocol_request(params, redirects) do
+    case Attesto.AuthorizationRequest.validate(params, registered_redirect_uris: redirects) do
+      {:error, {:redirect, error}} when is_map_key(params, "request") ->
+        {:error,
+         {:redirect,
+          %{
+            error
+            | error: "request_not_supported",
+              error_description: "request object is not supported"
+          }}}
+
+      {:ok, _} when is_map_key(params, "request") ->
+        {:error, "request_not_supported", "request object is not supported"}
+
+      result ->
+        result
+    end
+  end
+
+  defp auth_time_essential?(%{"id_token" => %{"auth_time" => %{"essential" => true}}}), do: true
+  defp auth_time_essential?(_), do: false
+
+  defp authorization_policy(req, params) do
+    valid? =
+      req.response_mode in [nil, "query"] and is_nil(req.dpop_jkt) and
+        req.resource == [] and req.authorization_details == [] and
+        length(req.prompt) == length(Enum.uniq(req.prompt)) and
+        (is_nil(req.max_age) or req.max_age <= 2_147_483_647) and
+        Enum.all?(
+          [params["state"], params["nonce"], params["prompt"]],
+          &(is_nil(&1) or is_binary(&1))
+        )
+
+    if valid?,
+      do: :ok,
+      else: {:error, "invalid_request", "authorization request is not supported"}
+  end
+
+  defp find_client(id, active?) do
+    action = if Repo.across_tenants?(), do: :lookup_across_tenants, else: :read
+
+    query =
+      Client
+      |> Ash.Query.for_read(action, %{}, tenant: Repo.tenant_id(), authorize?: false)
+      |> Ash.Query.filter(id == ^id)
+
+    query = if active?, do: Ash.Query.filter(query, enabled == true), else: query
+    Ash.read_one!(query, authorize?: false)
   end
 
   @doc "Creates a client and returns its one-time secret when confidential."
@@ -70,9 +205,11 @@ defmodule Ankole.OIDC do
              with :ok <- validate_group_ids(repo, group_ids, normalized),
                   :ok <- validate_identity_provider_ids(normalized),
                   {:ok, client} <-
-                    %Client{id: id}
-                    |> Client.changeset(Map.drop(normalized, [:allowed_group_ids]))
-                    |> repo.insert(),
+                    Ankole.Ash.create(
+                      Client,
+                      :create_in_tx,
+                      normalized |> Map.drop([:allowed_group_ids]) |> Map.put(:id, id)
+                    ),
                   :ok <- replace_group_links(repo, client.id, group_ids) do
                {:ok, client}
              end
@@ -99,9 +236,11 @@ defmodule Ankole.OIDC do
                   :ok <- validate_group_ids(repo, group_ids, normalized),
                   :ok <- validate_identity_provider_ids(normalized),
                   {:ok, updated} <-
-                    client
-                    |> Client.changeset(Map.drop(normalized, [:allowed_group_ids]))
-                    |> repo.update(),
+                    Ankole.Ash.update(
+                      client,
+                      :configure_in_tx,
+                      Map.drop(normalized, [:allowed_group_ids, :client_type])
+                    ),
                   :ok <- replace_group_links(repo, updated.id, group_ids) do
                {:ok, updated}
              else
@@ -119,7 +258,8 @@ defmodule Ankole.OIDC do
   @spec delete_client(String.t()) :: {:ok, map()} | {:error, term()}
   def delete_client(id) do
     with {:ok, client} <- get_client(id),
-         {:ok, deleted} <- Repo.delete(client) do
+         {:ok, deleted} <-
+           Repo.transact(fn _repo -> Ankole.Ash.destroy(client, :delete_in_tx) end) do
       {:ok, projection(deleted)}
     end
   end
@@ -132,9 +272,9 @@ defmodule Ankole.OIDC do
          secret <- opaque_token(),
          {:ok, ciphertext} <- seal(secret, "client_secret", client.id),
          {:ok, updated} <-
-           client
-           |> Client.changeset(%{secret_ciphertext: ciphertext})
-           |> Repo.update() do
+           Repo.transact(fn _repo ->
+             Ankole.Ash.update(client, :rotate_secret_in_tx, %{secret_ciphertext: ciphertext})
+           end) do
       {:ok, %{client: projection(updated), client_secret: secret}}
     else
       {:ok, %Client{client_type: :public}} -> {:error, :public_client}
@@ -175,7 +315,7 @@ defmodule Ankole.OIDC do
     |> select([client], client.redirect_uris)
     |> Repo.all()
     |> List.flatten()
-    |> Enum.map(&Client.redirect_origin/1)
+    |> Enum.map(&ClientPolicy.redirect_origin/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
   end
@@ -184,7 +324,7 @@ defmodule Ankole.OIDC do
   @spec redirect_origins(Client.t()) :: [String.t()]
   defp redirect_origins(%Client{redirect_uris: redirect_uris}) do
     redirect_uris
-    |> Enum.map(&Client.redirect_origin/1)
+    |> Enum.map(&ClientPolicy.redirect_origin/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
   end
@@ -216,43 +356,44 @@ defmodule Ankole.OIDC do
   @doc "Deletes the tenant's expired credentials and eligible OIDC session state."
   @spec cleanup_expired_credentials(DateTime.t()) :: %{atom() => non_neg_integer()}
   def cleanup_expired_credentials(now \\ DateTime.utc_now(:microsecond)) do
-    {authorization_codes, _rows} =
+    :ok = Ankole.OIDC.RefreshStore.redact_expired_successors(now)
+
+    authorization_codes =
       AuthorizationCode
-      |> where([code], code.expires_at <= ^now)
-      |> Repo.delete_all()
+      |> Ash.Query.filter(
+        expires_at <= ^now and
+          (is_nil(replay_retain_until) or replay_retain_until <= ^now)
+      )
+      |> expire_records()
 
-    {refresh_tokens, _rows} =
+    refresh_tokens =
       RefreshToken
-      |> where([token], token.absolute_expires_at <= ^now)
-      |> Repo.delete_all()
+      |> Ash.Query.filter(
+        expires_at <= ^now and
+          (is_nil(successor_retry_until) or successor_retry_until < ^now)
+      )
+      |> expire_records(:remove_in_tx)
 
-    {logout_requests, _} =
-      Repo.delete_all(from r in LogoutRequest, where: r.expires_at <= ^now)
+    logout_requests =
+      LogoutRequest |> Ash.Query.filter(expires_at <= ^now) |> expire_records()
 
     recent_cutoff = DateTime.add(now, -24 * 60 * 60)
 
-    {oidc_sessions, _} =
-      Repo.delete_all(
-        from s in Session,
-          as: :session,
-          where: s.expires_at <= ^now and (is_nil(s.ended_at) or s.ended_at < ^recent_cutoff),
-          where:
-            not exists(
-              from c in AuthorizationCode,
-                where: c.session_id == parent_as(:session).id,
-                select: 1
-            ),
-          where:
-            not exists(
-              from t in RefreshToken, where: t.session_id == parent_as(:session).id, select: 1
-            ),
-          where:
-            not exists(
-              from d in LogoutDelivery,
-                where: d.session_id == parent_as(:session).id and d.status != :delivered,
-                select: 1
-            )
+    oidc_sessions =
+      Session
+      |> Ash.Query.filter(expires_at <= ^now and (is_nil(ended_at) or ended_at < ^recent_cutoff))
+      |> Ash.Query.filter(
+        fragment(
+          "NOT EXISTS (SELECT 1 FROM oidc_authorization_codes AS c WHERE c.tenant_id = ? AND c.session_id = ?) AND NOT EXISTS (SELECT 1 FROM oidc_refresh_tokens AS t WHERE t.tenant_id = ? AND t.session_id = ?) AND NOT EXISTS (SELECT 1 FROM oidc_logout_deliveries AS d WHERE d.tenant_id = ? AND d.session_id = ? AND d.status <> 'delivered')",
+          tenant_id,
+          id,
+          tenant_id,
+          id,
+          tenant_id,
+          id
+        )
       )
+      |> expire_records()
 
     %{
       authorization_codes: authorization_codes,
@@ -260,6 +401,24 @@ defmodule Ankole.OIDC do
       logout_requests: logout_requests,
       oidc_sessions: oidc_sessions
     }
+  end
+
+  defp expire_records(query, action \\ :expire_in_tx) do
+    case Repo.transact(fn ->
+           query = Ash.Query.select(query, Ash.Resource.Info.primary_key(query.resource))
+
+           case Ankole.Ash.bulk_destroy(query, action, %{},
+                  strategy: [:atomic],
+                  return_records?: true,
+                  return_errors?: true
+                ) do
+             %Ash.BulkResult{status: :success, records: records} -> {:ok, length(records)}
+             %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+           end
+         end) do
+      {:ok, count} -> count
+      {:error, error} -> raise Ash.Error.to_error_class(error)
+    end
   end
 
   @doc "Projects one client without its encrypted secret."
@@ -441,13 +600,19 @@ defmodule Ankole.OIDC do
     if MapSet.new(found) == MapSet.new(group_ids), do: :ok, else: {:error, :unknown_group}
   end
 
-  defp replace_group_links(repo, client_id, group_ids) do
-    _ = repo.delete_all(from link in ClientGroup, where: link.client_id == ^client_id)
+  defp replace_group_links(_repo, client_id, group_ids) do
+    query = ClientGroup |> Ash.Query.filter(client_id == ^client_id)
+
+    case Ankole.Ash.bulk_destroy(query, :unlink_in_tx, %{},
+           strategy: [:atomic],
+           return_errors?: true
+         ) do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+    end
 
     Enum.reduce_while(group_ids, :ok, fn group_id, :ok ->
-      case %ClientGroup{}
-           |> ClientGroup.changeset(%{client_id: client_id, group_id: group_id})
-           |> repo.insert() do
+      case Ankole.Ash.create(ClientGroup, :link_in_tx, %{client_id: client_id, group_id: group_id}) do
         {:ok, _link} -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -480,7 +645,7 @@ defmodule Ankole.OIDC do
   defp authorize_model(_client, _selector), do: {:error, :model_not_allowed}
 
   defp lock_client(repo, id) do
-    repo.one(from client in Client, where: client.id == ^id, lock: "FOR UPDATE")
+    repo.one(from(client in Client, where: client.id == ^id, lock: "FOR UPDATE"))
   end
 
   defp maybe_seal_secret(nil, _id), do: {:ok, nil}
@@ -497,6 +662,6 @@ defmodule Ankole.OIDC do
   end
 
   defp opaque_token do
-    32 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
+    Attesto.Secret.generate()
   end
 end

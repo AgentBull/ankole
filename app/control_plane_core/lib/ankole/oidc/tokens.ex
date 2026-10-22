@@ -41,12 +41,15 @@ defmodule Ankole.OIDC.Tokens do
 
   @spec verify_access(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def verify_access(token, audience) when is_binary(token) and is_binary(audience) do
-    with {:ok, claims} <- TokenSigning.verify(token, audience, "at+jwt") do
-      validate_access_claims(claims)
-    end
+    with {:ok, %{claims: claims}} <- verify_access_context(token, audience), do: {:ok, claims}
   end
 
   def verify_access(_token, _audience), do: {:error, :invalid_token}
+
+  def verify_access_context(token, audience) do
+    with {:ok, claims} <- TokenSigning.verify(token, audience, "at+jwt"),
+         do: access_context(claims)
+  end
 
   @doc """
   Validates OIDC access-token claims after `TokenSigning` verifies the token.
@@ -55,6 +58,12 @@ defmodule Ankole.OIDC.Tokens do
   """
   @spec validate_access_claims(map()) :: {:ok, map()} | {:error, term()}
   def validate_access_claims(%{} = claims) do
+    with {:ok, %{claims: claims}} <- access_context(claims), do: {:ok, claims}
+  end
+
+  def validate_access_claims(_claims), do: {:error, :invalid_token}
+
+  defp access_context(claims) do
     with :ok <- require_claim(claims, "token_use", @access_token_use),
          :ok <- require_claim(claims, "subject_type", "human"),
          :ok <- require_scope(claims, "openid"),
@@ -62,19 +71,17 @@ defmodule Ankole.OIDC.Tokens do
          true <- is_binary(client_id) and client_id != "" and is_binary(sub) and sub != "",
          {:ok, client} <-
            Ankole.Repo.across_tenants(fn -> Ankole.OIDC.get_active_client(client_id) end),
-         {:ok, _} <-
+         {:ok, session} <-
            Ankole.Repo.with_tenant(client.tenant_id, fn ->
              Ankole.OIDC.Sessions.validate(claims["sid"], client_id, sub, claims["scope"])
            end) do
-      {:ok, claims}
+      {:ok, %{claims: claims, client: client, session: session}}
     else
       false -> {:error, :invalid_subject}
       %{} -> {:error, :invalid_subject}
       {:error, reason} -> {:error, reason}
     end
   end
-
-  def validate_access_claims(_claims), do: {:error, :invalid_token}
 
   defp audiences(scope) do
     if "ai_gateway.write" in String.split(scope, " ", trim: true),

@@ -26,10 +26,17 @@ defmodule AnkoleWeb.ConsoleErrors do
 
   def fallback(conn, {:error, :forbidden}, _local_error), do: forbidden(conn)
 
-  def fallback(conn, {:error, {:missing, key}}, nil), do: required_field(conn, key)
+  def fallback(conn, {:error, %Ash.Error.Forbidden{}}, _local_error), do: forbidden(conn)
 
-  def fallback(conn, {:error, %Ecto.Changeset{} = changeset}, nil),
-    do: changeset(conn, changeset)
+  def fallback(conn, {:error, %module{} = error}, nil)
+      when module in [Ash.Changeset, Ash.Error.Invalid],
+      do: changeset(conn, error)
+
+  def fallback(conn, {:error, %module{} = error}, _local_error)
+      when module in [Ash.Error.Framework, Ash.Error.Unknown],
+      do: unexpected(conn, "console.ash.unexpected_error", error)
+
+  def fallback(conn, {:error, {:missing, key}}, nil), do: required_field(conn, key)
 
   def fallback(conn, {:error, reason}, local_error) when is_function(local_error, 2),
     do: local_error.(conn, reason)
@@ -60,15 +67,15 @@ defmodule AnkoleWeb.ConsoleErrors do
   @doc """
   Renders an unlisted error reason without leaking internal terms.
 
-  An unlisted reason is a server-side gap: the warning log carries the full
-  reason for the operator, and the response stays generic. `log_event` names
+  An unlisted reason is a server-side gap: the warning log carries the failure
+  class for the operator, and the response stays generic. `log_event` names
   the owning API, for example `"ai_gateway.provider_api.unexpected_error"`.
   """
   def unexpected(conn, log_event, reason) do
     Ankole.Logging.warning(
       log_event,
       "console API request failed for an unhandled reason",
-      %{reason: inspect(reason)}
+      Ankole.Logging.failure_fields(:error, reason, [])
     )
 
     render(
@@ -118,17 +125,6 @@ defmodule AnkoleWeb.ConsoleErrors do
   @doc """
   Converts changeset errors into the console API detail list.
   """
-  def changeset_details(%Ecto.Changeset{} = changeset) do
-    changeset
-    |> Ecto.Changeset.traverse_errors(&format_changeset_error/1)
-    |> Enum.flat_map(fn {field, messages} ->
-      Enum.map(messages, &%{path: to_string(field), message: &1})
-    end)
-  end
-
-  defp format_changeset_error({message, opts}) do
-    Enum.reduce(opts, message, fn {key, value}, message ->
-      String.replace(message, "%{#{key}}", to_string(value))
-    end)
-  end
+  def changeset_details(%module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid],
+    do: Ankole.Ash.validation_details(error)
 end

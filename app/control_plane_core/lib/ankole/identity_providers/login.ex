@@ -31,7 +31,16 @@ defmodule Ankole.IdentityProviders.Login do
        providers
        |> Enum.map(fn provider -> {provider, login_kind(provider)} end)
        |> Enum.reject(fn {_provider, kind} -> is_nil(kind) end)
-       |> Enum.map(fn {provider, kind} -> Map.put(provider, "kind", kind) end)}
+       |> Enum.map(fn {provider, kind} ->
+         {:ok, adapter} = IdentityProviders.fetch_adapter(provider["adapter_id"])
+
+         provider
+         |> Map.put("kind", kind)
+         |> Map.put(
+           "fresh_authentication",
+           "oidc_fresh_authentication" in IdentityProviders.adapter_capabilities(adapter)
+         )
+       end)}
     end
   end
 
@@ -40,7 +49,8 @@ defmodule Ankole.IdentityProviders.Login do
   """
   @spec authorization_url(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(provider_id, opts) when is_binary(provider_id) and is_list(opts) do
-    with {:ok, module, config} <- login_module(provider_id, @authorization_capability) do
+    with {:ok, module, config} <-
+           login_module(provider_id, capability(opts, @authorization_capability)) do
       module.authorization_url(config, opts)
     end
   end
@@ -51,8 +61,11 @@ defmodule Ankole.IdentityProviders.Login do
   @spec complete_oidc_login(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def complete_oidc_login(provider_id, code, opts)
       when is_binary(provider_id) and is_binary(code) and is_list(opts) do
-    with {:ok, module, config} <- login_module(provider_id, @code_exchange_capability),
-         {:ok, %{user: user}} <- module.exchange_code(config, code, opts),
+    with {:ok, module, config} <-
+           login_module(provider_id, capability(opts, @code_exchange_capability)),
+         {:ok, %{user: user} = login} <- module.exchange_code(config, code, opts),
+         :ok <-
+           Ankole.IdentityProviders.OIDC.validate_authentication_time(login[:auth_time], opts),
          {:ok, %{principal: principal, identity: identity}} <-
            module.upsert_user(provider_id, user),
          :ok <- Ankole.Principals.HumanAccess.check(principal.uid, principal.access_version) do
@@ -60,12 +73,18 @@ defmodule Ankole.IdentityProviders.Login do
        %{
          principal_uid: principal.uid,
          access_version: principal.access_version,
-         auth_time: nil,
+         auth_time: login[:auth_time],
          provider_id: provider_id,
          external_id: identity.external_id,
          user: user
        }}
     end
+  end
+
+  defp capability(opts, ordinary) do
+    if Keyword.get(opts, :auth_time_required, false),
+      do: "oidc_fresh_authentication",
+      else: ordinary
   end
 
   # Returns the callback path used for OIDC providers.

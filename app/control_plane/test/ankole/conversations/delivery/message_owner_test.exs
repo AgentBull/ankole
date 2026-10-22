@@ -3,7 +3,6 @@ defmodule Ankole.Conversations.Delivery.MessageOwnerTest do
 
   alias Ankole.Repo
   alias Ankole.Conversations.Delivery
-  alias Ankole.Conversations.Delivery.Intent
 
   import Ankole.PrincipalsFixtures
 
@@ -140,8 +139,6 @@ defmodule Ankole.Conversations.Delivery.MessageOwnerTest do
       recovery_state: %{}
     }
 
-    %Intent{}
-    |> Intent.changeset(Map.merge(defaults, attrs))
-    |> Repo.insert!()
+    Ankole.SignalsFixtures.delivery_fixture!(Map.merge(defaults, attrs))
   end
 end

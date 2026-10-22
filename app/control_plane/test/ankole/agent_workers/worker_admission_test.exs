@@ -5,7 +5,7 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
   alias Ankole.AgentWorkers.WorkerAdmission
 
   test "restored routes expire by heartbeat while fresh routes and generation facts survive" do
-    for state <- ["ready", "draining"],
+    for state <- [:ready, :draining],
         heartbeat <- [nil, DateTime.add(DateTime.utc_now(), -61, :second)] do
       %{principal: agent} = agent_fixture()
       route = unique_route()
@@ -13,10 +13,13 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
       assert :ok = WorkerAdmission.expire_connection(agent.uid)
       assert Repo.get!(AgentWorker, agent.uid).transport_route == route
 
+      state_changed_at = DateTime.add(DateTime.utc_now(:microsecond), -120, :second)
+
       from(w in AgentWorker, where: w.agent_uid == ^agent.uid)
       |> Repo.update_all(
         set: [
           state: state,
+          state_changed_at: state_changed_at,
           last_worker_heartbeat_at: heartbeat
         ]
       )
@@ -25,9 +28,14 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
       expired = Repo.get!(AgentWorker, agent.uid)
       assert expired.transport_route == nil
       assert expired.generation == admitted.generation
-      assert expired.state == if(state == "draining", do: "draining", else: "stale")
+      assert expired.state == if(state == :draining, do: :draining, else: :stale)
+
+      if state == :draining,
+        do: assert(expired.state_changed_at == state_changed_at),
+        else: assert(DateTime.compare(expired.state_changed_at, state_changed_at) == :gt)
+
       assert :ok = WorkerAdmission.expire_connection(agent.uid)
-      assert Repo.get!(AgentWorker, agent.uid) == expired
+      Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, agent.uid), expired)
     end
   end
 
@@ -41,7 +49,7 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
              admit_worker(route, %{worker_id: uid, capacity: %{"available_slots" => 1}})
 
     assert_receive {:worker_changed, ^uid}
-    assert Repo.get!(AgentWorker, uid).state == "ready"
+    assert Repo.get!(AgentWorker, uid).state == :ready
 
     assert {:ok, _} = report_capacity(worker, route, 0)
     assert_receive {:worker_changed, ^uid}
@@ -62,7 +70,7 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
              )
 
     assert_receive {:worker_changed, ^uid}
-    assert Repo.get!(AgentWorker, uid).state == "draining"
+    assert Repo.get!(AgentWorker, uid).state == :draining
     assert {:ok, :marked_stale} = WorkerAdmission.mark_route_unusable(route, :socket_closed)
     assert_receive {:worker_changed, ^uid}
     assert Repo.get!(AgentWorker, uid).transport_route == nil
@@ -93,7 +101,7 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
     assert {:error, :worker_incarnation_active} =
              admit_worker(unique_route(), %{worker_id: agent.uid, incarnation_id: "competing"})
 
-    assert Repo.get!(AgentWorker, agent.uid) == worker
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, agent.uid), worker)
     refute_receive {:worker_changed, _uid}, 50
   end
 

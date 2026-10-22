@@ -28,7 +28,7 @@ defmodule AnkoleWeb.WorkerChannel do
 
   use AnkoleWeb, :channel
 
-  alias Ankole.Kernel.RuntimeFabric
+  alias Ankole.RuntimeFabric
   alias Ankole.Logging
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AgentWorkers.InboundDispatcher

@@ -17,6 +17,45 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
 
   alias Ankole.AgentWorkers.AgentWorker
 
+  test "resource actions encrypt credentials and reject immutable changes before compensation" do
+    input = %{
+      provider_id: "action-edge",
+      display_name: "Edge",
+      kind: "cloudflare",
+      config: Cloudflare.definition().example,
+      credential_input: %{"adapterToken" => "action-secret"}
+    }
+
+    assert {:error, outside_transaction} = Ankole.Ash.create(Provider, :create, input)
+    assert Exception.message(outside_transaction) =~ "transaction required"
+    refute Repo.exists?(Provider)
+
+    assert {:ok, :committed} =
+             Repo.transact(fn _repo ->
+               assert {:ok, row} = Ankole.Ash.create(Provider, :create, input)
+               refute row.credentials["adapterToken"] == "action-secret"
+               assert {:ok, loaded} = Providers.load(row)
+               assert loaded.secrets == %{"adapterToken" => "action-secret"}
+               assert %Ankole.AgentWorkers.Providers.Runtime{} = loaded
+               refute inspect(loaded) =~ "action-secret"
+               refute inspect(loaded) =~ "secrets:"
+
+               assert {:error, rejected} =
+                        Ankole.Ash.update(row, :configure, %{provider_id: "different"})
+
+               assert "cannot change after creation" in errors_on(rejected).provider_id
+
+               assert {:ok, renamed} =
+                        Ankole.Ash.update(row, :configure, %{display_name: "Committed"})
+
+               assert renamed.credentials == row.credentials
+               {:ok, :committed}
+             end)
+
+    assert %{display_name: "Committed"} = Repo.get_by!(Provider, provider_id: "action-edge")
+    refute Repo.get_by(Provider, provider_id: "different")
+  end
+
   test "every type example satisfies its declared schema" do
     for module <- ProviderKind.all() do
       definition = module.definition()
@@ -193,7 +232,7 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
       Repo.insert!(%AgentWorker{
         agent_uid: Ecto.UUID.generate(),
         provider_id: provider.provider_id,
-        state: "deleting"
+        state: :deleting
       })
 
     for memory <- [512, 1024, 2048] do
@@ -218,7 +257,7 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
                ReconcileJob.run(%Oban.Job{args: %{"agent_uid" => worker.agent_uid}})
 
       rejected = Repo.get!(AgentWorker, worker.agent_uid)
-      assert rejected.state == "deleting"
+      assert rejected.state == :deleting
       assert rejected.last_error_kind == "rejected"
       assert rejected.last_error =~ "memoryMiB"
 
@@ -264,7 +303,7 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
     assert {:ok, provider} = Providers.create(attrs("shared"))
 
     other =
-      Repo.insert!(%Ankole.Tenants.Tenant{
+      create_tenant(%{
         slug: "other-" <> Ecto.UUID.generate(),
         display_name: "Other"
       })
@@ -311,7 +350,7 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
     assert {:ok, %{provider_id: "local"}} = Providers.assign("legacy", "local")
     assert {:error, :worker_provider_immutable} = Providers.assign("legacy", "local")
     assert [%{agent_count: 1}] = Providers.list_projections()
-    Repo.update_all(AgentWorker, set: [state: "deleting"])
+    Repo.update_all(AgentWorker, set: [state: :deleting])
     assert {:error, :worker_provider_in_use} = Providers.delete("local")
     Repo.delete_all(AgentWorker)
     assert {:ok, _provider} = Providers.delete("local")
@@ -319,7 +358,7 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
 
   test "seed insertion and legacy assignment commit together, then ignore the seed file" do
     Repo.insert!(%AgentWorker{agent_uid: "legacy"})
-    Repo.insert!(%AgentWorker{agent_uid: "deleted", state: "deleting"})
+    Repo.insert!(%AgentWorker{agent_uid: "deleted", state: :deleting})
     other = create_tenant()
     Repo.with_tenant(other.id, fn -> Repo.insert!(%AgentWorker{agent_uid: "foreign-legacy"}) end)
     first = attrs("local") |> Map.put(:legacy_agents, true) |> Map.put(:is_default, true)

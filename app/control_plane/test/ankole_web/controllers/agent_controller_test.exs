@@ -12,7 +12,6 @@ defmodule AnkoleWeb.AgentControllerTest do
   alias Ankole.Setup.Config, as: SetupConfig
 
   setup do
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
@@ -340,13 +339,13 @@ defmodule AnkoleWeb.AgentControllerTest do
   end
 
   defp record_agent_usage(agent_uid, input_tokens, output_tokens) do
-    Repo.insert!(%UsageRecord{
-      subject_uid: agent_uid,
-      origin: "agent",
-      model: "test-provider/test-model",
-      input_tokens: input_tokens,
-      output_tokens: output_tokens,
-      inserted_at: DateTime.utc_now(:microsecond)
-    })
+    assert {:ok, _record} =
+             Ankole.Ash.create(UsageRecord, :record_round, %{
+               subject_uid: agent_uid,
+               origin: :agent,
+               model: "test-provider/test-model",
+               input_tokens: input_tokens,
+               output_tokens: output_tokens
+             })
   end
 end

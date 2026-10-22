@@ -106,8 +106,15 @@ defmodule Ankole.Signals.CloudEventsTest do
                "config" => %{}
              })
 
-    assert Repo.get_by!(Binding, agent_uid: source.agent_uid, name: source.name) == source
-    assert Repo.get_by!(Binding, agent_uid: target.agent_uid, name: target.name) == target
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.get_by!(Binding, agent_uid: source.agent_uid, name: source.name),
+      source
+    )
+
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.get_by!(Binding, agent_uid: target.agent_uid, name: target.name),
+      target
+    )
   end
 
   test "moving a subscription may use an unused name or replace a disabled target", context do
@@ -118,9 +125,7 @@ defmodule Ankole.Signals.CloudEventsTest do
       if disabled_target? do
         bind!(context, context.second, name, "disabled-session")
 
-        Repo.get_by!(Binding, agent_uid: context.second.uid, name: name)
-        |> Binding.changeset(%{enabled: false})
-        |> Repo.update!()
+        assert {:ok, _binding} = Bindings.disable_binding(context.second.uid, name)
       end
 
       assert {:ok, %{binding: moved}} =
@@ -197,15 +202,14 @@ defmodule Ankole.Signals.CloudEventsTest do
     [valid, invalid] = Enum.sort_by([context.first, context.second], & &1.uid)
     bind!(context, valid, "valid", "valid-session")
 
-    Repo.insert!(
-      Binding.changeset(%Binding{}, %{
-        agent_uid: invalid.uid,
-        name: "missing-conversation",
-        adapter: "cloudevents",
-        config_ref: "webhook-endpoint://#{context.endpoint.id}",
-        target: %{"conversation_id" => Ecto.UUID.generate()}
-      })
-    )
+    assert {:ok, _binding} =
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
+               agent_uid: invalid.uid,
+               name: "missing-conversation",
+               adapter: "cloudevents",
+               config_ref: "webhook-endpoint://#{context.endpoint.id}",
+               target: %{"conversation_id" => Ecto.UUID.generate()}
+             })
 
     assert {:error, :conversation_not_found} =
              Webhooks.receive_cloudevent(context.token, event())

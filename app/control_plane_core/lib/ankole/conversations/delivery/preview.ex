@@ -70,6 +70,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
     automation_job.run_failed
     background_agent_job.completed
     background_agent_job.failed
+    background_agent_job.input_undeliverable
     background_agent_job.waiting
     workflow.run.completed
     workflow.run.failed
@@ -322,7 +323,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
           checkpoint: %{"refresh_pending" => true}
         }
       } = event ->
-        if match?(%DateTime{}, event.completed_at) and surface_open?(event) do
+        if event.status == :completed and surface_open?(event) do
           recover_completed_preview(event)
         else
           with :ok <- refresh_checkpoint(event) do
@@ -331,7 +332,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
         end
 
       %Signal{
-        completed_at: %DateTime{},
+        status: :completed,
         preview: %PreviewState{checkpoint: checkpoint}
       } = event
       when is_map(checkpoint) ->
@@ -342,8 +343,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
         end
 
       %Signal{
-        input_state: "open",
-        completed_at: nil,
+        status: live_status,
         preview: %PreviewState{
           checkpoint: %{
             "subject_uid" => subject_uid,
@@ -351,7 +351,8 @@ defmodule Ankole.Conversations.Delivery.Preview do
           }
         }
       } = event
-      when is_binary(subject_uid) and is_binary(conversation_id) ->
+      when live_status in [:queued, :running] and
+             (is_binary(subject_uid) and is_binary(conversation_id)) ->
         if refreshable_provider_checkpoint?(event) do
           with {:ok, event} <- mark_owner_recovery_refresh_pending(event.id),
                :ok <- refresh_checkpoint(event) do
@@ -370,9 +371,9 @@ defmodule Ankole.Conversations.Delivery.Preview do
   end
 
   defp start_recovered_preview(
-         {:start, %Signal{input_state: "open", completed_at: nil} = event, _subject,
-          _conversation}
-       ) do
+         {:start, %Signal{status: live_status} = event, _subject, _conversation}
+       )
+       when live_status in [:queued, :running] do
     with {:ok, pid} <-
            Ankole.Sessions.ensure_driver(%{
              agent_uid: event.agent_uid,
@@ -399,8 +400,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
         :ok
 
       %Signal{
-        input_state: "open",
-        completed_at: nil,
+        status: live_status,
         preview: %PreviewState{
           checkpoint: %{
             "subject_uid" => subject_uid,
@@ -408,7 +408,8 @@ defmodule Ankole.Conversations.Delivery.Preview do
           }
         }
       } = event
-      when is_binary(subject_uid) and is_binary(conversation_id) ->
+      when live_status in [:queued, :running] and
+             (is_binary(subject_uid) and is_binary(conversation_id)) ->
         {:start, event, subject_uid, conversation_id}
 
       %Signal{} ->
@@ -487,67 +488,34 @@ defmodule Ankole.Conversations.Delivery.Preview do
   end
 
   defp mark_owner_recovery_refresh_pending(signal_id) do
-    Repo.transact(fn repo ->
-      case PreviewState.load(
-             Ankole.Signals.lock_signal_in_tx(repo, signal_id),
-             repo
-           ) do
-        %Signal{
-          input_state: "open",
-          completed_at: nil,
-          preview: %PreviewState{
-            checkpoint: checkpoint
-          }
-        } = event
-        when is_map(checkpoint) ->
-          checkpoint =
-            checkpoint
-            |> Map.put("refresh_pending", true)
-            |> Map.put("refresh_reason", "owner_recovery")
+    PreviewState.update_checkpoint(signal_id, fn
+      %Signal{status: status, preview: %PreviewState{checkpoint: checkpoint}}
+      when status in [:queued, :running] and is_map(checkpoint) ->
+        {:ok,
+         checkpoint
+         |> Map.put("refresh_pending", true)
+         |> Map.put("refresh_reason", "owner_recovery")}
 
-          PreviewState.put_checkpoint_in_tx(repo, event, checkpoint)
-
-        %Signal{} ->
-          {:error, :reply_preview_not_recoverable}
-
-        nil ->
-          {:error, :signal_not_found}
-      end
+      %Signal{} ->
+        {:error, :reply_preview_not_recoverable}
     end)
   end
 
   defp mark_terminal_recovery_refresh_pending(signal_id) do
-    Repo.transact(fn repo ->
-      case PreviewState.load(
-             Ankole.Signals.lock_signal_in_tx(repo, signal_id),
-             repo
-           ) do
-        %Signal{
-          completed_at: %DateTime{},
-          preview: %PreviewState{checkpoint: checkpoint}
-        } = event
-        when is_map(checkpoint) ->
-          if surface_open?(event) do
-            checkpoint =
-              checkpoint
-              |> Map.put("refresh_pending", true)
-              |> Map.put("refresh_reason", "terminal_recovery")
-
-            PreviewState.put_checkpoint_in_tx(
-              repo,
-              event,
-              checkpoint
-            )
-          else
-            {:error, :reply_preview_not_recoverable}
-          end
-
-        %Signal{} ->
+    PreviewState.update_checkpoint(signal_id, fn
+      %Signal{status: :completed, preview: %PreviewState{checkpoint: checkpoint}} = event
+      when is_map(checkpoint) ->
+        if surface_open?(event) do
+          {:ok,
+           checkpoint
+           |> Map.put("refresh_pending", true)
+           |> Map.put("refresh_reason", "terminal_recovery")}
+        else
           {:error, :reply_preview_not_recoverable}
+        end
 
-        nil ->
-          {:error, :signal_not_found}
-      end
+      %Signal{} ->
+        {:error, :reply_preview_not_recoverable}
     end)
   end
 
@@ -593,28 +561,16 @@ defmodule Ankole.Conversations.Delivery.Preview do
   end
 
   defp mark_cleanup_refresh_pending(signal_id) do
-    Repo.transact(fn repo ->
-      case PreviewState.load(
-             Ankole.Signals.lock_signal_in_tx(repo, signal_id),
-             repo
-           ) do
-        %Signal{preview: %PreviewState{checkpoint: checkpoint}} =
-            event
-        when is_map(checkpoint) ->
-          checkpoint =
-            checkpoint
-            |> Map.delete("cleanup_at")
-            |> Map.put("refresh_pending", true)
-            |> Map.put("refresh_reason", "thought_cleanup")
+    PreviewState.update_checkpoint(signal_id, fn
+      %Signal{preview: %PreviewState{checkpoint: checkpoint}} when is_map(checkpoint) ->
+        {:ok,
+         checkpoint
+         |> Map.delete("cleanup_at")
+         |> Map.put("refresh_pending", true)
+         |> Map.put("refresh_reason", "thought_cleanup")}
 
-          PreviewState.put_checkpoint_in_tx(repo, event, checkpoint)
-
-        %Signal{} ->
-          {:error, :reply_preview_not_recoverable}
-
-        nil ->
-          {:error, :signal_not_found}
-      end
+      %Signal{} ->
+        {:error, :reply_preview_not_recoverable}
     end)
   end
 
@@ -663,40 +619,22 @@ defmodule Ankole.Conversations.Delivery.Preview do
   defp delegate_delivery_to_intent(%Signal{} = event, detail) do
     delegated_at = DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
 
-    Repo.transact(fn repo ->
-      case PreviewState.load(
-             Ankole.Signals.lock_signal_in_tx(repo, event.id),
-             repo
-           ) do
-        %Signal{preview: %PreviewState{checkpoint: checkpoint}} =
-            locked
-        when is_map(checkpoint) ->
-          checkpoint =
-            checkpoint
-            |> Map.delete("refresh_pending")
-            |> Map.delete("refresh_reason")
-            |> Map.put("presentation_owner", false)
-            |> Map.put("recovery_state", %{
-              "state" => "delegated",
-              "reason" => "plain_text_fallback",
-              # Sanitize before the JSONPayload checkpoint gate: adapter
-              # details may carry atom reasons, which JSONPayload rejects.
-              "detail" => Sanitizer.transport(detail),
-              "delegated_at" => delegated_at
-            })
+    PreviewState.update_checkpoint(event.id, fn
+      %Signal{preview: %PreviewState{checkpoint: checkpoint}} when is_map(checkpoint) ->
+        {:ok,
+         checkpoint
+         |> Map.delete("refresh_pending")
+         |> Map.delete("refresh_reason")
+         |> Map.put("presentation_owner", false)
+         |> Map.put("recovery_state", %{
+           "state" => "delegated",
+           "reason" => "plain_text_fallback",
+           "detail" => Sanitizer.transport(detail),
+           "delegated_at" => delegated_at
+         })}
 
-          PreviewState.put_checkpoint_in_tx(
-            repo,
-            locked,
-            checkpoint
-          )
-
-        %Signal{} ->
-          {:error, :reply_preview_checkpoint_missing}
-
-        nil ->
-          {:error, :signal_not_found}
-      end
+      %Signal{} ->
+        {:error, :reply_preview_checkpoint_missing}
     end)
     |> case do
       {:ok, _event} ->
@@ -720,32 +658,16 @@ defmodule Ankole.Conversations.Delivery.Preview do
   defp block_recovery(%Signal{} = event, reason) do
     recovery_state = blocked_recovery_state(reason)
 
-    Repo.transact(fn repo ->
-      case PreviewState.load(
-             Ankole.Signals.lock_signal_in_tx(repo, event.id),
-             repo
-           ) do
-        %Signal{preview: %PreviewState{checkpoint: checkpoint}} =
-            locked
-        when is_map(checkpoint) ->
-          checkpoint =
-            checkpoint
-            |> Map.delete("refresh_pending")
-            |> Map.delete("refresh_reason")
-            |> Map.put("recovery_state", recovery_state)
+    PreviewState.update_checkpoint(event.id, fn
+      %Signal{preview: %PreviewState{checkpoint: checkpoint}} when is_map(checkpoint) ->
+        {:ok,
+         checkpoint
+         |> Map.delete("refresh_pending")
+         |> Map.delete("refresh_reason")
+         |> Map.put("recovery_state", recovery_state)}
 
-          PreviewState.put_checkpoint_in_tx(
-            repo,
-            locked,
-            checkpoint
-          )
-
-        %Signal{} ->
-          {:error, :reply_preview_checkpoint_missing}
-
-        nil ->
-          {:error, :signal_not_found}
-      end
+      %Signal{} ->
+        {:error, :reply_preview_checkpoint_missing}
     end)
     |> case do
       {:ok, _event} ->
@@ -2113,6 +2035,9 @@ defmodule Ankole.Conversations.Delivery.Preview do
   defp transient_intent(%Signal{} = event, operation, text, opts) do
     %Intent{
       agent_uid: event.agent_uid,
+      delivery_class: :generic,
+      status: :pending,
+      possible_duplicate: false,
       binding_name: event.reply_binding_name,
       outbound_key: Keyword.fetch!(opts, :outbound_key),
       operation: operation,

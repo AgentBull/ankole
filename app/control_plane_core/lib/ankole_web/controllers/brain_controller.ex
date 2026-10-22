@@ -13,7 +13,7 @@ defmodule AnkoleWeb.BrainController do
 
   use AnkoleWeb, :controller
 
-  action_fallback :fallback
+  action_fallback(:fallback)
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.Brain.Claims
@@ -302,9 +302,7 @@ defmodule AnkoleWeb.BrainController do
   def create_object(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, attrs} <- object_create_attrs(conn.body_params) do
-      case Objects.create_object(attrs, brain_writer(conn),
-             author: Ankole.ActorRef.from_principal(conn.assigns.current_principal)
-           ) do
+      case Objects.create_object(attrs, brain_writer(conn)) do
         {:ok, object} -> render_object_page(conn, object.slug)
         {:error, reason} -> object_write_error(conn, reason, attrs.body)
       end
@@ -443,12 +441,13 @@ defmodule AnkoleWeb.BrainController do
   end
 
   def list_contradictions(conn, params) do
-    with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
-      status = params["status"] || "open"
-
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read"),
+         {:ok, contradictions} <-
+           Dreaming.list_contradictions_for_console(params["status"] || "open",
+             limit: @list_limit
+           ) do
       contradictions =
-        status
-        |> Dreaming.list_contradictions_for_console(limit: @list_limit)
+        contradictions
         |> Enum.map(fn %{
                          contradiction: contradiction,
                          a_claim: a_claim,
@@ -482,12 +481,11 @@ defmodule AnkoleWeb.BrainController do
   end
 
   def list_suggestions(conn, params) do
-    with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
-      status = params["status"] || "pending"
-
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read"),
+         {:ok, suggestions} <-
+           Promotion.list_for_console(params["status"] || "pending", limit: @list_limit) do
       suggestions =
-        status
-        |> Promotion.list_for_console(limit: @list_limit)
+        suggestions
         |> Enum.map(fn suggestion ->
           %{
             id: suggestion.id,
@@ -537,12 +535,11 @@ defmodule AnkoleWeb.BrainController do
   end
 
   def list_merge_suggestions(conn, params) do
-    with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
-      status = params["status"] || "pending"
-
+    with :ok <- ConsolePolicy.authorize(conn, "brain", "read"),
+         {:ok, suggestions} <-
+           Merge.list_for_console(params["status"] || "pending", limit: @list_limit) do
       suggestions =
-        status
-        |> Merge.list_for_console(limit: @list_limit)
+        suggestions
         |> Enum.map(fn suggestion ->
           %{
             id: suggestion.id,
@@ -888,6 +885,9 @@ defmodule AnkoleWeb.BrainController do
   defp object_write_error(_conn, reason, _body), do: {:error, reason}
 
   defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+
+  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid],
+    do: ConsoleErrors.changeset(conn, error)
 
   defp error(conn, :object_deleted),
     do: ConsoleErrors.render(conn, 409, "object_deleted", "restore the object before editing it")

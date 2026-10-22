@@ -4,7 +4,6 @@ defmodule Ankole.AgentWorkers.KubernetesAPITest do
   alias Ankole.AgentWorkers.Kubernetes
   alias Ankole.AgentWorkers.ProviderKind
   alias Ankole.AgentWorkers.Providers.Configuration
-  alias Ankole.AgentWorkers.Providers.Provider
   alias Ankole.AgentWorkers.WorkerBootstrap
 
   @cluster __MODULE__.Cluster
@@ -34,7 +33,7 @@ defmodule Ankole.AgentWorkers.KubernetesAPITest do
       Configuration.parse(Kubernetes.definition().schema, Kubernetes.definition().example)
 
     %{
-      provider: %Provider{
+      provider: %{
         provider_id: "cluster",
         kind: "kubernetes",
         settings: settings,

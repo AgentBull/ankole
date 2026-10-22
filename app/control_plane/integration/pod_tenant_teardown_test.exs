@@ -159,113 +159,93 @@ defmodule Ankole.Pod.TenantTeardownTest do
       now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
       page =
-        Repo.insert!(
-          %Page{}
-          |> Page.changeset(%{
-            type: :doc,
-            title: "Sales",
-            position: "a0",
-            created_by: @author,
-            created_at: now,
-            updated_at: now
-          })
-        )
-
-      child =
-        Repo.insert!(
-          %Page{}
-          |> Page.changeset(%{
-            parent_id: page.id,
-            type: :doc,
-            title: "Child",
-            position: "a0",
-            created_by: @author,
-            created_at: now,
-            updated_at: now
-          })
-        )
-
-      Repo.insert!(
-        %PageContent{}
-        |> PageContent.changeset(%{
-          page_id: child.id,
-          content: "<page><p>text</p></page>",
-          plain_text: "text",
-          updated_by: @author,
-          updated_at: now
-        })
-      )
-
-      Repo.insert!(
-        %PageChange{}
-        |> PageChange.changeset(%{
-          page_id: child.id,
-          revision: 1,
-          kind: :change,
-          client_id: "editor",
-          client_seq: 1,
-          changes: [],
-          author: @author,
-          created_at: now
-        })
-      )
-
-      Repo.insert!(
-        %PageUserState{}
-        |> PageUserState.changeset(%{
-          principal_uid: "019a2b00-0000-7000-8000-0000000000cc",
-          page_id: child.id,
-          visited_at: now
-        })
-      )
-
-      database =
-        Repo.insert!(
-          Page.changeset(%Page{}, %{
-            parent_id: page.id,
-            type: :database,
-            title: "Database",
-            position: "a1",
-            created_by: @author,
-            created_at: now,
-            updated_at: now
-          })
-        )
-
-      table =
-        Repo.insert!(
-          %DbTable{}
-          |> DbTable.changeset(%{page_id: database.id, name: "Sales", position: "a0"})
-        )
-
-      Repo.insert!(
-        %DbField{}
-        |> DbField.changeset(%{
-          table_id: table.id,
-          name: "Title",
+        Ankole.Pod.PagesFixtures.create_record!(Page, :create_in_tx, %{
+          type: :doc,
+          title: "Sales",
           position: "a0",
-          type: :text,
-          is_primary: true
-        })
-      )
-
-      Repo.insert!(
-        %DbView{}
-        |> DbView.changeset(%{table_id: table.id, name: "Grid", position: "a0", type: :grid})
-      )
-
-      Repo.insert!(
-        %DbRecord{}
-        |> DbRecord.changeset(%{
-          table_id: table.id,
-          data: %{},
-          versions: %{},
           created_by: @author,
           created_at: now,
-          updated_by: @author,
           updated_at: now
         })
-      )
+
+      child =
+        Ankole.Pod.PagesFixtures.create_record!(Page, :create_in_tx, %{
+          parent_id: page.id,
+          type: :doc,
+          title: "Child",
+          position: "a0",
+          created_by: @author,
+          created_at: now,
+          updated_at: now
+        })
+
+      Ankole.Pod.PagesFixtures.create_record!(PageContent, :create_in_tx, %{
+        page_id: child.id,
+        content: "<page><p>text</p></page>",
+        plain_text: "text",
+        updated_by: @author,
+        updated_at: now
+      })
+
+      Ankole.Pod.PagesFixtures.create_record!(PageChange, :append, %{
+        page_id: child.id,
+        revision: 1,
+        kind: :change,
+        client_id: "editor",
+        client_seq: 1,
+        changes: [],
+        author: @author,
+        created_at: now
+      })
+
+      Ankole.Pod.PagesFixtures.create_record!(PageUserState, :put, %{
+        principal_uid: "019a2b00-0000-7000-8000-0000000000cc",
+        page_id: child.id,
+        visited_at: now
+      })
+
+      database =
+        Ankole.Pod.PagesFixtures.create_record!(Page, :create_in_tx, %{
+          parent_id: page.id,
+          type: :database,
+          title: "Database",
+          position: "a1",
+          created_by: @author,
+          created_at: now,
+          updated_at: now
+        })
+
+      table =
+        Ankole.Pod.PagesFixtures.create_record!(DbTable, :create_in_tx, %{
+          page_id: database.id,
+          name: "Sales",
+          position: "a0"
+        })
+
+      Ankole.Pod.PagesFixtures.create_record!(DbField, :create_in_tx, %{
+        table_id: table.id,
+        name: "Title",
+        position: "a0",
+        type: :text,
+        is_primary: true
+      })
+
+      Ankole.Pod.PagesFixtures.create_record!(DbView, :create_in_tx, %{
+        table_id: table.id,
+        name: "Grid",
+        position: "a0",
+        type: :grid
+      })
+
+      Ankole.Pod.PagesFixtures.create_record!(DbRecord, :create_in_tx, %{
+        table_id: table.id,
+        data: %{},
+        versions: %{},
+        created_by: @author,
+        created_at: now,
+        updated_by: @author,
+        updated_at: now
+      })
     end)
   end
 

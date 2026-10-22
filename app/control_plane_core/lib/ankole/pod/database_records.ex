@@ -1,6 +1,7 @@
 defmodule Ankole.Pod.Database.Records do
   @moduledoc false
   import Ecto.Query
+  require Ash.Query
   alias Ankole.{ActorRef, Repo}
   alias Ankole.Pod.{Database, DbField, DbRecord, DbTable, Query, Values}
   alias Ankole.Pod.Database.Write
@@ -45,18 +46,16 @@ defmodule Ankole.Pod.Database.Records do
            clean <- Write.clean(patch),
            :ok <- Write.record_size(clean, write.limits),
            {:ok, record} <-
-             Repo.insert(
-               DbRecord.changeset(%DbRecord{}, %{
-                 id: Ankole.Attrs.get(attrs, :id, Ankole.Ecto.UUIDv7.autogenerate()),
-                 table_id: write.table.id,
-                 data: clean,
-                 versions: Map.new(Map.keys(patch), &{&1, 1}),
-                 created_by: author(write),
-                 updated_by: author(write),
-                 created_at: DateTime.utc_now(:microsecond),
-                 updated_at: DateTime.utc_now(:microsecond)
-               })
-             ),
+             Ankole.Ash.create(DbRecord, :create_in_tx, %{
+               id: Ankole.Attrs.get(attrs, :id, Ankole.Ecto.UUIDv7.autogenerate()),
+               table_id: write.table.id,
+               data: clean,
+               versions: Map.new(Map.keys(patch), &{&1, 1}),
+               created_by: author(write),
+               updated_by: author(write),
+               created_at: DateTime.utc_now(:microsecond),
+               updated_at: DateTime.utc_now(:microsecond)
+             }),
            write <-
              Write.touch(write, write.table.id, changed: [record.id], delta: 1, inserted: 1),
            {:ok, write} <- maintain_links(write, definitions, %{}, record.data, record.id) do
@@ -79,19 +78,17 @@ defmodule Ankole.Pod.Database.Records do
            merged <- Map.merge(record.data, patch) |> Write.clean(),
            :ok <- Write.record_size(merged, write.limits),
            {:ok, saved} <-
-             Repo.update(
-               DbRecord.changeset(record, %{
-                 data: merged,
-                 versions:
-                   Enum.reduce(
-                     Map.keys(patch),
-                     record.versions,
-                     &Map.update(&2, &1, 1, fn v -> v + 1 end)
-                   ),
-                 updated_by: author(write),
-                 updated_at: DateTime.utc_now(:microsecond)
-               })
-             ),
+             Ankole.Ash.update(record, :update_values, %{
+               data: merged,
+               versions:
+                 Enum.reduce(
+                   Map.keys(patch),
+                   record.versions,
+                   &Map.update(&2, &1, 1, fn v -> v + 1 end)
+                 ),
+               updated_by: author(write),
+               updated_at: DateTime.utc_now(:microsecond)
+             }),
            write <- Write.touch(write, write.table.id, changed: [record.id]),
            {:ok, write} <- maintain_links(write, definitions, record.data, saved.data, record.id) do
         {:cont, {:ok, [record.id | ids], write}}
@@ -117,7 +114,7 @@ defmodule Ankole.Pod.Database.Records do
       with {:ok, record} <- fetch(write.table.id, Ankole.Attrs.get(attrs, :id)),
            true <- Ankole.Attrs.get(attrs, :expected_versions) == record.versions,
            {:ok, write} <- clean_incoming(write, links, record.id),
-           {:ok, _} <- Repo.delete(record) do
+           {:ok, _} <- Ankole.Ash.destroy(record, :remove) do
         {:cont, {:ok, Write.touch(write, write.table.id, deleted: [record.id], delta: -1)}}
       else
         false -> {:halt, {:error, {:record_conflict, Ankole.Attrs.get(attrs, :id)}}}
@@ -194,14 +191,12 @@ defmodule Ankole.Pod.Database.Records do
 
     with :ok <- Write.record_size(data, write.limits),
          {:ok, _} <-
-           Repo.update(
-             DbRecord.changeset(record, %{
-               data: data,
-               versions: Map.update(record.versions, field_id, 1, &(&1 + 1)),
-               updated_by: author(write),
-               updated_at: DateTime.utc_now(:microsecond)
-             })
-           ) do
+           Ankole.Ash.update(record, :update_values, %{
+             data: data,
+             versions: Map.update(record.versions, field_id, 1, &(&1 + 1)),
+             updated_by: author(write),
+             updated_at: DateTime.utc_now(:microsecond)
+           }) do
       {:ok, Write.touch(write, record.table_id, changed: [record.id])}
     end
   end
@@ -239,7 +234,8 @@ defmodule Ankole.Pod.Database.Records do
 
   def fetch(table, id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         %DbRecord{} = record <- Repo.get_by(DbRecord, table_id: table, id: id),
+         %DbRecord{} = record <-
+           Ankole.Ash.read_one!(Ash.Query.filter(DbRecord, table_id == ^table and id == ^id)),
          do: {:ok, record},
          else: (_ -> {:error, :not_found})
   end

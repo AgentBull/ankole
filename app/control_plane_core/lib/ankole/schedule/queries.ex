@@ -11,7 +11,7 @@ defmodule Ankole.Schedule.Queries do
   def list_cron_schedules(agent_uid \\ nil, owner_session_id \\ nil) do
     CronSchedule
     |> maybe_where_agent(agent_uid)
-    |> where([schedule], schedule.status != "deleted")
+    |> where([schedule], schedule.status != :deleted)
     |> maybe_where_owner_session(owner_session_id)
     |> order_by([schedule],
       asc: schedule.agent_uid,
@@ -40,7 +40,7 @@ defmodule Ankole.Schedule.Queries do
       |> where([schedule], schedule.agent_uid == ^String.downcase(agent_uid))
       |> where([schedule], schedule.owner_session_id == ^owner_session_id)
       |> where([schedule], schedule.name == ^name)
-      |> where([schedule], schedule.status != "deleted")
+      |> where([schedule], schedule.status != :deleted)
 
     case Repo.one(query) do
       %CronSchedule{} = schedule -> {:ok, schedule}
@@ -94,7 +94,7 @@ defmodule Ankole.Schedule.Queries do
       when is_binary(agent_uid) and is_binary(session_id) and is_integer(limit) and limit > 0 do
     agent_uid
     |> checkbacks_query()
-    |> where([event], event.status == "scheduled")
+    |> where([event], event.status == :scheduled)
     |> maybe_where_session(session_id)
     |> order_by([event], asc: event.due_at, desc: event.inserted_at)
     |> limit(^limit)

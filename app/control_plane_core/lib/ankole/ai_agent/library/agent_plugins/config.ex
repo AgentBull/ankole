@@ -10,6 +10,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
+  alias Ankole.Repo
 
   @agent_plugin_defaults_key "ai_agent.library.agent_plugin_defaults"
   @skill_defaults_key "ai_agent.library.skill_defaults"
@@ -19,11 +20,19 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
     [agent_plugin_defaults_definition(), skill_defaults_definition()]
   end
 
-  @spec defaults(keyword()) ::
+  @doc "Reads inherited defaults through the configuration cache."
+  @spec defaults() ::
           {:ok, %{agent_plugins: map(), skills: map()}} | {:error, term()}
-  def defaults(opts \\ []) do
-    with {:ok, agent_plugins} <- get(agent_plugin_defaults_definition(), opts),
-         {:ok, skills} <- get(skill_defaults_definition(), opts) do
+  def defaults, do: defaults(&AppConfigure.get/1)
+
+  @doc "Reads current defaults from PostgreSQL without the configuration cache."
+  @spec defaults_in_tx() ::
+          {:ok, %{agent_plugins: map(), skills: map()}} | {:error, term()}
+  def defaults_in_tx, do: defaults(&AppConfigure.get_in_tx(Repo, &1))
+
+  defp defaults(read) do
+    with {:ok, agent_plugins} <- read.(agent_plugin_defaults_definition()),
+         {:ok, skills} <- read.(skill_defaults_definition()) do
       {:ok, %{agent_plugins: agent_plugins, skills: skills}}
     end
   end
@@ -47,13 +56,6 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
     AppConfigure.update_tenant(definition, fn values ->
       {:ok, Map.put(values, id, enabled)}
     end)
-  end
-
-  defp get(definition, opts) do
-    case Keyword.fetch(opts, :repo) do
-      {:ok, repo} -> AppConfigure.get_in_tx(repo, definition)
-      :error -> AppConfigure.get(definition)
-    end
   end
 
   defp agent_plugin_defaults_definition do

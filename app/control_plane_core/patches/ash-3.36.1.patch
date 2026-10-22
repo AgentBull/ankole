@@ -1,0 +1,15 @@
+--- a/lib/ash/actions/helpers/bulk.ex
++++ b/lib/ash/actions/helpers/bulk.ex
+@@ -459,7 +459,11 @@
+ 
+         case Map.fetch(changeset_by_id, changeset_id) do
+           {:ok, changeset} ->
+-            store_notification(ref, notification_fn.(changeset, loaded, opts), opts)
++            notification = notification_fn.(changeset, loaded, opts)
++
++            if opts[:return_notifications?] || notification.for != [] do
++              store_notification(ref, notification, opts)
++            end
+ 
+           :error ->
+             Logger.warning("""

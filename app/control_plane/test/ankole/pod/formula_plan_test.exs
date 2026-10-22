@@ -50,7 +50,6 @@ defmodule Ankole.Pod.FormulaPlanTest do
   end
 
   test "aggregate and copy filters evaluate only the formulas they need" do
-    allow_cache_database_access()
     uid = human_fixture().principal.uid
     {:ok, page} = Pages.create(uid, %{type: "database", title: "Conditional formulas"})
     {:ok, table} = Database.create_table(uid, page.id, %{name: "Numbers"})
@@ -93,7 +92,6 @@ defmodule Ankole.Pod.FormulaPlanTest do
   end
 
   test "each formula root compiles its dependency graph once across query and copy paths" do
-    allow_cache_database_access()
     uid = human_fixture().principal.uid
     {:ok, page} = Pages.create(uid, %{type: "database", title: "Shared formulas"})
     {:ok, table} = Database.create_table(uid, page.id, %{name: "Numbers"})

@@ -36,6 +36,25 @@ defmodule Ankole.ConcurrencyIntegrationTest do
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.Config, as: ProviderConfig
 
+  test "attempt admission waits for a pending tenant suspension", %{tenant: tenant} do
+    suspension = hold_transaction(fn -> Ankole.Tenants.suspend(tenant) end)
+
+    admission =
+      start_unboxed(fn ->
+        Repo.transact(fn repo ->
+          case Ankole.Tenants.check_work_admission_in_tx(repo, tenant.id) do
+            :ok -> {:ok, :admitted}
+            {:error, _reason} = error -> error
+          end
+        end)
+      end)
+
+    assert_blocked_by(admission, suspension)
+    release(suspension)
+    assert {:ok, %{suspended_at: %DateTime{}}} = finish(suspension)
+    assert {:error, :tenant_suspended} = finish(admission)
+  end
+
   test "an ordinary OIDC edit preserves a secret rotated while the edit waits" do
     alias Ankole.OIDC
     alias Ankole.OIDC.Client
@@ -283,23 +302,20 @@ defmodule Ankole.ConcurrencyIntegrationTest do
         end)
 
       cancel =
-        start_unboxed(fn ->
-          pause_after_query(fn metadata ->
+        pause_after_query(
+          fn -> AutomationJobs.cancel_job(agent.uid, job.owner_session_id, job.id) end,
+          fn metadata ->
             metadata.source == "automation_jobs" and
               String.contains?(metadata.query, "FOR UPDATE")
-          end)
+          end
+        )
 
-          AutomationJobs.cancel_job(agent.uid, job.owner_session_id, job.id)
-        end)
-
-      assert_receive {:query_paused, cancel_pid}, 5_000
-      assert cancel_pid == cancel.task.pid
       start = start_unboxed(fn -> AutomationJobs.start_attempt(run.id) end)
       assert_blocked_by(start, cancel)
       send(cancel.task.pid, :continue_query)
       assert {:ok, %{status: :cancelled}} = finish(cancel)
       assert {:ok, :noop} = finish(start)
-      assert Repo.get!(Ankole.AutomationJobs.Schemas.Run, run.id).status == "cancelled"
+      assert Repo.get!(Ankole.AutomationJobs.Schemas.Run, run.id).status == :cancelled
     end
   end
 
@@ -326,7 +342,8 @@ defmodule Ankole.ConcurrencyIntegrationTest do
             original_ids = Enum.map(rows, & &1.id)
             Repo.delete_all(from(row in schema, where: row.id not in ^original_ids))
 
-            restored = Enum.map(rows, &(Map.from_struct(&1) |> Map.delete(:__meta__)))
+            fields = schema.__schema__(:fields)
+            restored = Enum.map(rows, &Map.take(&1, fields))
 
             Repo.insert_all(schema, restored,
               on_conflict: {:replace_all_except, [:id]},
@@ -350,18 +367,14 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       set = library_skill_set(ctx.name, "New shipped body.")
 
       sync =
-        start_unboxed(fn ->
-          pause_after_query(fn metadata ->
+        pause_after_query(
+          fn -> LibraryKnowledge.sync(sets: [set]) end,
+          fn metadata ->
             metadata.source == "brain_sources" and
               String.starts_with?(metadata.query, "SELECT") and
               not String.contains?(metadata.query, "FOR UPDATE")
-          end)
-
-          LibraryKnowledge.sync(sets: [set])
-        end)
-
-      assert_receive {:query_paused, sync_pid}, 5_000
-      assert sync_pid == sync.task.pid
+          end
+        )
 
       archived = Sandbox.unboxed_run(Repo, fn -> Sources.archive(ctx.source.id) end)
       assert {:ok, %Source{archived_at: %DateTime{}}} = archived
@@ -439,25 +452,25 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       run: run
     } do
       first =
-        hold_transaction(fn ->
+        hold_receipt(fn ->
           Receipts.execute(run, "resp_fence", "one", fn _ ->
-            {:ok, %ToolResult{output: "one", details: %{"one" => true}}, []}
+            {:ok, [], fn -> {:ok, %ToolResult{output: "one", details: %{"one" => true}}, []} end}
           end)
         end)
 
       second =
-        hold_transaction(fn ->
+        hold_receipt(fn ->
           Receipts.execute(run, "resp_fence", "two", fn _ ->
-            {:ok, %ToolResult{output: "two", details: %{"two" => true}}, []}
+            {:ok, [], fn -> {:ok, %ToolResult{output: "two", details: %{"two" => true}}, []} end}
           end)
         end)
 
       takeover = start_unboxed(fn -> Admission.admit(key, run.event) end)
       assert_blocked_by(takeover, first)
-      release(first)
+      send(first.task.pid, :continue_query)
       assert {:ok, _} = finish(first)
       assert_blocked_by(takeover, second)
-      release(second)
+      send(second.task.pid, :continue_query)
       assert {:ok, _} = finish(second)
       assert {:ok, current} = finish(takeover)
       assert current.epoch == run.epoch + 1
@@ -482,17 +495,18 @@ defmodule Ankole.ConcurrencyIntegrationTest do
             []
           )
 
-        {:ok, %ToolResult{output: "saved", details: %{"saved" => true}}, []}
+        {:ok, [], fn -> {:ok, %ToolResult{output: "saved", details: %{"saved" => true}}, []} end}
       end
 
       first =
-        hold_transaction(fn -> Receipts.execute(run, "resp_duplicate", "one", operation) end)
+        hold_receipt(fn -> Receipts.execute(run, "resp_duplicate", "one", operation) end)
 
       second = start_unboxed(fn -> Receipts.execute(run, "resp_duplicate", "one", operation) end)
       assert_blocked_by(second, first)
-      release(first)
+      send(first.task.pid, :continue_query)
       assert {:ok, receipt} = finish(first)
-      assert {:ok, ^receipt} = finish(second)
+      assert {:ok, repeated} = finish(second)
+      assert_persisted_equal(repeated, receipt)
       name = Repo.get!(Ankole.Principals.Principal, run.agent_uid).display_name
       assert length(String.split(name, "+tool")) == 2
     end
@@ -535,109 +549,109 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
       {:ok, context} =
         Sandbox.unboxed_run(Repo, fn ->
-          Repo.transact(fn _repo ->
-            binding =
-              RuntimeCase.binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+          binding =
+            RuntimeCase.binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
 
-            {:ok, conversation} =
+          {:ok, conversation} =
+            Repo.transact(fn repo ->
               Ankole.Conversations.External.observe_conversation_in_tx(
-                Repo,
+                repo,
                 binding,
                 %{provider_conversation_id: "test:#{route}"},
                 DateTime.utc_now(:microsecond)
               )
+            end)
 
-            assert {:ok, _worker} = RuntimeCase.admit_worker(route, %{worker_id: agent.uid})
+          assert {:ok, _worker} = RuntimeCase.admit_worker(route, %{worker_id: agent.uid})
 
-            assert {:ok, %{job: job, dispatch_event: dispatch}} =
-                     BackgroundAgentJobs.create_with_dispatch(%{
-                       "agent_uid" => agent.uid,
-                       "owner_session_id" => "owner-#{agent.uid}",
-                       "source_tool_call_id" => "tool-#{agent.uid}",
-                       "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
-                       "title" => "Concurrent Job",
-                       "task" => "Finish the report.",
-                       "reply_route" => %{
-                         "binding_name" => "bot",
-                         "conversation_id" => conversation.id
-                       }
-                     })
+          assert {:ok, %{job: job, dispatch_event: dispatch}} =
+                   BackgroundAgentJobs.create_with_dispatch(%{
+                     "agent_uid" => agent.uid,
+                     "owner_session_id" => "owner-#{agent.uid}",
+                     "source_tool_call_id" => "tool-#{agent.uid}",
+                     "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+                     "title" => "Concurrent Job",
+                     "task" => "Finish the report.",
+                     "reply_route" => %{
+                       "binding_name" => "bot",
+                       "conversation_id" => conversation.id
+                     }
+                   })
 
-            actor_key = %{
-              agent_uid: agent.uid,
-              session_id: BackgroundAgentJobs.job_session_id(job.id)
-            }
+          actor_key = %{
+            agent_uid: agent.uid,
+            session_id: BackgroundAgentJobs.job_session_id(job.id)
+          }
 
-            assert {:ok, run} = CodexJob.admit(actor_key, dispatch, [])
-            turn_ref = run.job_ref
-            turn = JobTurnRef.to_proto(turn_ref)
+          assert {:ok, run} = CodexJob.admit(actor_key, dispatch, [])
+          turn_ref = run.job_ref
+          turn = JobTurnRef.to_proto(turn_ref)
 
-            assert {:ok, _result} =
-                     BackgroundAgentJobs.commit_status_with_wakeup(
-                       job.id,
-                       agent.uid,
-                       %{"status" => "running", "runtime_thread_id" => "thread-#{job.id}"},
-                       turn_ref: turn_ref,
-                       worker_id: agent.uid
-                     )
+          assert {:ok, _result} =
+                   BackgroundAgentJobs.commit_status_with_wakeup(
+                     job.id,
+                     agent.uid,
+                     %{"status" => "running", "runtime_thread_id" => "thread-#{job.id}"},
+                     turn_ref: turn_ref,
+                     worker_id: agent.uid
+                   )
 
-            completed_at = DateTime.utc_now(:microsecond)
+          completed_at = DateTime.utc_now(:microsecond)
 
-            assert {:ok, _turn} =
-                     BackgroundAgentJobs.upsert_turn_from_worker(
-                       job.id,
-                       agent.uid,
-                       %{
-                         "attempt" => 1,
-                         "runtime_thread_id" => "thread-#{job.id}",
-                         "runtime_turn_id" => "turn-#{job.id}",
-                         "kind" => "agent",
-                         "status" => "completed",
-                         "revision" => 0,
-                         "trajectory" => %{"format" => "ankole_chatml", "version" => 1},
-                         "turn_items" => [
-                           %{
-                             "position" => 0,
-                             "item_key" => "answer",
-                             "item" => %{
-                               "type" => "agentMessage",
-                               "id" => "answer",
-                               "text" => "Report finished."
-                             }
+          assert {:ok, _turn} =
+                   BackgroundAgentJobs.upsert_turn_from_worker(
+                     job.id,
+                     agent.uid,
+                     %{
+                       "attempt" => 1,
+                       "runtime_thread_id" => "thread-#{job.id}",
+                       "runtime_turn_id" => "turn-#{job.id}",
+                       "kind" => "agent",
+                       "status" => "completed",
+                       "revision" => 0,
+                       "trajectory" => %{"format" => "ankole_chatml", "version" => 1},
+                       "turn_items" => [
+                         %{
+                           "position" => 0,
+                           "item_key" => "answer",
+                           "item" => %{
+                             "type" => "agentMessage",
+                             "id" => "answer",
+                             "text" => "Report finished."
                            }
-                         ],
-                         "progress" => %{
-                           "completed_items" => 0,
-                           "tool_calls" => 0,
-                           "tools_used" => [],
-                           "files_changed" => []
-                         },
-                         "usage" => nil,
-                         "error" => %{},
-                         "started_at" => completed_at,
-                         "completed_at" => completed_at
+                         }
+                       ],
+                       "progress" => %{
+                         "completed_items" => 0,
+                         "tool_calls" => 0,
+                         "tools_used" => [],
+                         "files_changed" => []
                        },
-                       turn_ref,
-                       agent.uid
-                     )
+                       "usage" => nil,
+                       "error" => %{},
+                       "started_at" => completed_at,
+                       "completed_at" => completed_at
+                     },
+                     turn_ref,
+                     agent.uid
+                   )
 
-            assert {:ok, %{command_event: steer}} =
-                     BackgroundAgentJobs.send_message(job.id, %{
-                       "agent_uid" => agent.uid,
-                       "message" => "Include the operator runbook.",
-                       "request_id" => "steer-#{job.id}"
-                     })
+          assert {:ok, %{command_event: steer}} =
+                   BackgroundAgentJobs.send_message(job.id, %{
+                     "agent_uid" => agent.uid,
+                     "message" => "Include the operator runbook.",
+                     "request_id" => "steer-#{job.id}"
+                   })
 
-            {:ok,
-             %{
-               agent: agent,
-               actor_key: actor_key,
-               job: job,
-               turn: turn,
-               route: route,
-               steer: steer
-             }}
-          end)
+          {:ok,
+           %{
+             agent: agent,
+             actor_key: actor_key,
+             job: job,
+             turn: turn,
+             route: route,
+             steer: steer
+           }}
         end)
 
       context
@@ -645,8 +659,9 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
     test "terminal RPC takes the Worker lock before a waiting steer takes its event", ctx do
       terminal =
-        start_unboxed(fn ->
-          pause_after_query(fn metadata ->
+        pause_after_query(
+          fn -> terminal_job_rpc(ctx) end,
+          fn metadata ->
             if metadata.source == "background_agent_jobs" and
                  String.contains?(metadata.query, "FOR UPDATE") do
               count = Process.get(:job_locks, 0) + 1
@@ -655,13 +670,8 @@ defmodule Ankole.ConcurrencyIntegrationTest do
             else
               false
             end
-          end)
-
-          terminal_job_rpc(ctx)
-        end)
-
-      assert_receive {:query_paused, terminal_pid}, 5_000
-      assert terminal_pid == terminal.task.pid
+          end
+        )
 
       steer =
         start_unboxed(fn -> CodexJob.admit(ctx.actor_key, ctx.steer, []) end)
@@ -676,7 +686,8 @@ defmodule Ankole.ConcurrencyIntegrationTest do
                       from(event in Signal,
                         where: event.id == ^ctx.steer.id,
                         lock: "FOR UPDATE NOWAIT"
-                      )
+                      ),
+                      lock_identity: {"signals", ctx.steer.id}
                     )}
                  end)
       end)
@@ -688,7 +699,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       assert completed_event.id == ctx.steer.id
       assert %DateTime{} = completed_event.completed_at
       persisted = Repo.get!(Job, ctx.job.id)
-      assert persisted.status == "succeeded"
+      assert persisted.status == :succeeded
       assert persisted.attempts == 1
       assert persisted.runtime_thread_id == "thread-#{ctx.job.id}"
       assert Repo.get!(Signal, ctx.steer.id).completed_at
@@ -704,7 +715,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       release(first)
       assert_terminal_rpc(finish(first))
       assert_terminal_rpc(finish(repeated))
-      assert Repo.get!(Job, ctx.job.id).status == "succeeded"
+      assert Repo.get!(Job, ctx.job.id).status == :succeeded
       assert Repo.get!(Signal, ctx.steer.id).completed_at
 
       assert Repo.aggregate(from(j in Job, where: j.continued_from_job_id == ^ctx.job.id), :count) ==
@@ -828,19 +839,13 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     activation_lock =
       "app_configure:tenant:#{Repo.tenant_id!()}:#{ProviderConfig.active_definition().key}"
 
-    operation =
-      start_unboxed(fn ->
-        pause_after_query(fn metadata ->
-          String.contains?(metadata.query, "pg_advisory_xact_lock") and
-            metadata.params == [activation_lock]
-        end)
-
-        IdentityProviders.save_provider(provider_id, adapter_id, config, enabled)
-      end)
-
-    operation_pid = operation.task.pid
-    assert_receive {:query_paused, ^operation_pid}, 5_000
-    operation
+    pause_after_query(
+      fn -> IdentityProviders.save_provider(provider_id, adapter_id, config, enabled) end,
+      fn metadata ->
+        String.contains?(metadata.query, "pg_advisory_xact_lock") and
+          metadata.params == [activation_lock]
+      end
+    )
   end
 
   defp terminal_job_rpc(ctx) do
@@ -919,6 +924,13 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     %{task: task, backend_pid: backend_pid}
   end
 
+  defp hold_receipt(fun) do
+    pause_after_query(fun, fn metadata ->
+      metadata.source == "session_tool_receipts" and
+        String.starts_with?(metadata.query, "INSERT")
+    end)
+  end
+
   defp hold_transaction(fun) do
     operation =
       start_unboxed(fn ->
@@ -969,26 +981,35 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     on_exit(fn -> Repo.with_tenant(tenant_id, fun) end)
   end
 
-  defp pause_after_query(predicate) do
-    handler_id = {__MODULE__, self(), make_ref()}
+  defp pause_after_query(fun, predicate) do
+    operation =
+      start_unboxed(fn ->
+        handler_id = {__MODULE__, self(), make_ref()}
 
-    :ok =
-      :telemetry.attach(
-        handler_id,
-        [:ankole, :repo, :query],
-        fn _event, _measurements, metadata, {owner, id} ->
-          if self() == owner and predicate.(metadata) do
-            :telemetry.detach(id)
-            send(Process.get({__MODULE__, :parent}), {:query_paused, self()})
+        :ok =
+          :telemetry.attach(
+            handler_id,
+            [:ankole, :repo, :query],
+            fn _event, _measurements, metadata, {owner, id} ->
+              if self() == owner and predicate.(metadata) do
+                :telemetry.detach(id)
+                send(Process.get({__MODULE__, :parent}), {:query_paused, self()})
 
-            receive do
-              :continue_query -> :ok
-            after
-              10_000 -> raise "test did not release its query"
-            end
-          end
-        end,
-        {self(), handler_id}
-      )
+                receive do
+                  :continue_query -> :ok
+                after
+                  10_000 -> raise "test did not release its query"
+                end
+              end
+            end,
+            {self(), handler_id}
+          )
+
+        fun.()
+      end)
+
+    task_pid = operation.task.pid
+    assert_receive {:query_paused, ^task_pid}, 5_000
+    operation
   end
 end

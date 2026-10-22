@@ -53,7 +53,7 @@ defmodule Ankole.Workflow.RunServerTest do
     assert :ok = RunServer.poke(run.id, runner: runner)
 
     assert_receive {:program_run, run_id, source, tools, [], options}, 1_000
-    assert run_id == "wf-#{run.id}"
+    assert is_reference(run_id)
     assert source =~ "const args = {};"
     assert tools == [%{"namespace" => nil, "name" => "agent", "global_name" => "agent"}]
 
@@ -65,7 +65,7 @@ defmodule Ankole.Workflow.RunServerTest do
 
     call = wait_for(fn -> Repo.get_by(AgentCall, run_id: run.id, call_seq: 0) end)
     assert call.arguments == arguments
-    assert call.status == "queued"
+    assert call.status == :queued
 
     event =
       Repo.get_by!(Signal,
@@ -88,7 +88,7 @@ defmodule Ankole.Workflow.RunServerTest do
     assert :ok = RunServer.poke(run.id, runner: runner)
     assert_receive {:program_run, _, _, _, _, _}, 1_000
 
-    completed = wait_for(fn -> terminal_run(run.id, "completed") end)
+    completed = wait_for(fn -> terminal_run(run.id, :completed) end)
     assert completed.result_text == "hello world"
 
     wakeup_source_event_id = "workflow:#{run.id}:completed"
@@ -126,7 +126,7 @@ defmodule Ankole.Workflow.RunServerTest do
     assert :ok = RunServer.poke(run.id, runner: runner)
     assert_receive {:program_run, _, _, _, _, _}, 1_000
 
-    failed = wait_for(fn -> terminal_run(run.id, "failed") end)
+    failed = wait_for(fn -> terminal_run(run.id, :failed) end)
     assert failed.error["code"] == "workflow_agent_call_invalid"
     assert Repo.aggregate(AgentCall, :count) == 0
 
@@ -157,34 +157,8 @@ defmodule Ankole.Workflow.RunServerTest do
     assert_receive {:program_run, _, _, _, _, _}, 1_000
     assert_receive {:program_run, _, _, _, _, _}, 1_000
 
-    assert %Run{status: "completed", result_text: "done"} =
-             wait_for(fn -> terminal_run(run.id, "completed") end)
-  end
-
-  test "a duplicate program run ID retries without a durable failure" do
-    %{principal: agent} = agent_fixture()
-    run = run_fixture(agent.uid)
-
-    runner =
-      queue_runner(self(), [
-        failed_outcome("program_run_id_conflict", "The registered run is still active."),
-        completed_outcome(["winner completed"])
-      ])
-
-    assert :ok = RunServer.poke(run.id, runner: runner, runtime_busy_retry_ms: 20)
-    assert_receive {:program_run, _, _, _, _, _}, 1_000
-    assert_receive {:program_run, _, _, _, _, _}, 1_000
-
-    assert %Run{status: "completed", result_text: "winner completed"} =
-             wait_for(fn -> terminal_run(run.id, "completed") end)
-
-    failed_source_event_id = "workflow:#{run.id}:failed"
-
-    refute Repo.exists?(
-             from(event in Signal,
-               where: event.source_event_id == ^failed_source_event_id
-             )
-           )
+    assert %Run{status: :completed, result_text: "done"} =
+             wait_for(fn -> terminal_run(run.id, :completed) end)
   end
 
   test "pokes during replay coalesce into one dirty replay" do
@@ -230,7 +204,7 @@ defmodule Ankole.Workflow.RunServerTest do
              Workflow.commit_replay_pending(run.id, [pending_call(first_arguments)], 0)
 
     assert {:ok, %{call: running}} =
-             Workflow.claim_task_in_tx(Repo, call.id, agent.uid, 8)
+             Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
 
     parent = self()
     counter = :atomics.new(1, signed: false)
@@ -258,7 +232,7 @@ defmodule Ankole.Workflow.RunServerTest do
     assert :ok = RunServer.poke(run.id, runner: runner)
     assert_receive {:snapshot_replay, 1, replay_task, []}, 1_000
 
-    assert {:ok, %{accepted: true, call: %AgentCall{status: "succeeded"}}} =
+    assert {:ok, %{accepted: true, call: %AgentCall{status: :succeeded}}} =
              Ankole.Repo.transact(fn repo ->
                Workflow.submit_result_in_tx(
                  repo,
@@ -275,8 +249,8 @@ defmodule Ankole.Workflow.RunServerTest do
     assert memo["arguments"] == first_arguments
     assert memo["output"] == %{"ok" => true, "value" => "finished"}
 
-    assert %Run{status: "completed", result_text: "fresh result"} =
-             wait_for(fn -> terminal_run(run.id, "completed") end)
+    assert %Run{status: :completed, result_text: "fresh result"} =
+             wait_for(fn -> terminal_run(run.id, :completed) end)
 
     assert Repo.aggregate(from(stored in AgentCall, where: stored.run_id == ^run.id), :count) == 1
     refute Repo.get_by(AgentCall, run_id: run.id, call_seq: 1)
@@ -306,7 +280,9 @@ defmodule Ankole.Workflow.RunServerTest do
                Workflow.commit_replay_pending(run.id, [pending_call(arguments)], 0)
 
       assert {:ok, %{call: running}} =
-               Workflow.claim_task_in_tx(Repo, call.id, agent.uid, 8)
+               Repo.transact(fn repo ->
+                 Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8)
+               end)
 
       parent = self()
       counter = :atomics.new(1, signed: false)
@@ -347,8 +323,8 @@ defmodule Ankole.Workflow.RunServerTest do
       assert_receive {:terminal_snapshot_replay, ^run_id, 2, _task, [memo]}, 1_000
       assert memo["output"] == %{"ok" => true, "value" => "terminal"}
 
-      assert %Run{status: "completed", result_text: result_text} =
-               wait_for(fn -> terminal_run(run.id, "completed") end)
+      assert %Run{status: :completed, result_text: result_text} =
+               wait_for(fn -> terminal_run(run.id, :completed) end)
 
       assert result_text == "fresh #{kind}"
 
@@ -386,8 +362,8 @@ defmodule Ankole.Workflow.RunServerTest do
     Process.exit(task, :kill)
     assert_receive {:runner_started, 2, _task}, 1_000
 
-    assert %Run{status: "completed", result_text: "recovered"} =
-             wait_for(fn -> terminal_run(run.id, "completed") end)
+    assert %Run{status: :completed, result_text: "recovered"} =
+             wait_for(fn -> terminal_run(run.id, :completed) end)
   end
 
   test "a replacement server rebuilds its memo from PostgreSQL" do
@@ -410,9 +386,9 @@ defmodule Ankole.Workflow.RunServerTest do
     wait_for(fn -> is_nil(RunServer.whereis(run.id)) end)
 
     assert {:ok, %{call: running}} =
-             Workflow.claim_task_in_tx(Repo, call.id, agent.uid, 8)
+             Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
 
-    assert {:ok, %{call: %AgentCall{status: "succeeded"}}} =
+    assert {:ok, %{call: %AgentCall{status: :succeeded}}} =
              Ankole.Repo.transact(fn repo ->
                Workflow.submit_result_in_tx(
                  repo,
@@ -430,8 +406,8 @@ defmodule Ankole.Workflow.RunServerTest do
     assert memo["arguments"] == arguments
     assert memo["output"] == %{"ok" => true, "value" => "persisted"}
 
-    assert %Run{status: "completed", result_text: "rebuilt"} =
-             wait_for(fn -> terminal_run(run.id, "completed") end)
+    assert %Run{status: :completed, result_text: "rebuilt"} =
+             wait_for(fn -> terminal_run(run.id, :completed) end)
   end
 
   test "watchdog requeues a stale running task and replays it" do
@@ -456,14 +432,14 @@ defmodule Ankole.Workflow.RunServerTest do
     call = wait_for(fn -> Repo.get_by(AgentCall, run_id: run.id, call_seq: 0) end)
 
     assert {:ok, %{call: running}} =
-             Workflow.claim_task_in_tx(Repo, call.id, agent.uid, 8)
+             Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
 
     stale_at = DateTime.add(DateTime.utc_now(:microsecond), -5, :second)
 
     {1, _rows} =
       AgentCall
       |> where([stored], stored.id == ^running.id)
-      |> Repo.update_all(set: [updated_at: stale_at])
+      |> Repo.update_all(set: [updated_at: stale_at, progress_at: stale_at])
 
     assert_receive {:program_run, _, _, _, _, _}, 1_000
 
@@ -471,7 +447,7 @@ defmodule Ankole.Workflow.RunServerTest do
     assert requeued.attempts == 1
     assert requeued.error["code"] == "workflow_task_stale"
 
-    assert {:ok, %{run: %Run{status: "cancelled"}}} =
+    assert {:ok, %{run: %Run{status: :cancelled}}} =
              cancel_workflow(run.id, agent.uid)
 
     wait_for(fn -> is_nil(RunServer.whereis(run.id)) end)
@@ -515,31 +491,31 @@ defmodule Ankole.Workflow.RunServerTest do
     call = wait_for(fn -> Repo.get_by(AgentCall, run_id: run.id, call_seq: 0) end)
 
     assert {:ok, %{call: running}} =
-             Workflow.claim_task_in_tx(Repo, call.id, agent.uid, 8)
+             Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
 
     stale_at = DateTime.add(DateTime.utc_now(:microsecond), -5, :second)
 
     {1, _rows} =
       AgentCall
       |> where([stored], stored.id == ^running.id)
-      |> Repo.update_all(set: [attempts: 3, updated_at: stale_at])
+      |> Repo.update_all(set: [attempts: 3, updated_at: stale_at, progress_at: stale_at])
 
     assert :ok = RunServer.poke(run.id)
     assert_receive {:watchdog_snapshot_replay, 2, replay_task, []}, 1_000
 
     Process.sleep(250)
-    assert %AgentCall{status: "running", attempts: 3} = Repo.get!(AgentCall, call.id)
-    assert %Run{status: "running"} = Repo.get!(Run, run.id)
+    assert %AgentCall{status: :running, attempts: 3} = Repo.get!(AgentCall, call.id)
+    assert %Run{status: :running} = Repo.get!(Run, run.id)
 
     send(replay_task, :release)
 
     assert_receive {:watchdog_snapshot_replay, 3, _task, [memo]}, 1_000
     assert memo["output"]["code"] == "workflow_task_stale"
 
-    assert %Run{status: "completed", result_text: "reconciled safely"} =
-             wait_for(fn -> terminal_run(run.id, "completed") end)
+    assert %Run{status: :completed, result_text: "reconciled safely"} =
+             wait_for(fn -> terminal_run(run.id, :completed) end)
 
-    assert %AgentCall{status: "failed", attempts: 3} = Repo.get!(AgentCall, call.id)
+    assert %AgentCall{status: :failed, attempts: 3} = Repo.get!(AgentCall, call.id)
   end
 
   test "cancel_workflow commits cancellation before stopping an in-flight replay" do
@@ -551,10 +527,11 @@ defmodule Ankole.Workflow.RunServerTest do
     assert_receive {:blocking_runner_started, task}, 1_000
     monitor = Process.monitor(task)
 
-    assert {:ok, %{run: %Run{status: "cancelled"}}} =
+    assert {:ok, %{run: %Run{status: :cancelled}}} =
              cancel_workflow(run.id, agent.uid)
 
-    assert_receive {:blocking_runner_cancelled, "wf-" <> _run_id}, 1_000
+    assert_receive {:blocking_runner_cancelled, handle}, 1_000
+    assert is_reference(handle)
     assert_receive {:DOWN, ^monitor, :process, ^task, :killed}, 1_000
     wait_for(fn -> is_nil(RunServer.whereis(run.id)) end)
   end
@@ -584,8 +561,8 @@ defmodule Ankole.Workflow.RunServerTest do
     refute_receive {:DOWN, ^replay_monitor, :process, ^replay_task, _reason}, 50
     send(replay_task, :release)
 
-    assert %Run{status: "completed", result_text: "authorized replay completed"} =
-             wait_for(fn -> terminal_run(run.id, "completed") end)
+    assert %Run{status: :completed, result_text: "authorized replay completed"} =
+             wait_for(fn -> terminal_run(run.id, :completed) end)
   end
 
   test "a queued replay result cannot revive cancellation committed by the real tool" do
@@ -621,11 +598,11 @@ defmodule Ankole.Workflow.RunServerTest do
     assert_receive {:DOWN, ^replay_monitor, :process, ^replay_task, :normal}, 1_000
     assert wait_for(fn -> queued_replay_result?(server) end)
 
-    assert {:ok, %{run: %Run{status: "cancelled"}}} = cancel_workflow(run.id, agent.uid)
+    assert {:ok, %{run: %Run{status: :cancelled}}} = cancel_workflow(run.id, agent.uid)
     :ok = :sys.resume(server)
     wait_for(fn -> is_nil(RunServer.whereis(run.id)) end)
 
-    assert %Run{status: "cancelled", result_text: nil} = Repo.get!(Run, run.id)
+    assert %Run{status: :cancelled, result_text: nil} = Repo.get!(Run, run.id)
     completed_source_event_id = "workflow:#{run.id}:completed"
 
     assert Repo.aggregate(
@@ -641,7 +618,7 @@ defmodule Ankole.Workflow.RunServerTest do
     run = run_fixture(agent.uid)
     runner = queue_runner(self(), [completed_outcome(["must not run"])])
 
-    assert {:ok, %{run: %Run{status: "cancelled"}}} = cancel_workflow(run.id, agent.uid)
+    assert {:ok, %{run: %Run{status: :cancelled}}} = cancel_workflow(run.id, agent.uid)
     assert RunServer.whereis(run.id) == nil
     assert :ok = RunServer.poke(run.id, runner: runner)
     wait_for(fn -> is_nil(RunServer.whereis(run.id)) end)
@@ -659,10 +636,11 @@ defmodule Ankole.Workflow.RunServerTest do
     monitor = Process.monitor(server)
 
     assert {:ok, %{run: repeated}} = cancel_workflow(run.id, agent.uid)
-    assert repeated.status == "cancelled"
+    assert repeated.status == :cancelled
     assert repeated.completed_at == cancelled.completed_at
     assert repeated.cleanup_completed_at == cancelled.cleanup_completed_at
-    assert_receive {:blocking_runner_cancelled, "wf-" <> _}, 1_000
+    assert_receive {:blocking_runner_cancelled, handle}, 1_000
+    assert is_reference(handle)
     assert_receive {:DOWN, ^monitor, :process, ^server, :normal}, 1_000
     assert RunServer.whereis(run.id) == nil
     refute_receive {:blocking_runner_started, _}, 50
@@ -687,7 +665,7 @@ defmodule Ankole.Workflow.RunServerTest do
     assert RunServer.whereis(missing_run_id) == nil
     assert {:error, :workflow_not_found} = cancel_workflow(run.id, other_agent.uid)
     assert RunServer.whereis(run.id) == nil
-    assert Repo.get!(Run, run.id).status == "running"
+    assert Repo.get!(Run, run.id).status == :running
   end
 
   test "failed terminal cleanup remains recoverable after cancel_workflow stops replay" do
@@ -698,28 +676,35 @@ defmodule Ankole.Workflow.RunServerTest do
     assert {:ok, %{new_calls: [call]}} =
              Workflow.commit_replay_pending(run.id, [pending_call(%{"prompt" => "Run."})], 0)
 
-    assert {:ok, %{call: call}} = Workflow.claim_task_in_tx(Repo, call.id, agent.uid, 8)
-    run |> Run.changeset(%{reply_route: %{}}) |> Repo.update!()
+    assert {:ok, %{call: call}} =
+             Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+
+    run
+    |> AshPostgres.DataLayer.to_ecto()
+    |> Ecto.Changeset.change(%{reply_route: %{}})
+    |> Repo.update!()
+
     assert :ok = RunServer.poke(run.id, runner: BlockingRunner)
     assert_receive {:blocking_runner_started, replay_task}, 1_000
     monitor = Process.monitor(replay_task)
 
-    assert {:ok,
-            %{run: %Run{status: "cancelled", cleanup_completed_at: nil}, cleanup_errors: [_]}} =
+    assert {:ok, %{run: %Run{status: :cancelled, cleanup_completed_at: nil}, cleanup_errors: [_]}} =
              cancel_workflow(run.id, agent.uid)
 
-    assert_receive {:blocking_runner_cancelled, "wf-" <> _}, 1_000
+    assert_receive {:blocking_runner_cancelled, handle}, 1_000
+    assert is_reference(handle)
     assert_receive {:DOWN, ^monitor, :process, ^replay_task, :killed}, 1_000
     wait_for(fn -> is_nil(RunServer.whereis(run.id)) end)
     assert_enqueued(worker: Ankole.Workflow.Jobs.PokeRun, args: %{run_id: run.id})
 
     Repo.get!(Run, run.id)
-    |> Run.changeset(%{reply_route: %{"binding_name" => "bot"}})
+    |> AshPostgres.DataLayer.to_ecto()
+    |> Ecto.Changeset.change(%{reply_route: %{"binding_name" => "bot"}})
     |> Repo.update!()
 
     assert :ok = perform_job(Ankole.Sessions.Reconciler, %{})
     assert :ok = perform_job(Ankole.Workflow.Jobs.PokeRun, %{run_id: run.id})
-    wait_for(fn -> terminal_run(run.id, "cancelled") end)
+    wait_for(fn -> terminal_run(run.id, :cancelled) end)
 
     assert Repo.get_by!(Signal, source_event_id: "workflow:call:#{call.id}:stop").type ==
              "command.stop"
@@ -740,15 +725,17 @@ defmodule Ankole.Workflow.RunServerTest do
              )
 
     assert {:ok, %{call: running}} =
-             Workflow.claim_task_in_tx(Repo, running.id, agent.uid, 8)
+             Repo.transact(fn repo ->
+               Workflow.claim_task_in_tx(repo, running.id, agent.uid, 8)
+             end)
 
     assert {:ok, result} = cancel_workflow(run.id, agent.uid)
-    assert result.run.status == "cancelled"
+    assert result.run.status == :cancelled
     assert %DateTime{} = result.run.cleanup_completed_at
     assert result.cleanup_errors == []
     assert result.running_session_ids == [Workflow.task_session_id(running.id)]
-    assert Repo.get!(AgentCall, queued.id).status == "cancelled"
-    assert Repo.get!(AgentCall, running.id).status == "cancelled"
+    assert Repo.get!(AgentCall, queued.id).status == :cancelled
+    assert Repo.get!(AgentCall, running.id).status == :cancelled
 
     stop =
       Repo.get_by!(Signal,
@@ -765,20 +752,22 @@ defmodule Ankole.Workflow.RunServerTest do
   defp cancel_workflow(run_id, agent_uid) do
     result =
       Repo.transact(fn repo ->
-        with {:ok, result, after_commit} <-
-               Ankole.Sessions.Tools.Workflow.execute_in_tx(
+        with {:ok, sessions, commit} <-
+               Ankole.Sessions.Tools.Workflow.prepare_in_tx(
                  repo,
-                 %{agent_uid: agent_uid},
+                 %{agent_uid: agent_uid, session_id: "cancel-caller-session"},
                  %{"name" => "cancel_workflow"},
                  %{"run_id" => run_id}
-               ) do
+               ),
+             :ok <- Ankole.Sessions.Queue.lock_sessions_in_tx(repo, sessions),
+             {:ok, result, after_commit} <- commit.() do
           {:ok, {result, after_commit}}
         end
       end)
 
     case result do
       {:ok, {tool_result, [after_commit]}} ->
-        assert tool_result.details["status"] == Repo.get!(Run, run_id).status
+        assert tool_result.details["status"] == Atom.to_string(Repo.get!(Run, run_id).status)
         after_commit.()
 
       {:error, _reason} = error ->
@@ -787,9 +776,9 @@ defmodule Ankole.Workflow.RunServerTest do
   end
 
   defp run_fixture(agent_uid) do
-    run =
-      Repo.insert!(
-        Run.creation_changeset(%Run{}, %{
+    {:ok, run} =
+      Repo.transact(fn ->
+        Ankole.Ash.create(Run, :create_run, %{
           authorization_kind: "service",
           agent_uid: agent_uid,
           owner_session_id: "owner-#{System.unique_integer([:positive])}",
@@ -798,12 +787,11 @@ defmodule Ankole.Workflow.RunServerTest do
           title: "Workflow",
           script: "return 'done';",
           args: %{},
-          status: "running",
           concurrency: 8,
           max_agent_calls: 256,
           error: %{}
         })
-      )
+      end)
 
     # Replay tests claim task rows themselves. Install the passive Driver
     # before dispatch so a real admission cannot consume those fixture rows.
@@ -865,7 +853,7 @@ defmodule Ankole.Workflow.RunServerTest do
     end
   end
 
-  defp queued_call(%AgentCall{status: "queued"} = call), do: call
+  defp queued_call(%AgentCall{status: :queued} = call), do: call
   defp queued_call(_call), do: nil
 
   defp queued_replay_result?(server) do

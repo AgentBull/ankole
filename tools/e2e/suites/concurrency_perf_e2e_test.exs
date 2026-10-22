@@ -9,6 +9,7 @@ defmodule Ankole.E2E.ConcurrencyPerfE2ETest do
   """
 
   use Ankole.DataCase, async: false
+  @moduletag sandbox: false
 
   import Ankole.E2E.Harness
 
@@ -21,8 +22,12 @@ defmodule Ankole.E2E.ConcurrencyPerfE2ETest do
   @chats 6
   @wall_clock_ceiling_ms 240_000
 
+  setup do
+    cleanup_committed_fixtures_on_exit!()
+    :ok
+  end
+
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
   test "concurrent direct turns of two Agents stay isolated per chat" do
     ctx = start_worker_e2e_stack!(secondary: true)
     workers = Map.new([ctx.agent, ctx.secondary_agent], &{&1.uid, Repo.get!(AgentWorker, &1.uid)})
@@ -94,7 +99,7 @@ defmodule Ankole.E2E.ConcurrencyPerfE2ETest do
 
     # Both Workers stayed on the same computer and connection for the whole run.
     for {agent_uid, before} <- workers do
-      assert %AgentWorker{state: "ready"} = after_run = Repo.get!(AgentWorker, agent_uid)
+      assert %AgentWorker{state: :ready} = after_run = Repo.get!(AgentWorker, agent_uid)
       assert after_run.generation == before.generation
       assert after_run.transport_route == before.transport_route
     end

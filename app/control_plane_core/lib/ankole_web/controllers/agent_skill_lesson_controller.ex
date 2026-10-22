@@ -132,7 +132,7 @@ defmodule AnkoleWeb.AgentSkillLessonController do
   defp error(conn, {:missing, key}),
     do: ConsoleErrors.required_field(conn, key)
 
-  defp error(conn, %Ecto.Changeset{} = changeset) do
+  defp error(conn, %module{} = changeset) when module in [Ash.Changeset, Ash.Error.Invalid] do
     ConsoleErrors.changeset(conn, changeset)
   end
 

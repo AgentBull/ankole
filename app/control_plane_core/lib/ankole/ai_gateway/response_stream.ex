@@ -285,28 +285,36 @@ defmodule Ankole.AIGateway.ResponseStream do
     prepared_request = Keyword.get(opts, :prepared_request, %{})
     {attempt_context, attempt_spec} = CredentialAttempts.prepare_stream(prepared_request)
     raw_tool_loop = Keyword.get(opts, :tool_loop)
-    loop = StreamLoop.new(raw_tool_loop)
     meta = resolver_meta(prepared_request)
     stateful = Keyword.get(opts, :stateful)
     request = Keyword.fetch!(opts, :request)
+    subject_uid = Keyword.fetch!(opts, :subject_uid)
+
+    semantic =
+      State.new(subject_uid, request, meta,
+        stateful: stateful,
+        tool_loop: raw_tool_loop
+      )
+
+    initial_local_effect? = State.initial_local_effect?(semantic)
 
     state = %{
-      phase: if(StreamLoop.initial_local_effect?(loop), do: :ready, else: :opening),
-      public_open?: StreamLoop.initial_local_effect?(loop),
+      phase: if(initial_local_effect?, do: :ready, else: :opening),
+      public_open?: initial_local_effect?,
       ref: make_ref(),
       receiver: receiver,
       owner_monitor: owner_monitor,
-      subject_uid: Keyword.fetch!(opts, :subject_uid),
+      subject_uid: subject_uid,
       subject_type: Keyword.get(opts, :subject_type),
       request: request,
       stateful: stateful,
       observability:
         Observability.start_response(
-          Keyword.fetch!(opts, :subject_uid),
+          subject_uid,
           Keyword.get(opts, :observation_request, request),
           Keyword.take(opts, [:stateful, :request_context, :subject_type, :caller])
         ),
-      semantic: nil,
+      semantic: semantic,
       round_open: round_open_fun(raw_tool_loop),
       program_runner: Keyword.get(opts, :program_runner),
       program_task_supervisor: Keyword.get(opts, :program_task_supervisor),
@@ -336,24 +344,19 @@ defmodule Ankole.AIGateway.ResponseStream do
       stalled_logged?: false
     }
 
-    state = %{state | semantic: new_semantic(state, meta, loop)}
     {:ok, state, {:continue, :open_native_stream}}
   end
 
   @impl true
   def handle_continue(:open_native_stream, state) do
-    loop = StreamLoop.new(state.semantic.tool_loop)
-
-    if StreamLoop.initial_local_effect?(loop) do
+    if State.initial_local_effect?(state.semantic) do
       start_initial_local_effect(state)
     else
-      open_initial_stream(state, loop)
+      open_initial_stream(state)
     end
   end
 
-  defp open_initial_stream(state, loop) do
-    state = %{state | semantic: %{state.semantic | tool_loop: loop}}
-
+  defp open_initial_stream(state) do
     if is_function(state.open_fun, 0) do
       begin_custom_open(state, :initial, state.open_fun)
     else
@@ -696,7 +699,6 @@ defmodule Ankole.AIGateway.ResponseStream do
       ImageGeneration.pop_credential_attempt(prepared_request)
 
     {attempt_context, attempt_spec} = CredentialAttempts.prepare_stream(prepared_request)
-    loop = StreamLoop.new(tool_loop)
     meta = resolver_meta(prepared_request)
 
     state =
@@ -715,7 +717,7 @@ defmodule Ankole.AIGateway.ResponseStream do
         native_stream: nil
       })
 
-    state = %{state | semantic: new_semantic(state, meta, loop)}
+    state = %{state | semantic: new_semantic(state, meta, tool_loop)}
     begin_open_episode(state, :initial, attempt_context, attempt_spec)
   catch
     kind, reason when kind in [:error, :exit] ->

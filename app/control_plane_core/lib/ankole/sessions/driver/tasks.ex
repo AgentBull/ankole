@@ -19,8 +19,7 @@ defmodule Ankole.Sessions.Driver.Tasks do
     do: %{
       clear_tasks(data, fn _kind -> true end)
       | stream: nil,
-        early_stream: [],
-        observing?: false
+        early_stream: []
     }
 
   def clear_tasks(data, discard?) do
@@ -41,14 +40,14 @@ defmodule Ankole.Sessions.Driver.Tasks do
   def cancel_current(data) do
     if data.stream, do: AIGateway.cancel_response_stream(data.stream, "conversation_interrupted")
 
-    case WorkerAcquisition.row(data.acquisition) do
+    case WorkerAcquisition.row(data.turn.acquisition) do
       row when is_map(row) ->
-        ids = PendingCall.on_worker(data.pending)
+        ids = PendingCall.on_worker(data.turn.pending)
 
         Task.Supervisor.start_child(
           Ankole.Sessions.Tasks,
           Ankole.Repo.bind_tenant(fn ->
-            Worker.cancel(data.run, row, ids)
+            Worker.cancel(data.turn.run, row, ids)
           end)
         )
 

@@ -73,13 +73,10 @@ defmodule Ankole.Pod.Database.Write do
       count = before.record_count + change.delta
 
       if count <= DbTable.record_limit() do
-        case Repo.update(
-               DbTable.changeset(before, %{
-                 data_version: before.data_version + 1,
-                 record_count: count,
-                 next_auto_number: before.next_auto_number + change.inserted
-               })
-             ) do
+        case Ankole.Ash.update(before, :commit_write, %{
+               delta: change.delta,
+               inserted: change.inserted
+             }) do
           {:ok, table} ->
             {:cont,
              {:ok,

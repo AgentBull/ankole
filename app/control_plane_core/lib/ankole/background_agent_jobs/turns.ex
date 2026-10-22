@@ -8,6 +8,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   budget.
   """
 
+  require Ash.Query
   require Ankole.ModelIntegerID
 
   import Ecto.Query
@@ -54,9 +55,9 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     started_at
     completed_at
   )a
-  @active_statuses ~w(in_progress)
-  @terminal_turn_statuses ~w(completed failed interrupted)
-  @message_ready_statuses ~w(waiting_on_user succeeded failed stopped)
+  @active_statuses [:in_progress]
+  @terminal_turn_statuses [:completed, :failed, :interrupted]
+  @message_ready_statuses [:waiting_on_user, :succeeded, :failed, :stopped]
   @trajectory_default_limit 3
   @trajectory_max_limit 20
   @model_page_bytes 24 * 1_024
@@ -268,10 +269,10 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   # Job's one successor.
   defp message_without_trajectory(job, command_event) do
     case command_event do
-      %Signal{input_state: "dead_letter"} ->
+      %Signal{status: :dead_letter} ->
         {:error, :background_agent_job_message_delivery_failed}
 
-      %Signal{completed_at: %DateTime{}} when job.status == "succeeded" ->
+      %Signal{status: :completed} when job.status == :succeeded ->
         case Repo.one(
                from(successor in Job,
                  where: successor.continued_from_job_id == ^job.id,
@@ -282,10 +283,10 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
           id -> {:ok, Map.put(pending_message_result(job), :successor_job_id, id)}
         end
 
-      %Signal{completed_at: %DateTime{}} ->
+      %Signal{status: :completed} ->
         {:error, :background_agent_job_message_delivery_failed}
 
-      %Signal{} when job.status in ~w(succeeded failed stopped) ->
+      %Signal{} when job.status in [:succeeded, :failed, :stopped] ->
         {:error, :background_agent_job_message_delivery_failed}
 
       %Signal{} ->
@@ -330,7 +331,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
         |> where([event], event.session_id == ^caller_session_id)
         |> where([event], event.type == ^event_type)
         |> where([event], event.source_event_id == ^source_event_id)
-        |> where([event], event.input_state == "open" and is_nil(event.completed_at))
+        |> where([event], event.status in [:queued, :running])
         |> Repo.one()
 
       nil ->
@@ -340,15 +341,15 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
   defp lifecycle_event_for_message(%Job{}, %Turn{}, _caller_session_id), do: nil
 
-  defp lifecycle_event_identity(%Job{status: "waiting_on_user"} = job),
+  defp lifecycle_event_identity(%Job{status: :waiting_on_user} = job),
     do: {"background_agent_job.waiting", "background_agent_job:#{job.id}:waiting:#{job.attempts}"}
 
-  defp lifecycle_event_identity(%Job{status: "succeeded"} = job),
+  defp lifecycle_event_identity(%Job{status: :succeeded} = job),
     do:
       {"background_agent_job.completed",
        "background_agent_job:#{job.id}:succeeded:#{job.attempts}"}
 
-  defp lifecycle_event_identity(%Job{status: "failed"} = job),
+  defp lifecycle_event_identity(%Job{status: :failed} = job),
     do: {"background_agent_job.failed", "background_agent_job:#{job.id}:failed:#{job.attempts}"}
 
   defp lifecycle_event_identity(%Job{}), do: nil
@@ -357,13 +358,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   @spec ensure_lead_closed_for_current_attempt_in_tx(module(), Job.t(), keyword()) ::
           :ok | {:error, :background_agent_job_turn_trajectory_incomplete}
   def ensure_lead_closed_for_current_attempt_in_tx(repo, %Job{} = job, opts \\ []) do
-    turns =
-      Turn
-      |> where([row], row.job_id == ^job.id)
-      |> where([row], row.attempt == ^job.attempts)
-      |> order_by([row], asc: row.started_at, asc: row.id)
-      |> lock("FOR UPDATE")
-      |> repo.all()
+    turns = lock_attempt_in_tx(repo, job)
 
     lead_turns = Enum.filter(turns, &Turn.lead?(&1, job.runtime_thread_id))
     lead_statuses = Enum.map(lead_turns, & &1.status)
@@ -379,7 +374,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       Enum.any?(lead_statuses, &(&1 in @active_statuses)) ->
         {:error, :background_agent_job_turn_trajectory_incomplete}
 
-      is_binary(expected_status) and
+      not is_nil(expected_status) and
           (is_nil(latest_lead) or latest_lead.status != expected_status) ->
         {:error, :background_agent_job_turn_trajectory_incomplete}
 
@@ -398,6 +393,16 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   end
 
   @doc false
+  def lock_attempt_in_tx(repo, %Job{} = job) do
+    Turn
+    |> where([row], row.job_id == ^job.id)
+    |> where([row], row.attempt == ^job.attempts)
+    |> order_by([row], asc: row.started_at, asc: row.id)
+    |> lock("FOR UPDATE")
+    |> repo.lock_all("background_agent_job_turns")
+  end
+
+  @doc false
   @spec consecutive_lead_failures_in_tx(module(), Job.t(), pos_integer()) ::
           {non_neg_integer(), map() | nil}
   def consecutive_lead_failures_in_tx(
@@ -413,7 +418,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       |> order_by([turn], desc: turn.started_at, desc: turn.id)
       |> limit(^limit)
       |> repo.all()
-      |> Enum.take_while(&(&1.status == "failed"))
+      |> Enum.take_while(&(&1.status == :failed))
 
     case failures do
       [] -> {0, nil}
@@ -433,12 +438,27 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
         %DateTime{} = now
       ) do
     Turn
-    |> where([turn], turn.job_id == ^job.id)
-    |> where([turn], turn.attempt < ^expected_attempt)
+    |> Ash.Query.filter(job_id == ^job.id and attempt < ^expected_attempt)
     |> interrupt_active_query(repo, now, %{
       "code" => "worker_attempt_replaced",
       "summary" => "The worker attempt ended before this runtime turn completed."
     })
+
+    :ok
+  end
+
+  @doc false
+  def lock_active_for_current_attempt_in_tx(repo, %Job{} = job) do
+    repo.lock_all(
+      from(turn in Turn,
+        where:
+          turn.job_id == ^job.id and turn.attempt == ^job.attempts and
+            turn.status in @active_statuses,
+        order_by: turn.id,
+        lock: "FOR UPDATE"
+      ),
+      "background_agent_job_turns"
+    )
 
     :ok
   end
@@ -457,27 +477,20 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
         %DateTime{} = now
       ) do
     Turn
-    |> where([turn], turn.job_id == ^job.id)
-    |> where([turn], turn.attempt == ^job.attempts)
+    |> Ash.Query.filter(job_id == ^job.id and attempt == ^job.attempts)
     |> interrupt_active_query(repo, now, error)
 
     :ok
   end
 
   defp interrupt_active_query(query, repo, now, error) do
-    query
-    |> where([turn], turn.status in @active_statuses)
-    |> update([turn],
-      set: [
-        status: "interrupted",
-        error: ^error,
-        completed_at: ^now,
-        progress: fragment("? - 'active_item'", turn.progress),
-        updated_at: ^now
-      ],
-      inc: [revision: 1]
-    )
-    |> repo.update_all([])
+    case Ankole.Ash.bulk_update(query, :interrupt, %{now: now, error: error},
+           strategy: [:atomic],
+           return_errors?: true
+         ) do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: errors} -> repo.rollback(Ash.Error.to_error_class(errors))
+    end
   end
 
   @spec attempt_history(Job.t()) :: [map()]
@@ -500,7 +513,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
       %{
         attempt: attempt,
-        turn_statuses: ordered |> Enum.map(& &1.status) |> Enum.uniq(),
+        turn_statuses: ordered |> Enum.map(&Atom.to_string(&1.status)) |> Enum.uniq(),
         summary: attempt_summary(job, lead) || attempt_summary(job, ordered),
         used_skill_names:
           case attempt_used_skill_names(ordered) do
@@ -555,7 +568,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       runtime_thread_id: turn.runtime_thread_id,
       runtime_turn_id: turn.runtime_turn_id,
       kind: turn.kind,
-      status: turn.status,
+      status: Atom.to_string(turn.status),
       revision: turn.revision,
       trajectory: trajectory,
       progress: turn.progress || empty_progress(),
@@ -579,9 +592,9 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   defp upsert_in_tx(repo, %Job{} = job, attrs, turn_items) do
     runtime_turn_id = Map.fetch!(attrs, "runtime_turn_id")
 
-    case get_in_tx(repo, job.id, runtime_turn_id, lock: "FOR UPDATE") do
+    case get_in_tx(repo, job.id, runtime_turn_id) do
       nil ->
-        with {:ok, turn} <- %Turn{} |> Turn.changeset(attrs) |> repo.insert(),
+        with {:ok, turn} <- Ankole.Ash.create(Turn, :record, attrs),
              {:ok, turn} <- append_turn_items(repo, turn, turn_items) do
           {:ok, turn}
         end
@@ -597,10 +610,17 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     if revision < turn.revision do
       {:ok, turn}
     else
-      next_status = Map.fetch!(attrs, "status")
+      candidate_attrs =
+        turn
+        |> Map.take(@checkpoint_fields)
+        |> Map.put(:status, nil)
+        |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
+        |> Map.merge(attrs)
 
       with {:ok, candidate} <-
-             turn |> Turn.changeset(attrs) |> Ecto.Changeset.apply_action(:update) do
+             Turn
+             |> Ankole.Ash.for_create(:record, candidate_attrs)
+             |> Ash.Changeset.apply_attributes() do
         cond do
           turn.attempt != candidate.attempt ->
             {:error, :background_agent_job_turn_attempt_mismatch}
@@ -615,11 +635,16 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
           revision == turn.revision ->
             {:error, :background_agent_job_turn_revision_conflict}
 
-          not Turn.transition_allowed?(turn.status, next_status) ->
+          not Turn.transition_allowed?(turn.status, candidate.status) ->
             {:error, :background_agent_job_turn_status_transition_invalid}
 
           true ->
-            with {:ok, updated} <- turn |> Turn.changeset(attrs) |> repo.update(),
+            checkpoint_attrs =
+              attrs
+              |> Map.drop(~w(job_id attempt runtime_thread_id runtime_turn_id status))
+              |> Map.put("next_status", candidate.status)
+
+            with {:ok, updated} <- Ankole.Ash.update(turn, :checkpoint, checkpoint_attrs),
                  {:ok, updated} <- append_turn_items(repo, updated, turn_items) do
               {:ok, updated}
             end
@@ -628,14 +653,15 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     end
   end
 
-  defp get_in_tx(repo, job_id, runtime_turn_id, opts) do
+  defp get_in_tx(repo, job_id, runtime_turn_id) do
     Turn
     |> where(
       [turn],
       turn.job_id == ^job_id and turn.runtime_turn_id == ^runtime_turn_id
     )
-    |> maybe_lock(Keyword.get(opts, :lock))
-    |> repo.one()
+    |> lock("FOR UPDATE")
+    |> repo.lock_all("background_agent_job_turns")
+    |> List.first()
   end
 
   defp checkpoint_equal?(left, right) do
@@ -670,7 +696,9 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
   defp append_turn_items(repo, %Turn{} = turn, items) when is_list(items) do
     with {:ok, truncated} <- insert_turn_items(repo, turn, items) do
-      if truncated, do: mark_turn_content_truncated(repo, turn), else: {:ok, turn}
+      if truncated,
+        do: Ankole.Ash.update(turn, :mark_content_truncated, %{}),
+        else: {:ok, turn}
     end
   end
 
@@ -692,7 +720,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
         cond do
           existing == [] ->
-            case repo.insert(changeset) do
+            case Ankole.Ash.create(changeset) do
               {:ok, _item} ->
                 {_messages, projection_truncated} = TurnItemProjection.project(candidate.item)
                 {:cont, {:ok, truncated or projection_truncated}}
@@ -717,7 +745,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     attrs = Attrs.normalize(entry)
 
     changeset =
-      TurnItem.changeset(%TurnItem{}, %{
+      Ankole.Ash.for_create(TurnItem, :append, %{
         turn_id: turn.id,
         position: attrs["position"],
         revision: turn.revision,
@@ -725,7 +753,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
         item: attrs["item"]
       })
 
-    case Ecto.Changeset.apply_action(changeset, :insert) do
+    case Ash.Changeset.apply_attributes(changeset) do
       {:ok, candidate} -> {:ok, candidate, changeset}
       {:error, invalid} -> {:error, invalid}
     end
@@ -771,21 +799,6 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       |> Enum.all?(fn {row, value} -> turn_item_equal?(row, value) end)
   end
 
-  defp mark_turn_content_truncated(repo, %Turn{} = turn) do
-    header = turn.trajectory || empty_trajectory()
-    metadata = if is_map(header["metadata"]), do: header["metadata"], else: %{}
-
-    if metadata["content_truncated"] == true do
-      {:ok, turn}
-    else
-      header = Map.put(header, "metadata", Map.put(metadata, "content_truncated", true))
-
-      turn
-      |> Ecto.Changeset.change(trajectory: header)
-      |> repo.update()
-    end
-  end
-
   defp thread_counts(turns, lead_thread_id) do
     thread_ids = turns |> Enum.map(& &1.runtime_thread_id) |> Enum.uniq()
 
@@ -820,7 +833,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     %{
       runtime_turn_id: turn.runtime_turn_id,
       kind: turn.kind,
-      status: turn.status,
+      status: Atom.to_string(turn.status),
       error: turn.error
     }
   end
@@ -952,7 +965,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   end
 
   defp active_items(_turns, %Job{status: status})
-       when status in ~w(succeeded failed stopped),
+       when status in [:succeeded, :failed, :stopped],
        do: []
 
   defp active_items(turns, %Job{} = job) do
@@ -1071,7 +1084,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       |> Enum.reverse()
       |> Enum.find_value(fn
         %Turn{status: status, error: error}
-        when status in ["failed", "interrupted"] and is_map(error) ->
+        when status in [:failed, :interrupted] and is_map(error) ->
           Enum.find_value(["summary", "message", "code"], fn key ->
             case Map.get(error, key) do
               value when is_binary(value) and value != "" ->
@@ -1127,9 +1140,6 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   end
 
   defp empty_trajectory, do: Trajectory.empty_header()
-
-  defp maybe_lock(query, nil), do: query
-  defp maybe_lock(query, "FOR UPDATE"), do: lock(query, "FOR UPDATE")
 
   defp iso8601(nil), do: nil
   defp iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)

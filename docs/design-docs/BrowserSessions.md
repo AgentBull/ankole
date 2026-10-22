@@ -26,9 +26,35 @@ A browser and its authentication records belong to the site. A Pod access proof
 belongs to its tenant and requires an explicit Repo context. A Principal belongs
 to one tenant. Its UID remains globally unique and opaque.
 
+The four records use Ash resources and named transaction actions. The aggregate
+keeps the browser row lock before it changes an authentication, login proof, or
+selection. The login resource owns the `pending`, `authenticated`, `consumed`,
+and `cancelled` transitions. Terminal transactions cannot reopen. Cancellation
+uses one atomic update for the matching open transactions. Expiry uses atomic
+deletion, with the retained RP association check in the same browser deletion.
+Ecto migrations continue to own the native keys and constraints.
+
+A trusted Pod entry can pass a held authentication reference to `begin_login`
+with `mode: :add`. Under the same browser lock, the owner checks the browser,
+current authentication revision, tenant proof, and Human access before it binds
+the one-use transaction. Account entry and host handoff use this contract;
+neither caller writes a proof directly.
+
 An authentication lives for 24 hours. A login transaction lives for 10 minutes.
 A completed authentication extends the group's expiry to cover that proof.
 Cleanup cannot delete a group while a valid proof still needs it.
+
+SaaS account, email proof, and email limit records use site-level Ash resources.
+The email proof action fixes its browser transaction, email, and purpose. A
+resend replaces the digest and disables verification until delivery succeeds.
+Activation uses a digest comparison, so an older send cannot activate a newer
+code. Verification atomically consumes the current, unexpired digest. The
+account binding action accepts only a verified, unbound proof; a composite
+foreign key requires that account to have the same email. Native constraints
+also reject a verified proof that retains a code and a nonpositive limit count.
+Email limits retain one atomic `ON CONFLICT` statement: a live window increments
+its counter without moving the deadline, and an expired window starts at one.
+The existing ordered advisory locks still serialize the aggregate limit check.
 
 ## Login purposes and targets
 

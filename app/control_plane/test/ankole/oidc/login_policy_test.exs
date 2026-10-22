@@ -3,7 +3,6 @@ defmodule Ankole.OIDC.LoginPolicyTest do
   alias Ankole.OIDC.LoginPolicy
 
   setup do
-    allow_cache_database_access()
     Ankole.AppConfigure.Registry.clear_for_test()
     Ankole.AppConfigure.Cache.clear_for_test()
     {:ok, _} = Ankole.IdentityProviders.save_provider("local", "local", %{}, true)
@@ -35,7 +34,7 @@ defmodule Ankole.OIDC.LoginPolicyTest do
 
     transaction = %{
       status: :pending,
-      request: %{"client_id" => client.id, "prompt" => "select_account"},
+      request: %{"client_id" => client.id, "prompt" => ["select_account"]},
       authentication_id: nil,
       authentication_revision: nil
     }
@@ -46,10 +45,10 @@ defmodule Ankole.OIDC.LoginPolicyTest do
   test "selection removes only the selection requirement", %{transaction: transaction, auth: auth} do
     for {params, action} <- [
           {%{}, :reuse},
-          {%{"prompt" => "login select_account"}, :reauthenticate},
-          {%{"max_age" => "0"}, :reauthenticate},
-          {%{"max_age" => "1"}, :reauthenticate},
-          {%{"max_age" => "3600"}, :reuse}
+          {%{"prompt" => ["login", "select_account"]}, :reauthenticate},
+          {%{"max_age" => 0}, :reauthenticate},
+          {%{"max_age" => 1}, :reauthenticate},
+          {%{"max_age" => 3600}, :reuse}
         ] do
       transaction = %{transaction | request: Map.merge(transaction.request, params)}
       assert LoginPolicy.selection_required?(transaction.request)
@@ -66,8 +65,8 @@ defmodule Ankole.OIDC.LoginPolicyTest do
     request =
       Map.put(
         transaction.request,
-        "claims",
-        ~s({"id_token":{"auth_time":{"essential":true}}})
+        "auth_time_essential?",
+        true
       )
 
     assert {:ok, _, :reauthenticate} =
@@ -84,7 +83,7 @@ defmodule Ankole.OIDC.LoginPolicyTest do
     transaction = %{
       transaction
       | status: :authenticated,
-        request: Map.put(transaction.request, "prompt", "login select_account"),
+        request: Map.put(transaction.request, "prompt", ["login", "select_account"]),
         authentication_id: auth["authentication_id"],
         authentication_revision: auth["authentication_revision"]
     }
@@ -114,5 +113,23 @@ defmodule Ankole.OIDC.LoginPolicyTest do
                transaction,
                Map.put(auth, "provider_id", "other")
              )
+  end
+
+  test "combined prompts force upstream login while account selection stays in the browser transaction" do
+    selected_at = DateTime.utc_now()
+
+    transaction = %{
+      upstream_state: "upstream-nonce",
+      updated_at: selected_at,
+      request: %{"prompt" => ["login", "select_account"], "max_age" => 3600}
+    }
+
+    opts = LoginPolicy.upstream_options(transaction)
+    assert opts[:prompt] == "login"
+    assert opts[:max_age] == 0
+    assert opts[:nonce] == "upstream-nonce"
+    assert opts[:auth_time_required]
+    assert opts[:auth_time_not_before] == DateTime.to_unix(selected_at)
+    assert LoginPolicy.selection_required?(transaction.request)
   end
 end

@@ -134,7 +134,6 @@ defmodule Ankole.SignalsTest do
       attrs = attrs(context) |> Map.put(:id, Atom.to_string(first)) |> Map.put(:producer, first)
       assert {:ok, original} = accept_in_tx(attrs)
       jobs = Repo.aggregate(Oban.Job, :count)
-      original_snapshot = Map.from_struct(original)
 
       assert {:error, :signal_producer_conflict} =
                accept_in_tx(
@@ -143,7 +142,7 @@ defmodule Ankole.SignalsTest do
                  |> Map.put(:data, %{"changed" => true})
                )
 
-      assert Map.from_struct(Repo.get!(Signal, original.id)) == original_snapshot
+      assert_persisted_equal(Repo.get!(Signal, original.id), original)
       assert Repo.aggregate(Oban.Job, :count) == jobs
       assert {:ok, same} = accept_in_tx(attrs |> Map.put(:data, %{"changed" => true}))
       assert same.id == original.id

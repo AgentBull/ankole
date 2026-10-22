@@ -54,7 +54,7 @@ defmodule Ankole.Conversations.Delivery.Recovery do
                outbound_key
              ),
            {:ok, attrs} <- explicit_requeue_attrs(intent, now),
-           {:ok, intent} <- intent |> Intent.changeset(attrs) |> repo.update(),
+           {:ok, intent} <- Ankole.Ash.update(intent, :requeue, attrs),
            :ok <- notify_intent_deadline(repo, intent) do
         {:ok, intent}
       else
@@ -80,16 +80,14 @@ defmodule Ankole.Conversations.Delivery.Recovery do
              |> where([entry], entry.binding_name == ^binding_name)
              |> where([entry], entry.delivery_class == :durable_ai_reply)
              |> where([entry], entry.status == :failed)
-             |> where([entry], fragment("?->>'state' = 'blocked'", entry.recovery_state))
+             |> where([entry], entry.recovery_status == :blocked)
              |> lock("FOR UPDATE")
              |> repo.all()
 
            Enum.reduce_while(rows, {:ok, []}, fn intent, {:ok, acc} ->
              with {:ok, attrs} <- explicit_requeue_attrs(intent, now),
                   {:ok, intent} <-
-                    intent
-                    |> Intent.changeset(attrs)
-                    |> repo.update(),
+                    Ankole.Ash.update(intent, :requeue, attrs),
                   :ok <- notify_intent_deadline(repo, intent) do
                {:cont, {:ok, [intent | acc]}}
              else
@@ -114,16 +112,19 @@ defmodule Ankole.Conversations.Delivery.Recovery do
          now
        )
        when status in [:failed, :unknown] do
-    ambiguous? = status == :unknown or possible_duplicate?(intent.recovery_state)
+    ambiguous? = status == :unknown or intent.possible_duplicate
 
     with {:ok, content_attrs, notice} <- requeue_content_attrs(intent, ambiguous?) do
       {:ok,
-       Map.merge(content_attrs, %{
-         status: :pending,
-         platform_send_started_at: nil,
-         max_attempts: intent.attempt_count + 1,
-         next_attempt_at: now,
-         recovery_state: active_recovery_state(intent, ambiguous?, notice)
+       content_attrs
+       |> Map.merge(
+         Map.drop(
+           active_recovery_attrs(intent, ambiguous?, notice),
+           [:recovery_status, :recovery_reason]
+         )
+       )
+       |> Map.merge(%{
+         next_attempt_at: now
        })}
     end
   end
@@ -134,7 +135,7 @@ defmodule Ankole.Conversations.Delivery.Recovery do
   defp requeue_content_attrs(_intent, false), do: {:ok, %{}, nil}
 
   defp requeue_content_attrs(intent, true) do
-    case possible_duplicate_notice(intent.recovery_state) do
+    case intent.possible_duplicate_notice do
       notice when is_binary(notice) -> {:ok, %{}, notice}
       nil -> ambiguous_reply_content_attrs(intent)
     end
@@ -184,17 +185,17 @@ defmodule Ankole.Conversations.Delivery.Recovery do
 
   def mark_intent_failed(repo, intent, reason, now) do
     reason = delivery_failure(reason)
-    {last_error, next_attempt_at, recovery_state} = failure_recovery(intent, reason, now)
+    {last_error, next_attempt_at, recovery_attrs} = failure_recovery(intent, reason, now)
 
     with {:ok, %Intent{} = intent} <-
-           intent
-           |> Intent.changeset(%{
-             status: :failed,
-             last_error: last_error,
-             next_attempt_at: next_attempt_at,
-             recovery_state: recovery_state
-           })
-           |> repo.update(),
+           Ankole.Ash.update(
+             intent,
+             :fail,
+             Map.merge(recovery_attrs, %{
+               last_error: last_error,
+               next_attempt_at: next_attempt_at
+             })
+           ),
          :ok <- notify_intent_deadline(repo, intent) do
       log_delivery_failure(intent, reason)
       {:ok, intent}
@@ -216,7 +217,7 @@ defmodule Ankole.Conversations.Delivery.Recovery do
     {
       %{"reason" => Sanitizer.transport(detail)},
       nil,
-      terminal_recovery_state(intent, "blocked", "operator_action_required")
+      terminal_recovery_attrs(intent, :blocked, "operator_action_required")
     }
   end
 
@@ -224,7 +225,7 @@ defmodule Ankole.Conversations.Delivery.Recovery do
     {
       %{"reason" => Sanitizer.transport(detail)},
       nil,
-      terminal_recovery_state(intent, "permanent", "permanent_failure")
+      terminal_recovery_attrs(intent, :permanent, "permanent_failure")
     }
   end
 
@@ -243,8 +244,8 @@ defmodule Ankole.Conversations.Delivery.Recovery do
       %{"reason" => Sanitizer.transport(detail)},
       next_attempt_at,
       if(is_nil(next_attempt_at),
-        do: terminal_recovery_state(intent, "exhausted", "max_attempts_reached"),
-        else: active_recovery_state(intent)
+        do: terminal_recovery_attrs(intent, :exhausted, "max_attempts_reached"),
+        else: active_recovery_attrs(intent)
       )
     }
   end
@@ -263,7 +264,7 @@ defmodule Ankole.Conversations.Delivery.Recovery do
       max_attempts: intent.max_attempts,
       failure_class: failure_class,
       failure_code: failure_code,
-      recovery_state: intent.recovery_state["state"],
+      recovery_status: intent.recovery_status,
       retry_scheduled: not is_nil(intent.next_attempt_at),
       next_attempt_at: encode_log_datetime(intent.next_attempt_at)
     }
@@ -322,32 +323,22 @@ defmodule Ankole.Conversations.Delivery.Recovery do
       intent
       |> unknown_recovery_attrs(now)
       |> Map.merge(%{
-        status: :unknown,
         last_error: Sanitizer.transport(reason)
       })
 
-    with {:ok, intent} <- intent |> Intent.changeset(attrs) |> repo.update(),
+    with {:ok, intent} <- Ankole.Ash.update(intent, :mark_unknown, attrs),
          :ok <- notify_intent_deadline(repo, intent) do
       {:ok, intent}
     end
   end
 
   defp unknown_recovery_attrs(%Intent{} = intent, _now) do
-    %{
-      next_attempt_at: nil,
-      recovery_state:
-        terminal_recovery_state(
-          intent,
-          "blocked",
-          "ambiguous_delivery_not_retried",
-          true,
-          nil
-        )
-    }
+    intent
+    |> terminal_recovery_attrs(:blocked, "ambiguous_delivery_not_retried", true, nil)
   end
 
   defp ambiguous_reply_content_attrs(%Intent{} = intent) do
-    notice = possible_duplicate_notice(intent.recovery_state) || ambiguous_delivery_notice()
+    notice = intent.possible_duplicate_notice || ambiguous_delivery_notice()
     payload = prefix_ambiguous_payload(intent.payload, notice)
     fallback_visible_text = prefix_ambiguous_text(intent.fallback_visible_text, notice)
 
@@ -415,54 +406,26 @@ defmodule Ankole.Conversations.Delivery.Recovery do
   defp ambiguous_delivery_notice,
     do: I18n.t("conversations.delivery.reply.possible_duplicate_delivery")
 
-  defp active_recovery_state(intent),
-    do: active_recovery_state(intent, possible_duplicate?(intent.recovery_state), nil)
+  defp active_recovery_attrs(intent),
+    do: active_recovery_attrs(intent, intent.possible_duplicate, nil)
 
-  defp active_recovery_state(intent, ambiguous?, notice),
-    do: possible_duplicate_recovery_state(intent.recovery_state, ambiguous?, notice)
-
-  defp terminal_recovery_state(intent, state, reason),
-    do:
-      terminal_recovery_state(
-        intent,
-        state,
-        reason,
-        possible_duplicate?(intent.recovery_state),
-        nil
-      )
-
-  defp terminal_recovery_state(intent, state, reason, ambiguous?, notice) do
-    intent.recovery_state
-    |> possible_duplicate_recovery_state(ambiguous?, notice)
-    |> Map.merge(%{"state" => state, "reason" => reason})
+  defp active_recovery_attrs(intent, ambiguous?, notice) do
+    %{
+      recovery_status: nil,
+      recovery_reason: nil,
+      possible_duplicate: ambiguous?,
+      possible_duplicate_notice: if(ambiguous?, do: notice || intent.possible_duplicate_notice)
+    }
   end
 
-  defp possible_duplicate_recovery_state(_recovery_state, false, _notice), do: %{}
+  defp terminal_recovery_attrs(intent, status, reason),
+    do: terminal_recovery_attrs(intent, status, reason, intent.possible_duplicate, nil)
 
-  defp possible_duplicate_recovery_state(recovery_state, true, notice) do
-    notice = notice || possible_duplicate_notice(recovery_state)
-    state = %{"possible_duplicate" => true}
-
-    if is_binary(notice) and notice != "" do
-      Map.put(state, "possible_duplicate_notice", notice)
-    else
-      state
-    end
+  defp terminal_recovery_attrs(intent, status, reason, ambiguous?, notice) do
+    intent
+    |> active_recovery_attrs(ambiguous?, notice)
+    |> Map.merge(%{recovery_status: status, recovery_reason: reason})
   end
-
-  defp possible_duplicate?(recovery_state) when is_map(recovery_state),
-    do: Map.get(recovery_state, "possible_duplicate") == true
-
-  defp possible_duplicate?(_recovery_state), do: false
-
-  defp possible_duplicate_notice(recovery_state) when is_map(recovery_state) do
-    case Map.get(recovery_state, "possible_duplicate_notice") do
-      notice when is_binary(notice) and notice != "" -> notice
-      _missing -> nil
-    end
-  end
-
-  defp possible_duplicate_notice(_recovery_state), do: nil
 
   # Prefer the id the provider returned; fall back to one already on the row.
   # Without a provider-derived entry id there is no source mirror identity, so a
@@ -522,8 +485,13 @@ defmodule Ankole.Conversations.Delivery.Recovery do
     if expires_at && DateTime.compare(expires_at, now) == :lt, do: expires_at, else: now
   end
 
-  defp intent_due_at(%Intent{status: :failed, next_attempt_at: next_attempt_at}),
-    do: next_attempt_at
+  defp intent_due_at(%Intent{
+         status: :failed,
+         recovery_status: nil,
+         possible_duplicate: false,
+         next_attempt_at: next_attempt_at
+       }),
+       do: next_attempt_at
 
   defp intent_due_at(%Intent{}), do: nil
 

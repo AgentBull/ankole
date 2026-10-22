@@ -10,7 +10,7 @@ defmodule Ankole.Signals do
     Ankole.Signals.Signal
     |> where([signal], signal.id == ^signal_id)
     |> lock("FOR UPDATE")
-    |> repo.one()
+    |> repo.one(lock_identity: {"signals", signal_id})
   end
 
   @doc "Locks an already resolved execution target before its public Conversation row."
@@ -39,7 +39,7 @@ defmodule Ankole.Signals do
     |> where([input], input.agent_uid == ^agent_uid)
     |> where([input], input.reply_binding_name == ^binding_name)
     |> where([input], input.conversation_id == ^conversation_id)
-    |> where([input], not is_nil(input.completed_at))
+    |> where([input], input.status == :completed)
     |> where(
       [input],
       input.provider_message_id == ^provider_message_id or

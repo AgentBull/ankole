@@ -2,6 +2,17 @@ use super::*;
 use serde_json::json;
 use std::time::Instant;
 
+fn run(request: RunRequest) -> RunOutcome {
+    let Some(_permit) = RunPermit::acquire() else {
+        return failed(
+            "program_runtime_busy",
+            "program runtime concurrency limit reached",
+        );
+    };
+
+    guarded_execute(request, Arc::new(RunControl::new()))
+}
+
 fn run_program(program: &str, tools: &[&str], memo: Vec<MemoEntry>) -> RunOutcome {
     run(RunRequest {
         program: program.to_string(),
@@ -334,38 +345,8 @@ fn heap_pressure_keeps_v8_delayed_tasks_on_the_runtime() {
 }
 
 #[test]
-fn run_json_round_trips() {
-    let outcome_json = run_json(
-        "json-round-trip",
-        &serde_json::to_string(&json!({
-            "program": "text(\"ok\");",
-            "tools": [],
-            "memo": []
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-
-    let outcome: JsonValue = serde_json::from_str(&outcome_json).unwrap();
-    assert_eq!(outcome["status"], "completed");
-    assert_eq!(outcome["output"][0]["value"], "ok");
-}
-
-#[test]
-fn run_json_rejects_the_removed_operation_envelope() {
-    let error = run_json(
-        "legacy-envelope",
-        &serde_json::to_string(&json!({
-            "operation": "run",
-            "run_id": "legacy-run",
-            "program": "text(\"ignored\");",
-            "tools": [],
-            "memo": []
-        }))
-        .unwrap(),
-    )
-    .unwrap_err();
-
+fn request_json_rejects_unknown_fields() {
+    let error = decode_request(br#"{"operation":"run","program":"text(1)"}"#).unwrap_err();
     assert!(error.contains("unknown field `operation`"));
 }
 
@@ -579,100 +560,80 @@ fn unused_memo_entries_are_replay_divergence() {
     );
 }
 
+fn start_program(
+    program: &str,
+    handle: &Handle,
+) -> std::sync::mpsc::Receiver<Result<RunOutcome, String>> {
+    let program = program.to_string();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let started = start_with(
+        handle,
+        move || {
+            decode_request(
+                &serde_json::to_vec(&json!({
+                    "program": program, "timeout_ms": 5_000,
+                }))
+                .unwrap(),
+            )
+        },
+        move |outcome| {
+            sender.send(outcome).unwrap();
+        },
+    );
+    assert!(started.is_ok());
+    receiver
+}
+
 #[test]
 fn cancellation_terminates_v8_and_releases_the_runtime_slot() {
-    let run_id = "cancellation-terminates-v8";
-
-    let worker = std::thread::spawn(move || {
-        run_registered(
-            run_id,
-            RunRequest {
-                program: "for (;;) {}".to_string(),
-                tools: Vec::new(),
-                memo: Vec::new(),
-                timeout_ms: Some(5_000),
-                heap_limit_bytes: Some(32 * 1024 * 1024),
-                max_program_bytes: None,
-                max_output_bytes: None,
-                max_pending_calls: None,
-                max_pending_bytes: None,
-                max_memo_entries: None,
-                max_memo_bytes: None,
-            },
-        )
-    });
-
+    let handle = Handle::default();
+    let outcome = start_program("for (;;) {}", &handle);
     let admission_deadline = Instant::now() + Duration::from_secs(2);
-    loop {
-        let control = run_registry()
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .get(run_id)
-            .cloned();
-        let isolate_installed = control.is_some_and(|control| {
-            control
-                .isolate
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .is_some()
-        });
-
-        if isolate_installed {
-            break;
-        }
-
-        assert!(
-            Instant::now() < admission_deadline,
-            "program never installed its V8 isolate"
-        );
+    while handle.control.isolate.lock().unwrap().is_none() {
+        assert!(Instant::now() < admission_deadline);
         std::thread::sleep(Duration::from_millis(5));
     }
-
     let cancelled_at = Instant::now();
-    assert_eq!(cancel(run_id), Ok(true));
-    let outcome = worker.join().unwrap();
-
-    assert_eq!(outcome.status, "failed");
+    handle.cancel();
+    let outcome = outcome
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
     assert_eq!(outcome.error_code.as_deref(), Some("program_cancelled"));
-    assert!(
-        cancelled_at.elapsed() < Duration::from_secs(1),
-        "cancel waited for the five-second watchdog"
-    );
-    assert!(
-        !run_registry()
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .contains_key(run_id)
-    );
-
-    // Joining the worker observes `RunPermit::drop`; a new run therefore
-    // proves the cancelled isolate no longer holds its concurrency slot.
+    assert!(cancelled_at.elapsed() < Duration::from_secs(1));
     let next = run_program("text(\"next\");", &[], Vec::new());
     assert_eq!(next.status, "completed");
 }
 
 #[test]
-fn cancellation_before_registration_does_not_poison_a_later_run() {
-    let run_id = "cancel-before-registration";
-    assert_eq!(cancel(run_id), Ok(false));
+fn cancellation_before_start_cannot_miss_execution() {
+    let handle = Handle::default();
+    handle.cancel();
+    let outcome = start_program("for (;;) {}", &handle)
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    assert_eq!(outcome.error_code.as_deref(), Some("program_cancelled"));
+}
 
-    let outcome = run_registered(
-        run_id,
-        RunRequest {
-            program: "text(\"late\");".to_string(),
-            tools: Vec::new(),
-            memo: Vec::new(),
-            timeout_ms: Some(5_000),
-            heap_limit_bytes: None,
-            max_program_bytes: None,
-            max_output_bytes: None,
-            max_pending_calls: None,
-            max_pending_bytes: None,
-            max_memo_entries: None,
-            max_memo_bytes: None,
-        },
+#[test]
+fn one_handle_cannot_start_two_executions() {
+    let handle = Handle::default();
+    let first = start_program("text(1);", &handle);
+    assert_eq!(
+        first
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .unwrap()
+            .status,
+        "completed"
     );
-
-    assert_eq!(outcome.status, "completed");
-    assert_eq!(outcome.output[0].value, "late");
+    assert!(matches!(
+        start_with(
+            &handle,
+            || panic!("must not decode"),
+            |_| panic!("must not send")
+        ),
+        Err(StartError::AlreadyStarted)
+    ));
 }

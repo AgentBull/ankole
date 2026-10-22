@@ -7,7 +7,7 @@ defmodule Ankole.FunctionComputeWorkerStorageIntegrationTest do
 
   alias Ankole.AgentWorkers.Config
   alias Ankole.AgentWorkers.Providers
-  alias Ankole.AgentWorkers.FunctionCompute
+  alias Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute
 
   alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.AgentWorkers.WorkerBootstrap
@@ -59,7 +59,7 @@ defmodule Ankole.FunctionComputeWorkerStorageIntegrationTest do
 
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn -> cleanup_storage!(uids, ids, owner.uid) end)
 
-      Repo.delete!(tenant)
+      cleanup_tenant!(tenant)
     end)
 
     %{uids: uids, replacement: replacement, runtime: previous, owner: owner}
@@ -68,8 +68,8 @@ defmodule Ankole.FunctionComputeWorkerStorageIntegrationTest do
   test "persistent Home survives pause, termination, and image replacement; deletion removes only its Agent",
        context do
     [uid, peer_uid] = context.uids
-    first = await_worker_state!(uid, "ready")
-    peer = await_worker_state!(peer_uid, "ready")
+    first = await_worker_state!(uid, :ready)
+    peer = await_worker_state!(peer_uid, :ready)
     {:ok, provider} = Providers.load(first.provider_id)
     {:ok, peer_provider} = Providers.load(peer.provider_id)
     put_proof!(first, "HOME-BEFORE-PAUSE")
@@ -86,7 +86,7 @@ defmodule Ankole.FunctionComputeWorkerStorageIntegrationTest do
     assert {:ok, ^ref} = FunctionCompute.create_instance(provider, %{spec | instance_ref: ref})
 
     assert {:ok, _} = Principals.delete_agent(uid)
-    paused = await_worker_state!(uid, "paused")
+    paused = await_worker_state!(uid, :paused)
     assert paused.generation == first.generation
     assert {:ok, [%{phase: :paused}]} = FunctionCompute.list_instances(provider, uid)
     # A long pause can leave OSSFS2 with unusable TCP connections.
@@ -94,7 +94,7 @@ defmodule Ankole.FunctionComputeWorkerStorageIntegrationTest do
     if provider.settings["storage"]["oss"], do: Process.sleep(90_000)
     assert {:ok, _} = Principals.enable_agent(uid)
     assert :ok = AgentWorkers.request(uid)
-    resumed = await_worker_state!(uid, "ready")
+    resumed = await_worker_state!(uid, :ready)
     assert resumed.instance_ref == first.instance_ref
     assert resumed.incarnation_id == first.incarnation_id
     read_started = System.monotonic_time(:millisecond)
@@ -118,13 +118,13 @@ defmodule Ankole.FunctionComputeWorkerStorageIntegrationTest do
                :now
              )
 
-    recovered = await_worker_state!(uid, "ready", resumed.generation)
+    recovered = await_worker_state!(uid, :ready, resumed.generation)
     refute recovered.instance_ref == resumed.instance_ref
     assert_proof!(recovered, "HOME-BEFORE-TERMINATION")
 
     put_proof!(recovered, "HOME-BEFORE-IMAGE-CHANGE")
     :ok = Config.put(context.runtime |> Map.to_list() |> Keyword.put(:image, context.replacement))
-    changed = await_worker_state!(uid, "ready", recovered.generation)
+    changed = await_worker_state!(uid, :ready, recovered.generation)
     assert changed.image == context.replacement
     assert_proof!(changed, "HOME-BEFORE-IMAGE-CHANGE")
     assert {:ok, _} = Principals.delete_agent(uid)

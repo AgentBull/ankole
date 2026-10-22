@@ -161,6 +161,21 @@ pub struct PreparedHTTPRequestSpec {
     pub transport: TransportSpec,
 }
 
+impl PreparedHTTPRequestSpec {
+    pub fn to_upstream_spec(&self) -> UpstreamSpec {
+        UpstreamSpec {
+            kind: UpstreamKind::HTTPSSE,
+            method: self.method.clone(),
+            url: self.url.clone(),
+            headers: self.headers.clone(),
+            body: self.body.clone(),
+            websocket_initial_messages: Vec::new(),
+            timeout: self.timeout.clone(),
+            transport: self.transport.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct TimeoutSpec {
     #[serde(default = "default_connect_ms")]
@@ -691,16 +706,7 @@ impl ModelRequestSpec {
     }
 
     pub fn stream_upstream(&self) -> UpstreamSpec {
-        UpstreamSpec {
-            kind: UpstreamKind::HTTPSSE,
-            method: self.upstream.method.clone(),
-            url: self.upstream.url.clone(),
-            headers: self.upstream.headers.clone(),
-            body: self.upstream.body.clone(),
-            websocket_initial_messages: Vec::new(),
-            timeout: self.upstream.timeout.clone(),
-            transport: self.upstream.transport.clone(),
-        }
+        self.upstream.to_upstream_spec()
     }
 }
 
@@ -727,16 +733,7 @@ impl RawRequestSpec {
     }
 
     pub fn stream_upstream(&self) -> UpstreamSpec {
-        UpstreamSpec {
-            kind: UpstreamKind::HTTPSSE,
-            method: self.upstream.method.clone(),
-            url: self.upstream.url.clone(),
-            headers: self.upstream.headers.clone(),
-            body: self.upstream.body.clone(),
-            websocket_initial_messages: Vec::new(),
-            timeout: self.upstream.timeout.clone(),
-            transport: self.upstream.transport.clone(),
-        }
+        self.upstream.to_upstream_spec()
     }
 }
 

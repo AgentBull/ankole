@@ -21,8 +21,7 @@ defmodule FeishuOpenAPI.TokenManager do
 
   use GenServer
 
-  require Logger
-
+  alias Ankole.Logging
   alias FeishuOpenAPI.{Client, Error, TokenStore}
   alias IMTransport.TokenCache
 
@@ -159,12 +158,18 @@ defmodule FeishuOpenAPI.TokenManager do
               :ok
 
             {:error, reason} ->
-              Logger.warning("feishu_openapi app_ticket resend failed: #{inspect(reason)}")
+              Logging.warning(
+                "feishu_openapi.app_ticket.resend_failed",
+                "Feishu app ticket resend failed",
+                Logging.failure_fields(:error, reason, [])
+              )
           end
         rescue
           exception ->
-            Logger.warning(
-              "feishu_openapi app_ticket resend crashed: #{Exception.message(exception)}"
+            Logging.warning(
+              "feishu_openapi.app_ticket.resend_crashed",
+              "Feishu app ticket resend crashed",
+              Logging.failure_fields(:error, exception, __STACKTRACE__)
             )
         end
       end)
@@ -229,7 +234,7 @@ defmodule FeishuOpenAPI.TokenManager do
         {:noreply, state}
 
       {key, fetch_tasks} ->
-        result = {:error, fetch_crash_error(state.client, key, :exit, reason, [])}
+        result = {:error, fetch_crash_error(:exit, reason)}
         {:noreply, finish_fetch(%{state | fetch_tasks: fetch_tasks}, key, result)}
     end
   end
@@ -373,7 +378,7 @@ defmodule FeishuOpenAPI.TokenManager do
         %{state | fetches: fetches, fetch_tasks: Map.put(state.fetch_tasks, ref, key)}
 
       {:error, reason} ->
-        send(parent, {:fetch_done, key, {:error, fetch_start_failed_error(client, key, reason)}})
+        send(parent, {:fetch_done, key, {:error, fetch_start_failed_error(reason)}})
         %{state | fetches: fetches}
     end
   end
@@ -505,36 +510,27 @@ defmodule FeishuOpenAPI.TokenManager do
     exception ->
       # Token fetches run in tasks. Converting crashes into Error structs keeps
       # every waiter on the GenServer call path from hanging forever.
-      {:error, fetch_crash_error(client, key, :error, exception, __STACKTRACE__)}
+      {:error, fetch_crash_error(:error, exception)}
   catch
     kind, reason ->
-      {:error, fetch_crash_error(client, key, kind, reason, __STACKTRACE__)}
+      {:error, fetch_crash_error(kind, reason)}
   end
 
-  defp fetch_crash_error(client, key, kind, reason, stacktrace) do
+  defp fetch_crash_error(kind, reason) do
     %Error{
       code: :token_fetch_crashed,
-      msg:
-        "token fetch crashed for #{inspect(public_key(key, client))}: " <>
-          Exception.format(kind, reason, stacktrace),
+      msg: "token fetch crashed",
       details: {kind, reason}
     }
   end
 
-  defp fetch_start_failed_error(client, key, reason) do
+  defp fetch_start_failed_error(reason) do
     %Error{
       code: :token_fetch_start_failed,
-      msg:
-        "token fetch could not start for #{inspect(public_key(key, client))}: #{inspect(reason)}",
+      msg: "token fetch could not start",
       details: reason
     }
   end
-
-  defp public_key({:tenant, _cache_namespace, tenant_key}, %Client{app_id: app_id}),
-    do: {:tenant, app_id, tenant_key}
-
-  defp public_key({:app, _cache_namespace}, %Client{app_id: app_id}),
-    do: {:app, app_id}
 
   defp tenant_token_key(%Client{} = client, tenant_key),
     do: {:tenant, Client.cache_namespace(client), tenant_key}

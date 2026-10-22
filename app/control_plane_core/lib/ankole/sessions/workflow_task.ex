@@ -2,18 +2,30 @@ defmodule Ankole.Sessions.WorkflowTask do
   use Ankole.Sessions.RunType
   @moduledoc "Owns one Workflow task's admission and terminal result contract."
   alias Ankole.{Repo, Workflow}
-  alias Ankole.Sessions.Machine
   alias Ankole.Sessions.Prompt
   alias Ankole.Sessions.Run
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.Queue
 
   def prepare_input(event, now) do
+    case Repo.get(Signal, event.id) do
+      %Signal{status: :completed} = current ->
+        {:closed, %{status: :completed, signal: current}}
+
+      %Signal{} = current ->
+        prepare_current_input(current, now)
+
+      nil ->
+        {:error, :input_unavailable}
+    end
+  end
+
+  defp prepare_current_input(event, now) do
     with {:ok, call_id} <- Workflow.parse_task_session_id(event.session_id),
          {:ok, %{call: call, run: workflow}} <-
            Workflow.get_task_for_agent(call_id, event.agent_uid) do
       if call.status in Ankole.Workflow.Schemas.AgentCall.terminal_statuses() or
-           workflow.status != "running" do
+           workflow.status != :running do
         complete_workflow_input(event, now)
       else
         {:ok, event}
@@ -55,9 +67,7 @@ defmodule Ankole.Sessions.WorkflowTask do
         "retryable" => false
       })
 
-    with {:ok, _} <-
-           Workflow.submit_result_in_tx(repo, id, event.agent_uid, event.session_id, failure),
-         do: :ok
+    Workflow.submit_result_in_tx(repo, id, event.agent_uid, event.session_id, failure)
   end
 
   def plan(event, opts) do
@@ -88,15 +98,19 @@ defmodule Ankole.Sessions.WorkflowTask do
   end
 
   def admit_in_tx(repo, event, %{kind: :workflow_task} = plan) do
-    with {:ok, %{call: call}} <-
-           Workflow.claim_task_for_dispatch_in_tx(
+    with {:ok, %{call: call, run: run}} <-
+           Workflow.claim_task_in_tx(
              repo,
-             event,
              plan.call_id,
              event.agent_uid,
              Ankole.Workflow.WorkerConfig.max_running_per_agent(),
              adopt_running: true
-           ) do
+           ),
+         :ok <-
+           Queue.lock_sessions_in_tx(repo, [
+             {event.agent_uid, event.session_id},
+             {event.agent_uid, run.owner_session_id}
+           ]) do
       {:ok, Map.put(plan.context, "attempt", call.attempts)}
     end
   end
@@ -104,7 +118,7 @@ defmodule Ankole.Sessions.WorkflowTask do
   def instructions(run), do: Prompt.workflow_system(run)
 
   def input(%{event: %{type: "workflow.task.dispatch"}} = run),
-    do: [Machine.user(run.spec.request_context["prompt"])]
+    do: [Run.user(run.spec.request_context["prompt"])]
 
   def input(run), do: super(run)
   def nudge?, do: false
@@ -121,7 +135,7 @@ defmodule Ankole.Sessions.WorkflowTask do
        }}
 
   def finish(run) do
-    code = run.repair_failure || failure_code(Machine.text(run))
+    code = run.repair_failure || failure_code(Run.text(run))
 
     {:workflow_failure, run,
      %{

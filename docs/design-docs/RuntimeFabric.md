@@ -166,6 +166,8 @@ maximum number of unacknowledged commands, `{:error, :timeout}` when the
 acknowledgement does not arrive, and `{:error, :socket_closed}` when the
 connection ends first. The Driver retains the pending call and probes it on
 the next usable route. The Job owner retains its current attempt for adoption.
+If the channel is killed during a call, `WorkerRoute` returns `:unknown_route`
+without repeating the request. The same rule applies to RPC requests and replies.
 Only `unknown_route` and `socket_closed` mean that the connection is gone;
 they also mark the Worker stale.
 
@@ -337,10 +339,12 @@ control plane.
 ## Encode and Check Actor and RPC Messages
 
 `app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto` declares the message
-structure and current protocol version, 9. The generated package namespace
+structure and current protocol version. The generated package namespace
 remains `ankole.runtime_fabric.v1`.
 
-Elixir uses Protox and the Worker uses protobuf-es. Generate committed
+`Ankole.RuntimeFabric` in `app/control_plane_core` owns the Elixir Protox
+codec and protocol checks. The protocol files stay in `app/kernel/proto`.
+The Worker uses protobuf-es. Generate committed
 TypeScript output with `bun run gen:proto`. Each host uses its generated enum
 to set the current version on send and reject other versions on receive.
 The Rust kernel does not encode or validate RuntimeFabric envelopes.
@@ -385,6 +389,14 @@ context, prepares its Skills, then returns `workspace_ready`. Preparation
 failures return an error. Repeated open
 messages for the same run adopt its existing workspace.
 
+A recovered tool result can arrive before a pending workspace open completes.
+When that result completes the tool batch, the Driver cancels the batch's
+pending acquisition tasks and timers together. Acquisition returns to
+`{:idle, :requested}`, so a later batch can acquire the workspace again and
+finalization still closes the exact Signal's workspace. A ready workspace and
+a definite acquisition failure remain valid for the current run. A run that
+never requested a Worker sends no Worker messages.
+
 The control plane resolves Skills and their real paths before it requests a
 Worker. WorkerBootstrap owns these path declarations. The Worker uses the same
 declarations when it prepares the files. A Skill read alone needs no Worker.
@@ -392,6 +404,16 @@ declarations when it prepares the files. A Skill read alone needs no Worker.
 ### Run and Recover a Tool Call
 
 Control-plane tools commit durable effects and receipts in one transaction.
+`Tool.prepare_in_tx/4` acquires the domain's Principal, capacity, parent, and
+child locks and returns the participating Session keys and a commit function.
+A new work owner can allocate and insert its identity during preparation; this
+row is not visible outside the transaction. Preparation does not emit a Signal.
+`Receipts` locks all source and target Sessions in sorted order, then holds the
+shared workspace fence and checks the current epoch. It calls the prepared
+commit function only after that check. Domain changes, dispatch Signals, and
+the receipt commit together. A stale epoch rolls back preparation as well as
+execution. Post-commit actions run after the transaction returns.
+
 Before a recovered round dispatches calls, the Driver restores those receipts
 without validating them against the current tool definitions. A committed
 result returns to the tape; a committed wait resumes observation from its
@@ -559,8 +581,11 @@ Every `rpc_error` carries an explicit `retryable` boolean. `details_json`
 carries diagnostic facts. Domain
 validation and authorization errors default to false. If a control-plane
 handler crashes or returns an invalid result, the error also contains one
-`failure_id` that matches the control-plane log. Only a `turn_read` handler
-failure is retryable. Worker-agent operations, writes, and completion stay
+`failure_id` that matches the control-plane log. The log keeps the failure class
+and stack locations without exception messages or function arguments. Unexpected
+Ash errors return a generic message; authorization failures return access denied.
+Only reads and the idempotent Job Turn checkpoint upsert retry handler failures.
+Other Worker-agent operations, writes, and completion stay
 non-retryable because the control plane cannot prove that repeating them is
 safe. Agent Computer preserves the code, retryability, details, and failure ID
 when the error reaches Actor or Background Agent Job recovery.

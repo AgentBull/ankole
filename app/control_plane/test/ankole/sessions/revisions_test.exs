@@ -35,7 +35,7 @@ defmodule Ankole.Sessions.RevisionsTest do
       assert {:ok, revised} = Revisions.apply(run, revision)
       assert revised.epoch == run.epoch
       assert revised.event.attempt_count == run.event.attempt_count
-      assert Repo.get!(Message, model.id).status == "retracted"
+      assert Repo.get!(Message, model.id).status == :retracted
       assert {:ok, {:preparing, prepared}} = Model.prepare(revised)
       assert Ankole.JSON.encode!(prepared.input) =~ "Updated request"
       refute Ankole.JSON.encode!(prepared.input) =~ "Keep this request"
@@ -51,7 +51,7 @@ defmodule Ankole.Sessions.RevisionsTest do
       entry = Map.put(event.data["entry"], "text", "Updated request")
       revision = revision(run, event.id, @kind, entry)
       refute Revisions.immediate?(run, revision)
-      assert Repo.get!(Message, run.model_response.id).status == "complete"
+      assert Repo.get!(Message, run.model_response.id).status == :complete
       assert Repo.get!(Signal, revision.id).completed_at == nil
 
       {:ok, _} =
@@ -89,10 +89,13 @@ defmodule Ankole.Sessions.RevisionsTest do
       assert {:ok, retried} = Run.defer_retry(revised, error, now)
       assert retried.provider_capacity_attempt_count == 1
       assert DateTime.diff(retried.available_at, now) == 30
-      assert {:ok, ^retried} = Run.defer_retry(revised, error, now)
+      assert {:ok, repeated} = Run.defer_retry(revised, error, now)
+      assert_persisted_equal(repeated, retried)
 
-      assert {:ok, ^retried} =
+      assert {:ok, repeated} =
                Run.defer_retry(revised, error, DateTime.add(retried.available_at, 1))
+
+      assert_persisted_equal(repeated, retried)
     end
   end
 
@@ -129,8 +132,8 @@ defmodule Ankole.Sessions.RevisionsTest do
     assert restored.calls == []
     assert restored.anchor == journal.message.id
     assert revision.id in restored.pending_event_ids
-    assert Repo.get!(Message, model.id).status == "complete"
-    assert Repo.get!(Message, journal.message.id).status == "complete"
+    assert Repo.get!(Message, model.id).status == :complete
+    assert Repo.get!(Message, journal.message.id).status == :complete
     assert revised.event.data["entry"]["text"] == "Keep this request"
 
     assert {:ok, replacement} = Admission.admit(key, Repo.reload!(event))

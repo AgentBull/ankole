@@ -1,14 +1,14 @@
 defmodule Ankole.AgentWorkers.WorkerBootstrap do
   @moduledoc "The launch contract of one generation of one Agent's Worker."
 
-  alias Ankole.AgentWorkers.Providers.Provider
+  alias Ankole.AgentWorkers.Providers.Runtime
   alias Ankole.AgentWorkers.WorkerBootstrap.AgentWorkerSpec
 
   @builtin_skills_root "/repo/app/library"
   @internal_skills_root "/repo/internals/skills"
   @installed_skills_root "/workspace/installed-skills"
 
-  @spec agent_worker_spec(Provider.t(), String.t(), String.t(), String.t(), map() | nil) ::
+  @spec agent_worker_spec(Runtime.t(), String.t(), String.t(), String.t(), map() | nil) ::
           AgentWorkerSpec.t()
   def agent_worker_spec(provider, agent_uid, generation, token, storage_ref \\ nil) do
     %AgentWorkerSpec{

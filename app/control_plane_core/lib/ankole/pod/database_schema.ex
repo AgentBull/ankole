@@ -1,6 +1,7 @@
 defmodule Ankole.Pod.Database.Schema do
   @moduledoc false
   import Ecto.Query
+  require Ash.Query
   alias Ankole.{ActorRef, Repo}
   alias Ankole.Pod.{Access, Database, DbField, DbRecord, DbTable, DbView, Formula, Values}
   alias Ankole.Pod.Database.{Records, Write}
@@ -16,17 +17,26 @@ defmodule Ankole.Pod.Database.Schema do
         |> Map.put_new_lazy(:position, fn -> next_schema_position(DbField, id) end)
 
       with {:ok, candidate} <-
-             DbField.changeset(%DbField{}, attrs) |> Ecto.Changeset.apply_action(:insert),
+             DbField
+             |> Ankole.Ash.for_create(:create_in_tx, attrs)
+             |> Ash.Changeset.apply_attributes(),
            {:ok, candidate} <- Formula.prepare(candidate, fields(id)),
            :ok <- validate_field_config(candidate, table),
            {:ok, candidate, write} <- reverse_field(candidate, write),
            {:ok, checked} <- Formula.validate_all([candidate | fields(id)]),
            {:ok, field} <-
-             Repo.insert(
-               DbField.changeset(
-                 %DbField{},
-                 Map.from_struct(Enum.find(checked, &(&1.id == candidate.id)))
-               )
+             Ankole.Ash.create(
+               DbField,
+               :create_in_tx,
+               Map.take(Enum.find(checked, &(&1.id == candidate.id)), [
+                 :id,
+                 :table_id,
+                 :name,
+                 :position,
+                 :type,
+                 :config,
+                 :is_primary
+               ])
              ) do
         {:ok, field, write}
       end
@@ -42,8 +52,12 @@ defmodule Ankole.Pod.Database.Schema do
         with %DbField{} = field <- Enum.find(definitions, &(&1.id == id)),
              :ok <- schema_version(field, attrs),
              {:ok, candidate} <-
-               DbField.changeset(field, atom_attrs(attrs, [:name, :type, :config, :position]))
-               |> Ecto.Changeset.apply_action(:update),
+               Ankole.Ash.for_update(
+                 field,
+                 :update_definition,
+                 atom_attrs(attrs, [:name, :type, :config, :position])
+               )
+               |> Ash.Changeset.apply_attributes(),
              candidate <- carry_reverse(field, candidate),
              {:ok, candidate} <-
                prepare_changed_formula(field, candidate, definitions, attrs),
@@ -62,14 +76,10 @@ defmodule Ankole.Pod.Database.Schema do
                ),
              {:ok, candidate, write} <- transition_link(write, field, candidate),
              {:ok, saved} <-
-               Repo.update(
-                 DbField.changeset(
-                   field,
-                   Map.from_struct(%{
-                     candidate
-                     | version: field.version + 1
-                   })
-                 )
+               Ankole.Ash.update(
+                 field,
+                 :update_definition,
+                 Map.take(candidate, [:name, :position, :type, :config])
                ) do
           persist_formula_metadata(checked, id, definitions)
 
@@ -86,7 +96,7 @@ defmodule Ankole.Pod.Database.Schema do
     with {:ok, field} <- field_by_id(id) do
       schema_write(uid, field.table_id, authority, fn write ->
         table = write.table
-        field = Repo.get(DbField, id)
+        field = Ankole.Ash.read_one!(Ash.Query.filter(DbField, id == ^id))
 
         cond do
           is_nil(field) -> {:error, :not_found}
@@ -101,7 +111,7 @@ defmodule Ankole.Pod.Database.Schema do
 
   defp delete_field_in_tx(field, write) do
     with {:ok, write} <- detach_reverse(field, write),
-         {:ok, deleted} <- Repo.delete(field) do
+         {:ok, deleted} <- Ankole.Ash.destroy(field, :remove) do
       remove_field_values(field)
       {:ok, deleted, write}
     end
@@ -115,7 +125,7 @@ defmodule Ankole.Pod.Database.Schema do
         |> Map.put_new_lazy(:position, fn -> next_schema_position(DbView, id) end)
 
       with :ok <- valid_view_config(Ankole.Attrs.get(attrs, :config, %{}), fields(id)),
-           {:ok, view} <- Repo.insert(DbView.changeset(%DbView{}, attrs)),
+           {:ok, view} <- Ankole.Ash.create(DbView, :create_in_tx, attrs),
            do: {:ok, view, write}
     end)
   end
@@ -123,7 +133,7 @@ defmodule Ankole.Pod.Database.Schema do
   def update_view(uid, id, attrs, authority \\ nil) do
     with {:ok, view} <- view_by_id(id) do
       schema_write(uid, view.table_id, authority, fn write ->
-        view = Repo.get(DbView, id)
+        view = Ankole.Ash.read_one!(Ash.Query.filter(DbView, id == ^id))
 
         with %DbView{} <- view,
              :ok <- schema_version(view, attrs),
@@ -133,12 +143,10 @@ defmodule Ankole.Pod.Database.Schema do
                  fields(view.table_id)
                ) do
           with {:ok, saved} <-
-                 Repo.update(
-                   DbView.changeset(
-                     view,
-                     atom_attrs(attrs, [:name, :type, :config, :position])
-                     |> Map.put(:version, view.version + 1)
-                   )
+                 Ankole.Ash.update(
+                   view,
+                   :update_definition,
+                   atom_attrs(attrs, [:name, :type, :config, :position])
                  ),
                do: {:ok, saved, write}
         else
@@ -152,14 +160,14 @@ defmodule Ankole.Pod.Database.Schema do
   def delete_view(uid, id, version, authority \\ nil) do
     with {:ok, view} <- view_by_id(id) do
       schema_write(uid, view.table_id, authority, fn write ->
-        view = Repo.get(DbView, id)
+        view = Ankole.Ash.read_one!(Ash.Query.filter(DbView, id == ^id))
 
         cond do
           is_nil(view) ->
             {:error, :not_found}
 
           view.version == version ->
-            with({:ok, deleted} <- Repo.delete(view), do: {:ok, deleted, write})
+            with({:ok, deleted} <- Ankole.Ash.destroy(view, :remove), do: {:ok, deleted, write})
 
           true ->
             {:error, {:schema_conflict, view}}
@@ -175,7 +183,7 @@ defmodule Ankole.Pod.Database.Schema do
              &(not Map.has_key?(field.config, &1) or is_boolean(field.config[&1]))
            ),
          {:ok, target_id} <- Ecto.UUID.cast(field.config["table_id"]),
-         %{page_id: page_id} <- Repo.get(DbTable, target_id),
+         %{page_id: page_id} <- Ankole.Ash.read_one!(Ash.Query.filter(DbTable, id == ^target_id)),
          true <- page_id == table.page_id,
          :ok <- validate_reverse(field, table) do
       :ok
@@ -201,7 +209,8 @@ defmodule Ankole.Pod.Database.Schema do
 
   defp validate_reverse(%{config: %{"reverse_field_id" => reverse_id}} = field, table) do
     with {:ok, reverse_id} <- Ecto.UUID.cast(reverse_id),
-         %DbField{type: :link} = reverse <- Repo.get(DbField, reverse_id),
+         %DbField{type: :link} = reverse <-
+           Ankole.Ash.read_one!(Ash.Query.filter(DbField, id == ^reverse_id)),
          true <-
            reverse.table_id == field.config["table_id"] and reverse.config["table_id"] == table.id and
              reverse.config["reverse_field_id"] == field.id,
@@ -239,7 +248,7 @@ defmodule Ankole.Pod.Database.Schema do
       }
     }
 
-    with {:ok, _} <- Repo.insert(DbField.changeset(%DbField{}, attrs)) do
+    with {:ok, _} <- Ankole.Ash.create(DbField, :create_in_tx, attrs) do
       {:ok, %{field | config: Map.put(field.config, "reverse_field_id", reverse_id)},
        Write.touch(write, target_id)}
     end
@@ -313,18 +322,15 @@ defmodule Ankole.Pod.Database.Schema do
   defp populate_reverse(write, candidate), do: {:ok, candidate, write}
 
   defp detach_reverse(%{type: :link, config: %{"reverse_field_id" => id}}, write) do
-    case Repo.get(DbField, id) do
+    case Ankole.Ash.read_one!(Ash.Query.filter(DbField, id == ^id)) do
       nil ->
         {:ok, write}
 
       reverse ->
         with {:ok, _} <-
-               Repo.update(
-                 DbField.changeset(reverse, %{
-                   config: Map.drop(reverse.config, ["reverse_field_id", "bidirectional"]),
-                   version: reverse.version + 1
-                 })
-               ) do
+               Ankole.Ash.update(reverse, :update_definition, %{
+                 config: Map.drop(reverse.config, ["reverse_field_id", "bidirectional"])
+               }) do
           {:ok, Write.touch(write, reverse.table_id)}
         end
     end
@@ -490,9 +496,9 @@ defmodule Ankole.Pod.Database.Schema do
       before = Map.fetch!(previous, field.id)
 
       if before.config != field.config do
-        Repo.update!(
-          DbField.changeset(before, %{config: field.config, version: before.version + 1})
-        )
+        before
+        |> Ankole.Ash.for_update(:update_definition, %{config: field.config})
+        |> Ash.update!(authorize?: false)
       end
     end)
   end
@@ -561,19 +567,13 @@ defmodule Ankole.Pod.Database.Schema do
 
   defp fetch_schema(schema, id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         item when not is_nil(item) <- Repo.get(schema, id),
+         item when not is_nil(item) <- Ankole.Ash.read_one!(Ash.Query.filter(schema, id == ^id)),
          do: {:ok, item},
          else: (_ -> {:error, :not_found})
   end
 
   defp next_schema_position(schema, table_id) do
-    (Repo.one(
-       from item in schema,
-         where: item.table_id == ^table_id,
-         order_by: [desc: item.position],
-         limit: 1,
-         select: item.position
-     ) || "") <> "U"
+    (schema |> Ash.Query.filter(table_id == ^table_id) |> Ankole.Ash.max!(:position) || "") <> "U"
   end
 
   defp atom_attrs(attrs, keys),

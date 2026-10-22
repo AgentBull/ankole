@@ -1,23 +1,84 @@
 defmodule Ankole.Brain.Schemas.SchemaType do
-  @moduledoc """
-  One registered type of the instance ontology. `brain_objects.type` writes
-  validate against these rows, not against pack seed files.
-  """
+  @moduledoc "A registered object type with additive subtype vocabulary."
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
 
-  use Ankole.Schema, tenancy: :tenant
+  postgres do
+    table("brain_schema_types")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:pack_name, "brain_schema_types_pack_name_fkey"}])
 
-  alias Ankole.Brain.Ecto.StringList
+    identity_index_names(
+      name: "brain_schema_types_name_key",
+      prefix: "brain_schema_types_prefix_key"
+    )
 
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-
-  schema "brain_schema_types" do
-    field :name, :string
-    field :primitive, :string
-    field :slug_prefix, :string
-    field :subtypes, StringList, default: []
-    field :extractable, :boolean, default: false
-    field :expert_routing, :boolean, default: false
-    field :pack_name, :string
-    field :created_at, :utc_datetime_usec
+    check_constraints do
+      check_constraint(:primitive, "brain_schema_types_primitive_allowed")
+      check_constraint(:subtypes, "brain_schema_types_subtypes_strings")
+    end
   end
+
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+    )
+
+    attribute(:name, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:primitive, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:slug_prefix, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:subtypes, Ankole.Ash.Types.StringList, allow_nil?: false, default: [])
+    attribute(:extractable, :boolean, allow_nil?: false, default: false)
+    attribute(:expert_routing, :boolean, allow_nil?: false, default: false)
+    attribute(:pack_name, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:created_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
+  end
+
+  identities do
+    identity(:name, [:name])
+    identity(:prefix, [:slug_prefix])
+  end
+
+  actions do
+    defaults([:read])
+
+    create :register do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+
+      accept([
+        :id,
+        :name,
+        :primitive,
+        :slug_prefix,
+        :subtypes,
+        :extractable,
+        :expert_routing,
+        :pack_name,
+        :created_at
+      ])
+    end
+
+    atomic_in_tx_update :add_subtypes do
+      accept([])
+      argument(:subtypes, Ankole.Ash.Types.StringList, allow_nil?: false)
+
+      change(
+        atomic_update(
+          :subtypes,
+          expr(
+            fragment(
+              "(SELECT COALESCE(jsonb_agg(value ORDER BY first_position),'[]'::jsonb) FROM (SELECT value,min(position) AS first_position FROM jsonb_array_elements(? || to_jsonb(?::text[])) WITH ORDINALITY AS items(value,position) GROUP BY value) unique_items)",
+              subtypes,
+              ^arg(:subtypes)
+            )
+          )
+        )
+      )
+    end
+  end
+
+  @type t :: %__MODULE__{}
 end

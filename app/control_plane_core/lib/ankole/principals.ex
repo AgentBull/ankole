@@ -3,10 +3,8 @@ defmodule Ankole.Principals do
   Principal identity boundary for humans, agents, and external subject bindings.
   """
 
-  alias Ecto.Adapters.SQL
   import Ecto.Query, warn: false
 
-  alias Ecto.Changeset
   alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
@@ -244,7 +242,7 @@ defmodule Ankole.Principals do
            :ok <- ensure_principal_type(principal, :agent),
            conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(repo, principal.uid),
            {:ok, principal} <-
-             principal |> Principal.status_changeset(%{status: :active}) |> repo.update() do
+             Ankole.Ash.update(principal, :enable_in_tx, %{}) do
         {:ok, {principal, conversation_ids}}
       end
     end)
@@ -275,9 +273,7 @@ defmodule Ankole.Principals do
   defp change_agent_status_in_tx(repo, principal) do
     case principal.status do
       :active ->
-        principal
-        |> Principal.status_changeset(%{status: :disabled})
-        |> repo.update()
+        Ankole.Ash.update(principal, :disable_in_tx, %{})
 
       :disabled ->
         :ok = Ankole.Conversations.delete_for_agent_in_tx(repo, principal.uid)
@@ -293,7 +289,7 @@ defmodule Ankole.Principals do
             principal.uid
           )
 
-        repo.delete(principal)
+        Ankole.Ash.destroy(principal, :delete_in_tx)
     end
   end
 
@@ -385,9 +381,9 @@ defmodule Ankole.Principals do
   @spec bind_external_identity(module(), map()) ::
           {:ok, ExternalIdentity.t()} | {:error, term()}
   def bind_external_identity(repo, attrs) when is_map(attrs) do
-    changeset = ExternalIdentity.changeset(%ExternalIdentity{}, attrs)
+    changeset = Ankole.Ash.for_create(ExternalIdentity, :bind_in_tx, attrs)
 
-    with {:ok, normalized} <- Changeset.apply_action(changeset, :validate) do
+    with {:ok, normalized} <- Ash.Changeset.apply_attributes(changeset) do
       case repo.get_by(ExternalIdentity,
              provider: normalized.provider,
              external_id: normalized.external_id
@@ -400,7 +396,7 @@ defmodule Ankole.Principals do
           {:error, :platform_subject_already_bound}
 
         nil ->
-          repo.insert(changeset)
+          Ankole.Ash.create(ExternalIdentity, :bind_in_tx, attrs)
       end
     end
   end
@@ -537,9 +533,7 @@ defmodule Ankole.Principals do
   # invariant so holder attribution and recall never miss a subject page.
   defp insert_principal(repo, attrs) do
     with {:ok, principal} <-
-           %Principal{}
-           |> Principal.changeset(attrs)
-           |> repo.insert(),
+           Ankole.Ash.create(Principal, :create_in_tx, attrs),
          :ok <- ensure_canonical_brain_object(repo, principal) do
       {:ok, principal}
     end
@@ -557,26 +551,22 @@ defmodule Ankole.Principals do
 
   defp ensure_canonical_brain_object(_repo, %Principal{}), do: :ok
 
-  defp insert_human_user(repo, principal_uid, attrs) do
+  defp insert_human_user(_repo, principal_uid, attrs) do
     attrs = Map.put(attrs, :principal_uid, principal_uid)
 
-    %HumanUser{}
-    |> HumanUser.changeset(attrs)
-    |> repo.insert()
+    Ankole.Ash.create(HumanUser, :create_in_tx, attrs)
   end
 
-  defp insert_agent(repo, principal_uid, attrs) do
+  defp insert_agent(_repo, principal_uid, attrs) do
     attrs = Map.put(attrs, :uid, principal_uid)
 
-    %Agent{}
-    |> Agent.changeset(attrs)
-    |> repo.insert()
+    Ankole.Ash.create(Agent, :create_in_tx, attrs)
   end
 
   # The Brain owner read exemption chains through this field: an Agent or
   # system Principal as owner would extend private-scope reachability in a
   # way no contract describes, so the owner must be a human. Blank values
-  # fall through to the changeset's required validation.
+  # fall through to the resource's required validation.
   defp validate_agent_owner(repo, attrs) do
     case Map.get(attrs, :owner_principal_uid) do
       owner_uid when is_binary(owner_uid) and owner_uid != "" ->
@@ -599,9 +589,7 @@ defmodule Ankole.Principals do
     case repo.one(from(agent in Agent, where: agent.uid == ^uid, lock: "FOR UPDATE")) do
       %Agent{} = agent ->
         with {:ok, attrs} <- keep_owned_agent_options(agent, attrs) do
-          agent
-          |> Agent.changeset(attrs)
-          |> repo.update()
+          Ankole.Ash.update(agent, :profile_in_tx, attrs)
         end
 
       nil ->
@@ -609,7 +597,7 @@ defmodule Ankole.Principals do
     end
   end
 
-  defp update_principal_profile(repo, principal, attrs) do
+  defp update_principal_profile(_repo, principal, attrs) do
     profile_attrs = take_attrs(attrs, @principal_profile_fields)
 
     case map_size(profile_attrs) do
@@ -617,9 +605,7 @@ defmodule Ankole.Principals do
         {:ok, principal}
 
       _count ->
-        principal
-        |> Principal.profile_changeset(profile_attrs)
-        |> repo.update()
+        Ankole.Ash.update(principal, :profile_in_tx, profile_attrs)
     end
   end
 
@@ -662,9 +648,7 @@ defmodule Ankole.Principals do
   defp upsert_human_user(repo, principal_uid, attrs) do
     case repo.get(HumanUser, principal_uid) do
       %HumanUser{} = human_user ->
-        human_user
-        |> HumanUser.changeset(attrs)
-        |> repo.update()
+        Ankole.Ash.update(human_user, :profile_in_tx, attrs)
 
       nil ->
         insert_human_user(repo, principal_uid, attrs)
@@ -707,24 +691,22 @@ defmodule Ankole.Principals do
   end
 
   defp upsert_external_identity(repo, attrs) do
-    changeset = ExternalIdentity.changeset(%ExternalIdentity{}, attrs)
+    changeset = Ankole.Ash.for_create(ExternalIdentity, :bind_in_tx, attrs)
 
-    with {:ok, normalized} <- Changeset.apply_action(changeset, :validate) do
+    with {:ok, normalized} <- Ash.Changeset.apply_attributes(changeset) do
       case repo.get_by(ExternalIdentity,
              provider: normalized.provider,
              external_id: normalized.external_id
            ) do
         %ExternalIdentity{principal_uid: principal_uid} = identity
         when principal_uid == normalized.principal_uid ->
-          identity
-          |> ExternalIdentity.changeset(%{metadata: normalized.metadata})
-          |> repo.update()
+          Ankole.Ash.update(identity, :observe_in_tx, %{metadata: normalized.metadata})
 
         %ExternalIdentity{} ->
           {:error, :platform_subject_already_bound}
 
         nil ->
-          repo.insert(changeset)
+          Ankole.Ash.create(ExternalIdentity, :bind_in_tx, attrs)
       end
     end
   end
@@ -732,9 +714,11 @@ defmodule Ankole.Principals do
   defp fetch_principal_for_update(repo, uid) do
     with {:ok, normalized_uid} <- normalize_uid(uid) do
       case repo.one(
-             from principal in Principal,
+             from(principal in Principal,
                where: principal.uid == ^normalized_uid,
                lock: "FOR UPDATE"
+             ),
+             lock_identity: {"principals", normalized_uid}
            ) do
         %Principal{} = principal -> {:ok, principal}
         nil -> {:error, :not_found}
@@ -749,13 +733,13 @@ defmodule Ankole.Principals do
   defp human_principal_attrs(attrs, uid \\ NativeKernel.gen_uuid_v7()) do
     attrs
     |> take_attrs(@principal_profile_fields)
-    |> Map.merge(%{uid: uid, type: :human, status: :active})
+    |> Map.merge(%{uid: uid, type: :human})
   end
 
   defp agent_principal_attrs(attrs) do
     attrs
     |> take_attrs([:uid | @principal_profile_fields])
-    |> Map.merge(%{type: :agent, status: :active})
+    |> Map.merge(%{type: :agent})
   end
 
   defp agent_with_principal_query(uid) do
@@ -805,12 +789,18 @@ defmodule Ankole.Principals do
   end
 
   defp delete_pending_mapping_requests(repo, provider, external_ids) do
-    repo.delete_all(
-      from request in MappingRequest,
-        where: request.provider == ^provider and request.external_id in ^external_ids
-    )
+    requests =
+      repo.all(
+        from request in MappingRequest,
+          where: request.provider == ^provider and request.external_id in ^external_ids
+      )
 
-    :ok
+    Enum.reduce_while(requests, :ok, fn request, :ok ->
+      case Ankole.Ash.destroy(request, :delete_in_tx) do
+        {:ok, _} -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp maybe_lock_human_contact(_repo, _prefix, nil), do: :ok
@@ -820,7 +810,7 @@ defmodule Ankole.Principals do
   end
 
   defp advisory_xact_lock(repo, lock_key) do
-    case SQL.query(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [lock_key]) do
+    case Ankole.AdvisoryLock.lock(repo, lock_key) do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, reason}
     end
@@ -983,8 +973,8 @@ defmodule Ankole.Principals do
     )
   end
 
-  # Mirrors the HumanUser changeset normalization; a value the kernel cannot
-  # normalize is left for the changeset to reject as today.
+  # Uses the HumanUser phone codec; a value the kernel cannot
+  # normalize is left for the resource to reject.
   defp normalized_contact_mobile(value) when is_binary(value) do
     case NativeKernel.phone_normalize_e164(value) do
       normalized when is_binary(normalized) -> normalized

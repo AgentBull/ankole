@@ -8,133 +8,156 @@ defmodule Ankole.Conversations.InboundBatch do
   has one nullable direct reply target so unrelated references never merge.
   """
 
-  use Ankole.Schema, tenancy: :tenant
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Conversations.Domain,
+    extensions: [AshStateMachine]
 
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
+  postgres do
+    table("conversation_inbound_batches")
+    repo(Ankole.Repo)
+    migrate?(false)
 
-  alias Ankole.Principals.Principal
-  alias Ankole.Conversations.Conversation
-  alias Ankole.Types.JSONValue
-
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
-  @states ~w(open finalized canceled)
-  @modes ~w(neutral addressed)
-  @policies ~w(ignore record_only may_intervene)
-
-  schema "conversation_inbound_batches" do
-    belongs_to :agent, Principal,
-      foreign_key: :agent_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
-
-    field :binding_name, :string
-    field :session_id, :string
-
-    belongs_to :conversation, Conversation,
-      foreign_key: :conversation_id,
-      references: :id,
-      type: Ecto.UUID
-
-    field :provider_thread_id, :string, default: ""
-    field :reply_to_provider_message_id, :string
-    field :batch_state, :string, default: "open"
-    field :mode, :string, default: "neutral"
-    field :policy, :string
-    field :requester_sender_key, :string
-    field :entries, JSONValue, default: []
-    field :available_at, :utc_datetime_usec
-    field :batch_revision, :integer, default: 0
-
-    timestamps()
-  end
-
-  @doc """
-  Builds a changeset for inbound batch rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(batch, attrs) do
-    batch
-    |> cast(attrs, [
-      :agent_uid,
-      :binding_name,
-      :session_id,
-      :conversation_id,
-      :provider_thread_id,
-      :reply_to_provider_message_id,
-      :batch_state,
-      :mode,
-      :policy,
-      :requester_sender_key,
-      :entries,
-      :available_at,
-      :batch_revision
+    foreign_key_names([
+      {:agent_uid, "conversation_inbound_batches_agent_uid_fkey"},
+      {:conversation_id, "conversation_inbound_batches_conversation_id_fkey"}
     ])
-    |> normalize_blank([
-      :agent_uid,
-      :binding_name,
-      :session_id,
-      :conversation_id,
-      :reply_to_provider_message_id,
-      :batch_state,
-      :mode,
-      :policy,
-      :requester_sender_key
+
+    unique_index_names([
+      {[:agent_uid, :binding_name, :conversation_id, :provider_thread_id],
+       "conversation_inbound_batches_open_index"}
     ])
-    |> normalize_thread_key()
-    |> validate_required([
-      :agent_uid,
-      :binding_name,
-      :session_id,
-      :conversation_id,
-      :batch_state,
-      :mode,
-      :policy,
-      :entries,
-      :available_at,
-      :batch_revision
-    ])
-    |> validate_inclusion(:batch_state, @states)
-    |> validate_inclusion(:mode, @modes)
-    |> validate_inclusion(:policy, @policies)
-    |> validate_number(:batch_revision, greater_than_or_equal_to: 0)
-    |> validate_entries()
-    |> foreign_key_constraint(:agent_uid)
-    |> foreign_key_constraint(:conversation_id)
-    |> unique_constraint([:agent_uid, :binding_name, :conversation_id, :provider_thread_id],
-      name: :conversation_inbound_batches_open_index
-    )
-    |> check_constraint(:entries, name: :inbound_batches_entries_array)
-    |> check_constraint(:batch_state, name: :inbound_batches_state_check)
-    |> check_constraint(:mode, name: :inbound_batches_mode_check)
-    |> check_constraint(:policy, name: :inbound_batches_policy_check)
-  end
 
-  defp validate_entries(changeset) do
-    validate_change(changeset, :entries, fn
-      :entries, entries when is_list(entries) -> []
-      :entries, _value -> [entries: "must be a JSON array"]
-    end)
-  end
-
-  defp normalize_thread_key(changeset) do
-    put_change(
-      changeset,
-      :provider_thread_id,
-      thread_key(get_field(changeset, :provider_thread_id))
-    )
-  end
-
-  defp thread_key(nil), do: ""
-
-  defp thread_key(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> ""
-      trimmed -> trimmed
+    check_constraints do
+      check_constraint(:entries, "inbound_batches_entries_array")
+      check_constraint(:batch_state, "inbound_batches_state_check")
+      check_constraint(:mode, "inbound_batches_mode_check")
+      check_constraint(:policy, "inbound_batches_policy_check")
+      check_constraint(:batch_revision, "inbound_batches_revision_non_negative")
     end
   end
 
-  defp thread_key(_value), do: ""
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Kernel.gen_uuid_v7/0
+    )
+
+    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false, public?: true)
+    attribute(:binding_name, :string, allow_nil?: false, public?: true)
+    attribute(:session_id, :string, allow_nil?: false, public?: true)
+    attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false, public?: true)
+
+    attribute(:provider_thread_id, :string,
+      default: "",
+      allow_nil?: false,
+      constraints: [allow_empty?: true],
+      public?: true
+    )
+
+    attribute(:reply_to_provider_message_id, :string, public?: true)
+
+    attribute(:batch_state, :atom,
+      default: :open,
+      allow_nil?: false,
+      constraints: [one_of: [:open, :finalized, :canceled]]
+    )
+
+    attribute(:mode, :atom,
+      default: :neutral,
+      allow_nil?: false,
+      constraints: [one_of: [:neutral, :addressed]],
+      public?: true
+    )
+
+    attribute(:policy, :atom,
+      allow_nil?: false,
+      constraints: [one_of: [:ignore, :record_only, :may_intervene]],
+      public?: true
+    )
+
+    attribute(:requester_sender_key, :string, public?: true)
+    attribute(:entries, Ankole.Ash.Types.JSONValue, default: [], allow_nil?: false, public?: true)
+    attribute(:available_at, :utc_datetime_usec, allow_nil?: false, public?: true)
+    attribute(:batch_revision, :integer, default: 0, allow_nil?: false, constraints: [min: 0])
+    timestamps(type: :utc_datetime_usec)
+  end
+
+  validations do
+    validate(fn changeset, _context ->
+      if is_list(Ash.Changeset.get_attribute(changeset, :entries)),
+        do: :ok,
+        else: {:error, field: :entries, message: "must be a JSON array"}
+    end)
+  end
+
+  changes do
+    change(filter(expr(batch_state == :open)), on: [:update])
+  end
+
+  state_machine do
+    state_attribute(:batch_state)
+    initial_states([:open])
+    default_initial_state(:open)
+
+    transitions do
+      transition(:finalize, from: :open, to: :finalized)
+      transition(:cancel, from: :open, to: :canceled)
+    end
+  end
+
+  actions do
+    defaults([:read])
+
+    create :open do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+
+      accept([
+        :agent_uid,
+        :binding_name,
+        :session_id,
+        :conversation_id,
+        :provider_thread_id,
+        :reply_to_provider_message_id,
+        :mode,
+        :policy,
+        :requester_sender_key,
+        :entries,
+        :available_at
+      ])
+    end
+
+    in_tx_update :replace_prefix do
+      accept([:entries])
+      validate(attribute_equals(:batch_state, :open))
+    end
+
+    in_tx_update :revise do
+      accept([
+        :entries,
+        :mode,
+        :policy,
+        :reply_to_provider_message_id,
+        :requester_sender_key,
+        :available_at
+      ])
+
+      validate(attribute_equals(:batch_state, :open))
+      change(atomic_update(:batch_revision, expr(batch_revision + 1)))
+    end
+
+    in_tx_update :finalize do
+      accept([])
+      change(transition_state(:finalized))
+      change(atomic_update(:batch_revision, expr(batch_revision + 1)))
+    end
+
+    in_tx_update :cancel do
+      accept([:entries])
+      change(transition_state(:canceled))
+      change(atomic_update(:batch_revision, expr(batch_revision + 1)))
+    end
+  end
 end

@@ -699,27 +699,14 @@ defmodule Ankole.Conversations.Observe do
     end
   end
 
-  defp upsert_tombstone(repo, fact, now) do
+  defp upsert_tombstone(_repo, fact, now) do
     attrs = %{
       conversation_id: fact.conversation_id,
       provider_message_id: fact.provider_message_id,
       tombstoned_until: DateTime.add(now, @tombstone_ttl_seconds, :second)
     }
 
-    case repo.get_by(InputTombstone,
-           conversation_id: fact.conversation_id,
-           provider_message_id: fact.provider_message_id
-         ) do
-      %InputTombstone{} = tombstone ->
-        tombstone
-        |> InputTombstone.changeset(attrs)
-        |> repo.update()
-
-      nil ->
-        %InputTombstone{}
-        |> InputTombstone.changeset(attrs)
-        |> repo.insert()
-    end
+    Ankole.Ash.create(InputTombstone, :record, attrs)
   end
 
   def active_tombstone?(repo, fact, now) do
@@ -745,7 +732,7 @@ defmodule Ankole.Conversations.Observe do
         "|"
       )
 
-    Ecto.Adapters.SQL.query!(repo, "SELECT pg_advisory_xact_lock(hashtext($1))", [key])
+    Ankole.AdvisoryLock.lock!(repo, key)
     :ok
   end
 

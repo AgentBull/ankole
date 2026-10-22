@@ -15,7 +15,6 @@ defmodule AnkoleWeb.OIDCControllerTest do
   @origin "https://spa.example.test"
 
   setup do
-    allow_cache_database_access()
     Ankole.AppConfigure.Registry.clear_for_test()
     Ankole.AppConfigure.Cache.clear_for_test()
     {:ok, _} = Ankole.IdentityProviders.save_provider("local", "local", %{}, true)
@@ -32,6 +31,35 @@ defmodule AnkoleWeb.OIDCControllerTest do
     after
       :ok = :sys.resume(SigningKey)
     end
+  end
+
+  test "Attesto preserves the deployed RSA key identity and public JWK" do
+    assert {:ok, key} = SigningKey.get()
+    [entry] = :public_key.pem_decode(key.private_key_pem)
+
+    {:RSAPrivateKey, _, modulus, exponent, _, _, _, _, _, _, _} =
+      :public_key.pem_entry_decode(entry)
+
+    n = modulus |> :binary.encode_unsigned() |> Base.url_encode64(padding: false)
+    e = exponent |> :binary.encode_unsigned() |> Base.url_encode64(padding: false)
+
+    old_kid =
+      :crypto.hash(:sha256, ~s({"e":"#{e}","kty":"RSA","n":"#{n}"}))
+      |> Base.url_encode64(padding: false)
+
+    assert key.kid == old_kid
+
+    assert key.public_jwk == %{
+             "alg" => "RS256",
+             "e" => e,
+             "kid" => old_kid,
+             "kty" => "RSA",
+             "n" => n,
+             "use" => "sig"
+           }
+
+    assert %{"keys" => [jwk]} = Attesto.JWKS.from_config(OIDC.attesto_config())
+    assert jwk == key.public_jwk
   end
 
   test "discovery and JWKS publish the one RS256 installation key", %{conn: conn} do
@@ -160,7 +188,98 @@ defmodule AnkoleWeb.OIDCControllerTest do
         "refresh_token" => refresh_token
       })
 
-    assert %{"error" => "invalid_grant"} = json_response(replay, 400)
+    retried = json_response(replay, 200)
+    assert retried["refresh_token"] == refreshed["refresh_token"]
+
+    advanced =
+      conn
+      |> recycle()
+      |> post("/oauth/token", %{
+        "grant_type" => "refresh_token",
+        "client_id" => client.id,
+        "refresh_token" => refreshed["refresh_token"]
+      })
+      |> json_response(200)
+
+    reuse =
+      conn
+      |> recycle()
+      |> post("/oauth/token", %{
+        "grant_type" => "refresh_token",
+        "client_id" => client.id,
+        "refresh_token" => refresh_token
+      })
+
+    assert %{"error" => "invalid_grant"} = json_response(reuse, 400)
+
+    assert {:error, _} =
+             Tokens.verify_access(advanced["access_token"], Tokens.userinfo_audience())
+  end
+
+  test "authorization errors use only a trusted redirect and consent ignores unimplemented claims",
+       %{conn: conn} do
+    human = human_fixture()
+    client = create_client!(%{})
+    session = oauth_session_conn(conn, human.principal.uid)
+    request = authorization_request(client.id, "openid")
+    session = get(session, "/oauth/authorize", request)
+    assert is_binary(redirect_query(session)["code"])
+
+    for {parameter, expected} <- [
+          {"request", "request_not_supported"},
+          {"request_uri", "request_uri_not_supported"}
+        ] do
+      params = Map.put(request, parameter, "unsupported")
+
+      direct =
+        get(
+          recycle(session),
+          "/oauth/authorize",
+          Map.put(params, "redirect_uri", "https://unregistered.example/callback")
+        )
+
+      assert %{"error" => "invalid_request"} = json_response(direct, 400)
+      assert get_resp_header(direct, "location") == []
+      redirected = get(recycle(session), "/oauth/authorize", params)
+      assert redirect_query(redirected)["error"] == expected
+    end
+
+    result =
+      get(
+        recycle(session),
+        "/oauth/authorize",
+        request
+        |> Map.put("prompt", "consent")
+        |> Map.put("claims", ~s({"id_token":{"unknown":{"essential":true}},"other":{"x":true}}))
+      )
+
+    assert is_binary(redirect_query(result)["code"]), inspect(redirect_query(result))
+    refute Map.has_key?(redirect_query(result), "error")
+  end
+
+  test "UserInfo accepts case insensitive Bearer and POST form tokens", %{conn: conn} do
+    human = human_fixture()
+    client = create_client!(%{})
+
+    {:ok, access} =
+      Ankole.OIDCFixtures.access_token(human.principal.uid, client.id, "openid profile email")
+
+    bearer =
+      conn
+      |> recycle()
+      |> put_req_header("authorization", "bEaReR " <> access.token)
+      |> get("/oauth/userinfo")
+      |> json_response(200)
+
+    form =
+      conn
+      |> recycle()
+      |> post("/oauth/userinfo", %{"access_token" => access.token})
+      |> json_response(200)
+
+    assert bearer == form
+    assert bearer["sub"] == human.principal.uid
+    assert bearer["email"] == human.human_user.email
   end
 
   test "authorization requires an exact redirect URI, openid, and PKCE S256", %{conn: conn} do
@@ -216,7 +335,9 @@ defmodule AnkoleWeb.OIDCControllerTest do
     refute Map.has_key?(invalid_state_query, "state")
   end
 
-  test "authorization code is single-use and a wrong verifier does not consume it", %{conn: conn} do
+  test "authorization code presentation is single-use even when PKCE validation fails", %{
+    conn: conn
+  } do
     human = human_fixture(%{uid: unique_uid("oidc-code")})
     client = create_client!(%{name: "Code replay", type: "public"})
     verifier = pkce_verifier()
@@ -246,9 +367,22 @@ defmodule AnkoleWeb.OIDCControllerTest do
         "code_verifier" => "short"
       })
 
-    assert %{"error" => "invalid_request"} = json_response(malformed, 400)
+    assert %{"error" => "invalid_grant"} = json_response(malformed, 400)
 
-    first = exchange_public_code(conn, client.id, code, verifier)
+    spent =
+      conn
+      |> recycle()
+      |> post("/oauth/token", %{
+        "grant_type" => "authorization_code",
+        "client_id" => client.id,
+        "redirect_uri" => @redirect_uri,
+        "code" => code,
+        "code_verifier" => verifier
+      })
+
+    assert %{"error" => "invalid_grant"} = json_response(spent, 400)
+    fresh_code = authorize_code!(conn, human.principal.uid, client.id, verifier, "openid")
+    first = exchange_public_code(conn, client.id, fresh_code, verifier)
     refute Map.has_key?(first, "refresh_token")
 
     replay =
@@ -258,7 +392,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
         "grant_type" => "authorization_code",
         "client_id" => client.id,
         "redirect_uri" => @redirect_uri,
-        "code" => code,
+        "code" => fresh_code,
         "code_verifier" => verifier
       })
 
@@ -462,7 +596,8 @@ defmodule AnkoleWeb.OIDCControllerTest do
       assert String.starts_with?(redirected_to(result), "/sessions/new?")
       flow = URI.decode_query(URI.parse(redirected_to(result)).query)["flow"]
       {:ok, transaction} = WebSession.login_transaction(result, flow)
-      assert Map.take(transaction.request, Map.keys(params)) == params
+      if Map.has_key?(params, "prompt"), do: assert(transaction.request["prompt"] == ["login"])
+      if Map.has_key?(params, "max_age"), do: assert(transaction.request["max_age"] == 0)
     end
 
     result =
@@ -997,7 +1132,6 @@ defmodule AnkoleWeb.OIDCControllerTest do
     for prompt <- [
           "none select_account",
           "none login",
-          "consent",
           "select_account select_account"
         ] do
       response =
@@ -1013,9 +1147,10 @@ defmodule AnkoleWeb.OIDCControllerTest do
 
   for type <- ["public", "confidential"] do
     @client_type type
-    test "#{type} token errors preserve the code and distinguish credentials from the grant", %{
-      conn: conn
-    } do
+    test "#{type} token errors consume presented grants and distinguish Client authentication failures",
+         %{
+           conn: conn
+         } do
       human = human_fixture(%{uid: unique_uid("token-errors")})
 
       {:ok, %{client: client, client_secret: secret}} =
@@ -1044,6 +1179,8 @@ defmodule AnkoleWeb.OIDCControllerTest do
             %{"redirect_uri" => @redirect_uri <> "/second"},
             %{"redirect_uri" => "https://unregistered.example/callback"}
           ] do
+        code = authorize_code!(conn, human.principal.uid, client.id, verifier, "openid")
+        attempt = Map.put(params, "code", code)
         request = recycle(conn)
 
         request =
@@ -1051,9 +1188,20 @@ defmodule AnkoleWeb.OIDCControllerTest do
             do: put_req_header(request, "authorization", basic(client.id, secret)),
             else: request
 
-        response = post(request, "/oauth/token", Map.merge(params, changed)) |> json_response(400)
+        response =
+          post(request, "/oauth/token", Map.merge(attempt, changed)) |> json_response(400)
+
         assert response["error"] == "invalid_grant"
         refute Map.has_key?(response, "access_token")
+        retry_request = recycle(conn)
+
+        retry_request =
+          if secret,
+            do: put_req_header(retry_request, "authorization", basic(client.id, secret)),
+            else: retry_request
+
+        assert %{"error" => "invalid_grant"} =
+                 retry_request |> post("/oauth/token", attempt) |> json_response(400)
       end
 
       if secret do

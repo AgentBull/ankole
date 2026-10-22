@@ -1,59 +1,34 @@
 defmodule Ankole.Sessions.Driver do
   @moduledoc """
-  Serializes one Session across control-plane nodes.
+  Serializes one Session across control-plane nodes and executes Turn commands.
 
   The global name selects the common-path writer. The workspace epoch rejects
   a writer that survives a partition. Tasks never contain recovery truth.
   """
   @behaviour :gen_statem
-  require Logger
 
   defmodule State do
     @moduledoc false
-    @enforce_keys [:key]
+    @enforce_keys [:turn]
     defstruct [
-      :key,
-      :run,
-      :event,
+      :turn,
       :stream,
       :phase,
       :activity_conversation_id,
       activity_revision: 0,
       activity_state: "active",
       tasks: %{},
-      pending: %{},
-      early_stream: [],
-      observing?: false,
-      acquisition: :idle
+      tool_spans: %{},
+      early_stream: []
     ]
-
-    @type t :: %__MODULE__{}
   end
 
-  alias Ankole.AIGateway
-  alias Ankole.Observability
-
-  alias Ankole.Sessions.Activity
-  alias Ankole.Sessions.Admission
-  alias Ankole.Sessions.Commands
-  alias Ankole.Sessions.Machine
-  alias Ankole.Sessions.Model
-  alias Ankole.Sessions.Presentation
-  alias Ankole.Sessions.Run
-  alias Ankole.Sessions.Revisions
-  alias Ankole.Sessions.ToolRound
-  alias Ankole.Sessions.ToolResult
-  alias Ankole.Sessions.Tools
-  alias Ankole.Sessions.Worker
-  alias Ankole.Sessions.WorkerAcquisition
-  alias Ankole.Sessions.PendingCall
-
+  alias Ankole.{AIGateway, AgentWorkers, Observability, Repo}
+  alias Ankole.Sessions.{Activity, Admission, Commands, Model, Presentation, Run, Turn, Worker}
+  alias Ankole.Sessions.{Queue, Revisions, ToolResult, Tools}
+  alias Ankole.Sessions.Driver.Tasks
   alias Ankole.Signals.Signal
-  alias Ankole.AgentWorkers
-  alias Ankole.Repo
 
-  @idle_ms :timer.minutes(5)
-  @poll_ms 1_000
   @spec child_spec({map(), String.t()}) :: Supervisor.child_spec()
   def child_spec({key, _tenant_id} = args),
     do: %{id: {__MODULE__, key}, start: {__MODULE__, :start_link, [args]}, restart: :temporary}
@@ -64,131 +39,241 @@ defmodule Ankole.Sessions.Driver do
 
   @impl true
   def callback_mode, do: :handle_event_function
+
   @impl true
   def init({key, tenant_id}) do
     Repo.put_tenant_id(tenant_id)
     Process.flag(:trap_exit, true)
     :ok = Ankole.Sessions.Events.subscribe_input(key.agent_uid, key.session_id)
     Phoenix.PubSub.subscribe(Ankole.PubSub, AgentWorkers.topic(key.agent_uid))
-
-    {:ok, :idle, %State{key: key}, [{:next_event, :internal, :rebuild}]}
+    {:ok, :idle, %State{turn: %Turn{key: key}}, [{:next_event, :internal, :rebuild}]}
   end
 
   @impl true
-  def handle_event({:call, from}, :activity_snapshot, _state, data) do
-    {:keep_state_and_data, [{:reply, from, Activity.project(data)}]}
-  end
+  def handle_event({:call, from}, :activity_snapshot, _state, data),
+    do: {:keep_state_and_data, [{:reply, from, Activity.project(data)}]}
 
-  def handle_event(:internal, :rebuild, _state, data) do
-    task_result(:rebuild, Run.rebuild(data.key), :idle, data)
-  end
+  def handle_event(:internal, {:ai_gateway_response_stream, _, _, _, _} = event, state, data),
+    do: handle_event(:info, event, state, data)
 
-  def handle_event(:state_timeout, :admit, :backing_off, data), do: admit(data)
-  def handle_event(:state_timeout, :admit, :deferred, data), do: admit(data)
-  def handle_event(:internal, :admit, _state, data), do: admit(data)
+  def handle_event(type, event, _state, data) when type in [:internal, :state_timeout],
+    do: dispatch(data, event)
 
-  def handle_event(:internal, :request, state, data)
-      when state in [:boundary, :requesting_model] do
-    run = %{data.run | iteration: data.run.iteration + 1}
-    receiver = self()
+  def handle_event({:timeout, :model_activity}, {epoch, iteration}, _state, data),
+    do: dispatch(data, {:model_timeout, epoch, iteration})
 
-    data =
-      present(%{data | run: run}, "turn.phase", %{
-        "operation_id" => "turn",
-        "state" => "working",
-        "label_key" => "conversations.delivery.reply.activity.turn_understanding"
-      })
-
-    {:next_state, :requesting_model,
-     Ankole.Sessions.Driver.Tasks.task(
-       %{data | run: run, stream: nil, early_stream: []},
-       :model,
-       fn ->
-         Model.open(run, receiver)
-       end
-     ), Model.inactivity_deadline(run)}
-  end
-
-  def handle_event(:internal, :request, _state, _data), do: :keep_state_and_data
-
-  def handle_event(
-        :internal,
-        {:resume_run, epoch, state},
-        :boundary,
-        %{run: %Run{epoch: epoch}} = data
-      ) do
-    case state do
-      :preparing -> {:next_state, :requesting_model, data, [{:next_event, :internal, :request}]}
-      :executing_tools -> enter_tools(data)
-      :boundary -> {:next_state, :boundary, data, [{:next_event, :internal, :boundary}]}
-    end
-  end
-
-  def handle_event(:internal, :tools, :executing_tools, data), do: dispatch_tools(data)
-
-  def handle_event(:internal, :boundary, :boundary, data) do
-    task_result(:boundary, inject_pending(data.run), :boundary, data)
-  end
-
-  def handle_event(:internal, :boundary, _state, _data), do: :keep_state_and_data
-
-  def handle_event(:state_timeout, :poll, :executing_tools, data), do: observe_waits(data)
-
-  def handle_event(
-        {:timeout, :model_activity},
-        {epoch, iteration},
-        :requesting_model,
-        %{run: %{epoch: epoch, iteration: iteration}} = data
-      ) do
-    if data.stream, do: AIGateway.cancel_response_stream(data.stream, "model_inactivity_timeout")
-
-    failed(
-      %{
-        "code" => "model_inactivity_timeout",
-        "message" => "The model stopped sending events.",
-        "retryable" => true
-      },
-      data
-    )
-  end
-
-  def handle_event(:state_timeout, :retire, :idle, data), do: {:stop, :normal, data}
+  def handle_event({:timeout, name}, event, _state, data)
+      when name in [:worker_acquire, :worker_check],
+      do: dispatch(data, {:worker_timeout, event})
 
   def handle_event(:info, :reconcile_inbox, _state, data) do
-    actions =
-      Enum.map(Ankole.Sessions.Queue.due(data.key), &{:next_event, :internal, {:inbox, &1.id}})
-
+    actions = Enum.map(Queue.due(data.turn.key), &{:next_event, :internal, {:inbox, &1.id}})
     {:keep_state, data, actions}
   end
 
-  def handle_event(:internal, {:inbox, _id} = event, state, data),
-    do: handle_event(:info, event, state, data)
+  def handle_event(:info, {:inbox, _} = event, _state, data), do: dispatch(data, event)
 
-  # Admission must return its Run before a control input can end that Run.
-  def handle_event(:info, {:inbox, _id}, state, _data)
-      when state in [:admitting, :preparing],
-      do: {:keep_state_and_data, [:postpone]}
+  def handle_event(
+        :info,
+        {:worker_changed, uid},
+        _state,
+        %{turn: %{key: %{agent_uid: uid}}} = data
+      ),
+      do: dispatch(data, :worker_changed)
 
-  # An inbox notice must not cancel the current terminal transaction or the
-  # round that is being recorded.
-  def handle_event(:info, {:inbox, _id}, state, _data) when state in [:finalizing, :recording],
-    do: {:keep_state_and_data, [:postpone]}
+  def handle_event(:info, {:recover_preview, _id}, state, _data)
+      when state in [:admitting, :preparing], do: {:keep_state_and_data, [:postpone]}
 
-  def handle_event(:info, {:inbox, _id}, :idle, data) do
-    {:keep_state, data, [{:next_event, :internal, :rebuild}]}
+  def handle_event(:info, {:recover_preview, _id}, :finalizing, _data), do: :keep_state_and_data
+
+  def handle_event(:info, {:recover_preview, id}, _state, %{
+        turn: %{run: %Run{signal_id: id} = run}
+      }) do
+    Presentation.start(run, self())
+    :keep_state_and_data
   end
 
-  def handle_event(:info, {:inbox, id}, state, data) do
+  def handle_event(:info, {:worker, _, _} = event, _state, data), do: dispatch(data, event)
+
+  def handle_event(
+        :info,
+        {:ai_gateway_response_stream, _ref, :events, events, _status} = message,
+        :requesting_model,
+        %{stream: nil} = data
+      ) do
+    data = %{data | early_stream: [message | data.early_stream]}
+    dispatch(data, {:model_events, events})
+  end
+
+  def handle_event(
+        :info,
+        {:ai_gateway_response_stream, ref, :events, events, status},
+        :requesting_model,
+        %{stream: %{ref: ref}} = data
+      ) do
+    {data, actions} = advance(data, {:model_events, events})
+
+    case status do
+      :continue ->
+        AIGateway.read_response_stream(data.stream)
+        transition({data, actions ++ Model.inactivity_deadline(data.turn.run)})
+
+      {:terminal, outcome} ->
+        transition(advance(%{data | stream: nil}, {:model_closed, outcome}), actions)
+    end
+  end
+
+  def handle_event(:info, {ref, result}, _state, data) when is_reference(ref) do
+    case Map.pop(data.tasks, ref) do
+      {nil, _} ->
+        :keep_state_and_data
+
+      {{kind, _pid}, tasks} ->
+        Process.demonitor(ref, [:flush])
+        transition(complete(%{data | tasks: tasks}, kind, result))
+    end
+  end
+
+  def handle_event(:info, {:DOWN, ref, :process, _pid, reason}, _state, data) do
+    case Map.pop(data.tasks, ref) do
+      {nil, _} ->
+        :keep_state_and_data
+
+      {{kind, _pid}, tasks} ->
+        transition(complete(%{data | tasks: tasks}, kind, {:error, {:task_exit, reason}}))
+    end
+  end
+
+  def handle_event(:info, {:EXIT, _pid, :shutdown}, _state, data), do: {:stop, :shutdown, data}
+  def handle_event(_type, _event, _state, _data), do: :keep_state_and_data
+
+  defp dispatch(data, event), do: transition(advance(data, event))
+
+  defp transition(result, actions \\ [])
+  defp transition({:stop, _, _} = stopped, _actions), do: stopped
+
+  defp transition({data, more}, actions),
+    do: {:next_state, data.turn.stage, data, actions ++ more}
+
+  defp advance(data, event) do
+    {turn, commands} = Turn.step(data.turn, event)
+    execute(commands, %{data | turn: turn}, [])
+  end
+
+  defp execute([], data, actions), do: {data, actions}
+  defp execute([{:stop, reason} | _], data, _actions), do: {:stop, reason, data}
+
+  defp execute([command | commands], data, actions) do
+    case execute(command, data) do
+      {:stop, _, _} = stopped -> stopped
+      {data, more} -> execute(commands, data, actions ++ more)
+    end
+  end
+
+  # Stream handles and monitor references stay in the process adapter.
+  defp complete(data, :model, {:ok, stream, _meta}) do
+    :ok = AIGateway.read_response_stream(stream)
+    actions = Enum.map(Enum.reverse(data.early_stream), &{:next_event, :internal, &1})
+    {%{data | stream: stream, early_stream: []}, actions}
+  end
+
+  defp complete(data, kind, result), do: advance(data, {:completed, kind, result})
+
+  defp execute(:rebuild, data), do: complete(data, :rebuild, Run.rebuild(data.turn.key))
+
+  defp execute(:classify_input, data), do: complete(data, :input_kind, Run.kind(data.turn.event))
+
+  defp execute(:admit, data),
+    do: complete(data, :admit, Admission.admit(data.turn.key, data.turn.event))
+
+  defp execute(:ambient_triage, data),
+    do:
+      {Tasks.task(data, :ambient_triage, fn ->
+         Ankole.Sessions.AmbientTriage.run(data.turn.key, data.turn.event)
+       end), []}
+
+  defp execute({:control, event}, data),
+    do: {Tasks.task(data, :control, fn -> Commands.process(data.turn.key, event) end), []}
+
+  defp execute({:interrupt, event}, data),
+    do: complete(data, :control, Commands.interrupt(data.turn.run, event))
+
+  defp execute({:retry_action, event}, data),
+    do: complete(data, {:retry_action, event}, Commands.retry_action(data.turn.run, event))
+
+  defp execute(:prepare, data) do
+    run = Observability.attach_turn(data.turn.run)
+
+    data = %{
+      data
+      | turn: %{data.turn | run: run},
+        phase: nil,
+        activity_revision: 0,
+        activity_state: "active",
+        activity_conversation_id: Activity.native_source(run)
+    }
+
+    driver = self()
+
+    {Tasks.task(data, :prepare, fn ->
+       with {:ok, {stage, prepared}} <- Model.prepare(run) do
+         Presentation.start(prepared, driver)
+         {:ok, {stage, prepared}}
+       end
+     end), []}
+  end
+
+  defp execute(:open_model, data) do
+    receiver = self()
+    run = data.turn.run
+
+    {Tasks.task(%{data | stream: nil, early_stream: []}, :model, fn ->
+       Model.open(run, receiver)
+     end), Model.inactivity_deadline(run)}
+  end
+
+  defp execute({:read_model_response, id}, data),
+    do: complete(data, :model_response, AIGateway.get_response(data.turn.run.agent_uid, id))
+
+  defp execute(:record, %{turn: %{run: %{follow_ups: []} = run}} = data),
+    do: complete(data, :record, Run.record_round(run))
+
+  # An image follow-up can require a vision request before the transaction.
+  defp execute(:record, data),
+    do: {Tasks.task(data, :record, fn -> Run.record_round(data.turn.run) end), []}
+
+  defp execute(:inject_pending, data) do
+    result =
+      with {:ok, injected, run} <- Run.inject_pending(data.turn.run, fn _ -> true end),
+           :ok <- Presentation.continue(run, injected),
+           do: {:ok, run}
+
+    complete(data, :boundary, result)
+  end
+
+  defp execute({:finalize, outcome, reason}, data),
+    do: {Tasks.task(data, :finalize, fn -> Run.finalize(data.turn.run, outcome, reason) end), []}
+
+  defp execute({:workflow_failure, failure}, data),
+    do: complete(data, :workflow_failure, Commands.workflow_failure(data.turn.run, failure))
+
+  defp execute({:workflow_error, error}, data),
+    do: complete(data, :workflow_failure, Commands.workflow_error(data.turn.run, error))
+
+  defp execute({:defer_retry, error}, data),
+    do: complete(data, :defer_retry, Run.defer_retry(data.turn.run, error))
+
+  defp execute({:read_inbox, id}, data) do
     event =
       Repo.get_by(Signal,
         id: id,
-        agent_uid: data.key.agent_uid,
-        session_id: data.key.session_id
+        agent_uid: data.turn.key.agent_uid,
+        session_id: data.turn.key.session_id
       )
 
     event =
       case event do
-        %Signal{input_state: "open", completed_at: nil} ->
+        %Signal{status: status} when status in [:queued, :running] ->
           case Admission.authorize_event(event) do
             {:ok, authorized} -> authorized
             {:error, _} -> nil
@@ -198,837 +283,224 @@ defmodule Ankole.Sessions.Driver do
           event
       end
 
-    task_result({:inbox, id}, event, state, data)
+    complete(data, {:inbox, id}, event)
   end
 
-  def handle_event(
-        :info,
-        {:worker_changed, uid},
-        :executing_tools,
-        %{key: %{agent_uid: uid}} = data
-      ) do
-    # A query that started before this change can still return the old row.
-    data =
-      Ankole.Sessions.Driver.Tasks.clear_tasks(data, &(&1 in [:worker_resolve, :worker_check]))
-
-    acquisition_event(data, :check)
-  end
-
-  def handle_event({:timeout, :worker_check}, :check, :executing_tools, data),
-    do: acquisition_event(data, :check)
-
-  def handle_event({:timeout, :worker_acquire}, :expired, :executing_tools, data),
-    do: acquisition_event(data, :expired)
-
-  def handle_event(:info, {:recover_preview, _id}, state, _data)
-      when state in [:admitting, :preparing],
-      do: {:keep_state_and_data, [:postpone]}
-
-  def handle_event(:info, {:recover_preview, _id}, :finalizing, _data),
-    do: :keep_state_and_data
-
-  def handle_event(:info, {:recover_preview, id}, _state, %{
-        run: %Run{signal_id: id} = run
-      }) do
-    Presentation.start(run, self())
-    :keep_state_and_data
-  end
-
-  def handle_event(:info, {:worker, type, payload}, :executing_tools, data),
-    do: worker_result(type, payload, data)
-
-  def handle_event(
-        :info,
-        {:ai_gateway_response_stream, _ref, :events, events, _status} = message,
-        :requesting_model,
-        %{stream: nil} = data
-      ) do
-    data = request_stream_worker(data, events)
-    {:keep_state, %{data | early_stream: [message | data.early_stream]}}
-  end
-
-  def handle_event(
-        :info,
-        {:ai_gateway_response_stream, ref, :events, events, status},
-        :requesting_model,
-        %{stream: %{ref: ref}} = data
-      ) do
-    data = request_stream_worker(data, events)
-
-    case status do
-      :continue ->
-        AIGateway.read_response_stream(data.stream)
-        {:keep_state, data, Model.inactivity_deadline(data.run)}
-
-      {:terminal, outcome} ->
-        model_terminal(outcome, data)
-    end
-  end
-
-  def handle_event(:internal, {:ai_gateway_response_stream, _, _, _, _} = event, state, data),
-    do: handle_event(:info, event, state, data)
-
-  def handle_event(:info, {ref, result}, state, data) when is_reference(ref) do
-    case Map.pop(data.tasks, ref) do
-      {nil, _} ->
-        :keep_state_and_data
-
-      {{kind, _pid}, tasks} ->
-        Process.demonitor(ref, [:flush])
-        task_result(kind, result, state, %{data | tasks: tasks})
-    end
-  end
-
-  def handle_event(:info, {:DOWN, ref, :process, _pid, reason}, state, data) do
-    case Map.pop(data.tasks, ref) do
-      {nil, _} ->
-        :keep_state_and_data
-
-      {{kind, _pid}, tasks} ->
-        task_result(kind, {:error, {:task_exit, reason}}, state, %{data | tasks: tasks})
-    end
-  end
-
-  def handle_event(:info, {:EXIT, _pid, :shutdown}, _state, data), do: {:stop, :shutdown, data}
-  def handle_event(_type, _event, _state, _data), do: :keep_state_and_data
-
-  defp admit(data),
-    do: task_result(:admit, Admission.admit(data.key, data.event), :admitting, data)
-
-  defp task_result(:rebuild, {:ok, :idle}, _state, data),
-    do:
-      {:next_state, :idle, %{data | run: nil, event: nil}, [{:state_timeout, @idle_ms, :retire}]}
-
-  defp task_result(:rebuild, {:ok, %{event: event, delay_ms: delay}}, _state, data) do
-    case Commands.route(event) do
-      :run ->
-        if delay > 0,
-          do:
-            {:next_state, :backing_off, %{data | event: event}, [{:state_timeout, delay, :admit}]},
-          else:
-            {:next_state, :admitting, %{data | event: event}, [{:next_event, :internal, :admit}]}
-
-      :control ->
-        {:next_state, :admitting,
-         Ankole.Sessions.Driver.Tasks.task(%{data | event: event}, :control, fn ->
-           Commands.process(data.key, event)
-         end)}
-    end
-  end
-
-  defp task_result(:control, {:ok, %Run{} = run}, :backing_off, data) do
-    delay =
-      max(DateTime.diff(run.event.available_at, DateTime.utc_now(:microsecond), :millisecond), 0)
-
-    {:next_state, :backing_off, %{data | run: nil, event: run.event, pending: %{}},
-     [{:state_timeout, delay, :admit}]}
-  end
-
-  defp task_result(:control, {:ok, %Run{} = run}, _state, data) do
-    prepare(%{data | run: run, pending: %{}}, run)
-  end
-
-  defp task_result(:control, {:ok, _}, _state, data) do
-    close_and_rebuild(data)
-  end
-
-  defp task_result({:retry_action, event}, {:ok, :interrupt}, state, data) do
-    data = Ankole.Sessions.Driver.Tasks.cancel_current(data)
-
-    task_result(:control, Commands.interrupt(data.run, event), state, data)
-  end
-
-  defp task_result({:retry_action, _event}, {:ok, :continue}, _state, _data),
-    do: :keep_state_and_data
-
-  defp task_result(:admit, {:ok, %Run{} = run}, _state, data) do
-    prepare(data, run)
-  end
-
-  defp task_result(:admit, {:ok, %{status: :deferred}}, _state, %{run: %Run{}} = data),
-    do: close_and_rebuild(data)
-
-  defp task_result(:admit, {:ok, %{status: status, signal: event}}, _state, data)
-       when status in [:deferred, :waiting_for_worker] do
-    delay =
-      max(0, DateTime.diff(event.available_at, DateTime.utc_now(:microsecond), :millisecond))
-
-    {:next_state, :deferred, %{data | event: event}, [{:state_timeout, delay, :admit}]}
-  end
-
-  defp task_result(:admit, {:ok, _terminal}, _state, data), do: rebuild(data)
-
-  defp task_result(:admit, {:error, reason}, _state, data)
-       when reason in [:agent_not_active, :workflow_agent_at_capacity] do
-    {:next_state, :deferred, data, [{:state_timeout, 30_000, :admit}]}
-  end
-
-  defp task_result(:admit, {:error, :input_unavailable}, _state, data),
-    do: close_and_rebuild(data)
-
-  defp task_result(:prepare, {:ok, {:ambient_skip, run}}, _old_state, data),
-    do: finalize(%{data | run: run}, :silent)
-
-  defp task_result(:prepare, {:ok, {state, run}}, _old_state, data) do
-    # Rebuild the durable inbox before resuming model or tool I/O. A stop can
-    # have committed while no process existed to receive its notification.
-    actions = Enum.map(run.pending_event_ids, &{:next_event, :internal, {:inbox, &1}})
-
-    {:next_state, :boundary, %{data | run: run},
-     actions ++ [{:next_event, :internal, {:resume_run, run.epoch, state}}]}
-  end
-
-  defp task_result(:model, {:ok, stream, _meta}, _state, data) do
-    :ok = AIGateway.read_response_stream(stream)
-    actions = Enum.map(Enum.reverse(data.early_stream), &{:next_event, :internal, &1})
-    {:keep_state, %{data | stream: stream, early_stream: []}, actions}
-  end
-
-  defp task_result(:model_response, {:ok, response}, _state, data) do
-    run = %{
-      data.run
-      | model_response: response,
-        anchor: response.id,
-        input: [],
-        round_calls: Run.executable_calls(response),
-        results: %{},
-        receipts: %{},
-        follow_ups: [],
-        wait_event_ids: [],
-        recovered?: false
-    }
-
-    if Run.truncated?(response) or run.round_calls == [],
-      do:
-        {:next_state, :boundary, %{data | run: %{run | calls: []}, stream: nil},
-         [{:next_event, :internal, :boundary}]},
-      else: enter_tools(%{data | run: %{run | calls: run.round_calls}, stream: nil})
-  end
-
-  defp task_result({:tool, id}, {:error, reason}, state, data),
-    do: task_result({:tool, id}, Tools.error(reason), state, data)
-
-  defp task_result({:tool, id}, {:delegate, name, args, continue}, :executing_tools, data) do
-    pending = PendingCall.delegate(data.pending, id, name, args, continue)
-
-    {:keep_state, dispatch_worker(%{data | pending: pending}, id)}
-  end
-
-  defp task_result({:tool, id}, {:await, wait}, :executing_tools, data) do
-    {:keep_state, await_result(data, id, wait), [{:next_event, :internal, :tools}]}
-  end
-
-  defp task_result({:tool, id}, %ToolResult{} = result, :executing_tools, data),
-    do: accept_result(id, result, data)
-
-  defp task_result(:record, {:ok, journal}, _state, data) do
-    # A committed batch no longer accepts its transport and polling results.
-    data =
-      Ankole.Sessions.Driver.Tasks.clear_tasks(data, fn kind ->
-        kind in [:worker_resolve, :worker_open, :worker_check, :observe] or
-          match?({:worker_send, _}, kind)
-      end)
-
-    run = %{
-      data.run
-      | calls: [],
-        anchor: journal.message.id,
-        saw_tool_results: true,
-        follow_ups: [],
-        wait_event_ids: []
-    }
-
-    {:next_state, :boundary, %{data | run: run, pending: %{}, observing?: false},
-     [{:next_event, :internal, :boundary}]}
-  end
-
-  defp task_result(kind, {:error, reason}, _state, data)
-       when kind in [:worker_resolve, :worker_open] and reason in [:stale_driver, :run_closed],
-       do: failed(reason, data)
-
-  defp task_result(:worker_resolve, result, :executing_tools, data),
-    do: acquisition_event(data, {:resolved, result})
-
-  defp task_result(:worker_open, result, :executing_tools, data),
-    do: acquisition_event(data, {:sent, result})
-
-  defp task_result(:worker_check, result, :executing_tools, data),
-    do: acquisition_event(data, {:checked, result})
-
-  defp task_result({:worker_send, id}, {:error, _reason}, :executing_tools, data) do
-    data = %{data | pending: PendingCall.send_failed(data.pending, id)}
-    acquisition_event(data, :send_failed)
-  end
-
-  defp task_result({:worker_send, _id}, {:ok, _}, _state, data), do: {:keep_state, data}
-
-  defp task_result(:boundary, {:ok, run}, _state, data) do
-    case Machine.next(run) do
-      {:request, run} ->
-        {:keep_state, %{data | run: run}, [{:next_event, :internal, :request}]}
-
-      {:finalize, run} ->
-        finalize(%{data | run: run}, run.outcome)
-
-      {:workflow_failure, run, failure} ->
-        task_result(:workflow_failure, Commands.workflow_failure(run, failure), :finalizing, %{
-          data
-          | run: run
-        })
-    end
-  end
-
-  defp task_result(:observe, observations, :executing_tools, data) when is_list(observations) do
-    data = %{data | observing?: false}
-
-    {data, _} =
-      Enum.reduce(observations, {data, nil}, fn
-        {_id, :pending}, acc ->
-          acc
-
-        {id, {:ready, result, ids}}, {data, _} ->
-          {put_result(id, result, %{
-             data
-             | run: %{data.run | wait_event_ids: Enum.uniq(data.run.wait_event_ids ++ ids)}
-           }), nil}
-      end)
-
-    {:keep_state, data, [{:next_event, :internal, :tools}]}
-  end
-
-  defp task_result(
-         {:inbox, _id},
-         %Signal{input_state: "open", completed_at: nil} = event,
-         _state,
-         %{run: nil} = data
-       ) do
-    if event.type in ["command.stop", "command.new", "command.retry"] and
-         Commands.route(event) == :control,
-       do:
-         {:next_state, :admitting,
-          Ankole.Sessions.Driver.Tasks.task(data, :control, fn ->
-            Commands.process(data.key, event)
-          end)},
-       else: :keep_state_and_data
-  end
-
-  defp task_result(
-         {:inbox, _id},
-         %Signal{input_state: "open", completed_at: nil} = event,
-         state,
-         data
-       ) do
-    cond do
-      event.id == data.run.signal_id or event.id in data.run.steer_event_ids ->
-        :keep_state_and_data
-
-      Signal.produced_by_kernel?(event) and event.type == "command.retry" ->
-        task_result({:retry_action, event}, Commands.retry_action(data.run, event), state, data)
-
-      Signal.produced_by_kernel?(event) and
-          (event.type in ["command.stop", "command.new"] or
-             (event.type == "input.revised" and Revisions.immediate?(data.run, event))) ->
-        data = Ankole.Sessions.Driver.Tasks.cancel_current(data)
-        task_result(:control, Commands.interrupt(data.run, event), state, data)
-
-      event.id in data.run.pending_event_ids ->
-        :keep_state_and_data
-
-      true ->
-        run = %{data.run | pending_event_ids: data.run.pending_event_ids ++ [event.id]}
-        data = %{data | run: run}
-        if state == :executing_tools, do: observe_waits(data), else: {:keep_state, data}
-    end
-  end
-
-  defp task_result({:inbox, _}, _result, _state, _data), do: :keep_state_and_data
-
-  defp task_result(:finalize, {:ok, _result}, _state, data), do: close_and_rebuild(data)
-
-  defp task_result(:workflow_failure, {:ok, %{call: %{status: status}}}, _state, data)
-       when status in ["queued", "sleeping"], do: close_and_rebuild(data)
-
-  defp task_result(:workflow_failure, {:ok, _}, _state, data), do: finalize(data, :submitted)
-
-  defp task_result(:withdrawal, %Signal{} = event, _state, data) do
-    data = Ankole.Sessions.Driver.Tasks.cancel_current(data)
-
-    task_result(:control, Commands.interrupt(data.run, event), :finalizing, data)
-  end
-
-  defp task_result(:withdrawal, nil, _state, data),
-    do: finalize(Ankole.Sessions.Driver.Tasks.cancel_current(data), :stopped)
-
-  defp task_result(_kind, {:error, reason}, _state, data), do: failed(reason, data)
-
-  defp enter_tools(data) do
-    {run, pending, events} = ToolRound.restore(data.run)
-    data = present(%{data | run: run, pending: pending, phase: nil}, events)
-
-    {:next_state, :executing_tools, data,
-     worker_timers(data) ++ [{:next_event, :internal, :tools}]}
-  end
-
-  defp await_result(data, id, wait) do
-    {pending, events} = ToolRound.await(data.run, data.pending, id, wait)
-    present(%{data | pending: pending}, events)
-  end
-
-  defp dispatch_tools(data) do
-    data = dispatch_available(data)
-
-    actions = worker_timers(data)
-
-    cond do
-      Enum.all?(data.run.calls, &Map.has_key?(data.run.results, Run.call_id(&1))) ->
-        record(data)
-
-      # Only a waiting tool needs observation. Other results arrive as messages.
-      PendingCall.waits(data.pending) != [] ->
-        {:keep_state, data, actions ++ [{:state_timeout, @poll_ms, :poll}]}
-
-      true ->
-        {:keep_state, data, actions}
-    end
-  end
-
-  # A follow-up image can need a vision fallback request before the round is
-  # recorded, so that round records in a task.
-  defp record(%{run: %{follow_ups: []}} = data),
-    do: task_result(:record, Run.record_round(data.run), :recording, data)
-
-  defp record(data),
-    do:
-      {:next_state, :recording,
-       Ankole.Sessions.Driver.Tasks.task(data, :record, fn -> Run.record_round(data.run) end)}
-
-  defp dispatch_available(data) do
-    case ToolRound.next(data.run, data.pending) do
-      {:result, id, result} ->
-        dispatch_available(put_result(id, result, data))
-
-      {:execute, entry, pending, events} ->
-        id = Run.call_id(entry.call)
-        data = present(%{data | pending: pending}, events)
-
-        data =
-          if entry.tool.executor == :worker or entry.worker_name,
-            do: dispatch_worker(data, id),
-            else:
-              Ankole.Sessions.Driver.Tasks.task(data, {:tool, id}, fn ->
-                Tools.execute(data.run, entry.call, entry.tool, entry.args)
-              end)
-
-        if entry.sequential? and not Map.has_key?(data.run.results, id),
-          do: data,
-          else: dispatch_available(data)
-
-      :none ->
-        data
-    end
-  end
-
-  defp accept_result(id, result, data),
-    do: {:keep_state, put_result(id, result, data), [{:next_event, :internal, :tools}]}
-
-  defp put_result(id, result, data) do
-    {run, pending, events} = ToolRound.accept(data.run, data.pending, id, result)
-    data = present(%{data | run: run, pending: pending}, events)
-    Activity.publish(data)
-  end
-
-  defp observe_waits(%{observing?: true} = data),
-    do: {:keep_state, data, [{:state_timeout, @poll_ms, :poll}]}
-
-  defp observe_waits(data) do
-    waits = PendingCall.waits(data.pending)
-
-    if waits == [],
-      do: {:keep_state, data},
-      else:
-        {:keep_state,
-         Ankole.Sessions.Driver.Tasks.task(%{data | observing?: true}, :observe, fn ->
-           ToolRound.observe(data.run, data.pending)
-         end), [{:state_timeout, @poll_ms, :poll}]}
-  end
-
-  defp inject_pending(run) do
-    with {:ok, injected, run} <- Run.inject_pending(run, fn _event -> true end),
-         :ok <- Presentation.continue(run, injected),
-         do: {:ok, run}
-  end
-
-  defp model_terminal(%{terminal_error: %{} = error}, data),
-    do: failed(error, %{data | stream: nil})
-
-  defp model_terminal(%{terminal_response: %{"id" => id}}, data) do
-    task_result(
-      :model_response,
-      AIGateway.get_response(data.run.agent_uid, id),
-      :requesting_model,
-      data
-    )
-  end
-
-  defp model_terminal(_outcome, data),
-    do: failed(%{"code" => "model_stream_closed", "retryable" => true}, data)
-
-  defp worker_result(type, payload, data)
-       when type in [:workspace_ready, :tool_status, :tool_progress, :tool_result] do
-    current? =
-      type == :workspace_ready or
-        (payload.response_id == Run.response_id(data.run.model_response) and
-           Map.has_key?(data.pending, payload.call_id))
-
-    if Worker.matches?(payload.run, data.run) and current? do
-      decoded =
-        case Worker.decode(type, payload) do
-          {:presentation, "tool.activity", value} ->
-            {:presentation, "tool.activity", Map.put(value, "operation_id", payload.call_id)}
-
-          other ->
-            other
-        end
-
-      apply_worker_event(decoded, data)
-    else
-      :keep_state_and_data
-    end
-  end
-
-  defp worker_result(_type, _payload, _data), do: :keep_state_and_data
-
-  defp apply_worker_event(:ignore, _data), do: :keep_state_and_data
-
-  defp apply_worker_event(:ready, data), do: acquisition_event(data, :ready)
-
-  defp apply_worker_event({:waiting, reason}, data),
-    do: acquisition_event(data, {:waiting, reason})
-
-  defp apply_worker_event({:unavailable, reason}, data),
-    do: acquisition_event(data, {:unavailable, reason})
-
-  defp apply_worker_event({:unknown, id}, data) do
-    case data.pending[id].mode do
-      "execute" ->
-        pending = PendingCall.unknown(data.pending, id)
-
-        {:keep_state, transition_worker(%{data | pending: pending}, :send_failed),
-         [{:next_event, :internal, :tools}]}
-
-      "probe" ->
-        accept_result(id, Tools.interrupted(), data)
-    end
-  end
-
-  defp apply_worker_event({:presentation, kind, value}, data) do
-    {:keep_state, present(data, kind, value)}
-  end
-
-  defp apply_worker_event({:result, id, result, follow}, data),
-    do:
-      accept_worker_result(id, result, %{
-        data
-        | run: %{data.run | follow_ups: data.run.follow_ups ++ follow}
-      })
-
-  defp dispatch_worker(data, id) do
-    data = %{data | pending: PendingCall.wait_worker(data.pending, id)}
-
-    case data.acquisition do
-      {:ready, row} ->
-        {pending, entry} = PendingCall.to_worker(data.pending, id)
-
-        Ankole.Sessions.Driver.Tasks.task(%{data | pending: pending}, {:worker_send, id}, fn ->
-          Worker.send_call(data.run, row, entry)
-        end)
-
-      {:unavailable, reason} ->
-        fail_worker_waits(reason, data)
-
-      _ ->
-        transition_worker(data, :acquire)
-    end
-  end
-
-  defp acquisition_event(data, event) do
-    data = transition_worker(data, event)
-    {:keep_state, data, worker_timers(data) ++ [{:next_event, :internal, :tools}]}
-  end
-
-  defp transition_worker(data, event) do
-    {state, effects} = WorkerAcquisition.next(data.acquisition, event)
-    Enum.reduce(effects, %{data | acquisition: state}, &worker_effect/2)
-  end
-
-  defp worker_effect(:request, data) do
-    AgentWorkers.request(data.run.agent_uid)
-    data
-  end
-
-  defp worker_effect(:resolve, data),
-    do:
-      Ankole.Sessions.Driver.Tasks.task(data, :worker_resolve, fn ->
-        Worker.prepare_open(data.run)
-      end)
-
-  defp worker_effect({:send_open, row, message}, data),
-    do:
-      Ankole.Sessions.Driver.Tasks.task(data, :worker_open, fn ->
-        Worker.send_open(row, message)
-      end)
-
-  defp worker_effect({:check, row}, data),
-    do:
-      Ankole.Sessions.Driver.Tasks.task(data, :worker_check, fn -> Worker.check(data.run, row) end)
-
-  defp worker_effect(:ready, data),
-    do: Activity.publish(%{data | pending: PendingCall.ready(data.pending), phase: nil})
-
-  defp worker_effect(:retry_calls, data),
-    do: Activity.publish(%{data | pending: PendingCall.worker_changed(data.pending), phase: nil})
-
-  defp worker_effect(:probe, data) do
-    sending = for {_, {{:worker_send, id}, _}} <- data.tasks, do: id
-    %{data | pending: PendingCall.worker_same(data.pending, sending)}
-  end
-
-  defp worker_effect({:unavailable, reason}, data), do: fail_worker_waits(reason, data)
-
-  defp worker_effect({:phase, phase}, data) do
-    present(data, "turn.phase", %{
-      "operation_id" => "turn",
-      "state" => "working",
-      "label_key" => "conversations.delivery.reply.activity.#{WorkerAcquisition.phase_key(phase)}"
-    })
-  end
-
-  defp worker_timers(data) do
-    Enum.map(WorkerAcquisition.timers(data.acquisition, System.monotonic_time(:millisecond)), fn
-      {:acquire, :cancel} -> {{:timeout, :worker_acquire}, :cancel}
-      {:check, :cancel} -> {{:timeout, :worker_check}, :cancel}
-      {:acquire, ms} -> {{:timeout, :worker_acquire}, ms, :expired}
-      {:check, ms} -> {{:timeout, :worker_check}, ms, :check}
-    end)
-  end
-
-  defp fail_worker_waits(reason, data) do
-    Enum.reduce(PendingCall.waiting_worker(data.pending), data, fn id, data ->
-      result =
-        if data.pending[id].probe?,
-          do: Tools.interrupted(),
-          else: Tools.error(WorkerAcquisition.error_text(reason))
-
-      put_result(id, result, data)
-    end)
-  end
-
-  defp request_stream_worker(data, events) do
-    needs_worker? =
-      Enum.any?(events, fn
-        %{"type" => "response.output_item.added", "item" => %{"type" => "function_call"} = call} ->
-          Tools.needs_worker?(data.run, call)
-
-        _ ->
-          false
-      end)
-
-    if needs_worker?, do: transition_worker(data, :request), else: data
-  end
-
-  defp accept_worker_result(id, result, data) do
-    case data.pending[id].continue do
-      continue when is_function(continue, 2) and result.is_error != true ->
-        {:keep_state,
-         Ankole.Sessions.Driver.Tasks.task(data, {:tool, id}, fn ->
-           continue.(data.run, result)
-         end)}
-
-      _ ->
-        accept_result(id, result, data)
-    end
-  end
-
-  defp finalize(data, outcome, reason \\ nil) do
-    run = %{data.run | outcome: outcome}
-
-    {:next_state, :finalizing,
-     Ankole.Sessions.Driver.Tasks.task(%{data | run: run}, :finalize, fn ->
-       Run.finalize(run, outcome, reason)
-     end)}
-  end
-
-  defp close_and_rebuild(%{run: nil} = data), do: rebuild(data)
-
-  defp close_and_rebuild(data) do
-    if data.acquisition != :idle do
-      run = data.run
-
-      Task.Supervisor.start_child(
-        Ankole.Sessions.Tasks,
-        Repo.bind_tenant(fn ->
-          case Worker.close(run) do
-            {:error, reason} -> Logger.warning("Workspace close failed: #{inspect(reason)}")
-            _result -> :ok
-          end
-        end)
-      )
-    end
-
-    rebuild(data)
-  end
-
-  defp rebuild(data) do
-    data = Activity.clear(data, "settled")
-
-    {:next_state, :idle,
-     %{
-       Ankole.Sessions.Driver.Tasks.clear_tasks(
-         ToolRound.finish_spans(data, outcome: if(data.run, do: data.run.outcome, else: nil))
-       )
-       | run: nil,
-         pending: %{},
-         stream: nil,
-         acquisition: :idle,
-         event: nil,
-         phase: nil
-     },
-     [
-       {{:timeout, :worker_acquire}, :cancel},
-       {{:timeout, :worker_check}, :cancel},
-       {:next_event, :internal, :rebuild}
-     ]}
-  end
-
-  defp failed(reason, data) when reason in [:stale_driver, :run_closed] do
-    if data.run, do: Run.refund(data.run, :stale_driver)
-    {:stop, :normal, data}
-  end
-
-  defp failed(reason, %{run: nil} = data), do: {:stop, {:admission_failed, reason}, data}
-
-  defp failed(:signal_canceled, data) do
+  defp execute(:read_withdrawal, data) do
     event =
-      Enum.find(Ankole.Sessions.Queue.due(data.run), fn event ->
-        event.type == "input.revised" and Revisions.immediate?(data.run, event)
+      Enum.find(Queue.due(data.turn.run), fn event ->
+        event.type == "input.revised" and Revisions.immediate?(data.turn.run, event)
       end)
 
-    task_result(:withdrawal, event, :finalizing, data)
+    complete(data, :withdrawal, event)
   end
 
-  defp failed(:signal_context_canceled, data),
+  defp execute(:observe, data),
     do:
-      finalize(
-        Ankole.Sessions.Driver.Tasks.cancel_current(data),
-        :stopped,
-        :signal_context_canceled
-      )
+      {Tasks.task(data, :observe, fn ->
+         Tools.observe_pending(data.turn.run, data.turn.pending)
+       end), []}
 
-  defp failed(reason, data) do
-    case Run.type(data.run).failure(reason) do
-      {:workflow_failure, error} ->
-        data = Ankole.Sessions.Driver.Tasks.cancel_current(data)
+  defp execute({:tool, run, entry}, data),
+    do:
+      {Tasks.task(data, {:tool, Run.call_id(entry.call)}, fn ->
+         Tools.execute(run, entry.call, entry.tool, entry.args)
+       end), []}
 
-        task_result(
-          :workflow_failure,
-          Commands.workflow_error(data.run, error),
-          :finalizing,
-          data
-        )
+  defp execute({:continue_tool, id, continue, result}, data),
+    do: {Tasks.task(data, {:tool, id}, fn -> continue.(data.turn.run, result) end), []}
 
-      {:execution_error, error} ->
-        failed_execution(error, data)
-    end
+  defp execute(:request_worker, data) do
+    AgentWorkers.request(data.turn.run.agent_uid)
+    {data, []}
   end
 
-  defp failed_execution(error, data) do
+  defp execute(:resolve_worker, data),
+    do: {Tasks.task(data, :worker_resolve, fn -> Worker.prepare_open(data.turn.run) end), []}
+
+  defp execute({:open_worker, row, message}, data),
+    do: {Tasks.task(data, :worker_open, fn -> Worker.send_open(row, message) end), []}
+
+  defp execute({:check_worker, row}, data),
+    do: {Tasks.task(data, :worker_check, fn -> Worker.check(data.turn.run, row) end), []}
+
+  defp execute({:send_tool, run, row, entry}, data),
+    do:
+      {Tasks.task(data, {:worker_send, Run.call_id(entry.call)}, fn ->
+         Worker.send_call(run, row, entry)
+       end), []}
+
+  defp execute(:read_worker_sends, data) do
+    ids = for {_, {{:worker_send, id}, _}} <- data.tasks, do: id
+    advance(data, {:worker_sends, ids})
+  end
+
+  defp execute({:decode_worker, type, payload}, data) do
+    event =
+      case Worker.decode(type, payload) do
+        {:presentation, "tool.activity", value} ->
+          {:presentation, "tool.activity", Map.put(value, "operation_id", payload.call_id)}
+
+        decoded ->
+          decoded
+      end
+
+    complete(data, :worker, event)
+  end
+
+  defp execute({:close_worker, run}, data) do
+    Task.Supervisor.start_child(
+      Ankole.Sessions.Tasks,
+      Repo.bind_tenant(fn ->
+        case Worker.close(run) do
+          {:error, reason} ->
+            Ankole.Logging.warning(
+              "sessions.workspace.close_failed",
+              "Workspace close failed",
+              Map.merge(Ankole.Logging.failure_fields(:error, reason, []), %{
+                agent_uid: run.agent_uid,
+                session_id: run.session_id
+              })
+            )
+
+          _ ->
+            :ok
+        end
+      end)
+    )
+
+    {data, []}
+  end
+
+  defp execute(:cancel_worker_queries, data),
+    do: {Tasks.clear_tasks(data, &(&1 in [:worker_resolve, :worker_check])), []}
+
+  defp execute(:cancel_round_tasks, data),
+    do:
+      {Tasks.clear_tasks(data, fn kind ->
+         kind in [:worker_resolve, :worker_open, :worker_check, :observe] or
+           match?({:worker_send, _}, kind)
+       end), []}
+
+  defp execute(:cancel_current, data),
+    do: {data |> Tasks.cancel_current() |> finish_spans(error_type: "turn_interrupted"), []}
+
+  defp execute(:clear_tasks, data), do: {Tasks.clear_tasks(data), []}
+
+  defp execute({:cancel_stream, reason}, data) do
+    if data.stream, do: AIGateway.cancel_response_stream(data.stream, reason)
+    {data, []}
+  end
+
+  defp execute({:present, events}, data),
+    do:
+      {Enum.reduce(events, data, fn event, data ->
+         Activity.present(
+           data,
+           Presentation.event(data.turn.run, event["kind"], event["payload"])
+         )
+       end), []}
+
+  defp execute(:clear_phase, data), do: {%{data | phase: nil}, []}
+  defp execute(:publish_activity, data), do: {Activity.publish(data), []}
+
+  defp execute({:start_tool, call}, data) do
+    id = Run.call_id(call)
+
+    spans =
+      Map.put_new_lazy(data.tool_spans, id, fn ->
+        Observability.start_tool(data.turn.run.span, call)
+      end)
+
+    {%{data | tool_spans: spans}, []}
+  end
+
+  defp execute({:finish_tool, id, result}, data) do
+    {span, spans} = Map.pop(data.tool_spans, id)
+    Observability.finish_tool(span, ToolResult.encode(result))
+    {%{data | tool_spans: spans}, []}
+  end
+
+  defp execute({:settle, previous}, data) do
+    cleared = Activity.clear(%{data | turn: previous}, "settled")
+    cleared = finish_spans(cleared, outcome: if(previous.run, do: previous.run.outcome))
+    {%{cleared | turn: data.turn, phase: nil}, []}
+  end
+
+  defp execute({:retry_cleanup, error}, data) do
+    data = Activity.clear(data, "unavailable")
+    Presentation.stop(data.turn.run)
+    if data.stream, do: AIGateway.cancel_response_stream(data.stream, "conversation_retry")
+    {data |> finish_spans(error_type: error["code"]) |> Tasks.clear_tasks(), []}
+  end
+
+  defp execute({:refund, reason}, data) do
+    if data.turn.run, do: Run.refund(data.turn.run, reason)
+    {data, []}
+  end
+
+  defp execute({:log_failure, error}, data) do
     Ankole.Logging.warning(
       "sessions.execution_failed",
       "Session execution failed",
       Map.take(error, ~w(code type http_status retryable))
     )
 
-    if error["retryable"] == true do
-      data = Activity.clear(data, "unavailable")
-      Presentation.stop(data.run)
-      if data.stream, do: AIGateway.cancel_response_stream(data.stream, "conversation_retry")
+    {data, []}
+  end
 
-      data =
+  defp execute({:next, event}, data), do: {data, [{:next_event, :internal, event}]}
+  defp execute(:postpone, data), do: {data, [:postpone]}
+  defp execute({:wait, ms, event}, data), do: {data, [{:state_timeout, ms, event}]}
+
+  defp execute({:wait_until, deadline, event}, data),
+    do:
+      execute(
+        {:wait, max(DateTime.diff(deadline, DateTime.utc_now(:microsecond), :millisecond), 0),
+         event},
         data
-        |> ToolRound.finish_spans(error_type: error["code"])
-        |> Ankole.Sessions.Driver.Tasks.clear_tasks()
+      )
 
-      case Run.defer_retry(data.run, error) do
-        {:ok, event} ->
-          delay =
-            max(
-              DateTime.diff(event.available_at, DateTime.utc_now(:microsecond), :millisecond),
-              0
-            )
+  defp execute({:worker_timer, :acquire, :cancel}, data),
+    do: {data, [{{:timeout, :worker_acquire}, :cancel}]}
 
-          data = %{data | run: %{data.run | event: event}, event: event}
-          {:next_state, :backing_off, data, [{:state_timeout, delay, :admit}]}
+  defp execute({:worker_timer, :check, :cancel}, data),
+    do: {data, [{{:timeout, :worker_check}, :cancel}]}
 
-        {:error, reason} when reason in [:stale_driver, :run_closed] ->
-          failed(reason, data)
+  defp execute({:worker_timer, :acquire, ms}, data),
+    do: {data, [{{:timeout, :worker_acquire}, ms, :expired}]}
 
-        {:error, reason} ->
-          {:stop, {:defer_retry_failed, reason}, data}
-      end
-    else
-      finalize(data, :dead_letter, error)
-    end
-  end
+  defp execute({:worker_timer, :check, ms}, data),
+    do: {data, [{{:timeout, :worker_check}, ms, :check}]}
 
-  defp prepare(data, run) do
-    run = Observability.attach_turn(run)
+  defp finish_spans(%{turn: %{run: nil}} = data, _opts), do: data
 
-    data = %{
-      data
-      | run: run,
-        phase: nil,
-        pending: %{},
-        activity_revision: 0,
-        activity_state: "active",
-        activity_conversation_id: Activity.native_source(run)
-    }
+  defp finish_spans(data, opts) do
+    Enum.each(data.tool_spans, fn {_, span} ->
+      Observability.finish_tool(span, %{
+        "is_error" => true,
+        "failure_kind" => Keyword.get(opts, :error_type, "turn_ended")
+      })
+    end)
 
-    driver = self()
-
-    {:next_state, :preparing,
-     Ankole.Sessions.Driver.Tasks.task(%{data | run: run}, :prepare, fn ->
-       with {:ok, {state, prepared}} <- Model.prepare(run) do
-         if state == :ambient_skip do
-           {:ok, {state, prepared}}
-         else
-           Presentation.start(prepared, driver)
-           {:ok, {state, prepared}}
-         end
-       end
-     end)}
-  end
-
-  defp present(data, events) do
-    Enum.reduce(events, data, fn event, data -> present(data, event["kind"], event["payload"]) end)
-  end
-
-  defp present(data, kind, payload) do
-    Activity.present(data, Presentation.event(data.run, kind, payload))
+    Observability.finish_turn(data.turn.run.span, opts)
+    %{data | tool_spans: %{}, turn: %{data.turn | run: %{data.turn.run | span: nil}}}
   end
 
   @impl true
   def terminate(reason, state, data) do
     Activity.clear(data, "unavailable")
-    Ankole.Sessions.Driver.Tasks.clear_tasks(data)
+    Tasks.clear_tasks(data)
     if data.stream, do: AIGateway.cancel_response_stream(data.stream, "driver_stopped")
+    run = data.turn.run
 
-    if data.run && state not in [:backing_off, :deferred] &&
+    if run && state not in [:backing_off, :deferred] &&
          (reason == :shutdown or match?({:shutdown, _}, reason)),
-       do: Run.refund(data.run, :shutdown)
+       do: Run.refund(run, :shutdown)
 
-    if data.run, do: Presentation.stop(data.run)
+    if run, do: Presentation.stop(run)
 
-    ToolRound.finish_spans(data,
+    finish_spans(data,
       error_type:
         if(reason in [:normal, :shutdown], do: Atom.to_string(reason), else: inspect(reason))
     )

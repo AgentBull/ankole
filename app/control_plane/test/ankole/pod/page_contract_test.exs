@@ -75,21 +75,26 @@ defmodule Ankole.Pod.PageContractTest do
 
     for revision <- 1..2 do
       assert {:ok, _} =
-               Repo.insert(
-                 PageChange.changeset(%PageChange{}, %{
-                   page_id: page.id,
-                   revision: revision,
-                   kind: :change,
-                   client_id: "editor",
-                   client_seq: revision,
-                   changes: changes,
-                   author: author,
-                   created_at: now
-                 })
-               )
+               {:ok,
+                Ankole.Pod.PagesFixtures.create_record!(PageChange, :append, %{
+                  page_id: page.id,
+                  revision: revision,
+                  kind: :change,
+                  client_id: "editor",
+                  client_seq: revision,
+                  changes: changes,
+                  author: author,
+                  created_at: now
+                })}
     end
 
-    Repo.update!(Page.changeset(page, %{revision: 2}))
+    Ankole.Pod.PagesFixtures.update_record!(
+      Ankole.Pod.PagesFixtures.update_record!(page, :advance_revision, %{
+        updated_at: DateTime.utc_now(:microsecond)
+      }),
+      :advance_revision,
+      %{updated_at: DateTime.utc_now(:microsecond)}
+    )
 
     assert {:ok, %{revision: 2, changes: [], reset_required: true, reload_required: true}} =
              Documents.since(ctx.owner.uid, page.id, 0)

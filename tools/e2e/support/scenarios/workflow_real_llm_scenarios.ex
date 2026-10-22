@@ -87,7 +87,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     {run, _start_reply} = start_run!(container, agent, input)
 
     calls = drive_task_dispatches!(run, container, expected: 2)
-    assert Enum.all?(calls, &(&1.status == "succeeded"))
+    assert Enum.all?(calls, &(&1.status == :succeeded))
 
     completion = drive_run_to_completion!(run, agent)
     {reply, _message} = process_owner_wakeup!(container, completion)
@@ -97,7 +97,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     assert reply_text!(reply) =~ "beta"
 
     run = Repo.get!(Run, run.id)
-    assert run.status == "completed"
+    assert run.status == :completed
     assert run.result_text =~ "alpha"
     assert run.result_text =~ "beta"
 
@@ -135,12 +135,12 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     [dispatch_event] = task_dispatch_events!(run, expected: 1)
     process_ready!(dispatch_event)
 
-    call = wait_for_call_status!(run, 0, "sleeping", deadline(420_000))
+    call = wait_for_call_status!(run, 0, :sleeping, deadline(420_000))
     assert call.sleep_note == "timer-test"
     assert call.wake_count == 1
     assert call.attempts == 0
     assert call.attention == false
-    assert Workflow.counts(Repo, run.id)["sleeping"] == 1
+    assert Workflow.Queries.counts(Repo, run.id)["sleeping"] == 1
 
     wait_for_event_completion!(dispatch_event, deadline(30_000))
 
@@ -155,7 +155,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     process_ready!(wake_event)
 
-    call = wait_for_call_status!(run, 0, "succeeded", deadline(420_000))
+    call = wait_for_call_status!(run, 0, :succeeded, deadline(420_000))
     assert call.result == %{"ok" => true, "value" => "woke"}
 
     completion = drive_run_to_completion!(run, agent)
@@ -204,7 +204,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     [dispatch_event] = task_dispatch_events!(run, expected: 1)
     process_ready!(dispatch_event)
 
-    call = wait_for_call_status!(run, 0, "sleeping", deadline(420_000))
+    call = wait_for_call_status!(run, 0, :sleeping, deadline(420_000))
     assert call.attention == true
     assert call.sleep_note =~ "codeword"
 
@@ -240,7 +240,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     process_ready!(message_event)
 
-    call = wait_for_call_status!(run, 0, "succeeded", deadline(420_000))
+    call = wait_for_call_status!(run, 0, :succeeded, deadline(420_000))
     assert call.result == %{"ok" => true, "value" => "ANKOLE_WF_CODEWORD_7"}
     assert call.attention == false
 
@@ -286,7 +286,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     [dispatch_event] = task_dispatch_events!(run, expected: 1)
     process_ready!(dispatch_event)
 
-    call = wait_for_call_status!(run, 0, "sleeping", deadline(420_000))
+    call = wait_for_call_status!(run, 0, :sleeping, deadline(420_000))
     assert call.sleep_note =~ "waiting for job"
 
     task_session_id = Workflow.task_session_id(call.id)
@@ -315,10 +315,10 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     assert {:ok, %BackgroundAgentJob{} = job} =
              wait_until(deadline(420_000), fn ->
                case Repo.get!(BackgroundAgentJob, job.id) do
-                 %BackgroundAgentJob{status: "succeeded"} = done ->
+                 %BackgroundAgentJob{status: :succeeded} = done ->
                    {:ok, done}
 
-                 %BackgroundAgentJob{status: status} when status in ["failed", "stopped"] ->
+                 %BackgroundAgentJob{status: status} when status in [:failed, :stopped] ->
                    {:ok, Repo.get!(BackgroundAgentJob, job.id)}
 
                  _pending ->
@@ -326,7 +326,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
                end
              end)
 
-    assert job.status == "succeeded",
+    assert job.status == :succeeded,
            "delegated job ended #{job.status}: #{inspect(job.error, limit: 5)}"
 
     assert get_in(job.result, ["output_text"]) =~ "ANKOLE_WF_JOB_PAYLOAD"
@@ -354,7 +354,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     process_ready!(job_wakeup)
 
-    call = wait_for_call_status!(run, 0, "succeeded", deadline(420_000))
+    call = wait_for_call_status!(run, 0, :succeeded, deadline(420_000))
     assert call.result == %{"ok" => true, "value" => "ANKOLE_WF_JOB_PAYLOAD"}
 
     completion = drive_run_to_completion!(run, agent)
@@ -395,7 +395,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     [dispatch_event] = task_dispatch_events!(run, expected: 1)
     process_ready!(dispatch_event)
 
-    call = wait_for_call_status!(run, 0, "sleeping", deadline(420_000))
+    call = wait_for_call_status!(run, 0, :sleeping, deadline(420_000))
     task_session_id = Workflow.task_session_id(call.id)
 
     job =
@@ -444,14 +444,14 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     assert reply_text!(cancel_reply) =~ "ANKOLE_WF_CANCEL_OK"
 
     run = Repo.get!(Run, run.id)
-    assert run.status == "cancelled"
-    assert %AgentCall{status: "cancelled"} = Repo.get!(AgentCall, call.id)
+    assert run.status == :cancelled
+    assert %AgentCall{status: :cancelled} = Repo.get!(AgentCall, call.id)
 
     # Terminal cleanup must stop the delegated job through its owner session.
-    assert {:ok, %BackgroundAgentJob{status: "stopped"}} =
+    assert {:ok, %BackgroundAgentJob{status: :stopped}} =
              wait_until(deadline(60_000), fn ->
                case Repo.get!(BackgroundAgentJob, job.id) do
-                 %BackgroundAgentJob{status: "stopped"} = stopped -> {:ok, stopped}
+                 %BackgroundAgentJob{status: :stopped} = stopped -> {:ok, stopped}
                  _live -> nil
                end
              end)
@@ -506,7 +506,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     process_ready!(dispatch_event)
 
     call = wait_for_terminal_call!(run, 0, deadline(60_000))
-    assert call.status == "failed"
+    assert call.status == :failed
     assert call.attempts == 0
     assert call.result["ok"] == false
     assert call.result["code"] == "workflow_task_model_profile_unavailable"
@@ -516,7 +516,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     assert reply_text!(reply) =~ "ANKOLE_WF_NULL_OK"
     run = Repo.get!(Run, run.id)
-    assert run.status == "completed"
+    assert run.status == :completed
     assert Ankole.JSON.decode!(run.result_text) == %{"failed" => true}
 
     %{input: input, run: run, call: call, reply: reply}
@@ -550,12 +550,12 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     assert {:ok, %Run{} = run} =
              wait_until(deadline(60_000), fn ->
                case Repo.get!(Run, run.id) do
-                 %Run{status: "running"} -> nil
+                 %Run{status: :running} -> nil
                  %Run{} = terminal -> {:ok, terminal}
                end
              end)
 
-    assert run.status == "failed"
+    assert run.status == :failed
     assert run.error["summary"] =~ "ANKOLE_WF_BOOM"
 
     failure_event =
@@ -613,7 +613,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     run = pump_run_to_terminal!(run, agent, deadline(900_000))
 
-    assert run.status == "completed",
+    assert run.status == :completed,
            "free orchestration run ended #{run.status}: #{inspect(run.error, limit: 10)}"
 
     # Each industry task must have delegated one Job and slept for it.
@@ -629,7 +629,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     assert jobs != [], "no BackgroundAgentJob was delegated from any Workflow task"
 
-    assert Enum.all?(jobs, &(&1.status == "succeeded")),
+    assert Enum.all?(jobs, &(&1.status == :succeeded)),
            "delegated jobs did not all succeed: " <>
              inspect(
                Enum.map(jobs, &{&1.id, &1.status, &1.execution_failures, &1.error}),
@@ -670,7 +670,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
   # caller, so the owner wakes exactly once at the end.
   defp pump_run_to_terminal!(run, agent, deadline) do
     case Repo.get!(Run, run.id) do
-      %Run{status: "running"} ->
+      %Run{status: :running} ->
         if System.monotonic_time(:millisecond) > deadline do
           flunk("workflow run #{run.id} did not reach a terminal status in time")
         end
@@ -692,8 +692,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
       Repo.all(
         from(event in Signal,
           where: event.agent_uid == ^agent.uid,
-          where: is_nil(event.completed_at),
-          where: event.input_state == "open",
+          where: event.status in [:queued, :running],
           where: event.available_at <= ^now,
           where: like(event.session_id, "wf_task:%") or like(event.session_id, "job:%"),
           order_by: [asc: event.available_at]
@@ -755,9 +754,9 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
       )
 
     case expected_terminal do
-      :failed -> assert run.status in ["running", "failed"]
-      :completed -> assert run.status in ["running", "completed"]
-      nil -> assert run.status == "running"
+      :failed -> assert run.status in [:running, :failed]
+      :completed -> assert run.status in [:running, :completed]
+      nil -> assert run.status == :running
     end
 
     {run, start_reply}
@@ -791,7 +790,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
              wait_until(deadline(360_000), fn ->
                calls = run_calls(run.id)
 
-               if Enum.all?(calls, &(&1.status in ["succeeded", "failed", "cancelled"])),
+               if Enum.all?(calls, &(&1.status in [:succeeded, :failed, :cancelled])),
                  do: {:ok, calls}
              end)
 
@@ -804,7 +803,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     assert {:ok, %Run{} = run} =
              wait_until(deadline(60_000), fn ->
                case Repo.get!(Run, run.id) do
-                 %Run{status: "running"} ->
+                 %Run{status: :running} ->
                    nil
 
                  %Run{} = terminal ->
@@ -812,7 +811,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
                end
              end)
 
-    assert run.status == "completed",
+    assert run.status == :completed,
            "workflow run ended #{run.status}: #{inspect(run.error, limit: 5)}"
 
     Repo.one!(
@@ -843,7 +842,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
           )
 
         case call do
-          %AgentCall{status: status} = call when status in ["succeeded", "failed", "cancelled"] ->
+          %AgentCall{status: status} = call when status in [:succeeded, :failed, :cancelled] ->
             {:ok, call}
 
           _call ->
@@ -859,7 +858,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     result =
       wait_until(deadline, fn ->
         case Repo.get(Signal, event.id) do
-          %Signal{completed_at: %DateTime{}} = completed -> {:ok, completed}
+          %Signal{status: :completed, completed_at: %DateTime{}} = completed -> {:ok, completed}
           _event -> nil
         end
       end)
@@ -880,7 +879,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
         case call do
           %AgentCall{status: ^status} = call -> {:ok, call}
-          %AgentCall{status: other} when other in ["failed", "cancelled"] -> {:ok, call}
+          %AgentCall{status: other} when other in [:failed, :cancelled] -> {:ok, call}
           _call -> nil
         end
       end)

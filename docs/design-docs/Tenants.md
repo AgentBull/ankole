@@ -16,9 +16,19 @@ keep the public slug contract.
 
 `Ankole.Tenants` owns tenant lifecycle. PostgreSQL owns tenant membership and
 lifecycle state. Tenant-owned schemas declare that ownership through
-`Ankole.Schema`; `Ankole.Repo` requires a tenant context and adds its SQL
+`Ankole.Ash.Resource`; `Ankole.Repo` requires a tenant context and adds its SQL
 predicate before executing queries. A missing context fails. Site-owned schemas
 and deliberate `Repo.across_tenants` operations remain explicit.
+
+The site-owned `Tenant` resource belongs to `Ankole.Tenants.Domain`. Its typed
+actions own profile validation and persistence. Profile writes cannot set
+suspension or deletion markers. Dedicated lifecycle actions set those markers;
+repeated deletion preserves the first deletion time. The final destroy action
+requires a deletion marker. `Tenants` retains the administration and tenant
+locks, scaffold transaction, protected-tenant checks, and deletion job. That job
+still removes external resources and durable child rows in their existing
+order before it calls the final destroy action. No generic cascade replaces
+that lifecycle.
 
 Oban job and peer tables are site-owned. The `oban` query option does not skip
 tenant checks on business tables, subqueries or CTEs. Struct writes validate
@@ -28,15 +38,61 @@ An explicit `Repo.across_tenants` context permits deliberate cross-tenant writes
 
 Raw SQL and SQL fragments do not receive tenant predicates from the Repo. Their
 domain owner supplies the predicates or declares the operation as site-wide.
-The tenancy guard test records reviewed functions and call counts for raw SQL,
-SQL query fragments and `Repo.across_tenants`. New calls require that list to be
-reviewed; changes within a recorded call still require normal code review.
 
 Repo applies ownership to every tenant-owned query source. The root receives
 a tenant predicate; tenant joins receive it in their `ON` condition, so an outer
 join retains its meaning. Subqueries, CTEs, unions, updates, and deletes use the
 same context. A tenant join from a site root also requires that context. Struct,
 bulk, and conflict writes validate ownership and cannot change a row's tenant.
+Nested Ecto queries receive the same recursive checks whether the source is a
+direct query or an `Ecto.SubQuery`. This includes the direct query sources that
+Ash uses for related resources and aggregates. Their declared schemas retain
+their site or tenant ownership.
+
+Tenant-owned Ash resources use attribute tenancy with `global? false`.
+`Ankole.Ash` supplies the process tenant before changeset preparation. Site-owned
+resources retain site scope and need no process tenant. Domains register resources;
+the existing context modules own their public operations. Ash assigns the tenant
+attribute. `ProcessTenant` checks the process context in changes and read preparations.
+A dedicated global read action also
+requires an explicit `Repo.across_tenants` block. UUID and Principal attributes
+use their existing domain codecs. Ash state fields use the transition list to
+configure the Ecto enum codec, so Ecto callers also receive canonical atoms.
+
+The resource transformer adds a tenant condition to each tenant resource upsert.
+`create_if_absent` retains the first row and returns it on a repeated creation
+in the same tenant. It never returns a conflicting row from another tenant.
+Creates that must reject a conflict retain their explicit action condition.
+For tenant resources, compilation rejects writable or accepted `tenant_id`,
+upserts without explicit fields, tenant ownership in those fields, and atomic
+upserts. Resource policies are forbidden for both site and tenant resources.
+The process check also rejects runtime overrides of the upsert contract. Global
+identities of tenant resources retain `all_tenants? true` and their existing PostgreSQL index names.
+The Repo scopes scalar queries inside batch rows and conflict queries. A CTE
+join uses its scoped inner query rather than a tenant column on its projection.
+
+Ash runs synchronously. All bulk actions use `Ankole.Ash`, which fixes their
+concurrency at one. Caller-owned updates use resource macros. `in_tx_update` disables transactions
+and atomic execution. Rejection occurs in changes or validations before database
+execution, so the caller can commit compensation. Transaction hooks and action
+hooks on these transitions are rejected. `atomic_in_tx_update` requires atomic
+execution in the caller's transaction. Actions declare their accepted inputs,
+filters, and changes without repeating the transaction flags. Standalone atomic
+writes retain their explicit action contract.
+Ecto migrations continue to own existing tables through `migrate? false` and
+install the SQL expression functions that Ash requires. The schema test checks
+resource constraint and index mappings against the selected edition's database.
+
+Work lock functions declare the table and row key with `lock_identity`. The test
+checker does not infer keys from query predicates. `Repo.lock_all` checks the
+actual returned keys for a selection after its single locking query. It retains
+query limits and `SKIP LOCKED` behavior. An application transaction with a tracked
+row lock and no declared identity fails in tests.
+
+Native constraints can reject a write after validation. They roll back the
+current transaction. After rollback, `Repo.transact` and `Repo.transaction`
+return the same normalized Ash error as the action facade. They preserve
+rollback reasons from other sources.
 
 PostgreSQL RLS is not enabled. Repo isolation tests cover every tenant schema,
 query forms, joins, bulk writes, upserts, and stale or foreign-tenant structs.
@@ -63,6 +119,16 @@ inside a tenant. Principal UIDs are opaque and globally unique. Attribution uses
 reference remains readable after deletion. A work authorization's `human_uid`
 is also text without a foreign key; WorkAccess checks its current existence,
 status and access version before admitting work.
+
+Every foreign key between tenant-owned tables includes the child and parent
+`tenant_id`. A globally unique row ID does not replace that ownership check.
+PostgreSQL rejects a foreign parent on direct resource actions, upserts, and raw
+SQL. Parent composite unique indexes support these foreign keys. The constraints
+retain their existing delete and update actions; `SET NULL` clears only the
+optional reference, and preserves the child's tenant. Site-owned browser proofs
+remain shared across Pods. Work authorizer references and historical attribution
+retain their existing explicit contracts without a foreign key. The migration
+rejects existing inconsistent ownership instead of moving or deleting that data.
 
 ## Site administration
 
@@ -166,7 +232,9 @@ check to an exact slug lookup without selecting a tenant context. Pod hosts and
 login use this lookup; existence checks and maintenance keep their own readers.
 
 Suspension blocks new work and Human OIDC access while preserving data. Already
-admitted attempts can finish, including recovery after a process exit. Cleanup,
+admitted attempts can finish, including recovery after a process exit. Workflow
+and Codex attempt admission hold a shared tenant lock before work locks. A claim
+that waits behind suspension checks the committed tenant state. Cleanup,
 Worker release and durable delivery continue. Recovery scanners do not turn a
 suspended tenant into an active one; admission still checks the durable tenant
 state before starting new work. Stopping work, repairing configuration and
@@ -227,3 +295,10 @@ creation, and identity binding in the same Repo transaction. It does not replace
 tenant isolation or create a second Principal model. Registration, email
 credentials, self-service pages, and billing belong to that product. Trusted site
 operators and control-plane plugins retain their infrastructure authority.
+
+Ash tenant upserts retain the action's declared tenant condition. A caller can
+select a nonempty subset of that action's declared update fields. It cannot
+add fields, change tenant ownership, or add atomics. This permits partial
+updates without a separate action for each field combination. An action that
+declares no update fields permits only that empty set; a caller cannot replace
+a nonempty declaration with an empty override.

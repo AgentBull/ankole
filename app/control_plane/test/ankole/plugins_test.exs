@@ -29,7 +29,6 @@ defmodule Ankole.PluginsTest do
   import ExUnit.CaptureLog
 
   setup do
-    allow_cache_database_access()
     AppConfigureRegistry.clear_for_test()
     Cache.clear_for_test()
 

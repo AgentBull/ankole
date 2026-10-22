@@ -32,7 +32,7 @@ defmodule Ankole.Sessions.Revisions do
     Repo.transact(fn repo ->
       with :ok <- Fence.check_in_tx(repo, run),
            {:ok, event} <- mark_revision_inputs_in_tx(repo, run, event, now),
-           %Signal{completed_at: nil, input_state: "open"} = target <-
+           %Signal{status: live_status} = target when live_status in [:queued, :running] <-
              Ankole.Signals.lock_signal_in_tx(repo, revision["signal_id"]),
            true <- target.agent_uid == run.agent_uid and target.session_id == run.session_id,
            {:ok, _} <-
@@ -80,42 +80,39 @@ defmodule Ankole.Sessions.Revisions do
 
       :cancel ->
         with {:ok, _} <- Ankole.Conversations.Delivery.Deletion.commit_source_in_tx(repo, event),
-             {:ok, _} <- repo.delete(event),
+             {:ok, _} <- Ankole.Ash.destroy(event, :remove),
              do: {:ok, :removed}
 
       {:update, attrs} ->
-        event |> Signal.changeset(attrs) |> repo.update()
+        event |> Ankole.Ash.update(:revise_input, attrs)
     end
   end
 
-  defp mark_revision_inputs_in_tx(repo, _run, event, now),
-    do: repo.update(Signal.changeset(event, %{last_attempt_at: now}))
+  defp mark_revision_inputs_in_tx(_repo, _run, event, now),
+    do: Ankole.Ash.update(event, :start_attempt, %{last_attempt_at: now})
 
-  defp apply_revision_input(repo, run, event, target, updated, now) do
-    event = Ankole.Signals.lock_signal_in_tx(repo, event.id)
+  defp apply_revision_input(repo, run, event, target, updated, _now) do
+    trigger = if target.id == run.signal_id, do: updated, else: run.event
 
-    with {:ok, _} <- repo.update(Signal.changeset(event, %{last_attempt_at: now})) do
-      trigger = if target.id == run.signal_id, do: updated, else: run.event
-
-      ids =
-        repo.all(
-          from s in Signal,
-            where:
-              s.agent_uid == ^run.agent_uid and s.session_id == ^run.session_id and
-                s.type == "input.revised" and s.producer == :kernel and
-                is_nil(s.completed_at) and not is_nil(s.last_attempt_at) and
-                fragment("? #>> '{revision,signal_id}'", s.data) == ^run.signal_id,
-            select: s.id
+    ids =
+      repo.all(
+        from(s in Signal,
+          where:
+            s.agent_uid == ^run.agent_uid and s.session_id == ^run.session_id and
+              s.type == "input.revised" and s.producer == :kernel and
+              s.status in [:queued, :running] and not is_nil(s.last_attempt_at) and
+              fragment("? #>> '{revision,signal_id}'", s.data) == ^run.signal_id,
+          select: s.id
         )
+      )
 
-      {:ok,
-       %{
-         Run.reset(run)
-         | event: trigger,
-           delivered_event: trigger,
-           steer_event_ids: Enum.uniq(run.steer_event_ids ++ ids ++ [event.id])
-       }}
-    end
+    {:ok,
+     %{
+       Run.reset(run)
+       | event: trigger,
+         delivered_event: trigger,
+         steer_event_ids: Enum.uniq(run.steer_event_ids ++ ids ++ [event.id])
+     }}
   end
 
   defp complete_removed_trigger_inputs(repo, run, event, now) do

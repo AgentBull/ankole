@@ -273,7 +273,7 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
       opening? =
         not Enum.any?(
           history,
-          &(&1.type == "checkpoint" or (&1.metadata || %{})["brain_context_pack_claimed"] == true)
+          &(&1.type == :checkpoint or (&1.metadata || %{})["brain_context_pack_claimed"] == true)
         )
 
       memory = %{

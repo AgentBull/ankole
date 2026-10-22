@@ -12,7 +12,6 @@ defmodule Ankole.I18nTest do
   alias Ankole.I18n.Resolver
 
   setup do
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
     :ok = Ankole.I18n.Catalog.reload_locales()
@@ -81,12 +80,10 @@ defmodule Ankole.I18nTest do
       {:ok, "zh-Hans-CN"} = I18n.put_default_locale("zh-Hans-CN")
 
       other =
-        %Ankole.Tenants.Tenant{}
-        |> Ankole.Tenants.Tenant.changeset(%{
+        create_tenant(%{
           slug: "locale-#{Ecto.UUID.generate()}",
           display_name: "Other locale"
         })
-        |> Repo.insert!()
 
       assert I18n.t("test.greeting", %{"name" => "Carol"}) == "你好，Carol！"
 

@@ -38,7 +38,15 @@ defmodule Ankole.Brain.SourcesTest do
     }
 
     assert {:ok, first} = Sources.create(attrs)
-    assert {:error, %Ecto.Changeset{}} = Sources.create(attrs)
+    assert {:error, %Ash.Error.Invalid{errors: errors}} = Sources.create(attrs)
+
+    assert [
+             %Ash.Error.Changes.InvalidAttribute{field: :kind, message: "has already been taken"} =
+               duplicate
+           ] = errors
+
+    assert duplicate.private_vars[:constraint] == "brain_sources_kind_upstream_key"
+    assert duplicate.private_vars[:constraint_type] == :unique
 
     assert {:ok, reused} =
              attrs
@@ -83,17 +91,19 @@ defmodule Ankole.Brain.SourcesTest do
 
     now = DateTime.utc_now(:microsecond)
 
-    page =
-      Repo.insert!(%Object{
-        slug: "concepts/source-archive-#{suffix}",
-        type: "concept",
-        title: "Source archive",
-        body: "Managed body",
-        meta: %{},
-        managed_by_source_id: library_source.id,
-        created_at: now,
-        updated_at: now
-      })
+    {:ok, page} =
+      Repo.transact(fn ->
+        Ankole.Ash.create(Object, :create_projection, %{
+          slug: "concepts/source-archive-#{suffix}",
+          type: "concept",
+          title: "Source archive",
+          body: "Managed body",
+          meta: %{},
+          managed_by_source_id: library_source.id,
+          created_at: now,
+          updated_at: now
+        })
+      end)
 
     assert {:ok, _archived_file} = Sources.archive(file_source.id)
     assert Repo.get!(Object, page.id).deleted_at == nil

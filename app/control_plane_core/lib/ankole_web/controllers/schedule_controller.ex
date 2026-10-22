@@ -7,7 +7,7 @@ defmodule AnkoleWeb.ScheduleController do
 
   use AnkoleWeb, :controller
 
-  action_fallback :fallback
+  action_fallback(:fallback)
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.Schedule
@@ -30,8 +30,9 @@ defmodule AnkoleWeb.ScheduleController do
   tags(["Schedule"])
   security([%{"consoleSession" => []}])
 
-  plug OpenAPISpex.Plug.CastAndValidate,
+  plug(OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
+  )
 
   operation(:index_cron,
     summary: "List recurring schedules",
@@ -356,7 +357,7 @@ defmodule AnkoleWeb.ScheduleController do
     )
   end
 
-  defp error(conn, %Ecto.Changeset{} = changeset) do
+  defp error(conn, %module{} = changeset) when module in [Ash.Changeset, Ash.Error.Invalid] do
     ConsoleErrors.changeset(conn, changeset)
   end
 

@@ -249,9 +249,7 @@ defmodule Ankole.Pod.FilesTest do
     {:ok, _} = Pages.delete(ctx.owner, page.id)
     page = Repo.get!(Ankole.Pod.Page, page.id)
 
-    Repo.update!(
-      Ankole.Pod.Page.changeset(page, %{purge_started_at: DateTime.utc_now(:microsecond)})
-    )
+    Ankole.Pod.PagesFixtures.update_record!(page, :begin_purge)
 
     assert :ok = Ankole.Pod.Jobs.PurgePage.run(%Oban.Job{args: %{"page_id" => page.id}})
 

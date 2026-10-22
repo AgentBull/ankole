@@ -383,12 +383,20 @@ defmodule Ankole.Kernel do
   def phone_normalize_e164(_phone), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
-  @spec program_run_nif(String.t(), String.t()) :: result(String.t())
-  def program_run_nif(_run_id, _request_json), do: :erlang.nif_error(:nif_not_loaded)
+  @spec program_handle_nif(pid()) :: reference()
+  def program_handle_nif(_owner), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
-  @spec program_cancel_nif(String.t()) :: result(boolean())
-  def program_cancel_nif(_run_id), do: :erlang.nif_error(:nif_not_loaded)
+  @spec program_run_nif(reference(), String.t()) :: reference() | tuple()
+  def program_run_nif(_handle, _request_json), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec program_cancel_nif(reference()) :: boolean()
+  def program_cancel_nif(_handle), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec program_active_runs_nif() :: non_neg_integer()
+  def program_active_runs_nif, do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
   def applet_start_nif(_run_id, _request_json), do: :erlang.nif_error(:nif_not_loaded)

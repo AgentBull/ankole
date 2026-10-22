@@ -6,7 +6,6 @@ defmodule Ankole.SystemConfigTest do
   alias Ankole.SystemConfig
 
   setup do
-    allow_cache_database_access()
     clear_app_configure()
 
     previous_tz = System.get_env("TZ")

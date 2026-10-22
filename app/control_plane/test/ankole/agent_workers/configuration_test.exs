@@ -2,7 +2,7 @@ defmodule Ankole.AgentWorkers.ConfigurationTest do
   use ExUnit.Case, async: true
 
   alias Ankole.AgentWorkers.Cloudflare
-  alias Ankole.AgentWorkers.FunctionCompute
+  alias Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute
   alias Ankole.AgentWorkers.Kubernetes
   alias Ankole.AgentWorkers.Providers.Configuration
   alias Ankole.AgentWorkers.WorkerBootstrap

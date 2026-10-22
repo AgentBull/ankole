@@ -29,7 +29,7 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
 
       assert [record] = usage_records()
       assert record.subject_uid == agent.uid
-      assert record.origin == "agent"
+      assert record.origin == :agent
       assert record.model == "openai-token-quota/gpt-5.5"
       assert record.input_tokens == 120
       assert record.output_tokens == 30
@@ -59,7 +59,7 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
                  request_context: request_context
                )
 
-      assert [%UsageRecord{origin: "codex"} = record] = usage_records()
+      assert [%UsageRecord{origin: :codex} = record] = usage_records()
       assert record.job_id == 4321
       assert record.attempt == 2
       assert record.signal_id == signal_id
@@ -77,7 +77,7 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
                  request_context: %{"session_id" => "room-1", "signal_id" => signal_id}
                )
 
-      assert [%UsageRecord{origin: "agent"} = record] = usage_records()
+      assert [%UsageRecord{origin: :agent} = record] = usage_records()
       assert record.session_id == "room-1"
       assert record.signal_id == signal_id
       assert record.job_id == nil
@@ -140,7 +140,7 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
       assert "response.completed" in Enum.map(events, & &1["type"])
 
       assert [record] = usage_records()
-      assert record.origin == "agent"
+      assert record.origin == :agent
       assert record.input_tokens == 7
       assert record.output_tokens == 11
     end
@@ -272,7 +272,7 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
                )
 
       assert [record] = usage_records()
-      assert record.origin == "codex"
+      assert record.origin == :codex
       assert record.input_tokens == 60
       assert record.output_tokens == 40
     end
@@ -320,7 +320,7 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
       refute Map.has_key?(drain_socket_stream(state), :active_stream)
 
       assert [record] = usage_records()
-      assert record.origin == "agent"
+      assert record.origin == :agent
       assert record.input_tokens == 5
       assert record.output_tokens == 3
     end
@@ -336,15 +336,14 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
                  "limit_tokens" => 1
                })
 
-      Repo.insert!(
-        UsageRecord.changeset(%UsageRecord{}, %{
-          subject_uid: agent.uid,
-          origin: "agent",
-          model: "openai-token-quota/gpt-5.5",
-          input_tokens: 1,
-          output_tokens: 0
-        })
-      )
+      assert {:ok, _record} =
+               Ankole.Ash.create(UsageRecord, :record_round, %{
+                 subject_uid: agent.uid,
+                 origin: "agent",
+                 model: "openai-token-quota/gpt-5.5",
+                 input_tokens: 1,
+                 output_tokens: 0
+               })
 
       assert {:push, {:text, pushed}, state} =
                AIGatewayResponsesSocket.handle_in({socket_request(), [opcode: :text]}, %{
@@ -416,15 +415,14 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
                "limit_tokens" => 1
              })
 
-    Repo.insert!(
-      UsageRecord.changeset(%UsageRecord{}, %{
-        subject_uid: agent_uid,
-        origin: "agent",
-        model: "openai-token-quota/gpt-5.5",
-        input_tokens: 1,
-        output_tokens: 0
-      })
-    )
+    assert {:ok, _record} =
+             Ankole.Ash.create(UsageRecord, :record_round, %{
+               subject_uid: agent_uid,
+               origin: "agent",
+               model: "openai-token-quota/gpt-5.5",
+               input_tokens: 1,
+               output_tokens: 0
+             })
   end
 
   defp configure_chatgpt_profile!(agent_uid, base_url) do

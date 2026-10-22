@@ -159,6 +159,16 @@ defmodule AnkoleWeb.WebhookEndpointController do
     ConsoleErrors.render(conn, 422, "validation_failed", "#{key} must be a UUID")
   end
 
+  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid] do
+    ConsoleErrors.render(
+      conn,
+      422,
+      "invalid_webhook_endpoint",
+      "webhook endpoint request is invalid",
+      Ankole.Ash.validation_details(error)
+    )
+  end
+
   defp error(conn, reason) do
     ConsoleErrors.render(
       conn,

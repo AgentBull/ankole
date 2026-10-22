@@ -1,12 +1,10 @@
 defmodule Ankole.Sessions.JobDriver do
   @moduledoc "Observes and reconnects a durable Codex Job. The Job owns execution."
   @behaviour :gen_statem
-  require Logger
 
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.CodexJob
   alias Ankole.Sessions.JobTurnRef
-  alias Ankole.Sessions.Run
   alias Ankole.Sessions.CodexJob.Attempt
   alias Ankole.{Observability, Repo}
   alias Ankole.Signals.Signal
@@ -31,13 +29,21 @@ defmodule Ankole.Sessions.JobDriver do
     :ok = Ankole.Sessions.Events.subscribe_input(key.agent_uid, key.session_id)
     Phoenix.PubSub.subscribe(Ankole.PubSub, AgentWorkers.topic(key.agent_uid))
 
-    {:ok, :idle, %{key: key, event: nil, attempt: nil, tasks: %{}, mailbox_dirty: false},
-     [{:next_event, :internal, :rebuild}]}
+    {:ok, :idle,
+     %{
+       key: key,
+       event: nil,
+       attempt: nil,
+       tasks: %{},
+       mailbox_dirty: false,
+       deferred_reason: nil,
+       deferred_mode: nil
+     }, [{:next_event, :internal, :rebuild}]}
   end
 
   @impl true
   def handle_event(:internal, :rebuild, _state, data),
-    do: result(:rebuild, Run.rebuild(data.key), :idle, data)
+    do: result(:rebuild, CodexJob.rebuild(data.key), :idle, data)
 
   def handle_event(:internal, :admit, _state, data),
     do: result(:admit, Admission.admit(data.key, data.event), :admitting, data)
@@ -58,6 +64,20 @@ defmodule Ankole.Sessions.JobDriver do
 
   def handle_event(:info, {:worker_changed, uid}, state, %{key: %{agent_uid: uid}} = data)
       when state in [:starting, :running], do: {:keep_state, observe(data)}
+
+  def handle_event(
+        :info,
+        {:worker_changed, uid},
+        :deferred,
+        %{key: %{agent_uid: uid}, deferred_reason: :agent_worker_unavailable} = data
+      ) do
+    if worker_ready_for_mode?(uid, data.deferred_mode) do
+      {:next_state, :admitting, %{data | deferred_reason: nil, deferred_mode: nil},
+       [{:next_event, :internal, :admit}]}
+    else
+      :keep_state_and_data
+    end
+  end
 
   def handle_event(:info, {:worker, :turn_accepted, payload}, :starting, data) do
     if payload.turn == JobTurnRef.to_proto(data.attempt.job_ref),
@@ -82,7 +102,8 @@ defmodule Ankole.Sessions.JobDriver do
            agent_uid: data.key.agent_uid,
            session_id: data.key.session_id
          ) do
-      %Signal{producer: :kernel, type: "command.steer", input_state: "open", completed_at: nil} ->
+      %Signal{producer: :kernel, type: "command.steer", status: live_status}
+      when live_status in [:queued, :running] ->
         {:keep_state, task(data, :mailbox, fn -> CodexJob.mailbox(data.attempt) end)}
 
       _ ->
@@ -120,21 +141,39 @@ defmodule Ankole.Sessions.JobDriver do
     do: {:next_state, :idle, data, [{:state_timeout, @idle_ms, :retire}]}
 
   defp result(:rebuild, {:ok, %{event: event, delay_ms: delay}}, _, data) do
+    data = %{data | event: event, deferred_reason: nil, deferred_mode: nil}
+
     if delay > 0,
-      do: {:next_state, :deferred, %{data | event: event}, [{:state_timeout, delay, :admit}]},
-      else: {:next_state, :admitting, %{data | event: event}, [{:next_event, :internal, :admit}]}
+      do: {:next_state, :deferred, data, [{:state_timeout, delay, :admit}]},
+      else: {:next_state, :admitting, data, [{:next_event, :internal, :admit}]}
   end
 
   defp result(:admit, {:ok, %Attempt{} = attempt}, _, data) do
-    start(%{data | attempt: Observability.attach_turn(attempt)})
+    start(%{
+      data
+      | attempt: Observability.attach_turn(attempt),
+        deferred_reason: nil,
+        deferred_mode: nil
+    })
   end
 
-  defp result(:admit, {:ok, %{status: status, signal: event}}, _, data)
+  defp result(
+         :admit,
+         {:ok, %{status: status, signal: event, retry_at: retry_at} = outcome},
+         _,
+         data
+       )
        when status in [:deferred, :waiting_for_worker] do
     delay =
-      max(0, DateTime.diff(event.available_at, DateTime.utc_now(:microsecond), :millisecond))
+      max(0, DateTime.diff(retry_at, DateTime.utc_now(:microsecond), :millisecond))
 
-    {:next_state, :deferred, %{data | event: event}, [{:state_timeout, delay, :admit}]}
+    {:next_state, :deferred,
+     %{
+       data
+       | event: event,
+         deferred_reason: Map.get(outcome, :reason),
+         deferred_mode: Map.get(outcome, :mode)
+     }, [{:state_timeout, delay, :admit}]}
   end
 
   defp result(:admit, {:ok, _}, _, data), do: rebuild(data)
@@ -157,8 +196,10 @@ defmodule Ankole.Sessions.JobDriver do
     do: {:stop, :normal, data}
 
   defp result(:mailbox, value, _, %{mailbox_dirty: true} = data) do
-    if match?({:error, _}, value),
-      do: Logger.warning("Job driver mailbox failed: #{inspect(value)}")
+    case value do
+      {:error, reason} -> log_failure(:mailbox, reason)
+      _ -> :ok
+    end
 
     {:keep_state,
      task(%{data | mailbox_dirty: false}, :mailbox, fn -> CodexJob.mailbox(data.attempt) end),
@@ -166,12 +207,20 @@ defmodule Ankole.Sessions.JobDriver do
   end
 
   defp result(kind, {:error, reason}, _, data) when kind in [:start, :mailbox, :observe] do
-    Logger.warning("Job driver #{kind} failed: #{inspect(reason)}")
+    log_failure(kind, reason)
     {:keep_state, data, [{:state_timeout, @poll_ms, :poll}]}
   end
 
   defp result(_, {:error, reason}, _, data), do: {:stop, {:admission_failed, reason}, data}
   defp result(_, _, _, data), do: {:keep_state, data}
+
+  defp log_failure(operation, reason) do
+    Ankole.Logging.warning(
+      "sessions.job_driver.operation_failed",
+      "Job driver operation failed",
+      Map.put(Ankole.Logging.failure_fields(:error, reason, []), :operation, operation)
+    )
+  end
 
   defp start(data),
     do:
@@ -197,9 +246,23 @@ defmodule Ankole.Sessions.JobDriver do
     clear_tasks(data)
     if data.attempt, do: Observability.finish_turn(data.attempt.span, outcome: "job_finished")
 
-    {:next_state, :idle, %{data | attempt: nil, event: nil, tasks: %{}, mailbox_dirty: false},
-     [{:next_event, :internal, :rebuild}]}
+    {:next_state, :idle,
+     %{
+       data
+       | attempt: nil,
+         event: nil,
+         tasks: %{},
+         mailbox_dirty: false,
+         deferred_reason: nil,
+         deferred_mode: nil
+     }, [{:next_event, :internal, :rebuild}]}
   end
+
+  defp worker_ready_for_mode?(uid, "adopt"),
+    do: match?({:ok, _}, AgentWorkers.connected_worker(uid))
+
+  defp worker_ready_for_mode?(uid, _mode),
+    do: match?({:ok, _}, AgentWorkers.ready_worker(uid))
 
   defp clear_tasks(data) do
     Enum.each(data.tasks, fn {ref, {_, pid}} ->

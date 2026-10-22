@@ -20,7 +20,15 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
   setup do
     %{principal: agent} = agent_fixture()
     {:ok, _} = SchemaPacks.install_packs([])
-    assert :ok = Objects.ensure_canonical_object_in_tx(Repo, agent.uid, :agent, "Review agent")
+
+    assert {:ok, :canonical} =
+             Repo.transact(fn repo ->
+               :ok =
+                 Objects.ensure_canonical_object_in_tx(repo, agent.uid, :agent, "Review agent")
+
+               {:ok, :canonical}
+             end)
+
     fact!(agent, "agents/#{agent.uid}", "AGENT_MEMORY")
 
     {:ok, object} =
@@ -180,7 +188,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
       Repo.get_by!(Message, conversation_id: context.conversation.id, status: "generating")
 
     checkpoint = Repo.get!(Message, generating.previous_message_id)
-    assert checkpoint.type == "checkpoint"
+    assert checkpoint.type == :checkpoint
     refute Map.has_key?(checkpoint.metadata, "issuer")
     assert_task_memory!(generating.previous_message_id)
     refute Ankole.JSON.encode!(generating.content) =~ "AGENT_MEMORY"
@@ -328,7 +336,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
                request(context, [])
              )
 
-    assert Repo.get!(Message, fourth.message.previous_message_id).type == "message"
+    assert Repo.get!(Message, fourth.message.previous_message_id).type == :message
     assert memory_count(fourth_request.response_context.request["input"]) == 1
     refute Map.has_key?(fourth.message.metadata, "brain_injection")
     assert Repo.aggregate(CompactionArtifact, :count) == 2

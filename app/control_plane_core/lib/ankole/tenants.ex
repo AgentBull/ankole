@@ -82,24 +82,35 @@ defmodule Ankole.Tenants do
       result =
         Repo.with_tenant(tenant.id, fn ->
           try do
-            fun.()
+            case fun.() do
+              {:error, reason} = error ->
+                log_fanout_failure(tenant.id, :error, reason, [])
+                error
+
+              result ->
+                result
+            end
           rescue
-            error -> {:error, {:exception, Exception.message(error)}}
+            error ->
+              log_fanout_failure(tenant.id, :error, error, __STACKTRACE__)
+              {:error, {:exception, Exception.message(error)}}
           catch
-            kind, reason -> {:error, {kind, reason}}
+            kind, reason ->
+              log_fanout_failure(tenant.id, kind, reason, __STACKTRACE__)
+              {:error, {kind, reason}}
           end
         end)
 
-      if match?({:error, _}, result) do
-        Ankole.Logging.warning(
-          "tenants.site_fanout_failed",
-          "Site work failed for one tenant",
-          %{tenant_id: tenant.id, reason: inspect(result)}
-        )
-      end
-
       {tenant.id, result}
     end)
+  end
+
+  defp log_fanout_failure(tenant_id, kind, reason, stacktrace) do
+    Ankole.Logging.warning(
+      "tenants.site_fanout_failed",
+      "Site work failed for one tenant",
+      Ankole.Logging.failure_fields(kind, reason, stacktrace) |> Map.put(:tenant_id, tenant_id)
+    )
   end
 
   @doc false
@@ -148,20 +159,23 @@ defmodule Ankole.Tenants do
     if accepting_work?(id), do: :ok, else: {:error, :tenant_suspended}
   end
 
+  @doc "Serializes new attempt admission with tenant suspension and deletion."
+  def check_work_admission_in_tx(repo, id) do
+    case repo.one(from(tenant in Tenant, where: tenant.id == ^id, lock: "FOR SHARE")) do
+      %Tenant{} = tenant -> check_work_admission(tenant)
+      nil -> {:error, :tenant_suspended}
+    end
+  end
+
   def create(attrs) do
     Repo.transact(fn repo ->
       with {:ok, tenant} <-
-             %Tenant{}
-             |> Tenant.changeset(Map.take(attrs, [:slug, :display_name]))
-             |> repo.insert() do
+             Ankole.Ash.create(Tenant, :create_in_tx, Map.take(attrs, [:slug, :display_name])) do
         Repo.with_tenant(tenant.id, fn ->
           with :ok <- ensure_scaffold(tenant),
                :ok <- Ankole.Pod.Access.initialize_space(repo),
                {:ok, _} <-
-                 Ankole.Brain.SchemaPacks.install_packs(
-                   Map.get(attrs, :brain_packs, []),
-                   repo: repo
-                 ) do
+                 Ankole.Brain.SchemaPacks.install_packs(Map.get(attrs, :brain_packs, [])) do
             {:ok, tenant}
           end
         end)
@@ -195,14 +209,11 @@ defmodule Ankole.Tenants do
   defp ensure_system_principal(repo) do
     case repo.get_by(Principal, type: :system) do
       nil ->
-        %Principal{}
-        |> Principal.changeset(%{
+        Ankole.Ash.create(Principal, :create_in_tx, %{
           uid: Ankole.Kernel.gen_uuid_v7(),
           type: :system,
-          status: :active,
           display_name: "System"
         })
-        |> repo.insert()
 
       principal ->
         {:ok, principal}
@@ -229,9 +240,7 @@ defmodule Ankole.Tenants do
       with {:ok, _} <- lock_administration(repo),
            {:ok, tenant} <- lock_tenant(repo, id),
            :ok <- not_deleting(tenant) do
-        tenant
-        |> Tenant.changeset(Map.take(attrs, [:slug, :display_name]))
-        |> repo.update()
+        Ankole.Ash.update(tenant, :profile_in_tx, Map.take(attrs, [:slug, :display_name]))
       end
     end)
   end
@@ -242,7 +251,7 @@ defmodule Ankole.Tenants do
            {:ok, tenant} <- lock_tenant(repo, id),
            :ok <- not_deleting(tenant),
            :ok <- not_privileged(tenant, privileged_id) do
-        tenant |> Ecto.Changeset.change(suspended_at: DateTime.utc_now()) |> repo.update()
+        Ankole.Ash.update(tenant, :suspend_in_tx, %{})
       end
     end)
   end
@@ -252,7 +261,7 @@ defmodule Ankole.Tenants do
       with {:ok, _} <- lock_administration(repo),
            {:ok, tenant} <- lock_tenant(repo, id),
            :ok <- not_deleting(tenant) do
-        tenant |> Ecto.Changeset.change(suspended_at: nil) |> repo.update()
+        Ankole.Ash.update(tenant, :resume_in_tx, %{})
       end
     end)
   end
@@ -262,10 +271,7 @@ defmodule Ankole.Tenants do
       with {:ok, privileged_id} <- lock_administration(repo),
            {:ok, tenant} <- lock_tenant(repo, id),
            :ok <- not_privileged(tenant, privileged_id),
-           {:ok, tenant} <-
-             tenant
-             |> Ecto.Changeset.change(deleting_at: tenant.deleting_at || DateTime.utc_now())
-             |> repo.update(),
+           {:ok, tenant} <- Ankole.Ash.update(tenant, :begin_delete_in_tx, %{}),
            {:ok, _} <- Ankole.Tenants.Jobs.Delete.new(%{tenant_id: tenant.id}) |> Oban.insert() do
         {:ok, tenant}
       end
@@ -311,8 +317,9 @@ defmodule Ankole.Tenants do
       Ankole.Pod.Pages.lock_tree()
 
       if group = repo.get_by(Group, name: Root.admin_group_name(), built_in: true) do
-        repo.delete_all(from grant in Grant, where: grant.group_id == ^group.id)
-        repo.delete!(group)
+        repo.delete_all(from(grant in Grant, where: grant.group_id == ^group.id))
+
+        {:ok, _} = Ankole.Ash.destroy(group, :delete_in_tx)
       end
     end)
   end

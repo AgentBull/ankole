@@ -53,8 +53,15 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
     def handle_call({:owns_event, id}, _from, state),
       do: {:reply, state.signal_id == id, state}
 
+    def handle_call(:settle, _from, state) do
+      {:stop, :normal, state} = settle(state)
+      {:stop, :normal, :ok, state}
+    end
+
     @impl true
-    def handle_info(:settle, state) do
+    def handle_info(:settle, state), do: settle(state)
+
+    defp settle(state) do
       :ok =
         PreviewState.record_provider_message(
           state.signal_id,
@@ -166,7 +173,7 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
       content = assistant_content("final answer")
 
       assert {:ok, completed} = ResponseCommit.commit_complete(message, content)
-      assert completed.status == "complete"
+      assert completed.status == :complete
       assert_turn_completed(turn_ref, completed)
 
       intent = Repo.get_by!(Intent, outbound_key: "ai-reply:#{message.id}")
@@ -198,7 +205,8 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
       %{message: message, event: event, turn_ref: turn_ref} = start_channel_reply_response_run()
 
       event
-      |> Signal.changeset(%{
+      |> AshPostgres.DataLayer.to_ecto()
+      |> Ecto.Changeset.change(%{
         type: "background_agent_job.failed",
         data: %{
           "title" => "第二版 deep research",
@@ -332,7 +340,8 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
 
       intent =
         intent
-        |> Intent.changeset(%{payload: stale_payload})
+        |> AshPostgres.DataLayer.to_ecto()
+        |> Ecto.Changeset.change(%{payload: stale_payload})
         |> Repo.update!()
 
       parent = self()
@@ -779,7 +788,7 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
                )
 
       preview_monitor = Process.monitor(preview_pid)
-      send(preview_pid, :settle)
+      assert :ok = GenServer.call(preview_pid, :settle)
       assert_receive {:DOWN, ^preview_monitor, :process, ^preview_pid, :normal}
 
       assert {:ok,
@@ -869,10 +878,11 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
 
       job =
         Repo.one!(
-          from job in Oban.Job,
+          from(job in Oban.Job,
             where:
               job.worker == "Ankole.Conversations.Delivery.Jobs.Dispatch" and
                 fragment("?->>'outbound_key'", job.args) == ^intent.outbound_key
+          )
         )
 
       assert :ok = Ankole.Conversations.Delivery.Jobs.Dispatch.perform(job)
@@ -884,6 +894,34 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
                wait_for_entry!(completed.id)
 
       assert ai_message_id == completed.id
+    end
+
+    test "Dispatch cancels an intent whose stored reply_presentation state is non-terminal" do
+      %{message: message, turn_ref: turn_ref} = start_channel_reply_response_run()
+
+      assert {:ok, completed} =
+               ResponseCommit.commit_complete(message, assistant_content("corrupted final"))
+
+      assert_turn_completed(turn_ref, completed)
+
+      intent = Repo.get_by!(Intent, outbound_key: "ai-reply:#{message.id}")
+
+      corrupted_payload =
+        put_in(intent.payload, ["reply_presentation", "state"], "working")
+
+      intent
+      |> AshPostgres.DataLayer.to_ecto()
+      |> Ecto.Changeset.change(%{payload: corrupted_payload})
+      |> Repo.update!()
+
+      assert {:cancel, {:reply_presentation_not_terminal, "working"}} =
+               Ankole.Conversations.Delivery.Jobs.Dispatch.run(%Oban.Job{
+                 args: %{
+                   "agent_uid" => intent.agent_uid,
+                   "binding_name" => intent.binding_name,
+                   "outbound_key" => intent.outbound_key
+                 }
+               })
     end
   end
 

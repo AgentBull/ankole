@@ -12,7 +12,7 @@ defmodule Ankole.AgentWorkers.TurnControlTest do
       route = unique_route()
       :ok = WorkerRoute.register_local_worker(route, self())
       on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
-      assert {:ok, %AgentWorker{state: "ready"}} = admit_worker(route, %{worker_id: agent.uid})
+      assert {:ok, %AgentWorker{state: :ready}} = admit_worker(route, %{worker_id: agent.uid})
 
       turn_ref = fence(agent.uid)
       stop = %{turn_ref: turn_ref, verb: :stop, reason: "command.stop", payload: %{}}
@@ -41,13 +41,13 @@ defmodule Ankole.AgentWorkers.TurnControlTest do
     test "a connection that cannot receive is marked unusable" do
       %{principal: agent} = agent_fixture()
       route = unique_route()
-      assert {:ok, %AgentWorker{state: "ready"}} = admit_worker(route, %{worker_id: agent.uid})
+      assert {:ok, %AgentWorker{state: :ready}} = admit_worker(route, %{worker_id: agent.uid})
 
       control = %{turn_ref: fence(agent.uid), verb: :retry, reason: "command.retry", payload: %{}}
 
       assert :ok = TurnControl.dispatch([control])
 
-      assert %AgentWorker{state: "stale", transport_route: nil} =
+      assert %AgentWorker{state: :stale, transport_route: nil} =
                Repo.get!(AgentWorker, agent.uid)
     end
 

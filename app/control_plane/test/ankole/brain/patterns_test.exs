@@ -13,7 +13,6 @@ defmodule Ankole.Brain.PatternsTest do
   alias Ankole.Brain.Schemas.ObjectVersion
 
   setup context do
-    allow_cache_database_access()
     AppConfigure.Cache.clear_for_test()
     on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
     {:ok, _result} = SchemaPacks.install_packs([])
@@ -150,7 +149,7 @@ defmodule Ankole.Brain.PatternsTest do
     valid = pattern(Enum.take(context.slugs, 3))
     respond(context.state, [valid, Map.put(valid, "topic_slug", "existing-note")])
     assert %{status: :failed, pages: 0, errors: [:pattern_target_conflict]} = Patterns.run()
-    assert [^note] = pages()
+    assert_persisted_equal(pages(), [note])
     assert Repo.aggregate(Link, :count) == 0
     assert Repo.aggregate(ObjectVersion, :count) == 0
   end

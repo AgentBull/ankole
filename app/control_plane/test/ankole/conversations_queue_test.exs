@@ -277,6 +277,8 @@ defmodule Ankole.ConversationsQueueTest do
                "task" => "Prepare the original report."
              })
 
+    Repo.update!(Ecto.Changeset.change(job, status: :running, attempts: 1))
+
     assert {:ok, _} =
              Ankole.BackgroundAgentJobs.commit_status_with_wakeup(job.id, ctx.agent.uid, %{
                "status" => "running",
@@ -414,7 +416,7 @@ defmodule Ankole.ConversationsQueueTest do
              Run.finalize(ctx.run, :dead_letter, %{"code" => "test_failure"})
 
     assert notice.kind == :notice
-    assert Repo.reload!(ctx.input).input_state == "dead_letter"
+    assert Repo.reload!(ctx.input).status == :dead_letter
     assert {:ok, detail} = Conversations.get(ctx.human.uid, ctx.id)
     assert detail.retryable_message_id == notice.id
 

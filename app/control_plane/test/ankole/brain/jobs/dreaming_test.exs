@@ -7,7 +7,6 @@ defmodule Ankole.Brain.Jobs.DreamingTest do
   alias Ankole.Brain.Jobs.Dreaming
 
   setup do
-    allow_cache_database_access()
     AppConfigure.Cache.clear_for_test()
     on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
     :ok

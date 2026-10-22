@@ -35,7 +35,7 @@ defmodule Ankole.Setup.Completion do
     transact_result =
       Repo.transact(fn repo ->
         with {:ok, root} <- AuthZ.root_init_admin(principal_uid, repo),
-             :ok <- materialize_brain_packs(repo, brain_packs),
+             :ok <- materialize_brain_packs(brain_packs),
              {:ok, completed_write} <- Config.put_completed_in_tx(repo, true) do
           {:ok, {root, completed_write}}
         end
@@ -51,8 +51,8 @@ defmodule Ankole.Setup.Completion do
   # The Brain schema selection materializes inside the completion
   # transaction: a failed materialization rolls back the completed flag. A
   # repeated first-admin claim finds the packs installed and continues.
-  defp materialize_brain_packs(repo, brain_packs) do
-    case Ankole.Brain.SchemaPacks.install_packs(brain_packs, repo: repo) do
+  defp materialize_brain_packs(brain_packs) do
+    case Ankole.Brain.SchemaPacks.install_packs(brain_packs) do
       {:ok, _result} -> :ok
       {:error, _reason} = error -> error
     end

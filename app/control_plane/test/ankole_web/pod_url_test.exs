@@ -1,11 +1,13 @@
 defmodule AnkoleWeb.PodURLTest do
   use AnkoleWeb.ConnCase, async: false
+  @moduletag host: :pod
 
   alias Ankole.{Kernel, Repo}
   alias AnkoleWeb.PodURL
 
+  @host_policy Application.compile_env(:ankole, :host_policy)
+
   setup %{tenant: tenant} do
-    allow_cache_database_access()
     Ankole.AppConfigure.Cache.clear_for_test()
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
@@ -31,7 +33,7 @@ defmodule AnkoleWeb.PodURLTest do
 
     html = html_response(rendered, 200)
     assert html =~ ~s(name="ankole-pod" content="#{ctx.tenant.id}")
-    assert html =~ ~s(http://assets.test/entrypoints/pod.tsx)
+    assert html =~ pod_entry_source()
     assert get_resp_header(rendered, "cache-control") == ["private, no-store"]
 
     full = rendered |> recycle() |> get("/conversations/#{chat}")
@@ -44,24 +46,50 @@ defmodule AnkoleWeb.PodURLTest do
     path = "/pages/" <> Kernel.uuid_shorten(Kernel.gen_uuid_v7())
     conn = ctx.conn |> Map.put(:host, ctx.tenant.slug <> ".ankole.localhost") |> get(path)
     login = redirected_to(conn)
-    assert login =~ "/sessions/new?flow="
-    flow = login |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.fetch!("flow")
 
-    assert {:ok, %{tenant_id: id, request: %{"return_to" => ^path}}} =
-             AnkoleWeb.Session.login_transaction(conn, flow)
+    if @host_policy do
+      uri = URI.parse(login)
+      assert URI.to_string(%{uri | path: nil, query: nil}) == PodURL.site_origin(conn)
+      assert uri.path == "/account/enter"
+      query = URI.decode_query(uri.query)
+      assert query["return_to"] == path
+      assert query["tenant_id"] == ctx.tenant.id
 
-    assert id == ctx.tenant.id
-    assert conn |> recycle() |> get(login) |> html_response(200) =~ "entrypoints/auth.tsx"
+      assert %{"return_to" => ^path, "tenant_id" => tenant_id} =
+               AnkoleWeb.Session.handoff_state(recycle(conn), query["state"])
 
-    assert Enum.any?(
-             get_resp_header(conn, "set-cookie"),
-             &String.contains?(String.downcase(&1), "domain=ankole.localhost")
-           )
+      assert tenant_id == ctx.tenant.id
+
+      refute Enum.any?(
+               get_resp_header(conn, "set-cookie"),
+               &String.contains?(String.downcase(&1), "domain=")
+             )
+    else
+      assert login =~ "/sessions/new?flow="
+
+      flow =
+        login |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.fetch!("flow")
+
+      assert {:ok, %{tenant_id: id, request: %{"return_to" => ^path}}} =
+               AnkoleWeb.Session.login_transaction(conn, flow)
+
+      assert id == ctx.tenant.id
+      assert conn |> recycle() |> get(login) |> html_response(200) =~ "entrypoints/auth.tsx"
+
+      assert Enum.any?(
+               get_resp_header(conn, "set-cookie"),
+               &String.contains?(String.downcase(&1), "domain=ankole.localhost")
+             )
+    end
   end
 
   test "unknown tenants and noncanonical short UUID aliases fail closed", ctx do
+    unknown =
+      ctx.conn |> Map.put(:host, "missing-#{Kernel.gen_uuid()}.ankole.localhost") |> get("/")
+
+    assert response(unknown, if(@host_policy, do: 400, else: 404))
+
     for {host, path} <- [
-          {"missing-#{Kernel.gen_uuid()}.ankole.localhost", "/"},
           {ctx.tenant.slug <> ".ankole.localhost", "/pages/AAAAAAAAAAAAAAAAAAAAAB"},
           {ctx.tenant.slug <> ".ankole.localhost", "/conversations/not-a-uuid"}
         ] do
@@ -74,7 +102,10 @@ defmodule AnkoleWeb.PodURLTest do
       tenant = Ankole.DataCase.create_tenant()
       Repo.update!(Ecto.Changeset.change(tenant, %{field => DateTime.utc_now()}))
 
-      assert :error = PodURL.local_host(URI.parse("http://#{tenant.slug}.ankole.localhost"))
+      assert :error =
+               AnkoleWeb.Plugs.RequestHost.classify_uri(
+                 URI.parse("http://#{tenant.slug}.ankole.localhost")
+               )
 
       Repo.without_tenant(fn ->
         conn = put_req_header(build_conn(), "x-ankole-pod", tenant.id)
@@ -91,7 +122,9 @@ defmodule AnkoleWeb.PodURLTest do
       response = get(conn, "/content/" <> scope)
       target = PodURL.origin(conn, ctx.tenant) <> "/content/space"
       assert redirected_to(response) == target
-      assert response |> recycle() |> get(target) |> html_response(200) =~ "entrypoints/pod.tsx"
+
+      assert response |> recycle() |> get(target) |> html_response(200) =~
+               pod_entry_source()
     end
   end
 
@@ -111,47 +144,101 @@ defmodule AnkoleWeb.PodURLTest do
 
     Repo.put_tenant_id(ctx.tenant.id)
 
-    assert PodURL.local_host(URI.parse("http://#{ctx.tenant.slug}.ankole.localhost:4000")) ==
+    assert AnkoleWeb.Plugs.RequestHost.classify_uri(
+             URI.parse("http://#{ctx.tenant.slug}.ankole.localhost:4000")
+           ) ==
              {:ok, {:pod, ctx.tenant.id}}
   end
 
-  test "a login flow cannot render on another tenant's host even with its proof cookies", ctx do
-    foreign = Ankole.DataCase.create_tenant()
-    conn = ctx.conn |> Map.put(:host, ctx.tenant.slug <> ".ankole.localhost") |> get("/")
-    login = redirected_to(conn)
+  if @host_policy do
+    test "a host handoff rejects another tenant without consuming the valid code", ctx do
+      foreign = Ankole.DataCase.create_tenant()
+      conn = get(ctx.conn, "/")
+      query = redirected_to(conn) |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+      state = Map.fetch!(query, "state")
+      {authenticated, _uid} = active_admin_conn_with_principal(ctx.conn)
 
-    denied =
-      conn |> recycle() |> Map.put(:host, foreign.slug <> ".ankole.localhost") |> get(login)
+      assert {:ok, %{code: code}} =
+               Ankole.SaaS.Handoffs.issue(
+                 AnkoleWeb.Session.browser_reference(authenticated),
+                 AnkoleWeb.Session.authentication_reference(authenticated),
+                 ctx.tenant.id,
+                 state,
+                 "/"
+               )
 
-    assert html_response(denied, 401) =~ "entrypoints/auth.tsx"
-  end
-
-  test "known local browser entries canonicalize before creating shared login cookies", ctx do
-    for path <- [
-          "/",
-          "/setup",
-          "/site-admin-console",
-          "/sessions/new?return_to=%2Fcontent%2Fspace"
-        ] do
-      response = get(build_conn(), "http://127.0.0.1:4002" <> path)
-      assert redirected_to(response) == "http://ankole.localhost:4002" <> path
-      assert response.resp_cookies == %{}
+      path = "/account/handoff?" <> URI.encode_query(%{state: state, code: code})
+      denied = conn |> recycle() |> pod_conn(foreign) |> get(path)
+      assert response(denied, 401) == "Pod entry expired. Open this Pod again to retry."
+      accepted = conn |> recycle() |> get(path)
+      assert redirected_to(accepted) == "/"
+      assert is_map(AnkoleWeb.Session.pod_session(accepted))
     end
 
-    redirected =
-      get(build_conn(), "http://ankole.localhost:4002/sessions/new?return_to=%2Fcontent%2Fspace")
+    test "noncanonical local entries reject before creating browser cookies" do
+      for path <- [
+            "/",
+            "/setup",
+            "/site-admin-console",
+            "/sessions/new?return_to=%2Fcontent%2Fspace",
+            "/sessions/new?flow=old-bound-flow",
+            "/.internal-apis/pod/agents"
+          ] do
+        response = get(build_conn(), "http://127.0.0.1:4002" <> path)
+        assert response(response, 400) == "Invalid host"
+        assert get_resp_header(response, "location") == []
+        assert response.resp_cookies == %{}
+      end
+    end
+  else
+    test "a login flow cannot render on another tenant's host even with its proof cookies", ctx do
+      foreign = Ankole.DataCase.create_tenant()
+      conn = ctx.conn |> Map.put(:host, ctx.tenant.slug <> ".ankole.localhost") |> get("/")
+      login = redirected_to(conn)
 
-    destination = redirected_to(redirected)
-    assert URI.parse(destination).host == ctx.tenant.slug <> ".ankole.localhost"
-    login = get(build_conn(), destination)
-    assert redirected_to(login) =~ "/sessions/new?flow="
-    assert login.resp_cookies["_ankole_key"].domain == "ankole.localhost"
+      denied =
+        conn |> recycle() |> Map.put(:host, foreign.slug <> ".ankole.localhost") |> get(login)
 
-    stale = get(build_conn(), "http://127.0.0.1:4002/sessions/new?flow=old-bound-flow")
-    assert response(stale, 401) =~ "sign-in address changed"
-    assert get_resp_header(stale, "location") == []
-    api = get(build_conn(), "http://127.0.0.1:4002/.internal-apis/pod/agents")
-    assert api.status == 401
-    assert get_resp_header(api, "location") == []
+      assert html_response(denied, 401) =~ "entrypoints/auth.tsx"
+    end
+
+    test "known local browser entries canonicalize before creating shared login cookies", ctx do
+      for path <- [
+            "/",
+            "/setup",
+            "/site-admin-console",
+            "/sessions/new?return_to=%2Fcontent%2Fspace"
+          ] do
+        response = get(build_conn(), "http://127.0.0.1:4002" <> path)
+        assert redirected_to(response) == "http://ankole.localhost:4002" <> path
+        assert response.resp_cookies == %{}
+      end
+
+      redirected =
+        get(
+          build_conn(),
+          "http://ankole.localhost:4002/sessions/new?return_to=%2Fcontent%2Fspace"
+        )
+
+      destination = redirected_to(redirected)
+      assert URI.parse(destination).host == ctx.tenant.slug <> ".ankole.localhost"
+      login = get(build_conn(), destination)
+      assert redirected_to(login) =~ "/sessions/new?flow="
+      assert login.resp_cookies["_ankole_key"].domain == "ankole.localhost"
+
+      stale = get(build_conn(), "http://127.0.0.1:4002/sessions/new?flow=old-bound-flow")
+      assert response(stale, 401) =~ "sign-in address changed"
+      assert get_resp_header(stale, "location") == []
+      api = get(build_conn(), "http://127.0.0.1:4002/.internal-apis/pod/agents")
+      assert api.status == 401
+      assert get_resp_header(api, "location") == []
+    end
+  end
+
+  defp pod_entry, do: if(@host_policy, do: "saas-pod", else: "pod")
+
+  defp pod_entry_source do
+    source = Application.fetch_env!(:ankole, :webapp_entries) |> Map.fetch!(pod_entry())
+    "http://assets.test/#{String.trim_leading(source, "/")}"
   end
 end

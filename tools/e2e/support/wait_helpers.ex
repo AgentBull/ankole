@@ -122,7 +122,7 @@ defmodule Ankole.E2E.WaitHelpers do
   @spec wait_for_worker(map(), integer()) :: {:ok, AgentWorker.t()}
   def wait_for_worker(%{agent_uid: agent_uid} = process, deadline) do
     case Repo.get(AgentWorker, agent_uid) do
-      %AgentWorker{state: "ready"} = worker ->
+      %AgentWorker{state: :ready} = worker ->
         case AgentWorker.available_slots(worker) > 0 do
           true ->
             {:ok, worker}
@@ -163,19 +163,20 @@ defmodule Ankole.E2E.WaitHelpers do
 
   A tool loop can commit an earlier function_call row with status `complete`
   while the Signal remains live. The adopted final answer is the latest
-  complete message after `signals.completed_at` is written.
+  complete message after the Signal enters `completed`.
   """
   @spec wait_for_completed_signal_message(map(), Ecto.UUID.t(), integer()) ::
           {:ok, Message.t()}
   def wait_for_completed_signal_message(process, signal_id, deadline) do
     with_transient_db_retry(process, deadline, fn ->
       case {Repo.get(Signal, signal_id), final_ai_message_for_signal(signal_id)} do
-        {%Signal{completed_at: %DateTime{}}, %Message{status: "complete"} = message} ->
+        {%Signal{status: :completed, completed_at: %DateTime{}},
+         %Message{status: :complete} = message} ->
           {:ok, message}
 
-        {%Signal{completed_at: %DateTime{}}, nil} ->
+        {%Signal{status: :completed, completed_at: %DateTime{}}, nil} ->
           case ai_message_for_signal(signal_id) do
-            %Message{status: "error"} = message ->
+            %Message{status: :error} = message ->
               flunk(
                 "Signal completed with failed AI message: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(signal_id))} #{inspect_process(process)}"
               )
@@ -185,11 +186,6 @@ defmodule Ankole.E2E.WaitHelpers do
                 wait_for_completed_signal_message(process, signal_id, deadline)
               end)
           end
-
-        {%Signal{completed_at: %DateTime{}}, %Message{status: "error"} = message} ->
-          flunk(
-            "Signal completed with failed AI message: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(signal_id))} #{inspect_process(process)}"
-          )
 
         _other ->
           receive_or_wait(process, deadline, fn ->
@@ -207,7 +203,7 @@ defmodule Ankole.E2E.WaitHelpers do
           {:ok, Signal.t()}
   def wait_for_signal_completed(process, signal_id, deadline) do
     case Repo.get(Signal, signal_id) do
-      %Signal{completed_at: %DateTime{}} = event ->
+      %Signal{status: :completed, completed_at: %DateTime{}} = event ->
         {:ok, event}
 
       _other ->
@@ -224,7 +220,7 @@ defmodule Ankole.E2E.WaitHelpers do
           {:ok, Signal.t()}
   def wait_for_signal_dead_letter(process, signal_id, deadline) do
     case Repo.get(Signal, signal_id) do
-      %Signal{input_state: "dead_letter", dead_letter_at: %DateTime{}} = event ->
+      %Signal{status: :dead_letter, dead_letter_at: %DateTime{}} = event ->
         {:ok, event}
 
       _other ->
@@ -281,11 +277,11 @@ defmodule Ankole.E2E.WaitHelpers do
 
     with_transient_db_retry(process, deadline, fn ->
       case {Repo.get(Signal, signal_id), mirrored_latest_final_reply_for_signal(signal_id)} do
-        {%Signal{completed_at: %DateTime{}},
+        {%Signal{status: :completed, completed_at: %DateTime{}},
          {%{message: %ConversationMessage{}} = reply, %Message{} = message}} ->
           {:ok, reply, message}
 
-        {%Signal{completed_at: %DateTime{}}, nil} ->
+        {%Signal{status: :completed, completed_at: %DateTime{}}, nil} ->
           receive_or_wait(process, deadline, fn ->
             wait_for_completed_final_reply(process, signal_id, deadline)
           end)
@@ -373,26 +369,29 @@ defmodule Ankole.E2E.WaitHelpers do
     |> Repo.all()
   end
 
-  defp insert_transcript_message!(agent_uid, conversation_id, role, text, previous_message_id) do
-    %Message{}
-    |> Message.changeset(%{
-      subject_uid: agent_uid,
-      conversation_id: conversation_id,
-      previous_message_id: previous_message_id,
-      role: role,
-      type: "message",
-      status: "complete",
-      content: [%{"type" => "text", "text" => text}],
-      metadata: %{"e2e_seed" => "compression"}
-    })
-    |> Repo.insert!()
+  defp insert_transcript_message!(agent_uid, conversation_id, _role, text, previous_message_id) do
+    {:ok, message} =
+      Repo.transact(fn ->
+        Ankole.Ash.create(Message, :journal, %{
+          subject_uid: agent_uid,
+          conversation_id: conversation_id,
+          previous_message_id: previous_message_id,
+          content: [%{"type" => "text", "text" => text}],
+          metadata: %{"e2e_seed" => "compression"}
+        })
+      end)
+
+    message
   end
 
   defp flunk_if_terminal_without_intent(process, signal_id, expected, intent_check) do
     case ai_message_for_signal_latest(signal_id) do
-      %Message{status: "complete"} = message ->
+      %Message{status: :complete} = message ->
         completed? =
-          match?(%Signal{completed_at: %DateTime{}}, Repo.get(Signal, signal_id))
+          match?(
+            %Signal{status: :completed, completed_at: %DateTime{}},
+            Repo.get(Signal, signal_id)
+          )
 
         if completed? and not intent_check_present?(intent_check) do
           flunk(
@@ -400,7 +399,7 @@ defmodule Ankole.E2E.WaitHelpers do
           )
         end
 
-      %Message{status: "error"} = message ->
+      %Message{status: :error} = message ->
         flunk(
           "AI message failed without #{expected}: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(signal_id))} #{inspect_process(process)}"
         )
@@ -529,9 +528,9 @@ defmodule Ankole.E2E.WaitHelpers do
     end
   end
 
-  defp ai_message_status("succeeded"), do: "complete"
-  defp ai_message_status("failed"), do: "error"
-  defp ai_message_status("cancelled"), do: "error"
+  defp ai_message_status("succeeded"), do: :complete
+  defp ai_message_status("failed"), do: :error
+  defp ai_message_status("cancelled"), do: :error
   defp ai_message_status(status), do: status
 
   defp message_response(%Message{metadata: metadata}) when is_map(metadata) do
@@ -575,7 +574,7 @@ defmodule Ankole.E2E.WaitHelpers do
             :id,
             :provider_message_id,
             :completed_at,
-            :input_state,
+            :status,
             :attempt_count,
             :last_attempt_at
           ])

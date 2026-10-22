@@ -631,15 +631,18 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
   defp insert_memory!(subject_uid, conversation, input, memory) do
     previous = ResponseChain.latest_visible_leaf(conversation.id)
 
-    Repo.insert!(%Ankole.AIGateway.Schemas.Message{
-      subject_uid: subject_uid,
-      conversation_id: conversation.id,
-      previous_message_id: previous,
-      type: "message",
-      status: "complete",
-      content: input,
-      metadata: memory
-    })
+    {:ok, message} =
+      Repo.transact(fn ->
+        Ankole.Ash.create(Ankole.AIGateway.Schemas.Message, :journal, %{
+          subject_uid: subject_uid,
+          conversation_id: conversation.id,
+          previous_message_id: previous,
+          content: input,
+          metadata: memory
+        })
+      end)
+
+    message
   end
 
   defp loop!(subject_uid, declaration) do
@@ -709,32 +712,30 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
   defp environment_text(%{"content" => [%{"text" => text} | _rest]}), do: text
 
   defp insert_conversation!(subject_uid) do
-    now = DateTime.utc_now(:microsecond)
+    {:ok, conversation} =
+      Ankole.Ash.create(Ankole.AIGateway.Schemas.Conversation, :open, %{
+        subject_uid: subject_uid,
+        conversation_key: "session-#{System.unique_integer([:positive])}",
+        metadata: %{}
+      })
 
-    Repo.insert!(%Ankole.AIGateway.Schemas.Conversation{
-      id: Ecto.UUID.generate(),
-      subject_uid: subject_uid,
-      conversation_key: "session-#{System.unique_integer([:positive])}",
-      metadata: %{},
-      inserted_at: now,
-      updated_at: now
-    })
+    conversation
   end
 
   defp insert_checkpoint!(subject_uid, conversation_id) do
-    at = DateTime.utc_now(:microsecond)
     previous = ResponseChain.latest_visible_leaf(conversation_id)
 
-    Repo.insert!(%Ankole.AIGateway.Schemas.Message{
-      subject_uid: subject_uid,
-      conversation_id: conversation_id,
-      previous_message_id: previous,
-      type: "checkpoint",
-      status: "complete",
-      content: [%{"id" => "cmp_#{Ecto.UUID.generate()}", "type" => "compaction_artifact"}],
-      metadata: %{},
-      inserted_at: at,
-      updated_at: at
-    })
+    {:ok, checkpoint} =
+      Repo.transact(fn ->
+        Ankole.Ash.create(Ankole.AIGateway.Schemas.Message, :checkpoint, %{
+          subject_uid: subject_uid,
+          conversation_id: conversation_id,
+          previous_message_id: previous,
+          content: [%{"id" => "cmp_#{Ecto.UUID.generate()}", "type" => "compaction_artifact"}],
+          metadata: %{}
+        })
+      end)
+
+    checkpoint
   end
 end

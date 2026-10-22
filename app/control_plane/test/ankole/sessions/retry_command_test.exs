@@ -74,14 +74,14 @@ defmodule Ankole.Sessions.RetryCommandTest do
       assert Map.fetch!(retry, field) == Map.fetch!(source, field)
     end
 
-    assert retry.input_state == "open"
+    assert retry.status == :queued
     refute retry.completed_at
     refute retry.dead_letter_at
     refute retry.final_response_id
     assert retry.sender_key == command.sender_key
     assert DateTime.to_iso8601(retry.occurred_at) == DateTime.to_iso8601(retry.available_at)
     assert retry.data["wake_payload"] == source.data["wake_payload"]
-    assert Repo.reload!(source).input_state == "dead_letter"
+    assert Repo.reload!(source).status == :dead_letter
     assert Repo.reload!(unrelated).completed_at
     assert_delete(command, "provider-cron-failure")
   end
@@ -189,7 +189,7 @@ defmodule Ankole.Sessions.RetryCommandTest do
              source.data["entry"]["reply_to"]
 
     assert_delete(command, "quoted-request-reply")
-    assert Repo.reload!(completed).status == "retracted"
+    assert Repo.reload!(completed).status == :retracted
     assert source.message_id in read_ids
     assert quote.id in read_ids
 
@@ -245,8 +245,8 @@ defmodule Ankole.Sessions.RetryCommandTest do
         refute retry_for(command)
       end
 
-      assert Repo.reload!(failed).status == "error"
-      assert Repo.reload!(source).input_state == "dead_letter"
+      assert Repo.reload!(failed).status == :error
+      assert Repo.reload!(source).status == :dead_letter
     end
   end
 
@@ -273,8 +273,8 @@ defmodule Ankole.Sessions.RetryCommandTest do
     command = targeted_retry(agent, source.id)
     assert {:ok, %Signal{producer: :kernel}} = Commands.process(key(command), command)
     assert_delete(command, "dead-letter-preview")
-    assert Repo.reload!(failed).status == "error"
-    assert Repo.reload!(source).input_state == "dead_letter"
+    assert Repo.reload!(failed).status == :error
+    assert Repo.reload!(source).status == :dead_letter
     assert {:ok, :already_consumed} = Commands.process(key(command), command)
 
     assert Repo.aggregate(
@@ -376,7 +376,7 @@ defmodule Ankole.Sessions.RetryCommandTest do
 
     {:ok, source} =
       Repo.update(
-        Signal.changeset(source, %{
+        Ecto.Changeset.change(AshPostgres.DataLayer.to_ecto(source), %{
           provider_capacity_attempt_count: source.attempt_count,
           available_at: DateTime.add(DateTime.utc_now(:microsecond), 600)
         })
@@ -385,7 +385,7 @@ defmodule Ankole.Sessions.RetryCommandTest do
     command = input(agent, "/retry")
     assert {:ok, :interrupt} = Commands.retry_action(run, command)
     assert {:ok, :retry} = Commands.interrupt(run, command)
-    assert Repo.reload!(response).status == "retracted"
+    assert Repo.reload!(response).status == :retracted
     assert Repo.reload!(command).completed_at
     assert Repo.reload!(source).attempt_count == 0
     assert Repo.reload!(source).provider_capacity_attempt_count == 0
@@ -416,13 +416,18 @@ defmodule Ankole.Sessions.RetryCommandTest do
 
     # The unit receipt boundary supplies the durable result of a domain effect.
     assert {:ok, _} =
-             Receipts.execute(run, "resp_#{called.id}", "committed", fn _repo ->
-               {:ok, %Ankole.Sessions.ToolResult{output: "Committed once"}, []}
-             end)
+             Receipts.execute(
+               run,
+               "resp_#{called.id}",
+               "committed",
+               prepare_operation(fn _repo ->
+                 {:ok, %Ankole.Sessions.ToolResult{output: "Committed once"}, []}
+               end)
+             )
 
     command = input(agent, "/retry")
     assert {:ok, %Run{}} = Commands.interrupt(run, command)
-    assert Repo.reload!(called).status == "complete"
+    assert Repo.reload!(called).status == :complete
     assert Repo.reload!(command).last_attempt_at
     refute Repo.reload!(command).completed_at
     assert Repo.reload!(source).attempt_count == 1
@@ -451,7 +456,7 @@ defmodule Ankole.Sessions.RetryCommandTest do
     finish(restored, final)
     assert Repo.reload!(command).completed_at
     assert Repo.reload!(source).completed_at
-    assert Repo.reload!(called).status == "complete"
+    assert Repo.reload!(called).status == :complete
 
     assert Repo.get_by!(Intent, outbound_key: "ai-reply:#{final.id}").source_signal_id ==
              source.id
@@ -515,9 +520,14 @@ defmodule Ankole.Sessions.RetryCommandTest do
     result = %Ankole.Sessions.ToolResult{output: "Committed once"}
 
     assert {:ok, _} =
-             Receipts.execute(run, "resp_#{called.id}", "committed", fn _repo ->
-               {:ok, result, []}
-             end)
+             Receipts.execute(
+               run,
+               "resp_#{called.id}",
+               "committed",
+               prepare_operation(fn _repo ->
+                 {:ok, result, []}
+               end)
+             )
 
     assert {:ok, journal} = Run.record_round(%{run | results: %{"committed" => result}})
 
@@ -554,7 +564,7 @@ defmodule Ankole.Sessions.RetryCommandTest do
            )
 
     for row <- [called, journal.message, completed],
-        do: assert(Repo.reload!(row).status == "complete")
+        do: assert(Repo.reload!(row).status == :complete)
 
     assert ResponseChain.latest_visible_leaf(run.conversation.id) == completed.id
     {:ok, replacement} = Admission.admit(key(retry), retry)
@@ -583,8 +593,8 @@ defmodule Ankole.Sessions.RetryCommandTest do
     assert reply.operation == intent.operation
     assert reply.target_provider_message_id == intent.target_provider_message_id
     assert reply.provider_thread_id == intent.provider_thread_id
-    assert Repo.reload!(called).status == "complete"
-    assert Repo.reload!(journal.message).status == "complete"
+    assert Repo.reload!(called).status == :complete
+    assert Repo.reload!(journal.message).status == :complete
     assert {:ok, :already_consumed} = Commands.process(key(command), command)
   end
 
@@ -604,7 +614,7 @@ defmodule Ankole.Sessions.RetryCommandTest do
     command = targeted_retry(agent, source.id)
     assert {:ok, retry} = Commands.process(key(command), command)
     assert retry.data["entry"]["text"] == "Original request"
-    assert Repo.reload!(completed).status == "retracted"
+    assert Repo.reload!(completed).status == :retracted
     assert Repo.reload!(completed).metadata["retraction"]["reason"] == "command.retry"
     box = assert_delete(command, "completed-reply")
     assert box.ai_message_id == completed.id
@@ -692,7 +702,11 @@ defmodule Ankole.Sessions.RetryCommandTest do
   defp targeted_retry(agent, target) do
     command = input(agent, "/retry")
     data = put_in(command.data, ["command", "targetSignalId"], target)
-    Repo.update!(Signal.changeset(command, %{data: data}))
+
+    {:ok, command} =
+      Repo.transact(fn _ -> Ankole.Ash.update(command, :revise_input, %{data: data}) end)
+
+    command
   end
 
   defp assert_unavailable(agent, source) do
@@ -720,5 +734,9 @@ defmodule Ankole.Sessions.RetryCommandTest do
     box = Repo.get_by!(Intent, source_signal_id: command.id, operation: :delete)
     assert box.target_provider_message_id == source_id
     box
+  end
+
+  defp prepare_operation(operation) do
+    fn repo -> {:ok, [], fn -> operation.(repo) end} end
   end
 end

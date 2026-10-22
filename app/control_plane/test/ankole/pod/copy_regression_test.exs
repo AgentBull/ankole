@@ -4,7 +4,6 @@ defmodule Ankole.Pod.CopyRegressionTest do
   alias Ankole.Pod.{Database, DbRecord, Pages}
 
   setup do
-    allow_cache_database_access()
     uid = human_fixture().principal.uid
     {:ok, page} = Pages.create(uid, %{type: "database", title: "Copy source"})
     {:ok, table} = Database.create_table(uid, page.id, %{name: "Source"})

@@ -36,34 +36,49 @@ defmodule Ankole.ConversationReviewUpgradeIntegrationTest do
     migrations = Path.expand("../priv/repo/migrations", __DIR__)
     Ecto.Migrator.run(UpgradeRepo, migrations, :up, to: 20_261_014_000_400, log: false)
 
+    now = DateTime.utc_now(:microsecond)
+
     agents =
       for _ <- 1..2 do
-        UpgradeRepo.insert!(%Ankole.Principals.Principal{
-          uid: Ankole.Kernel.gen_uuid_v7(),
-          tenant_id: @tenant,
-          type: :agent,
-          display_name: "Observer",
-          status: :active,
-          access_version: 1
-        })
+        uid = Ankole.Kernel.gen_uuid_v7()
+
+        {1, nil} =
+          UpgradeRepo.insert_all("principals", [
+            %{
+              uid: uid,
+              tenant_id: Ecto.UUID.dump!(@tenant),
+              type: "agent",
+              display_name: "Observer",
+              status: "active",
+              access_version: 1,
+              inserted_at: now,
+              updated_at: now
+            }
+          ])
+
+        %{uid: uid}
       end
 
     [first, second] = agents
-    now = DateTime.utc_now(:microsecond)
+    room = %{id: Ankole.Kernel.gen_uuid_v7()}
 
-    room =
-      UpgradeRepo.insert!(%Ankole.Conversations.Conversation{
-        id: Ankole.Kernel.gen_uuid_v7(),
-        tenant_id: @tenant,
-        kind: :external,
-        title: "Shared room",
-        provider_conversation_id: "lark:upgrade-review",
-        external_kind: :im_group,
-        reply_mode: :entry,
-        last_activity_at: now,
-        first_seen_at: now,
-        last_seen_at: now
-      })
+    {1, nil} =
+      UpgradeRepo.insert_all("conversations", [
+        %{
+          id: Ecto.UUID.dump!(room.id),
+          tenant_id: Ecto.UUID.dump!(@tenant),
+          kind: "external",
+          title: "Shared room",
+          provider_conversation_id: "lark:upgrade-review",
+          external_kind: "im_group",
+          reply_mode: "entry",
+          last_activity_at: now,
+          first_seen_at: now,
+          last_seen_at: now,
+          inserted_at: now,
+          updated_at: now
+        }
+      ])
 
     for {agent, binding, until} <- [
           {first, "first", "2026-10-16 01:00:00"},
@@ -91,7 +106,11 @@ defmodule Ankole.ConversationReviewUpgradeIntegrationTest do
              )
 
     # Removing an observer must not remove the shared ordering guard.
-    UpgradeRepo.delete!(second)
+    assert %{num_rows: 1} =
+             SQL.query!(UpgradeRepo, "DELETE FROM principals WHERE tenant_id = $1 AND uid = $2", [
+               Ecto.UUID.dump!(@tenant),
+               second.uid
+             ])
 
     assert %{rows: [[1]]} =
              SQL.query!(UpgradeRepo, "SELECT count(*) FROM conversation_input_tombstones")

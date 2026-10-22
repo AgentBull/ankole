@@ -101,9 +101,12 @@ defmodule Ankole.AgentWorkers.RPCWire do
   def error_code(reason, fallback_code, opts \\ [])
   def error_code(reason, _fallback_code, _opts) when is_atom(reason), do: Atom.to_string(reason)
 
-  def error_code(%Ecto.Changeset{}, fallback_code, opts) do
-    Keyword.get(opts, :changeset_code, fallback_code)
+  def error_code(%module{}, fallback_code, opts)
+      when module in [Ash.Changeset, Ash.Error.Invalid] do
+    Keyword.get(opts, :validation_code, fallback_code)
   end
+
+  def error_code(%Ash.Error.Forbidden{}, _fallback_code, _opts), do: "forbidden"
 
   def error_code({reason, _details}, _fallback_code, _opts) when is_atom(reason),
     do: Atom.to_string(reason)
@@ -115,7 +118,23 @@ defmodule Ankole.AgentWorkers.RPCWire do
 
   def error_message(reason, style \\ :default)
   def error_message(reason, _style) when is_binary(reason), do: reason
-  def error_message(%Ecto.Changeset{} = changeset, _style), do: inspect(changeset.errors)
+
+  def error_message(%module{} = error, _style) when module in [Ash.Changeset, Ash.Error.Invalid],
+    do: error |> Ankole.Ash.validation_details() |> Ankole.JSON.encode!()
+
+  def error_message(%Ash.Error.Forbidden{}, _style), do: "access denied"
+
+  def error_message(%module{} = error, _style)
+      when module in [Ash.Error.Framework, Ash.Error.Unknown] do
+    Ankole.Logging.warning(
+      "runtime_fabric.rpc_action_error",
+      "Runtime fabric RPC action failed",
+      Ankole.Logging.failure_fields(:error, error, [])
+    )
+
+    "The request failed for an unexpected reason; check the server log"
+  end
+
   def error_message(reason, _style) when is_atom(reason), do: Atom.to_string(reason)
 
   def error_message({reason, _details}, :tuple_reason) when is_atom(reason),

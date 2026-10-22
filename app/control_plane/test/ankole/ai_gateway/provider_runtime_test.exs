@@ -129,18 +129,25 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   end
 
   test "provider kind rejects kebab-case ids" do
-    changeset =
-      Provider.changeset(%Provider{}, %{
-        provider_id: "bad-provider-kind",
-        provider_kind: "openai-compatible",
-        base_url: "https://compatible.test/v1",
-        credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
-      })
+    assert {:ok, changeset} =
+             Repo.transact(fn ->
+               {:ok,
+                Ankole.Ash.for_create(Provider, :create, %{
+                  input: %{
+                    provider_id: "bad-provider-kind",
+                    provider_kind: "openai-compatible",
+                    base_url: "https://compatible.test/v1",
+                    credential_pool: %{
+                      "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+                    }
+                  }
+                })}
+             end)
 
     refute changeset.valid?
 
     assert Enum.any?(changeset.errors, fn
-             {:provider_kind, {"has invalid format", _opts}} -> true
+             %Ash.Error.Changes.InvalidAttribute{field: :provider_kind} -> true
              _error -> false
            end)
   end
@@ -350,7 +357,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     provider =
       provider
-      |> Provider.changeset(%{
+      |> Ecto.Changeset.change(%{
         credential_pool: %{
           "strategy" => "fill_first",
           "entries" => [dead_entry]
@@ -1044,12 +1051,16 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                model: "z-ai/glm-5.2"
              })
 
-    malformed_agent
-    |> then(&Repo.get!(Ankole.Principals.Agent, &1.uid))
-    |> Ankole.Principals.Agent.changeset(%{
-      options: %{"ai_agent" => %{"models" => [%{"provider_id" => "openrouter-main"}]}}
-    })
-    |> Repo.update!()
+    {:ok, _} =
+      Repo.transact(fn _repo ->
+        Ankole.Ash.update(
+          Repo.get!(Ankole.Principals.Agent, malformed_agent.uid),
+          :options_in_tx,
+          %{
+            options: %{"ai_agent" => %{"models" => [%{"provider_id" => "openrouter-main"}]}}
+          }
+        )
+      end)
 
     assert {:error, {:provider_in_use, references}} =
              ProviderConfigs.delete_provider("openrouter-main")
@@ -1217,7 +1228,13 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     %{principal: agent} = Ankole.AIGatewayCase.background_agent_fixture()
     {:ok, coding} = ModelProfiles.get_model_profile(agent.uid, "coding")
     :ok = Ankole.SessionsCase.cache_actor_runtime_models(coding["provider_id"])
+    defaults_key = "ai_agent.library.skill_defaults"
     assert {:ok, _defaults} = Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
+    assert {:ok, _defaults} = AppConfigure.put_tenant_by_key(defaults_key, %{"ocr" => true})
+
+    assert {:ok, %{skills: %{"ocr" => true}}} =
+             Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
+
     assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
 
     assert {:ok, documents} = Library.list_agent_documents(agent.uid)
@@ -1256,7 +1273,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     Conversation
     |> Repo.get_by!(subject_uid: agent.uid, conversation_key: "conversation:#{channel_id}")
-    |> Conversation.changeset(%{
+    |> Ecto.Changeset.change(%{
       metadata: %{
         "origin" => %{
           "conversation_id" => channel_id,
@@ -1279,14 +1296,32 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                })
              end)
 
-    # A running attempt has the projection its claim captured.
+    assert {:ok, %{"skills" => cached_skills}} = Library.runtime_catalog_for_agent(agent.uid)
+    assert Enum.any?(cached_skills, &(&1["skill_name"] == "ocr"))
+
+    # A running attempt reads current rows even when the cache still holds
+    # choices from before this transaction.
     {:ok, projection} =
-      Ankole.BackgroundAgentJobs.RuntimeProjection.capture(Repo, agent.uid, %{
-        model_ref: %{"provider_id" => "ai_gateway", "model" => "test"}
-      })
+      Repo.transact(fn ->
+        assert {:ok, %{value: %{"value" => %{"ocr" => false}}}} =
+                 Ankole.Ash.create(Ankole.AppConfigure.AppConfig, :put, %{
+                   scope: "tenant:" <> Repo.tenant_id!(),
+                   key: defaults_key,
+                   input: %{"ocr" => false}
+                 })
+
+        assert {:ok, %{skills: %{"ocr" => true}}} =
+                 Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
+
+        Ankole.BackgroundAgentJobs.RuntimeProjection.capture(agent.uid, %{
+          model_ref: %{"provider_id" => "ai_gateway", "model" => "test"}
+        })
+      end)
+
+    refute Enum.any?(projection["skills"], &(&1["name"] == "ocr"))
 
     job
-    |> Ecto.Changeset.change(status: "running", attempts: 1, runtime_projection: projection)
+    |> Ecto.Changeset.change(status: :running, attempts: 1, runtime_projection: projection)
     |> Repo.update!()
 
     job_turn = %FabricProto.JobTurnRef{
@@ -1321,6 +1356,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              current_documents["confidentiality_policy"]["content"]
 
     assert Enum.any?(context_payload.skills, &(&1.skill_name == "pdf"))
+    refute Enum.any?(context_payload.skills, &(&1.skill_name == "ocr"))
 
     research_plugin = Enum.find(context_payload.agent_plugins, &(&1.id == "deep-research"))
     assert Enum.any?(research_plugin.skills, &(&1.catalog_name == "create-deep-research"))
@@ -1378,12 +1414,12 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     # A running attempt has the projection its claim captured.
     {:ok, projection} =
-      Ankole.BackgroundAgentJobs.RuntimeProjection.capture(Repo, target_agent.uid, %{
+      Ankole.BackgroundAgentJobs.RuntimeProjection.capture(target_agent.uid, %{
         model_ref: %{"provider_id" => "ai_gateway", "model" => "test"}
       })
 
     job
-    |> Ecto.Changeset.change(status: "running", attempts: 1, runtime_projection: projection)
+    |> Ecto.Changeset.change(status: :running, attempts: 1, runtime_projection: projection)
     |> Repo.update!()
 
     request =

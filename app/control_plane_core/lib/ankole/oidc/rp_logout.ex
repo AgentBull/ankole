@@ -1,32 +1,33 @@
 defmodule Ankole.OIDC.RPLogout do
   @moduledoc false
+  require Ash.Query
   alias Ankole.{BrowserSessions, OIDC, Repo}
   alias Ankole.OIDC.LogoutRequest
   alias Ankole.OIDC.Sessions
-  alias Ankole.OIDC.Boruta.IdTokens
 
   def prepare(ref, params) do
     with {:ok, browser} <- BrowserSessions.get(ref),
-         {:ok, client} <- Repo.across_tenants(fn -> request_client(params) end),
+         {:ok, request} <- Attesto.EndSession.parse(OIDC.attesto_config(), params),
+         {:ok, client} <- Repo.across_tenants(fn -> current_client(request.client_id) end),
          {:ok, tenant_id} <- request_tenant(client, browser) do
-      Repo.with_tenant(tenant_id, fn -> prepare_request(browser, client, params) end)
+      Repo.with_tenant(tenant_id, fn -> prepare_request(browser, client, request) end)
     end
   end
 
-  defp prepare_request(browser, client, params) do
-    with :ok <- validate_hint(params["id_token_hint"], client),
-         :ok <- validate_redirect(params["post_logout_redirect_uri"], client),
-         true <- is_nil(params["state"]) or is_binary(params["state"]) do
-      %LogoutRequest{}
-      |> Ecto.Changeset.change(
-        browser_id: browser.id,
-        browser_revision: browser.revision,
-        client_id: if(client, do: client.id),
-        redirect_uri: params["post_logout_redirect_uri"],
-        state: params["state"],
-        expires_at: DateTime.add(DateTime.utc_now(), 10 * 60)
-      )
-      |> Repo.insert()
+  defp prepare_request(browser, client, request) do
+    with :ok <- validate_hint(request, client),
+         {:ok, _} <- confirm_redirect(request, client),
+         true <- is_nil(request.state) or is_binary(request.state) do
+      Repo.transact(fn _repo ->
+        Ankole.Ash.create(LogoutRequest, :prepare_in_tx, %{
+          browser_id: browser.id,
+          browser_revision: browser.revision,
+          client_id: if(client, do: client.id),
+          redirect_uri: request.post_logout_redirect_uri,
+          state: request.state,
+          expires_at: DateTime.add(DateTime.utc_now(), 10 * 60)
+        })
+      end)
     else
       false -> {:error, :invalid_logout_request}
       error -> error
@@ -45,7 +46,7 @@ defmodule Ankole.OIDC.RPLogout do
   def confirmation(ref, id) do
     with {:ok, browser} <- BrowserSessions.get(ref),
          {:ok, id} <- Ecto.UUID.cast(id),
-         %LogoutRequest{} = request <- Repo.across_tenants(fn -> Repo.get(LogoutRequest, id) end),
+         %LogoutRequest{} = request <- find_request(id),
          true <-
            request.browser_id == browser.id and request.browser_revision == browser.revision and
              is_nil(request.confirmed_at) and
@@ -59,16 +60,21 @@ defmodule Ankole.OIDC.RPLogout do
   def confirm(ref, id) do
     with {:ok, request} <- confirmation(ref, id) do
       Repo.with_tenant(request.tenant_id, fn ->
-        Repo.transact(fn repo ->
+        Repo.transact(fn _repo ->
           with {:ok, request} <- confirmation(ref, id),
                {:ok, client} <- current_client(request.client_id),
-               :ok <- validate_redirect(request.redirect_uri, client),
+               {:ok, redirect_uri} <-
+                 confirm_redirect(
+                   %Attesto.EndSession{
+                     client_id: request.client_id,
+                     post_logout_redirect_uri: request.redirect_uri,
+                     state: request.state
+                   },
+                   client
+                 ),
                {:ok, browser} <- BrowserSessions.logout(ref, request.browser_revision),
-               {:ok, request} <-
-                 request
-                 |> Ecto.Changeset.change(confirmed_at: DateTime.utc_now())
-                 |> repo.update() do
-            {:ok, %{request: request, browser: browser}}
+               {:ok, request} <- Ankole.Ash.update(request, :confirm_in_tx, %{}) do
+            {:ok, %{request: request, browser: browser, redirect_uri: redirect_uri}}
           end
         end)
       end)
@@ -76,62 +82,49 @@ defmodule Ankole.OIDC.RPLogout do
   end
 
   def cancel(ref, id) do
-    with {:ok, request} <- confirmation(ref, id),
-         do: Repo.with_tenant(request.tenant_id, fn -> Repo.delete(request) end)
-  end
-
-  def redirect_uri(%LogoutRequest{redirect_uri: nil}), do: nil
-  def redirect_uri(%LogoutRequest{redirect_uri: uri, state: nil}), do: uri
-
-  def redirect_uri(%LogoutRequest{redirect_uri: uri, state: state}) do
-    parsed = URI.parse(uri)
-    query = URI.encode_query(%{"state" => state})
-    query = if parsed.query in [nil, ""], do: query, else: parsed.query <> "&" <> query
-    URI.to_string(%{parsed | query: query})
-  end
-
-  defp request_client(params) do
-    with {:ok, hint_id} <- hint_client(params["id_token_hint"]),
-         id <- params["client_id"] || hint_id,
-         true <- is_nil(hint_id) or is_nil(params["client_id"]) or params["client_id"] == hint_id do
-      if is_nil(id), do: {:ok, nil}, else: OIDC.get_active_client(id)
-    else
-      _ -> {:error, :invalid_logout_client}
+    with {:ok, request} <- confirmation(ref, id) do
+      Repo.with_tenant(request.tenant_id, fn ->
+        Repo.transact(fn _repo -> Ankole.Ash.destroy(request, :cancel_in_tx) end)
+      end)
     end
+  end
+
+  defp find_request(id) do
+    Repo.across_tenants(fn ->
+      LogoutRequest
+      |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
+      |> Ash.Query.filter(id == ^id)
+      |> Ash.read_one!(authorize?: false)
+    end)
   end
 
   defp current_client(nil), do: {:ok, nil}
   defp current_client(id), do: OIDC.get_active_client(id)
 
-  defp hint_client(nil), do: {:ok, nil}
-  defp hint_client(token), do: IdTokens.client_id(token)
+  defp validate_hint(%Attesto.EndSession{sid: nil, subject: nil}, _client), do: :ok
 
-  defp validate_hint(nil, _client), do: :ok
-
-  defp validate_hint(token, %{id: client_id}) do
-    with {:ok, claims} <- IdTokens.verify_hint(token, client_id),
-         {:ok, session} <- Sessions.get(claims["sid"]),
-         true <-
-           session.client_id == client_id and session.principal_uid == claims["sub"],
-         true <- recent?(session) do
-      :ok
-    else
-      _ -> {:error, :invalid_id_token_hint}
-    end
+  defp validate_hint(%Attesto.EndSession{sid: sid, subject: subject}, %{id: client_id}) do
+    with {:ok, session} <- Sessions.get(sid),
+         true <- session.client_id == client_id and session.principal_uid == subject,
+         true <- recent?(session),
+         do: :ok,
+         else: (_ -> {:error, :invalid_id_token_hint})
   end
 
-  defp validate_hint(_token, _client), do: {:error, :invalid_id_token_hint}
+  defp validate_hint(_, _), do: {:error, :invalid_id_token_hint}
 
   defp recent?(%{ended_at: nil, expires_at: expiry}),
     do: DateTime.compare(expiry, DateTime.utc_now()) == :gt
 
   defp recent?(%{ended_at: ended}), do: DateTime.diff(DateTime.utc_now(), ended) <= 24 * 60 * 60
 
-  defp validate_redirect(nil, _client), do: :ok
+  defp confirm_redirect(%Attesto.EndSession{} = request, client) do
+    uris = if(client, do: client.post_logout_redirect_uris, else: [])
 
-  defp validate_redirect(uri, %{post_logout_redirect_uris: uris}) when is_binary(uri) do
-    if uri in uris, do: :ok, else: {:error, :unregistered_logout_redirect}
+    case Attesto.EndSession.confirm_redirect(request, uris) do
+      {:ok, :no_redirect} -> {:ok, nil}
+      {:ok, uri} -> {:ok, uri}
+      error -> error
+    end
   end
-
-  defp validate_redirect(_uri, _client), do: {:error, :unregistered_logout_redirect}
 end

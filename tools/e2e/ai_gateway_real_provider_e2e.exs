@@ -1,7 +1,15 @@
 if Mix.env() == :test do
-  # `mix run` does not go through DataCase, so the SQL sandbox would otherwise
-  # reject Repo calls made by this standalone runner in MIX_ENV=test.
-  Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :auto)
+  # Real concurrent requests use the production connection lifecycle.
+  :ok = Supervisor.terminate_child(Ankole.Supervisor, Ankole.Repo)
+
+  Application.put_env(
+    :ankole,
+    Ankole.Repo,
+    Application.fetch_env!(:ankole, Ankole.Repo)
+    |> Keyword.put(:pool, DBConnection.ConnectionPool)
+  )
+
+  {:ok, _} = Supervisor.restart_child(Ankole.Supervisor, Ankole.Repo)
 end
 
 defmodule Ankole.Tools.AIGatewayRealProviderE2E do

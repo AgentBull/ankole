@@ -10,7 +10,21 @@ defmodule Ankole.Pod.Jobs.PurgePage do
     ]
 
   alias Ankole.{Files, Repo}
-  alias Ankole.Pod.{Access, Page, Pages}
+
+  alias Ankole.Pod.{
+    Access,
+    DbField,
+    DbRecord,
+    DbTable,
+    DbView,
+    Page,
+    PageChange,
+    PageContent,
+    Pages,
+    PageUserState
+  }
+
+  require Ash.Query
 
   @batch_size 1000
   @impl Ankole.Job
@@ -54,24 +68,26 @@ defmodule Ankole.Pod.Jobs.PurgePage do
 
     if remaining_microseconds > 0,
       do: {:error, {:retention_not_elapsed, div(remaining_microseconds + 999_999, 1_000_000)}},
-      else: Repo.update(Page.changeset(page, %{purge_started_at: DateTime.utc_now(:microsecond)}))
+      else: Ankole.Ash.update(page, :begin_purge, %{})
   end
 
   defp purge(id) do
     ids = descendants(id)
 
-    for table <- ~w(db_records db_views db_fields) do
-      delete_batches(
-        table,
-        "table_id IN (SELECT id FROM db_tables WHERE tenant_id = $1::text::uuid AND page_id = ANY($2::text[]::uuid[]))",
-        ids
-      )
+    for resource <- [DbRecord, DbView, DbField] do
+      resource
+      |> Ash.Query.filter(exists(table, page_id in ^ids))
+      |> delete_resources(:remove)
     end
 
-    delete_batches("db_tables", "page_id = ANY($2::text[]::uuid[])", ids)
+    DbTable |> Ash.Query.filter(page_id in ^ids) |> delete_resources(:remove)
 
-    for table <- ~w(page_user_states page_changes page_contents) do
-      delete_batches(table, "page_id = ANY($2::text[]::uuid[])", ids)
+    for {resource, action} <- [
+          {PageUserState, :purge},
+          {PageChange, :prune},
+          {PageContent, :purge}
+        ] do
+      delete_resources(resource, action, ids)
     end
 
     Enum.reduce_while(ids, :ok, fn page_id, :ok ->
@@ -110,40 +126,44 @@ defmodule Ankole.Pod.Jobs.PurgePage do
     |> Enum.map(&hd/1)
   end
 
-  defp delete_batches(table, condition, ids) do
-    {:ok, count} =
-      Repo.transact(fn repo ->
-        result =
-          repo.query!(
-            "DELETE FROM #{table} WHERE tenant_id = $1::text::uuid AND ctid IN (SELECT ctid FROM #{table} WHERE tenant_id = $1::text::uuid AND #{condition} LIMIT #{@batch_size})",
-            [Repo.tenant_id!(), ids]
-          )
-
-        {:ok, result.num_rows}
-      end)
-
-    if count > 0, do: delete_batches(table, condition, ids), else: :ok
-  end
-
   defp delete_pages(ids) do
-    {:ok, count} =
-      Repo.transact(fn repo ->
+    count =
+      committed_batch!(fn ->
         Pages.lock_tree()
-
-        result =
-          repo.query!(
-            """
-            DELETE FROM pages WHERE tenant_id = $1::text::uuid AND id IN (
-              SELECT p.id FROM pages p WHERE p.tenant_id = $1::text::uuid AND p.id = ANY($2::text[]::uuid[])
-                AND NOT EXISTS (SELECT 1 FROM pages c WHERE c.tenant_id = $1::text::uuid AND c.parent_id = p.id)
-              LIMIT #{@batch_size})
-            """,
-            [Repo.tenant_id!(), ids]
-          )
-
-        {:ok, result.num_rows}
+        Page |> Ash.Query.filter(id in ^ids) |> delete_batch(:purge)
       end)
 
     if count > 0, do: delete_pages(ids), else: :ok
+  end
+
+  defp delete_resources(resource, action, ids),
+    do: resource |> Ash.Query.filter(page_id in ^ids) |> delete_resources(action)
+
+  defp delete_resources(query, action) do
+    count = committed_batch!(fn -> delete_batch(query, action) end)
+    if count > 0, do: delete_resources(query, action), else: :ok
+  end
+
+  defp committed_batch!(fun) do
+    case Repo.transact(fn _repo -> {:ok, fun.()} end) do
+      {:ok, count} -> count
+      {:error, error} -> raise Ash.Error.to_error_class(error)
+    end
+  end
+
+  defp delete_batch(query, action) do
+    query =
+      query
+      |> Ash.Query.limit(@batch_size)
+      |> Ash.Query.select(Ash.Resource.Info.primary_key(query.resource))
+
+    case Ankole.Ash.bulk_destroy(query, action, %{},
+           strategy: [:atomic],
+           return_records?: true,
+           return_errors?: true
+         ) do
+      %Ash.BulkResult{status: :success, records: records} -> length(records)
+      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+    end
   end
 end

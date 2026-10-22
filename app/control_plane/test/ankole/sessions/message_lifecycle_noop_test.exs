@@ -158,7 +158,7 @@ defmodule Ankole.Sessions.MessageLifecycleNoopTest do
     refute Repo.get(Message, anchor.id)
 
     failed_child = Repo.get!(Message, stale_child.id)
-    assert failed_child.status == "error"
+    assert failed_child.status == :error
     assert failed_child.previous_message_id == nil
     assert get_in(failed_child.metadata, ["error", "code"]) == "source_entry_removed"
 

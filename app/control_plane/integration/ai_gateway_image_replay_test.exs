@@ -79,7 +79,7 @@ defmodule Ankole.AIGateway.ImageReplayIntegrationTest do
       stored_image = Enum.find(first_message.content, &(&1["type"] == "image_generation_call"))
       assert stored_image["id"] == @image_id
       assert stored_image["result"] == nil
-      assert first_message.status == "complete"
+      assert first_message.status == :complete
 
       assert {:ok, artifact} = Artifacts.get_generated_image(agent.uid, @image_id, payload?: true)
       assert artifact.payload == Base.decode64!(@png_base64)

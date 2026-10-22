@@ -17,7 +17,6 @@ defmodule AnkoleWeb.BrainObjectControllerTest do
   alias Ankole.Setup.Config, as: SetupConfig
 
   setup do
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
     {:ok, false} = Ankole.AppConfigure.put_global(SetupConfig.completed_definition(), false)
@@ -121,17 +120,31 @@ defmodule AnkoleWeb.BrainObjectControllerTest do
         row.("notes/object-search-fill-#{index}", "Common object #{index}")
       end
 
-    {107, nil} =
-      Repo.insert_all(Object, [
-        target,
-        percent_target,
-        percent_decoy,
-        underscore_target,
-        underscore_decoy,
-        backslash_target,
-        backslash_decoy
-        | fillers
-      ])
+    {:ok, %Ash.BulkResult{status: :success, records: inserted}} =
+      Repo.transact(fn ->
+        inputs =
+          Enum.map(
+            [
+              target,
+              percent_target,
+              percent_decoy,
+              underscore_target,
+              underscore_decoy,
+              backslash_target,
+              backslash_decoy
+              | fillers
+            ],
+            &Map.delete(&1, :tenant_id)
+          )
+
+        {:ok,
+         Ankole.Ash.bulk_create(inputs, Object, :create,
+           return_errors?: true,
+           return_records?: true
+         )}
+      end)
+
+    assert length(inserted) == 107
 
     assert %{"objects" => unfiltered} =
              conn
@@ -324,8 +337,12 @@ defmodule AnkoleWeb.BrainObjectControllerTest do
              })
              |> json_response(409)
 
-    assert Repo.get!(Object, object.id) == deleted
-    assert Repo.all(from(v in ObjectVersion, where: v.object_id == ^object.id)) == [version]
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(Object, object.id), deleted)
+
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.all(from(v in ObjectVersion, where: v.object_id == ^object.id)),
+      [version]
+    )
   end
 
   defp object_chunk_scopes(object) do
@@ -435,7 +452,9 @@ defmodule AnkoleWeb.BrainObjectControllerTest do
     """
 
     object =
-      Repo.insert!(%Object{
+      %Object{}
+      |> AshPostgres.DataLayer.to_ecto()
+      |> Ecto.Changeset.change(%{
         id: UUIDv7.autogenerate(),
         tenant_id: Repo.tenant_id!(),
         slug: "notes/repair-invalid-markdoc",
@@ -447,6 +466,7 @@ defmodule AnkoleWeb.BrainObjectControllerTest do
         created_at: now,
         updated_at: now
       })
+      |> Repo.insert!()
 
     assert %{"object" => %{"body" => ^invalid_body, "content_hash" => content_hash}} =
              conn

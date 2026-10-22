@@ -7,133 +7,186 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   derived execution session `Ankole.Schedule.Cron.execution_session_id/1`.
   """
 
-  use Ankole.Schema, tenancy: :tenant
+  use Ankole.Ash.Resource,
+    extensions: [AshStateMachine],
+    tenancy: :tenant,
+    domain: Ankole.Schedule.Domain
 
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
-
-  alias Ankole.Principals.Principal
-  alias Ankole.AutomationJobs.Schemas.Job, as: AutomationJob
-  alias Ankole.Ecto.JSONPayload
-  alias Ankole.TimeZone
-
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
-  @statuses ~w(active paused deleted completed)
+  use Ankole.Work.Provenance,
+    owner_session?: true,
+    kind: "cron",
+    cleanup_key: "cron",
+    review_states: [:active, :paused],
+    reauthorizable_states: [:active, :paused],
+    revoke_action: {Ankole.Schedule.Cron, :stop_human_work_in_tx}
 
   @type t :: %__MODULE__{}
 
-  schema "cron_schedules" do
-    field :authorization_kind, :string, default: "review_required"
-    field :human_uid, Ankole.Ecto.PrincipalKey
-    field :human_access_version, :integer
-    field :status, :string, default: "active"
+  postgres do
+    table("cron_schedules")
+    repo(Ankole.Repo)
+    migrate?(false)
 
-    belongs_to :agent, Principal,
-      foreign_key: :agent_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
+    foreign_key_names([
+      {:agent_uid, "cron_schedules_agent_uid_fkey"},
+      {:automation_job_id, "cron_schedules_automation_job_id_fkey"}
+    ])
 
-    field :owner_session_id, :string
-    field :binding_name, :string
-    field :name, :string
-    field :schedule, :map, default: %{}
-    field :timezone, :string
-    field :payload, :map, default: %{}
-    field :delivery, :map
-    field :next_fire_at, :utc_datetime_usec
-    field :last_fire_at, :utc_datetime_usec
-    field :idempotency_key, :string
-    field :created_by, :map, default: %{}
-    belongs_to :automation_job, AutomationJob, type: :id
-    timestamps()
+    check_constraints do
+      check_constraint(:authorization_kind, "cron_schedules_work_authorization_check")
+      check_constraint(:status, "cron_schedules_status_check")
+      check_constraint(:next_fire_at, "cron_schedules_live_deadline_check")
+      check_constraint(:timezone, "cron_schedules_timezone_present")
+      check_constraint(:name, "cron_schedules_name_present")
+      check_constraint(:idempotency_key, "cron_schedules_idempotency_key_present")
+      check_constraint(:schedule, "cron_schedules_schedule_object")
+      check_constraint(:payload, "cron_schedules_payload_object")
+      check_constraint(:delivery, "cron_schedules_delivery_object")
+      check_constraint(:created_by, "cron_schedules_created_by_object")
+    end
+
+    identity_index_names(idempotency: "cron_schedules_idempotency_index")
+
+    unique_index_names([
+      {[:agent_uid, :owner_session_id, :name], "cron_schedules_agent_name_index"}
+    ])
   end
 
-  @doc """
-  Builds a changeset for cron schedule rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(schedule, attrs) do
-    schedule
-    |> cast(attrs, [
-      :authorization_kind,
-      :human_uid,
-      :human_access_version,
-      :status,
-      :agent_uid,
-      :owner_session_id,
-      :binding_name,
-      :name,
-      :schedule,
-      :timezone,
-      :payload,
-      :delivery,
-      :next_fire_at,
-      :last_fire_at,
-      :idempotency_key,
-      :created_by,
-      :automation_job_id
-    ])
-    |> normalize_blank([
-      :status,
-      :agent_uid,
-      :owner_session_id,
-      :binding_name,
-      :name,
-      :timezone,
-      :idempotency_key
-    ])
-    |> validate_required([
-      :status,
-      :agent_uid,
-      :owner_session_id,
-      :name,
-      :schedule,
-      :timezone,
-      :payload,
-      :idempotency_key,
-      :created_by
-    ])
-    |> validate_inclusion(:status, @statuses)
-    |> validate_timezone(:timezone)
-    |> JSONPayload.validate_map(:schedule)
-    |> JSONPayload.validate_map(:payload)
-    |> validate_nullable_map(:delivery)
-    |> JSONPayload.validate_map(:created_by)
-    |> foreign_key_constraint(:agent_uid)
-    |> foreign_key_constraint(:automation_job_id)
-    |> unique_constraint([:agent_uid, :owner_session_id, :idempotency_key],
-      name: :cron_schedules_idempotency_index
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Kernel.gen_uuid_v7/0,
+      public?: true
     )
-    |> unique_constraint([:agent_uid, :owner_session_id, :name],
-      name: :cron_schedules_agent_name_index
+
+    ash_attributes()
+    attribute(:binding_name, :string, public?: true)
+    attribute(:name, :string, allow_nil?: false, public?: true)
+    attribute(:schedule, Ankole.Ash.Types.JSONMap, default: %{}, allow_nil?: false, public?: true)
+    attribute(:timezone, :string, allow_nil?: false, public?: true)
+    attribute(:payload, Ankole.Ash.Types.JSONMap, default: %{}, allow_nil?: false, public?: true)
+    attribute(:delivery, Ankole.Ash.Types.JSONMap, public?: true)
+    attribute(:next_fire_at, :utc_datetime_usec, public?: true)
+    attribute(:last_fire_at, :utc_datetime_usec, public?: true)
+    attribute(:idempotency_key, :string, allow_nil?: false, public?: true)
+
+    attribute(:created_by, Ankole.Ash.Types.JSONMap,
+      default: %{},
+      allow_nil?: false,
+      public?: true
     )
-    |> check_constraint(:status, name: :cron_schedules_status_check)
-    |> check_constraint(:timezone, name: :cron_schedules_timezone_present)
-    |> check_constraint(:name, name: :cron_schedules_name_present)
-    |> check_constraint(:idempotency_key,
-      name: :cron_schedules_idempotency_key_present
-    )
-    |> check_constraint(:schedule, name: :cron_schedules_schedule_object)
-    |> check_constraint(:payload, name: :cron_schedules_payload_object)
-    |> check_constraint(:delivery, name: :cron_schedules_delivery_object)
-    |> check_constraint(:created_by, name: :cron_schedules_created_by_object)
+
+    attribute(:automation_job_id, :integer, public?: true)
+    timestamps(type: :utc_datetime_usec)
   end
 
-  defp validate_nullable_map(changeset, field) do
-    case get_change(changeset, field, get_field(changeset, field)) do
-      nil -> changeset
-      _value -> JSONPayload.validate_map(changeset, field)
+  identities do
+    identity(:idempotency, [:agent_uid, :owner_session_id, :idempotency_key], all_tenants?: true)
+  end
+
+  state_machine do
+    state_attribute(:status)
+    initial_states([:active, :paused])
+    default_initial_state(:active)
+
+    transitions do
+      transition(:pause, from: :active, to: :paused)
+      transition(:resume, from: :paused, to: :active)
+      transition(:delete, from: [:active, :paused, :completed], to: :deleted)
+      transition(:complete, from: [:active, :paused], to: :completed)
+      transition(:stop_human_work, from: :active, to: :paused)
     end
   end
 
-  defp validate_timezone(changeset, field) do
-    validate_change(changeset, field, fn ^field, value ->
-      case TimeZone.validate(value) do
-        {:ok, _timezone} -> []
-        {:error, reason} -> [{field, "is not a valid timezone: #{inspect(reason)}"}]
-      end
-    end)
+  actions do
+    defaults([:read])
+
+    create :create do
+      primary?(true)
+      transaction?(false)
+      upsert?(true)
+      upsert_identity(:idempotency)
+      upsert_fields([:idempotency_key])
+
+      accept([
+        :id,
+        :authorization_kind,
+        :human_uid,
+        :human_access_version,
+        :status,
+        :agent_uid,
+        :owner_session_id,
+        :binding_name,
+        :name,
+        :schedule,
+        :timezone,
+        :payload,
+        :delivery,
+        :next_fire_at,
+        :last_fire_at,
+        :idempotency_key,
+        :created_by,
+        :automation_job_id
+      ])
+
+      change(Ankole.Ash.RequireTransaction)
+      validate(Ankole.TimeZone, where: [changing(:timezone)], only_when_valid?: true)
+    end
+
+    in_tx_update :update_definition do
+      validate(Ankole.TimeZone, where: [changing(:timezone)], only_when_valid?: true)
+
+      accept([
+        :binding_name,
+        :name,
+        :schedule,
+        :timezone,
+        :payload,
+        :delivery,
+        :automation_job_id
+      ])
+    end
+
+    in_tx_update :pause do
+      accept([])
+      change(transition_state(:paused))
+      change(set_attribute(:next_fire_at, nil))
+    end
+
+    in_tx_update :resume do
+      accept([])
+      change(transition_state(:active))
+    end
+
+    in_tx_update :delete do
+      accept([])
+      change(transition_state(:deleted))
+      change(set_attribute(:next_fire_at, nil))
+    end
+
+    in_tx_update :complete do
+      accept([])
+      change(transition_state(:completed))
+      change(set_attribute(:next_fire_at, nil))
+    end
+
+    in_tx_update :schedule_fire do
+      accept([:next_fire_at])
+    end
+
+    in_tx_update :record_fire do
+      accept([:last_fire_at])
+    end
+
+    in_tx_update :reauthorize do
+      accept([:authorization_kind, :human_uid, :human_access_version])
+    end
+
+    atomic_in_tx_update :stop_human_work do
+      accept([])
+      change(transition_state(:paused))
+      change(set_attribute(:next_fire_at, nil))
+    end
   end
 end

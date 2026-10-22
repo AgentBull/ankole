@@ -8,13 +8,10 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.SessionsCase
-  alias Ankole.Signals.Binding
 
   setup do
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
     CredentialPool.reset_for_test()
@@ -118,15 +115,16 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
   end
 
   defp insert_signal_binding!(agent_uid) do
-    %Binding{}
-    |> Binding.changeset(%{
-      agent_uid: agent_uid,
-      name: "readiness",
-      adapter: "lark",
-      config_ref: "app-config://signals.lark.bindings.readiness",
-      filters: %{},
-      enabled: true
-    })
-    |> Repo.insert!()
+    {:ok, binding} =
+      Ankole.SignalsFixtures.raw_binding_fixture(%{
+        agent_uid: agent_uid,
+        name: "readiness",
+        adapter: "lark",
+        config_ref: "app-config://signals.lark.bindings.readiness",
+        filters: %{},
+        enabled: true
+      })
+
+    binding
   end
 end

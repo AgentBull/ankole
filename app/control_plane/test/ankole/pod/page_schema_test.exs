@@ -21,23 +21,22 @@ defmodule Ankole.Pod.PageSchemaTest do
     assert Repo.get!(Page, page.id).title == ""
 
     content =
-      Repo.insert!(
-        PageContent.changeset(%PageContent{}, %{
-          page_id: page.id,
-          content: "<page />",
-          plain_text: "",
-          updated_by: @author,
-          updated_at: now()
-        })
-      )
+      insert!(PageContent, %{
+        page_id: page.id,
+        content: "<page />",
+        plain_text: "",
+        updated_by: @author,
+        updated_at: now()
+      })
 
     assert Repo.reload!(content).plain_text == ""
-    page = Repo.update!(Page.changeset(page, %{title: "Named"}))
-    assert Repo.update!(Page.changeset(page, %{title: ""})).title == ""
-    content = Repo.update!(PageContent.changeset(content, %{plain_text: "text"}))
-    assert Repo.update!(PageContent.changeset(content, %{plain_text: ""})).plain_text == ""
-    refute Page.changeset(page, %{title: nil}).valid?
-    refute PageContent.changeset(content, %{plain_text: nil}).valid?
+    page = update!(page, :edit, %{title: "Named", icon: ""})
+    assert page.icon == ""
+    assert update!(page, :edit, %{title: ""}).title == ""
+    content = update!(content, :replace, %{plain_text: "text"})
+    assert update!(content, :replace, %{plain_text: ""}).plain_text == ""
+    refute action_changeset(page, :edit, %{title: nil}).valid?
+    refute action_changeset(content, :replace, %{plain_text: nil}).valid?
   end
 
   test "all Page and Database schemas require a tenant context for reads and writes" do
@@ -56,7 +55,7 @@ defmodule Ankole.Pod.PageSchemaTest do
     Repo.with_tenant(other.id, fn ->
       assert Repo.get(Page, page.id) == nil
       assert Repo.all(Page) == []
-      assert_raise ArgumentError, fn -> Repo.update(Page.changeset(page, %{title: "Changed"})) end
+      assert_raise ArgumentError, fn -> Repo.update(change(page, title: "Changed")) end
       assert_raise ArgumentError, fn -> Repo.delete(page) end
     end)
 
@@ -103,22 +102,22 @@ defmodule Ankole.Pod.PageSchemaTest do
     foreign_table = Repo.with_tenant(other.id, fn -> new_table(foreign_page) end)
 
     assert_constraint(
-      Page.changeset(%Page{}, page_attrs(%{parent_id: foreign_page.id})),
+      action_changeset(Page, page_attrs(%{parent_id: foreign_page.id})),
       "pages_tenant_id_parent_id_fkey"
     )
 
     assert_constraint(
-      DbTable.changeset(%DbTable{}, %{page_id: foreign_page.id, name: "Table", position: "a"}),
+      action_changeset(DbTable, %{page_id: foreign_page.id, name: "Table", position: "a"}),
       "db_tables_tenant_id_page_id_fkey"
     )
 
     assert_constraint(
-      DbRecord.changeset(%DbRecord{}, record_attrs(foreign_table.id)),
+      action_changeset(DbRecord, record_attrs(foreign_table.id)),
       "db_records_tenant_id_table_id_fkey"
     )
 
     assert_constraint(
-      PageChange.changeset(%PageChange{}, change_attrs(foreign_page.id, :reset)),
+      action_changeset(PageChange, change_attrs(foreign_page.id, :reset)),
       "page_changes_tenant_id_page_id_fkey"
     )
   end
@@ -127,7 +126,7 @@ defmodule Ankole.Pod.PageSchemaTest do
     page = new_page()
     changes = editor_changes()
     assert is_list(changes)
-    entry = Repo.insert!(PageChange.changeset(%PageChange{}, change_attrs(page.id, :change)))
+    entry = insert!(PageChange, change_attrs(page.id, :change))
 
     assert Repo.get_by!(PageChange, page_id: entry.page_id, revision: entry.revision).changes ==
              changes
@@ -137,11 +136,20 @@ defmodule Ankole.Pod.PageSchemaTest do
              [Repo.tenant_id!(), page.id]
            ).rows == [["array"]]
 
-    assert Repo.update!(PageChange.changeset(entry, %{changes: []})).changes == []
+    empty =
+      insert!(PageChange, %{
+        change_attrs(page.id, :change)
+        | revision: 2,
+          client_seq: 2,
+          changes: []
+      })
+
+    assert empty.changes == []
+    refute Ash.Resource.Info.action(PageChange, :update)
 
     for invalid <- [%{"sections" => []}, [self()], ["bad\0text"], [<<255>>]] do
-      refute PageChange.changeset(
-               %PageChange{},
+      refute action_changeset(
+               PageChange,
                Map.put(change_attrs(page.id, :change), :changes, invalid)
              ).valid?
     end
@@ -150,11 +158,11 @@ defmodule Ankole.Pod.PageSchemaTest do
   test "reset entries reject every partial change payload in both layers", %{tenant: tenant} do
     page = new_page()
     attrs = change_attrs(page.id, :reset)
-    reset = Repo.insert!(PageChange.changeset(%PageChange{}, attrs))
+    reset = insert!(PageChange, attrs)
     assert {reset.client_id, reset.client_seq, reset.changes} == {nil, nil, nil}
 
     for patch <- [%{client_id: "editor"}, %{client_seq: 1}, %{changes: []}] do
-      refute PageChange.changeset(%PageChange{}, Map.merge(attrs, patch)).valid?
+      refute action_changeset(PageChange, Map.merge(attrs, patch)).valid?
     end
 
     for assignment <- ["client_id = 'editor'", "client_seq = 1", "changes = '[]'::jsonb"] do
@@ -167,31 +175,28 @@ defmodule Ankole.Pod.PageSchemaTest do
       )
     end
 
-    refute PageChange.changeset(
-             %PageChange{},
-             Map.delete(change_attrs(page.id, :change), :changes)
-           ).valid?
+    refute action_changeset(PageChange, Map.delete(change_attrs(page.id, :change), :changes)).valid?
   end
 
   test "one revision and one client sequence can be stored only once" do
     page = new_page()
     attrs = change_attrs(page.id, :change)
-    Repo.insert!(PageChange.changeset(%PageChange{}, attrs))
+    insert!(PageChange, attrs)
 
     assert_constraint(
-      PageChange.changeset(%PageChange{}, %{attrs | revision: 2}),
+      action_changeset(PageChange, %{attrs | revision: 2}),
       "page_changes_tenant_id_page_id_client_id_client_seq_key"
     )
 
     assert_constraint(
-      PageChange.changeset(%PageChange{}, %{attrs | client_seq: 2}),
+      action_changeset(PageChange, %{attrs | client_seq: 2}),
       "page_changes_pkey"
     )
   end
 
   test "the database rejects a non-array change payload", %{tenant: tenant} do
     page = new_page()
-    Repo.insert!(PageChange.changeset(%PageChange{}, change_attrs(page.id, :change)))
+    insert!(PageChange, change_attrs(page.id, :change))
 
     assert_sql_constraint(
       "UPDATE page_changes SET changes = '{}'::jsonb WHERE tenant_id = $1::text::uuid AND page_id = $2::text::uuid",
@@ -209,9 +214,17 @@ defmodule Ankole.Pod.PageSchemaTest do
       visited_at: now()
     }
 
-    state = Repo.insert!(PageUserState.changeset(%PageUserState{}, attrs))
-    assert Repo.update!(PageUserState.changeset(state, %{favorited_at: now()})).favorited_at
-    assert_constraint(PageUserState.changeset(%PageUserState{}, attrs), "page_user_states_pkey")
+    state = insert!(PageUserState, attrs)
+    assert insert!(PageUserState, Map.put(attrs, :favorited_at, now())).favorited_at
+
+    assert Repo.get_by!(PageUserState, principal_uid: state.principal_uid, page_id: page.id).visited_at ==
+             state.visited_at
+
+    assert_sql_constraint(
+      "INSERT INTO page_user_states SELECT * FROM page_user_states WHERE tenant_id = $1::text::uuid AND page_id = $2::text::uuid",
+      [Repo.tenant_id!(), page.id],
+      "page_user_states_pkey"
+    )
 
     for {schema, fields} <- [
           {PageContent, [:page_id]},
@@ -240,15 +253,15 @@ defmodule Ankole.Pod.PageSchemaTest do
   test "field names and the primary field are unique" do
     table = new_table(new_page(%{type: :database}))
     attrs = %{table_id: table.id, name: "Title", position: "a", type: :text, is_primary: true}
-    Repo.insert!(DbField.changeset(%DbField{}, attrs))
+    insert!(DbField, attrs)
 
     assert_constraint(
-      DbField.changeset(%DbField{}, %{attrs | is_primary: false}),
+      action_changeset(DbField, %{attrs | is_primary: false}),
       "db_fields_name_index"
     )
 
     assert_constraint(
-      DbField.changeset(%DbField{}, %{attrs | name: "Other"}),
+      action_changeset(DbField, %{attrs | name: "Other"}),
       "db_fields_one_primary_index"
     )
   end
@@ -256,30 +269,26 @@ defmodule Ankole.Pod.PageSchemaTest do
   test "accepts the declared view and field types", %{tenant: tenant} do
     table = new_table(new_page(%{type: :database}))
 
-    for type <- Ecto.Enum.values(DbView, :type) do
+    for type <- Ash.Resource.Info.attribute(DbView, :type).constraints[:one_of] do
       view =
-        Repo.insert!(
-          DbView.changeset(%DbView{}, %{
-            table_id: table.id,
-            name: "View",
-            position: "a",
-            type: type
-          })
-        )
+        insert!(DbView, %{
+          table_id: table.id,
+          name: "View",
+          position: "a",
+          type: type
+        })
 
       assert Repo.reload!(view).type == type
     end
 
-    for type <- Ecto.Enum.values(DbField, :type) do
+    for type <- Ash.Resource.Info.attribute(DbField, :type).constraints[:one_of] do
       field =
-        Repo.insert!(
-          DbField.changeset(%DbField{}, %{
-            table_id: table.id,
-            name: to_string(type),
-            position: "a",
-            type: type
-          })
-        )
+        insert!(DbField, %{
+          table_id: table.id,
+          name: to_string(type),
+          position: "a",
+          type: type
+        })
 
       assert Repo.reload!(field).type == type
     end
@@ -300,12 +309,43 @@ defmodule Ankole.Pod.PageSchemaTest do
     )
   end
 
-  defp assert_constraint(changeset, name) do
-    assert changeset.valid?, inspect(changeset.errors)
-    assert {:error, rejected} = Repo.insert(changeset, mode: :savepoint)
+  defp action(PageChange), do: :append
+  defp action(PageUserState), do: :put
+  defp action(_resource), do: :create_in_tx
 
-    assert Enum.any?(rejected.errors, fn {_field, {_message, metadata}} ->
-             metadata[:constraint_name] == name
+  defp action_changeset(resource, attrs) do
+    {:ok, changeset} =
+      Repo.transact(fn _ -> {:ok, Ankole.Ash.for_create(resource, action(resource), attrs)} end)
+
+    changeset
+  end
+
+  defp action_changeset(record, action, attrs) do
+    {:ok, changeset} =
+      Repo.transact(fn _ -> {:ok, Ankole.Ash.for_update(record, action, attrs)} end)
+
+    changeset
+  end
+
+  defp insert!(resource, attrs) do
+    {:ok, record} =
+      Repo.transact(fn _ -> Ankole.Ash.create(resource, action(resource), attrs) end)
+
+    record
+  end
+
+  defp update!(record, action, attrs) do
+    {:ok, record} = Repo.transact(fn _ -> Ankole.Ash.update(record, action, attrs) end)
+    record
+  end
+
+  defp assert_constraint(%Ash.Changeset{} = changeset, name) do
+    assert changeset.valid?, inspect(changeset.errors)
+    assert {:error, rejected} = Repo.transact(fn _ -> Ankole.Ash.create(changeset) end)
+
+    assert Enum.any?(rejected.errors, fn
+             %Ash.Error.Changes.InvalidAttribute{private_vars: vars} -> vars[:constraint] == name
+             _error -> false
            end),
            inspect(rejected.errors)
   end
@@ -331,13 +371,10 @@ defmodule Ankole.Pod.PageSchemaTest do
         attrs
       )
 
-  defp new_page(attrs \\ %{}), do: Repo.insert!(Page.changeset(%Page{}, page_attrs(attrs)))
+  defp new_page(attrs \\ %{}), do: insert!(Page, page_attrs(attrs))
 
   defp new_table(page),
-    do:
-      Repo.insert!(
-        DbTable.changeset(%DbTable{}, %{page_id: page.id, name: "Table", position: "a"})
-      )
+    do: insert!(DbTable, %{page_id: page.id, name: "Table", position: "a"})
 
   defp record_attrs(table_id),
     do: %{

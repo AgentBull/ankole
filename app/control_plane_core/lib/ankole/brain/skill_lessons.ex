@@ -30,7 +30,7 @@ defmodule Ankole.Brain.SkillLessons do
   alias Ankole.Signals.Binding
   alias Ankole.Version
 
-  @terminal_statuses ~w(succeeded failed stopped)
+  @terminal_statuses [:succeeded, :failed, :stopped]
   @evidence_age_days 30
   @bundle_job_limit 30
   @docket_horizon_hours 26
@@ -124,7 +124,7 @@ defmodule Ankole.Brain.SkillLessons do
     cond do
       is_nil(job) -> :ok
       job.metadata["skill_lesson_reflection"] != true -> :ok
-      job.status != "succeeded" -> :ok
+      job.status != :succeeded -> :ok
       is_map_key(job.metadata, "lessons_applied_at") -> :ok
       true -> do_apply_reflection_output(job)
     end
@@ -338,10 +338,7 @@ defmodule Ankole.Brain.SkillLessons do
   end
 
   defp stamp_lessons_applied(job) do
-    metadata =
-      Map.put(job.metadata, "lessons_applied_at", DateTime.to_iso8601(DateTime.utc_now()))
-
-    {:ok, _job} = job |> Job.changeset(%{metadata: metadata}) |> Repo.update()
+    {:ok, _job} = Ankole.Ash.update(job, :record_lessons_applied, %{})
     :ok
   end
 

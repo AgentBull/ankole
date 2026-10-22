@@ -13,7 +13,8 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   alias Ankole.Logging
 
   @timeout_codes ~w(
-    connect_timeout first_byte_timeout idle_timeout total_timeout universal_ai_stream_ready_timeout
+    connect_timeout first_byte_timeout idle_timeout total_timeout upstream_timeout
+    universal_ai_stream_ready_timeout
   )
   @transport_codes ~w(
     provider_stream_aborted provider_stream_closed_without_terminal provider_stream_error

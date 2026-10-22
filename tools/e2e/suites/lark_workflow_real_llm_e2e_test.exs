@@ -8,6 +8,7 @@ defmodule Ankole.E2E.LarkWorkflowRealLLME2ETest do
   """
 
   use Ankole.DataCase, async: false
+  @moduletag sandbox: false
 
   import Ankole.E2E.Harness
   import Ankole.E2E.Scenarios.WorkflowRealLLM
@@ -21,8 +22,16 @@ defmodule Ankole.E2E.LarkWorkflowRealLLME2ETest do
   @embedding_dimensions 2_560
   @rerank_model "qwen/qwen3-reranker-8b"
 
+  setup_all do
+    start_committed_repo!()
+  end
+
+  setup do
+    cleanup_committed_fixtures_on_exit!()
+    :ok
+  end
+
   @tag timeout: 1_800_000
-  @tag ownership_timeout: 1_800_000
   @tag :real_llm
   @tag :deepseek_release_stories
   test "real LLM drives Workflow fanout, sleep/wake, and attention over Lark" do
@@ -61,7 +70,6 @@ defmodule Ankole.E2E.LarkWorkflowRealLLME2ETest do
   end
 
   @tag timeout: 1_800_000
-  @tag ownership_timeout: 1_800_000
   @tag :real_llm
   test "real LLM Workflow task delegates a BackgroundAgentJob and wakes on its completion" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
@@ -80,7 +88,6 @@ defmodule Ankole.E2E.LarkWorkflowRealLLME2ETest do
   end
 
   @tag timeout: 1_800_000
-  @tag ownership_timeout: 1_800_000
   @tag :real_llm
   @tag :deepseek_release_stories
   @tag :deepseek_workflow_failure
@@ -110,7 +117,6 @@ defmodule Ankole.E2E.LarkWorkflowRealLLME2ETest do
   end
 
   @tag timeout: 1_800_000
-  @tag ownership_timeout: 1_800_000
   @tag :real_llm
   test "real LLM Workflow cancel stops a sleeping task and its delegated job" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
@@ -129,7 +135,6 @@ defmodule Ankole.E2E.LarkWorkflowRealLLME2ETest do
   end
 
   @tag timeout: 1_800_000
-  @tag ownership_timeout: 1_800_000
   @tag :real_llm
   test "real LLM writes its own Workflow script that classifies tickers and delegates industry jobs" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
@@ -148,7 +153,6 @@ defmodule Ankole.E2E.LarkWorkflowRealLLME2ETest do
   end
 
   @tag timeout: 300_000
-  @tag ownership_timeout: 300_000
   @tag :real_llm
   test "Brain embedding and rerank reach OpenRouter with the qwen models" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!(), worker: false)

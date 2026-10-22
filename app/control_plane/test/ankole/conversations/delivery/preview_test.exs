@@ -202,7 +202,8 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
 
     signal =
       signal
-      |> Signal.changeset(%{
+      |> AshPostgres.DataLayer.to_ecto()
+      |> Ecto.Changeset.change(%{
         type: "background_agent_job.failed",
         data: %{
           "title" => "第二版 deep research",
@@ -225,7 +226,8 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
 
     signal =
       signal
-      |> Signal.changeset(%{
+      |> AshPostgres.DataLayer.to_ecto()
+      |> Ecto.Changeset.change(%{
         type: "cron.fire",
         data: %{"wake_payload" => %{"trigger" => "scheduled"}}
       })
@@ -397,7 +399,6 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     %{subject: subject, signal: signal} = addressed_signal("tool-activity-i18n")
     %{response: response} = start_dispatched_preview(subject.uid, signal)
 
-    allow_cache_database_access()
     {:ok, _locale} = Ankole.I18n.put_default_locale("zh-Hans-CN")
 
     assert :ok =
@@ -446,7 +447,8 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
 
     signal =
       signal
-      |> Signal.changeset(%{type: "background_agent_job.completed"})
+      |> AshPostgres.DataLayer.to_ecto()
+      |> Ecto.Changeset.change(%{type: "background_agent_job.completed"})
       |> Repo.update!()
 
     %{response: response, pid: pid} = start_dispatched_preview(subject.uid, signal)
@@ -589,7 +591,8 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
 
     signal =
       signal
-      |> Signal.changeset(%{
+      |> AshPostgres.DataLayer.to_ecto()
+      |> Ecto.Changeset.change(%{
         type: "check_back_later.wakeup",
         data: %{"wake_payload" => %{"quiet_success" => false}}
       })
@@ -1009,7 +1012,8 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
 
     signal
     |> Ankole.PreviewFixtures.update!(%{
-      input_state: "dead_letter",
+      status: :dead_letter,
+      dead_letter_reason: %{"reason" => "fixture poison"},
       dead_letter_at: DateTime.utc_now(:microsecond),
       checkpoint: checkpoint
     })
@@ -1157,7 +1161,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
         provider_message_id: "message-recover"
       })
 
-    Repo.insert!(%Intent{
+    Ankole.SignalsFixtures.delivery_fixture!(%{
       agent_uid: signal.agent_uid,
       binding_name: signal.reply_binding_name,
       outbound_key: "terminal-recover:#{signal.id}",
@@ -1247,7 +1251,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
         provider_message_id: "message-blocked"
       })
 
-    Repo.insert!(%Intent{
+    Ankole.SignalsFixtures.delivery_fixture!(%{
       agent_uid: signal.agent_uid,
       binding_name: signal.reply_binding_name,
       outbound_key: "blocked-recover:#{signal.id}",
@@ -1386,7 +1390,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
         provider_message_id: "message-atom-blocked"
       })
 
-    Repo.insert!(%Intent{
+    Ankole.SignalsFixtures.delivery_fixture!(%{
       agent_uid: signal.agent_uid,
       binding_name: signal.reply_binding_name,
       outbound_key: "atom-blocked:#{signal.id}",
@@ -1486,7 +1490,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
       })
 
     intent =
-      Repo.insert!(%Intent{
+      Ankole.SignalsFixtures.delivery_fixture!(%{
         agent_uid: signal.agent_uid,
         binding_name: signal.reply_binding_name,
         outbound_key: "fallback-recover:#{signal.id}",
@@ -1828,11 +1832,15 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
   end
 
   defp scheduled_signal_fixture(agent_uid, opts) do
-    signal = external_session_signal_fixture(agent_uid, binding_name: "mock")
+    signal =
+      external_session_signal_fixture(agent_uid,
+        binding_name: "mock",
+        type: "check_back_later.wakeup"
+      )
 
-    signal
-    |> Ankole.PreviewFixtures.update!(
-      Map.merge(%{type: "check_back_later.wakeup", data: %{"wake_payload" => %{}}}, Map.new(opts))
+    Ankole.PreviewFixtures.update!(
+      signal,
+      Map.merge(%{data: %{"wake_payload" => %{}}}, Map.new(opts))
     )
   end
 

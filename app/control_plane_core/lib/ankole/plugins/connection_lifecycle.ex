@@ -178,11 +178,20 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
         Repo.with_tenant(tenant.id, fn ->
           try do
             config.adapter
-            |> Ankole.Signals.Bindings.list_enabled_bindings(Keyword.take(opts, [:repo]))
+            |> Ankole.Signals.Bindings.list_enabled_bindings()
             |> Enum.reduce(acc, &add_binding(module, config, &1, &2, opts))
             |> add_identity_providers(module, config)
           rescue
             error ->
+              Logging.warning(
+                "plugins.connection_snapshot_failed",
+                "Plugin connection snapshot failed",
+                Map.merge(Logging.failure_fields(:error, error, __STACKTRACE__), %{
+                  tenant_id: tenant.id,
+                  adapter: config.adapter
+                })
+              )
+
               {specs, errors} = acc
 
               {specs,
@@ -440,14 +449,19 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
         alert = %{alert | repeat_count: alert.repeat_count + 1}
 
         if now - alert.logged_at >= @repeat_log_interval_ms do
-          Logging.info(event, message, %{errors: errors, repeat_count: alert.repeat_count})
+          Logging.info(event, message, %{
+            adapter: adapter,
+            error_count: length(errors),
+            repeat_count: alert.repeat_count
+          })
+
           %{state | alert: %{alert | logged_at: now}}
         else
           %{state | alert: alert}
         end
 
       _changed ->
-        Logging.warning(event, message, %{errors: errors})
+        Logging.warning(event, message, %{adapter: adapter, error_count: length(errors)})
         %{state | alert: %{hash: hash, repeat_count: 0, logged_at: now}}
     end
   end
@@ -467,7 +481,10 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
     Logging.warning(
       "#{adapter}_adapter.connection.client_exited",
       "#{adapter} adapter connection client exited",
-      %{connection_key: inspect(key), reason: inspect(reason), attempt: attempt}
+      Map.merge(Logging.failure_fields(:exit, reason, []), %{
+        connection_key: inspect(key),
+        attempt: attempt
+      })
     )
 
     delay = Enum.at(state.restart_backoff_ms, attempt - 1, List.last(state.restart_backoff_ms))

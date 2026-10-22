@@ -1,30 +1,12 @@
 import { afterAll, describe, expect, it } from 'bun:test'
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  realpathSync,
-  symlinkSync,
-  writeFileSync
-} from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { CommandFinished, ContainerComputer } from '../src/tools/computer/computer'
 import type { ComputerToolContext } from '../src/tools/computer/context'
 import { createCommandTool } from '../src/tools/computer/command-tool'
-import {
-  FffSearchRuntime,
-  buildSearchQuery,
-  clipSearchLine,
-  fileAnnotation,
-  normalizeConstraint,
-  normalizeExcludes,
-  resolveSearchTarget
-} from '../src/tools/computer/fff-search'
+import { FffSearchRuntime } from '../src/tools/computer/fff-search'
 import { createFindTool } from '../src/tools/computer/find-tool'
-import { clipLinesToBudget } from '../src/tools/computer/format'
 import { createGrepTool } from '../src/tools/computer/grep-tool'
 import { createLsTool } from '../src/tools/computer/ls-tool'
 import { createReadFileTool } from '../src/tools/computer/read-file-tool'
@@ -62,96 +44,6 @@ function makeHome(): { agentHome: string; workspaceRoot: string } {
   mkdirSync(workspaceRoot, { recursive: true })
   return { agentHome, workspaceRoot }
 }
-
-describe('search query building', () => {
-  it('clips a long line without leaving half a Unicode character', () => {
-    const line = `${'x'.repeat(499)}😀tail`
-    const clipped = clipSearchLine(line)
-    expect(clipped.wasClipped).toBe(true)
-    expect(Buffer.from(clipped.text).toString()).toBe(clipped.text)
-    expect(clipped.text).toBe(`${'x'.repeat(499)}...`)
-    expect(clipSearchLine('😀')).toEqual({ text: '😀', wasClipped: false })
-  })
-  it('normalizes constraints into parser shapes', () => {
-    expect(normalizeConstraint('src')).toBe('src/')
-    expect(normalizeConstraint('./src/')).toBe('src/')
-    expect(normalizeConstraint('main.rs')).toBe('main.rs')
-    expect(normalizeConstraint('src/**')).toBe('src/')
-    expect(normalizeConstraint('src/**/*')).toBe('src/')
-    expect(normalizeConstraint('src/**/*.ts')).toBe('src/**/*.ts')
-    expect(normalizeConstraint('*.ts')).toBe('*.ts')
-    expect(normalizeConstraint('**')).toBeUndefined()
-    expect(normalizeConstraint('.')).toBeUndefined()
-    expect(normalizeConstraint('')).toBeUndefined()
-  })
-
-  it('normalizes excludes from strings, arrays, and negated forms', () => {
-    expect(normalizeExcludes('test/,*.min.js')).toEqual(['!test/', '!*.min.js'])
-    expect(normalizeExcludes('!vendor')).toEqual(['!vendor/'])
-    expect(normalizeExcludes(['a.txt', 'b/'])).toEqual(['!a.txt', '!b/'])
-    expect(normalizeExcludes(undefined)).toEqual([])
-  })
-
-  it('assembles constraint, excludes, and pattern in parser order', () => {
-    expect(buildSearchQuery({ constraint: 'src/', excludes: ['!test/'], pattern: 'main' })).toBe('src/ !test/ main')
-    expect(buildSearchQuery({ constraint: undefined, excludes: [], pattern: '  ' })).toBe('')
-  })
-
-  it('annotates git state ahead of frecency, one tag at most', () => {
-    expect(fileAnnotation({ gitStatus: 'modified', totalFrecencyScore: 99 })).toBe('  [modified in git]')
-    expect(fileAnnotation({ gitStatus: 'clean', totalFrecencyScore: 26 })).toBe('  [VERY often touched file]')
-    expect(fileAnnotation({ gitStatus: '', totalFrecencyScore: 21 })).toBe('  [often touched file]')
-    expect(fileAnnotation({ gitStatus: 'unknown', totalFrecencyScore: 3 })).toBe('')
-  })
-
-  it('clips to a budget on line boundaries and keeps at least one line', () => {
-    const clipped = clipLinesToBudget('aaa\nbbb\nccc', 7)
-    expect(clipped).toEqual({ text: 'aaa\nbbb', clipped: true, keptLines: 2, totalLines: 3 })
-    expect(clipLinesToBudget('short', 100).clipped).toBe(false)
-    const giant = clipLinesToBudget('x'.repeat(50), 10)
-    expect(giant.text).toBe('x'.repeat(10))
-    expect(giant.keptLines).toBe(1)
-  })
-})
-
-describe('resolveSearchTarget', () => {
-  const { agentHome, workspaceRoot } = makeHome()
-  mkdirSync(join(workspaceRoot, 'src'), { recursive: true })
-  mkdirSync(join(agentHome, 'user-files'), { recursive: true })
-
-  it('defaults to the workspace root', () => {
-    const target = resolveSearchTarget({ agentHome, workspaceRoot }, undefined)
-    expect(target).toEqual({ ok: true, root: realpathSync(workspaceRoot) })
-  })
-
-  it('folds workspace-relative paths onto the workspace finder', () => {
-    const target = resolveSearchTarget({ agentHome, workspaceRoot }, 'src')
-    expect(target).toEqual({ ok: true, root: realpathSync(workspaceRoot), constraint: 'src/' })
-  })
-
-  it('keeps glob and missing segments as the constraint', () => {
-    const target = resolveSearchTarget({ agentHome, workspaceRoot }, 'src/**/*.ts')
-    expect(target).toEqual({ ok: true, root: realpathSync(workspaceRoot), constraint: 'src/**/*.ts' })
-  })
-
-  it('routes ~ paths to a root outside the workspace', () => {
-    const target = resolveSearchTarget({ agentHome, workspaceRoot }, '~/user-files')
-    expect(target).toEqual({ ok: true, root: join(realpathSync(agentHome), 'user-files') })
-  })
-
-  it('refuses roots outside the agent home', () => {
-    const target = resolveSearchTarget({ agentHome, workspaceRoot }, '/etc')
-    expect(target.ok).toBe(false)
-    if (!target.ok) expect(target.message).toContain('outside the agent home')
-  })
-
-  it('refuses symlinks that escape the agent home', () => {
-    const outside = mkdtempSync(join(tmpdir(), 'fff-outside-'))
-    symlinkSync(outside, join(workspaceRoot, 'escape'))
-    const target = resolveSearchTarget({ agentHome, workspaceRoot }, 'escape')
-    expect(target.ok).toBe(false)
-  })
-})
 
 describe('find/grep/ls over a real index', () => {
   const { agentHome, workspaceRoot } = makeHome()

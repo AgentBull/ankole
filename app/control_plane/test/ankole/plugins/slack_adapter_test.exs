@@ -302,7 +302,6 @@ defmodule Ankole.Plugins.SlackAdapterTest do
     end
 
     test "Block Kit localizes the Slack-owned starting state" do
-      allow_cache_database_access()
       {:ok, _locale} = Ankole.I18n.put_default_locale("zh-Hans-CN")
 
       assert {:ok, blocks} =
@@ -644,7 +643,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
               agent_uid: agent.uid,
               binding_name: "slack",
               conversation_id: external_conversation_id("slack:C1"),
-              batch_state: "open"
+              batch_state: :open
             )
 
           send(parent, {:slack_pending_attachment, pending})

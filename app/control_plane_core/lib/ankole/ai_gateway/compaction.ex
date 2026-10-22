@@ -131,7 +131,7 @@ defmodule Ankole.AIGateway.Compaction do
         previous_response_id: previous_response_id,
         stop_at_checkpoint: false
       )
-      |> Enum.reject(&(&1.type == "checkpoint"))
+      |> Enum.reject(&(&1.type == :checkpoint))
 
     recovery_tail_rows = min(CompactionPolicy.tail_rows(), max(length(history) - 1, 0))
 

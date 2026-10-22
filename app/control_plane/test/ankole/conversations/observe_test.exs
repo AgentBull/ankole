@@ -19,7 +19,6 @@ defmodule Ankole.Conversations.ObserveTest do
   alias Ankole.Conversations.InboundBatch
   alias Ankole.Conversations.Observe
   alias Ankole.Conversations.Observation
-  alias Ankole.Conversations.Delivery.Intent
   alias Ankole.Conversations.Attachments
   import Ankole.Conversations.Assertions
   alias Ankole.Conversations.Message, as: ConversationMessage
@@ -87,12 +86,10 @@ defmodule Ankole.Conversations.ObserveTest do
 
       tenant =
         Sandbox.unboxed_run(Repo, fn ->
-          %Ankole.Tenants.Tenant{}
-          |> Ankole.Tenants.Tenant.changeset(%{
+          Ankole.DataCase.create_committed_tenant(%{
             slug: "observe-" <> Ecto.UUID.generate(),
             display_name: "Observation claim test"
           })
-          |> Repo.insert!()
         end)
 
       Repo.put_tenant_id(tenant.id)
@@ -114,17 +111,7 @@ defmodule Ankole.Conversations.ObserveTest do
                    provider_id: worker_provider_id
                  )
 
-          for table <- Ankole.Tenants.Jobs.Delete.tenant_tables() -- ["principals"] do
-            SQL.query!(Repo, "DELETE FROM #{table} WHERE tenant_id = $1::uuid", [
-              Ecto.UUID.dump!(tenant.id)
-            ])
-          end
-
-          SQL.query!(Repo, "DELETE FROM principals WHERE tenant_id = $1::uuid", [
-            Ecto.UUID.dump!(tenant.id)
-          ])
-
-          Repo.delete!(tenant)
+          cleanup_tenant!(tenant)
         end)
       end)
 
@@ -483,9 +470,14 @@ defmodule Ankole.Conversations.ObserveTest do
           "thread-visible-reply"
         )
 
-      Repo.get_by!(ExternalMessageRef, message_id: visible_reply.id)
-      |> ExternalMessageRef.changeset(%{ai_message_id: response.id})
-      |> Repo.update!()
+      assert {:ok, _} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.update(
+                   Repo.get_by!(ExternalMessageRef, message_id: visible_reply.id),
+                   :observe,
+                   %{ai_message_id: response.id}
+                 )
+               end)
 
       insert_message_observation!(
         "msg-unseen-other-agent",
@@ -575,7 +567,7 @@ defmodule Ankole.Conversations.ObserveTest do
                )
 
       assert input.type == "im.message.may_intervene"
-      assert Repo.get!(InboundBatch, batch.id).batch_state == "finalized"
+      assert Repo.get!(InboundBatch, batch.id).batch_state == :finalized
     end
 
     test "may_intervene entries in the same room and thread finalize as one ambient input" do
@@ -656,10 +648,11 @@ defmodule Ankole.Conversations.ObserveTest do
       assert {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, session_id)
 
       Repo.insert!(%Message{
+        id: Ankole.Ecto.UUIDv7.autogenerate(),
         subject_uid: agent.uid,
         conversation_id: conversation.id,
-        type: "message",
-        status: "complete",
+        type: :message,
+        status: :complete,
         content: [%{"text" => "internal assistant row"}],
         metadata: %{
           "conversation_id" => "lark:chat:group-a",
@@ -829,7 +822,7 @@ defmodule Ankole.Conversations.ObserveTest do
                )
 
       assert addressed_batch.id == neutral_batch.id
-      assert addressed_batch.mode == "addressed"
+      assert addressed_batch.mode == :addressed
 
       assert {:ok, [%{status: :accepted}]} =
                finalize_due_inbound_batch_events(now: addressed_batch.available_at)
@@ -900,7 +893,7 @@ defmodule Ankole.Conversations.ObserveTest do
                get_in(input.data, ["observed_messages"])
 
       assert %InboundBatch{
-               batch_state: "finalized",
+               batch_state: :finalized,
                entries: [%{"provider_message_id" => "msg-ambient-remove-second"}]
              } = Repo.get!(InboundBatch, first.id)
     end
@@ -941,7 +934,7 @@ defmodule Ankole.Conversations.ObserveTest do
                )
 
       assert addressed_batch.id == neutral_batch.id
-      assert addressed_batch.mode == "addressed"
+      assert addressed_batch.mode == :addressed
 
       assert {:ok, %{updated_inbound_batches: 1, lifecycle_events: []}} =
                Observe.emit_entry_removed(
@@ -956,7 +949,7 @@ defmodule Ankole.Conversations.ObserveTest do
 
       updated = Repo.get!(InboundBatch, neutral_batch.id)
 
-      assert updated.mode == "neutral"
+      assert updated.mode == :neutral
       assert is_nil(updated.requester_sender_key)
 
       assert [%{"provider_message_id" => "msg-neutral-before-recall"}] = updated.entries
@@ -964,7 +957,7 @@ defmodule Ankole.Conversations.ObserveTest do
       assert {:ok, [%{status: :ignored, inbound_batch: finalized}]} =
                finalize_due_inbound_batch_events(now: updated.available_at)
 
-      assert finalized.batch_state == "finalized"
+      assert finalized.batch_state == :finalized
       assert Repo.aggregate(Signal, :count) == 0
     end
 
@@ -992,7 +985,7 @@ defmodule Ankole.Conversations.ObserveTest do
                )
 
       assert dm_input.type == "conversation.message.addressed"
-      assert dm_batch.mode == "addressed"
+      assert dm_batch.mode == :addressed
 
       assert External.get_conversation(Repo, "lark:dm:alice-agent").metadata[
                "dm_peer_principal_uid"
@@ -1043,7 +1036,7 @@ defmodule Ankole.Conversations.ObserveTest do
                )
 
       assert mention_input.type == "conversation.message.addressed"
-      assert mention_batch.mode == "addressed"
+      assert mention_batch.mode == :addressed
     end
 
     test "unmentioned group replies do not become addressed input without a real runtime match" do
@@ -1062,7 +1055,7 @@ defmodule Ankole.Conversations.ObserveTest do
                finalize_due_inbound_batch_events(now: DateTime.add(@base_time, 600, :millisecond))
 
       assert finalized.id == batch.id
-      assert batch.mode == "neutral"
+      assert batch.mode == :neutral
       assert batch.reply_to_provider_message_id == "missing-target"
       assert Repo.aggregate(Signal, :count) == 0
     end
@@ -1097,7 +1090,7 @@ defmodule Ankole.Conversations.ObserveTest do
                )
 
       assert target.provider_message_id == "msg-agent-report"
-      assert reply_batch.mode == "addressed"
+      assert reply_batch.mode == :addressed
       assert reply_batch.reply_to_provider_message_id == "msg-agent-report"
 
       assert {:ok, [%{signal: signal}]} =
@@ -1180,7 +1173,7 @@ defmodule Ankole.Conversations.ObserveTest do
                  now: reply_time
                )
 
-      assert reply_batch.mode == "addressed"
+      assert reply_batch.mode == :addressed
 
       assert {:ok, results} =
                finalize_due_inbound_batch_events(
@@ -1871,9 +1864,9 @@ defmodule Ankole.Conversations.ObserveTest do
                %{"provider_message_id" => "msg-a2", "text" => "second"}
              ] = get_in(alice_input.data, ["entries"])
 
-      assert [%InboundBatch{mode: "addressed", requester_sender_key: ^bob_uid} = bob_batch] =
+      assert [%InboundBatch{mode: :addressed, requester_sender_key: ^bob_uid} = bob_batch] =
                InboundBatch
-               |> where([batch], batch.batch_state == "open")
+               |> where([batch], batch.batch_state == :open)
                |> Repo.all()
 
       due_at = bob_batch.available_at
@@ -2062,7 +2055,7 @@ defmodule Ankole.Conversations.ObserveTest do
       assert Enum.any?(results, &match?(%{status: :finalize_failed}, &1))
       assert %{signal: good_input} = Enum.find(results, &match?(%{signal: _}, &1))
       assert good_input.provider_message_id == "msg-good-batch"
-      assert Repo.get!(InboundBatch, good_batch.id).batch_state == "finalized"
+      assert Repo.get!(InboundBatch, good_batch.id).batch_state == :finalized
     end
 
     test "neutral batch upgrades only the final same-sender run when bot is mentioned" do
@@ -2115,7 +2108,7 @@ defmodule Ankole.Conversations.ObserveTest do
                  now: DateTime.add(@base_time, 200, :millisecond)
                )
 
-      assert addressed_batch.mode == "addressed"
+      assert addressed_batch.mode == :addressed
       assert addressed_batch.requester_sender_key == bob_uid
 
       due_at = addressed_batch.available_at
@@ -2695,7 +2688,7 @@ defmodule Ankole.Conversations.ObserveTest do
   defp insert_durable_reply_surface!(target, binding_name, provider_provider_message_id) do
     outbound_key = "retry-surface:#{Ecto.UUID.generate()}"
 
-    Repo.insert!(%Intent{
+    Ankole.SignalsFixtures.delivery_fixture!(%{
       agent_uid: target.agent_uid,
       binding_name: binding_name,
       outbound_key: outbound_key,

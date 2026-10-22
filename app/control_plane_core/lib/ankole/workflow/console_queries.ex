@@ -3,7 +3,7 @@ defmodule Ankole.Workflow.ConsoleQueries do
   import Ecto.Query
   alias Ankole.Repo
   alias Ankole.Workflow.Schemas.{AgentCall, Run}
-  @live ["queued", "running", "sleeping"]
+  @live [:queued, :running, :sleeping]
 
   def activity(agent_uid, calls_cursor, runs_cursor, limit) do
     calls = live_calls(agent_uid, calls_cursor, limit)
@@ -15,11 +15,19 @@ defmodule Ankole.Workflow.ConsoleQueries do
       live_calls:
         Enum.map(calls.items, fn call ->
           call
-          |> Map.put(:task_session_id, Ankole.Workflow.task_session_id(call.id))
+          |> Map.put(:status, Atom.to_string(call.status))
+          |> Map.put(:wake_kind, if(call.wake_kind, do: Atom.to_string(call.wake_kind)))
+          |> Map.put(:run_status, Atom.to_string(call.run_status))
+          |> Map.put(:task_session_id, Ankole.Workflow.Queries.task_session_id(call.id))
           |> Map.put(:run_counts, Map.get(counts, call.run_id, empty_counts()))
         end),
       calls_next_cursor: calls.next_cursor,
-      runs: Enum.map(runs.items, &Map.put(&1, :counts, Map.get(counts, &1.id, empty_counts()))),
+      runs:
+        Enum.map(runs.items, fn run ->
+          run
+          |> Map.put(:status, Atom.to_string(run.status))
+          |> Map.put(:counts, Map.get(counts, run.id, empty_counts()))
+        end),
       runs_next_cursor: runs.next_cursor
     }
   end
@@ -41,7 +49,8 @@ defmodule Ankole.Workflow.ConsoleQueries do
         label: call.label,
         status: call.status,
         sleep_note: call.sleep_note,
-        sleeping_until: call.sleeping_until,
+        wake_kind: call.wake_kind,
+        wake_at: call.wake_at,
         attention: call.attention,
         attempts: call.attempts,
         error_code: fragment("left(?->>'code', 200)", call.error),
@@ -68,8 +77,8 @@ defmodule Ankole.Workflow.ConsoleQueries do
       as: :run,
       where: run.agent_uid == ^agent_uid,
       where:
-        (run.status == "running" and not exists(subquery(live))) or
-          (run.status in ["completed", "failed", "cancelled"] and is_nil(run.cleanup_completed_at)),
+        (run.status == :running and not exists(subquery(live))) or
+          (run.status in [:completed, :failed, :cancelled] and is_nil(run.cleanup_completed_at)),
       select: %{
         id: run.id,
         resource_kind: "workflow_run",
@@ -77,7 +86,7 @@ defmodule Ankole.Workflow.ConsoleQueries do
         title: run.title,
         status: run.status,
         owner_session_id: run.owner_session_id,
-        cleanup_pending: run.status != "running" and is_nil(run.cleanup_completed_at),
+        cleanup_pending: run.status != :running and is_nil(run.cleanup_completed_at),
         error_code: fragment("left(?->>'code', 200)", run.error),
         error_summary:
           fragment("left(COALESCE(?->>'summary', ?->>'message'), 1000)", run.error, run.error),
@@ -106,6 +115,7 @@ defmodule Ankole.Workflow.ConsoleQueries do
     )
     |> Repo.all()
     |> Enum.reduce(%{}, fn {id, status, count}, acc ->
+      status = Atom.to_string(status)
       Map.update(acc, id, Map.put(empty_counts(), status, count), &Map.put(&1, status, count))
     end)
     |> Map.new(fn {id, counts} ->

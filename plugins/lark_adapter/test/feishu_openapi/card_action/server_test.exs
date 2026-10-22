@@ -114,5 +114,30 @@ if Code.ensure_loaded?(Plug.Test) and Code.ensure_loaded?(FeishuOpenAPI.CardActi
       assert conn.status == 400
       assert Torque.decode!(conn.resp_body) == %{"msg" => "invalid card callback: :bad_signature"}
     end
+
+    test "a signed callback crash returns a fixed retryable response without private content" do
+      secret = "private-signed-card-callback"
+      handler = Handler.new(verification_token: "vt_x", handler: fn _ -> raise secret end)
+      body = Torque.encode!(%{"action" => %{"value" => secret}})
+      ts = "1711111"
+      nonce = "crash-nonce"
+      signature = Crypto.card_signature(ts, nonce, "vt_x", body)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          response =
+            conn(:post, "/callback/card", body)
+            |> Plug.Conn.put_req_header("x-lark-request-timestamp", ts)
+            |> Plug.Conn.put_req_header("x-lark-request-nonce", nonce)
+            |> Plug.Conn.put_req_header("x-lark-signature", signature)
+            |> Server.call(Server.init(handler: handler))
+
+          assert response.status == 500
+          assert Torque.decode!(response.resp_body) == %{"msg" => "handler failed"}
+          refute response.resp_body =~ secret
+        end)
+
+      refute log =~ secret
+    end
   end
 end

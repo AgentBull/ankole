@@ -1,62 +1,71 @@
 defmodule Ankole.AuthZ.ExternalBinding do
-  @moduledoc """
-  Provider-scoped external subject binding to an AuthZ group.
-  """
+  @moduledoc "Provider-scoped external subject binding to an AuthZ group."
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    tenant_in_primary_key: true,
+    domain: Ankole.AuthZ.Domain
 
-  use Ankole.Schema, tenancy: :tenant, tenant_in_primary_key: true
+  postgres do
+    table("principal_group_external_bindings")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:group_id, "principal_group_external_bindings_group_id_fkey"}])
 
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
-
-  alias Ankole.Ecto.JSONPayload
-  alias Ankole.AuthZ.Group
-
-  @primary_key false
-  @timestamps_opts [type: :utc_datetime_usec]
-  @provider_format ~r/\A[a-z][a-z0-9_-]*\z/
-
-  schema "principal_group_external_bindings" do
-    field :provider, :string, primary_key: true
-
-    field :external_kind, Ecto.Enum,
-      values: [:directory_department, :im_group],
-      primary_key: true
-
-    field :external_id, :string, primary_key: true
-
-    belongs_to :group, Group, type: :binary_id
-
-    field :metadata, :map, default: %{}
-
-    timestamps()
+    check_constraints do
+      check_constraint(:provider, "principal_group_external_bindings_provider_present")
+      check_constraint(:provider, "principal_group_external_bindings_provider_format")
+      check_constraint(:external_id, "principal_group_external_bindings_external_id_present")
+      check_constraint(:metadata, "principal_group_external_bindings_metadata_object")
+    end
   end
 
-  @doc """
-  Builds a changeset for external authorization binding rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(binding, attrs) do
-    binding
-    |> cast(attrs, [:provider, :external_kind, :external_id, :group_id, :metadata])
-    |> normalize_blank([:provider, :external_id])
-    |> normalize_provider()
-    |> validate_required([:provider, :external_kind, :external_id, :group_id, :metadata])
-    |> validate_format(:provider, @provider_format)
-    |> JSONPayload.validate_map(:metadata)
-    |> foreign_key_constraint(:group_id)
-    |> unique_constraint(:external_id, name: :principal_group_external_bindings_pkey)
-    |> check_constraint(:provider, name: :principal_group_external_bindings_provider_present)
-    |> check_constraint(:provider, name: :principal_group_external_bindings_provider_format)
-    |> check_constraint(:external_id,
-      name: :principal_group_external_bindings_external_id_present
+  attributes do
+    attribute(:provider, :string, public?: true, primary_key?: true, allow_nil?: false)
+
+    attribute(:external_kind, :atom,
+      public?: true,
+      primary_key?: true,
+      allow_nil?: false,
+      constraints: [one_of: [:directory_department, :im_group]]
     )
-    |> check_constraint(:metadata, name: :principal_group_external_bindings_metadata_object)
+
+    attribute(:external_id, :string, public?: true, primary_key?: true, allow_nil?: false)
+    attribute(:group_id, Ankole.Ash.Types.UUIDv7, public?: true, allow_nil?: false)
+    attribute(:metadata, Ankole.Ash.Types.JSONMap, public?: true, allow_nil?: false, default: %{})
+    timestamps(type: :utc_datetime_usec)
   end
 
-  defp normalize_provider(changeset) do
-    update_change(changeset, :provider, fn
-      value when is_binary(value) -> String.downcase(value)
-      value -> value
+  relationships do
+    belongs_to(:group, Ankole.AuthZ.Group, define_attribute?: false)
+  end
+
+  changes do
+    change(fn changeset, _context ->
+      case Ash.Changeset.get_attribute(changeset, :provider) do
+        provider when is_binary(provider) ->
+          Ash.Changeset.change_attribute(changeset, :provider, String.downcase(provider))
+
+        _provider ->
+          changeset
+      end
     end)
   end
+
+  validations do
+    validate(match(:provider, ~r/\A[a-z][a-z0-9_-]*\z/))
+  end
+
+  actions do
+    defaults([:read])
+
+    create :bind_in_tx do
+      accept([:provider, :external_kind, :external_id, :group_id, :metadata])
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+      upsert?(true)
+      upsert_fields([:group_id, :metadata, :updated_at])
+    end
+  end
+
+  @type t :: %__MODULE__{}
 end

@@ -110,7 +110,7 @@ defmodule Ankole.HumanAccessTest do
 
   test "invalid restriction does not change access or leave an audit record" do
     %{principal: human} = human_fixture()
-    assert {:error, %Ecto.Changeset{}} = HumanAccess.disable(human.uid, "", nil, "invalid")
+    assert {:error, %Ash.Error.Invalid{}} = HumanAccess.disable(human.uid, "", nil, "invalid")
     assert {:ok, %{status: :active, access_version: 1}} = Principals.get_principal(human.uid)
     assert [] = HumanAccess.history(human.uid)
   end

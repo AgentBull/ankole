@@ -3,11 +3,10 @@ defmodule Ankole.AIGateway.Conversations do
   Durable AIGateway conversation and runtime-profile API.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.Ecto.UUIDv7
-  alias Ankole.Repo
 
   @doc """
   Creates a conversation for a first `response.create store=true` request that
@@ -20,16 +19,13 @@ defmodule Ankole.AIGateway.Conversations do
   @spec create_managed_stateful_responses_conversation(String.t(), keyword()) ::
           {:ok, Conversation.t()} | {:error, term()}
   def create_managed_stateful_responses_conversation(subject_uid, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
     metadata = managed_stateful_responses_metadata(Keyword.get(opts, :metadata, %{}))
 
-    %Conversation{}
-    |> Conversation.changeset(%{
+    Ankole.Ash.create(Conversation, :open, %{
       subject_uid: normalize_uid(subject_uid),
       conversation_key: managed_stateful_responses_conversation_key(),
       metadata: metadata
     })
-    |> repo.insert()
   end
 
   @doc """
@@ -37,32 +33,13 @@ defmodule Ankole.AIGateway.Conversations do
   """
   @spec ensure_conversation_in_tx(module(), String.t(), String.t(), map()) ::
           {:ok, Conversation.t()} | {:error, term()}
-  # Uses insert-then-refetch to tolerate concurrent first input for the same
-  # conversation key without exposing unique-constraint details to callers.
-  def ensure_conversation_in_tx(repo, subject_uid, conversation_key, metadata \\ %{})
+  def ensure_conversation_in_tx(_repo, subject_uid, conversation_key, metadata \\ %{})
       when is_map(metadata) do
-    subject_uid = normalize_uid(subject_uid)
-
-    case active_conversation(repo, subject_uid, conversation_key) do
-      %Conversation{} = conversation ->
-        {:ok, conversation}
-
-      nil ->
-        %Conversation{}
-        |> Conversation.changeset(%{
-          subject_uid: subject_uid,
-          conversation_key: conversation_key,
-          metadata: metadata
-        })
-        |> repo.insert()
-        |> case do
-          {:ok, %Conversation{} = conversation} ->
-            {:ok, conversation}
-
-          {:error, _changeset} ->
-            refetch_active_conversation(repo, subject_uid, conversation_key)
-        end
-    end
+    Ankole.Ash.create(Conversation, :ensure, %{
+      subject_uid: normalize_uid(subject_uid),
+      conversation_key: conversation_key,
+      metadata: metadata
+    })
   end
 
   @doc """
@@ -72,26 +49,24 @@ defmodule Ankole.AIGateway.Conversations do
   their last activity instead of the row's last direct change.
   """
   @spec touch_conversation_in_tx(module(), String.t()) :: :ok
-  def touch_conversation_in_tx(repo, conversation_id) do
-    now = DateTime.utc_now(:microsecond)
-
-    {_count, _rows} =
-      Conversation
-      |> where([conversation], conversation.id == ^conversation_id)
-      |> repo.update_all(set: [updated_at: now])
-
-    :ok
+  def touch_conversation_in_tx(_repo, conversation_id) do
+    case Conversation
+         |> Ash.Query.filter(id == ^conversation_id)
+         |> Ankole.Ash.bulk_update(:touch, %{}, strategy: [:atomic], return_errors?: true) do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+    end
   end
 
   @doc """
   Locks a conversation row for update.
   """
   @spec lock_conversation(module(), term()) :: Conversation.t() | nil
-  def lock_conversation(repo, conversation_id) do
+  def lock_conversation(_repo, conversation_id) do
     Conversation
-    |> where([conversation], conversation.id == ^conversation_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
+    |> Ash.Query.filter(id == ^conversation_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
   end
 
   @doc """
@@ -99,13 +74,13 @@ defmodule Ankole.AIGateway.Conversations do
   """
   @spec active_conversation_for_update(module(), String.t(), String.t()) ::
           Conversation.t() | nil
-  def active_conversation_for_update(repo, subject_uid, conversation_key) do
+  def active_conversation_for_update(_repo, subject_uid, conversation_key) do
     Conversation
-    |> where([conversation], conversation.subject_uid == ^normalize_uid(subject_uid))
-    |> where([conversation], conversation.conversation_key == ^conversation_key)
-    |> where([conversation], is_nil(conversation.ended_at))
-    |> lock("FOR UPDATE")
-    |> repo.one()
+    |> Ash.Query.filter(subject_uid == ^normalize_uid(subject_uid))
+    |> Ash.Query.filter(conversation_key == ^conversation_key)
+    |> Ash.Query.filter(is_nil(ended_at))
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
   end
 
   @doc false
@@ -114,12 +89,7 @@ defmodule Ankole.AIGateway.Conversations do
   def end_active_conversation_in_tx(repo, subject_uid, conversation_key, %DateTime{} = now) do
     case active_conversation_for_update(repo, subject_uid, conversation_key) do
       %Conversation{} = conversation ->
-        with {:ok, ended} <-
-               conversation
-               |> Ecto.Changeset.change(ended_at: now)
-               |> repo.update() do
-          {:ok, ended}
-        end
+        Ankole.Ash.update(conversation, :finish, %{ended_at: now})
 
       nil ->
         {:ok, nil}
@@ -127,13 +97,15 @@ defmodule Ankole.AIGateway.Conversations do
   end
 
   @doc "Checks whether the subject has retained model history for a key, including ended histories."
-  def conversation_exists_by_key?(repo, subject_uid, conversation_key) do
-    repo.exists?(
-      from(c in Conversation,
-        where:
-          c.subject_uid == ^normalize_uid(subject_uid) and c.conversation_key == ^conversation_key
-      )
+  def conversation_exists_by_key?(_repo, subject_uid, conversation_key) do
+    Conversation
+    |> Ash.Query.filter(
+      subject_uid == ^normalize_uid(subject_uid) and conversation_key == ^conversation_key
     )
+    |> Ash.Query.limit(1)
+    |> Ash.Query.select([:id])
+    |> Ankole.Ash.read!()
+    |> Enum.any?()
   end
 
   @doc """
@@ -144,55 +116,36 @@ defmodule Ankole.AIGateway.Conversations do
   wider transaction.
   """
   @spec list_active_conversations(module(), keyword()) :: [Conversation.t()]
-  def list_active_conversations(repo, opts \\ []) when is_list(opts) do
+  def list_active_conversations(_repo, opts \\ []) when is_list(opts) do
     limit = normalize_limit(Keyword.get(opts, :limit, 1_000))
 
     Conversation
-    |> where([conversation], is_nil(conversation.ended_at))
+    |> Ash.Query.filter(is_nil(ended_at))
     |> maybe_filter_subject_uid(Keyword.get(opts, :subject_uid))
     |> maybe_filter_conversation_key(Keyword.get(opts, :conversation_key))
     |> maybe_filter_inserted_before(Keyword.get(opts, :inserted_before))
-    |> order_by(
-      [conversation],
-      asc: conversation.subject_uid,
-      asc: conversation.conversation_key
-    )
-    |> limit(^limit)
+    |> Ash.Query.sort(subject_uid: :asc, conversation_key: :asc)
+    |> Ash.Query.limit(limit)
     |> maybe_lock(Keyword.get(opts, :lock, false))
-    |> repo.all()
-  end
-
-  defp active_conversation(repo, subject_uid, conversation_key) do
-    Conversation
-    |> where([conversation], conversation.subject_uid == ^subject_uid)
-    |> where([conversation], conversation.conversation_key == ^conversation_key)
-    |> where([conversation], is_nil(conversation.ended_at))
-    |> repo.one()
-  end
-
-  defp refetch_active_conversation(repo, subject_uid, conversation_key) do
-    case active_conversation(repo, subject_uid, conversation_key) do
-      %Conversation{} = conversation -> {:ok, conversation}
-      nil -> {:error, :conversation_not_found}
-    end
+    |> Ankole.Ash.read!()
   end
 
   defp maybe_filter_subject_uid(query, subject_uid) when is_binary(subject_uid),
-    do: where(query, [conversation], conversation.subject_uid == ^normalize_uid(subject_uid))
+    do: Ash.Query.filter(query, subject_uid == ^normalize_uid(subject_uid))
 
   defp maybe_filter_subject_uid(query, _subject_uid), do: query
 
   defp maybe_filter_conversation_key(query, conversation_key) when is_binary(conversation_key),
-    do: where(query, [conversation], conversation.conversation_key == ^conversation_key)
+    do: Ash.Query.filter(query, conversation_key == ^conversation_key)
 
   defp maybe_filter_conversation_key(query, _conversation_key), do: query
 
   defp maybe_filter_inserted_before(query, %DateTime{} = inserted_before),
-    do: where(query, [conversation], conversation.inserted_at < ^inserted_before)
+    do: Ash.Query.filter(query, inserted_at < ^inserted_before)
 
   defp maybe_filter_inserted_before(query, _inserted_before), do: query
 
-  defp maybe_lock(query, true), do: lock(query, "FOR UPDATE")
+  defp maybe_lock(query, true), do: Ash.Query.lock(query, :for_update)
   defp maybe_lock(query, false), do: query
 
   defp normalize_limit(limit) when is_integer(limit) and limit > 0, do: limit

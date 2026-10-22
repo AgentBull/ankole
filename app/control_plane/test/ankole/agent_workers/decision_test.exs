@@ -10,7 +10,7 @@ defmodule Ankole.AgentWorkers.DecisionTest do
   test "a Secret without an observed Pod cannot settle the current generation" do
     object = %{generation: "gen-a", phase: :exited, instance_present?: false}
 
-    for state <- ["starting", "deleting"] do
+    for state <- [:starting, :deleting] do
       facts = facts(worker: %{state: state, instance_seen_at: nil}) |> Map.put(:objects, [object])
       assert :create = Decision.next(facts)
 
@@ -21,17 +21,17 @@ defmodule Ankole.AgentWorkers.DecisionTest do
 
   describe "a Worker that is not there" do
     test "is created when a path wants it or a Turn is live" do
-      assert :begin_create = next(worker: %{state: "absent"}, wanted: true)
-      assert :begin_create = next(worker: %{state: "absent"}, turn_in_progress?: true)
-      assert :none = next(worker: %{state: "absent"})
+      assert :begin_create = next(worker: %{state: :absent}, wanted: true)
+      assert :begin_create = next(worker: %{state: :absent}, turn_in_progress?: true)
+      assert :none = next(worker: %{state: :absent})
     end
 
     test "is not created for an Agent that is not active" do
-      assert :none = next(worker: %{state: "absent"}, wanted: true, agent: :disabled)
+      assert :none = next(worker: %{state: :absent}, wanted: true, agent: :disabled)
     end
 
     test "initial startup survives an expired request until the first connection" do
-      for state <- ["absent", "starting"] do
+      for state <- [:absent, :starting] do
         worker = %{
           state: state,
           initial_start_pending: true,
@@ -39,7 +39,7 @@ defmodule Ankole.AgentWorkers.DecisionTest do
           wanted_until: ago(30 * @minute)
         }
 
-        if state == "absent" do
+        if state == :absent do
           assert :begin_create = next(worker: worker)
           assert :none = next(worker: worker, agent: :disabled)
         else
@@ -88,7 +88,7 @@ defmodule Ankole.AgentWorkers.DecisionTest do
     end
 
     test "that starts and is no longer wanted stops at once" do
-      starting = %{state: "starting", state_changed_at: ago(5_000)}
+      starting = %{state: :starting, state_changed_at: ago(5_000)}
 
       assert {:release, "not_needed"} = next(worker: starting, object: :starting)
       assert :create = next(worker: starting, object: :starting, wanted: true)
@@ -102,7 +102,7 @@ defmodule Ankole.AgentWorkers.DecisionTest do
     test "that went stale stays while its last idle time is below the release time" do
       stale = %{
         ready(idle_for_ms: 0)
-        | state: "stale",
+        | state: :stale,
           transport_route: nil,
           state_changed_at: ago(5_000)
       }
@@ -136,7 +136,7 @@ defmodule Ankole.AgentWorkers.DecisionTest do
     end
 
     test "that starts waits for its join while its object runs" do
-      starting = %{state: "starting", state_changed_at: ago(5_000)}
+      starting = %{state: :starting, state_changed_at: ago(5_000)}
 
       assert {:wait, _} = next(worker: starting, object: :running, wanted: true)
     end
@@ -163,9 +163,9 @@ defmodule Ankole.AgentWorkers.DecisionTest do
 
     test "a changed paused instance is deleted before another generation" do
       for worker <- [
-            %{state: "paused", image: "worker:1"},
-            %{state: "paused", protocol_version: 6},
-            %{state: "paused", settings_digest: "settings-old"}
+            %{state: :paused, image: "worker:1"},
+            %{state: :paused, protocol_version: 6},
+            %{state: :paused, settings_digest: "settings-old"}
           ] do
         assert {:replace, "replacement", :now} = next(worker: worker, object: :paused)
       end
@@ -174,7 +174,7 @@ defmodule Ankole.AgentWorkers.DecisionTest do
 
   describe "the cache and the not-ready timer" do
     test "a Worker that stays not ready for the ready timeout is rebuilt" do
-      for state <- ["starting", "stale"] do
+      for state <- [:starting, :stale] do
         late = %{state: state, state_changed_at: ago(10 * @minute)}
 
         assert {:replace, "rebuild", :now} =
@@ -192,14 +192,14 @@ defmodule Ankole.AgentWorkers.DecisionTest do
     test "an exited instance is deleted without restarting that generation" do
       for wanted <- [true, false] do
         assert {:replace, "exited", :now} =
-                 next(worker: %{state: "starting"}, object: :exited, wanted: wanted)
+                 next(worker: %{state: :starting}, object: :exited, wanted: wanted)
       end
     end
 
     test "counts only the time that this control plane observed" do
       # A shutdown made the row stale an hour ago; the control plane started
       # again two minutes ago, so the Worker gets the full timeout to return.
-      stale = %{ready() | state: "stale", state_changed_at: ago(60 * @minute)}
+      stale = %{ready() | state: :stale, state_changed_at: ago(60 * @minute)}
 
       refute next(
                worker: stale,
@@ -252,7 +252,7 @@ defmodule Ankole.AgentWorkers.DecisionTest do
     end
 
     test "an unobserved generation is resent even after the readiness deadline" do
-      for age <- [30_000, 61_000, 24 * 60 * @minute], state <- ["starting", "deleting"] do
+      for age <- [30_000, 61_000, 24 * 60 * @minute], state <- [:starting, :deleting] do
         assert :create =
                  next(
                    worker: %{state: state, instance_seen_at: nil, state_changed_at: ago(age)},
@@ -265,7 +265,7 @@ defmodule Ankole.AgentWorkers.DecisionTest do
       assert {:wait, _} =
                next(
                  worker: %{
-                   state: "starting",
+                   state: :starting,
                    instance_seen_at: ago(@minute),
                    state_changed_at: ago(60 * @minute)
                  },
@@ -286,7 +286,7 @@ defmodule Ankole.AgentWorkers.DecisionTest do
     end
 
     test "a deleted Agent's objects go before its row" do
-      deleting = %{state: "deleting", generation: nil}
+      deleting = %{state: :deleting, generation: nil}
 
       facts =
         facts(worker: deleting, agent: :deleted)
@@ -346,10 +346,10 @@ defmodule Ankole.AgentWorkers.DecisionTest do
     end
 
     test "a resume error is retried with the same process, then waits for admission" do
-      worker = %{state: "paused", incarnation_id: "process-a", state_changed_at: ago(5_000)}
+      worker = %{state: :paused, incarnation_id: "process-a", state_changed_at: ago(5_000)}
       assert :resume = next(worker: worker, object: :paused, wanted: true, pause: true)
 
-      starting = %{worker | state: "starting"}
+      starting = %{worker | state: :starting}
       assert :resume = next(worker: starting, object: :paused, wanted: true, pause: true)
 
       for phase <- [:starting, :running] do
@@ -358,7 +358,7 @@ defmodule Ankole.AgentWorkers.DecisionTest do
     end
 
     test "a paused instance is retained, recovered, or replaced from current facts" do
-      worker = %{state: "paused", incarnation_id: "process-a"}
+      worker = %{state: :paused, incarnation_id: "process-a"}
       assert :none = next(worker: worker, object: :paused, pause: true)
       assert :mark_absent = next(worker: worker, object: nil, pause: true)
 
@@ -384,7 +384,7 @@ defmodule Ankole.AgentWorkers.DecisionTest do
     test "never resumes a paused instance at the lifetime boundary" do
       facts =
         facts(
-          worker: %{state: "paused"},
+          worker: %{state: :paused},
           object: :paused,
           wanted: true,
           pause: true,
@@ -402,7 +402,7 @@ defmodule Ankole.AgentWorkers.DecisionTest do
     worker =
       Map.merge(
         %{
-          state: "absent",
+          state: :absent,
           generation: "gen-a",
           instance_ref: nil,
           instance_seen_at: ago(24 * 60 * @minute),
@@ -460,7 +460,7 @@ defmodule Ankole.AgentWorkers.DecisionTest do
 
     Map.merge(
       %{
-        state: "ready",
+        state: :ready,
         transport_route: "route-a",
         state_changed_at: ago(@minute),
         last_worker_heartbeat_at: ago(5_000),
@@ -476,13 +476,13 @@ defmodule Ankole.AgentWorkers.DecisionTest do
   # A draining row whose connection WorkerAdmission already ended.
   defp draining(reason),
     do: %{
-      state: "draining",
+      state: :draining,
       drain_reason: reason,
       transport_route: nil,
       state_changed_at: ago(5_000)
     }
 
-  defp stale, do: %{state: "stale", state_changed_at: ago(@minute)}
+  defp stale, do: %{state: :stale, state_changed_at: ago(@minute)}
 
   defp ago(ms), do: DateTime.add(@now, -ms, :millisecond)
 end

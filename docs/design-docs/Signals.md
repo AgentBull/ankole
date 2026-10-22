@@ -66,6 +66,31 @@ transaction. `accept/1` can wake the Session immediately after a real commit;
 the job repairs a lost wakeup. An outer rollback removes both the Signal and
 its wakeup. Callers do not add their own intake or transaction hook.
 
+## Queue State
+
+`Ankole.Signals.Signal` owns the queue state through AshStateMachine actions.
+The allowed states are `queued`, `running`, `completed`, and `dead_letter`.
+Intake creates `queued` work. Admission records `running`; a retry deadline
+returns it to `queued`. Completion can settle either live state, including an
+Ambient NOOP that never starts a model turn. Neither terminal state can restart.
+A retry of terminal work creates a new Signal with a new source event identity.
+
+`available_at` is a deadline, and `last_attempt_at` records the latest admission.
+A deferred Signal retains that admission history. These timestamps do not select
+its state. Each admission increments `attempt_count` once. Capacity failures have
+a separate counter; an admission refund cannot subtract a capacity attempt.
+Triage retries keep `last_attempt_at` empty until a real turn starts.
+
+PostgreSQL requires completion time only for `completed` work, and dead-letter
+time and an object reason only for `dead_letter` work. Live work cannot carry
+terminal evidence, and `running` requires an admission time. Actions and bulk
+revocation use the caller's existing transaction and tenant context. Signal
+writes do not start a second transaction owner.
+
+An unresolved dead-lettered Signal remains visible in access review. Review
+states are separate from reauthorizable states: review cannot restart terminal
+work or change its recorded authority.
+
 ## Execution Target and Reply Route
 
 An explicit target has one of these forms:
@@ -145,9 +170,14 @@ authorization of the current request.
 ## Bindings
 
 `Ankole.Signals.Binding` is a routing rule for one Agent and adapter.
-`Ankole.Signals.Bindings` owns its configuration and lifecycle.
+`Ankole.Signals.Bindings` owns its configuration and lifecycle. Its resource
+actions persist configuration replacement, disabling, and removal in the
+caller's transaction. Its typed JSON fields reject runtime values before SQL;
+BindingFilters owns CEL validation and Target owns route parsing. Adapter save
+hooks still run after commit.
 `signal_bindings` stores the Agent, name, adapter, configuration reference,
-filter, target, policies, and enabled state. All keys include the tenant.
+filter, target, policies, and enabled state. The globally unique Agent UID and
+binding name identify the row; every query also enforces its tenant scope.
 
 An adapter reads secrets through its own AppConfigure contract. A Binding
 contains a `config_ref`, not the provider secret. A `config` update is a patch:
@@ -238,6 +268,7 @@ is an absolute URI; `datacontenttype` is a media type. See the
 [CloudEvents context attribute rules](https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md#context-attributes).
 
 `data` keeps any PostgreSQL-storable JSON value without an IM interpretation.
+Strings and object keys must be valid UTF-8 and cannot contain NUL bytes.
 Legal scalar extensions, including trace attributes, remain top-level envelope
 facts. Names use lowercase letters and digits; values use the CloudEvents
 Boolean, Integer, or String type, or JSON null. Invalid attributes fail before
@@ -265,6 +296,14 @@ terminal and return an ignored result without new work. Suspended tenants
 also accept no work. `DELETE /api/v1/webhook-endpoints/:id` cancels the
 Endpoint. A known terminal capability remains safe for producer redelivery.
 
+`WebhookEndpoint` owns these transitions through AshStateMachine, including
+the atomic expiry sweep. The callback transaction commits the state and its
+consumer together. PostgreSQL requires `fired_at` for a fired Endpoint and
+`cancelled_at` for a cancelled Endpoint, and rejects conflicting evidence.
+The create action fixes the initial state from the immutable mode. Later
+transitions cannot change that mode. Fire and cancel actions require their
+corresponding timestamp before SQL.
+
 ## Raw Capability Callbacks
 
 A Worker requests a raw Endpoint through `create-webhook-cli`, with a label,
@@ -289,7 +328,9 @@ unknown capabilities return 404.
 
 `create-webhook-cli --automation-job-id <id>` binds a raw Endpoint to an active
 Automation Job for the same Agent. The callback creates a durable Job run
-with the same receipt envelope. An Endpoint cannot be rebound; cancel it and
+with the same receipt envelope. `Signals.Trigger.deliver_in_tx/5` owns this
+Signal-or-AutomationJob dispatch for Webhook and Schedule triggers. The Endpoint
+keeps its existing strong foreign keys. An Endpoint cannot be rebound; cancel it and
 create another one. See [Automation Jobs](AutomationJobs.md).
 
 A capability authorizes a stimulus only. Its body and headers are untrusted

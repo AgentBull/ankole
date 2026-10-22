@@ -101,11 +101,11 @@ defmodule AnkoleWeb.OIDCLogoutController do
 
   def confirm(conn, %{"request" => id, "action" => "confirm"}) do
     case RPLogout.confirm(WebSession.browser_reference(conn), id) do
-      {:ok, %{request: request, browser: browser}} ->
+      {:ok, %{redirect_uri: redirect_uri, browser: browser}} ->
         Logout.deliver_browser(browser.id)
         conn = WebSession.clear_authentication_cookies(conn)
 
-        case RPLogout.redirect_uri(request) do
+        case redirect_uri do
           nil -> redirect(conn, to: "/sessions/logged-out")
           uri -> redirect(conn, external: uri)
         end

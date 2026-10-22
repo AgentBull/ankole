@@ -29,6 +29,7 @@ defmodule Ankole.Brain.SourceLearning do
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.AIGateway
   alias Ankole.Brain.Claims
@@ -135,9 +136,9 @@ defmodule Ankole.Brain.SourceLearning do
       Repo.transact(fn repo ->
         with {:ok, current} <- Sources.lock_active(repo, source),
              :ok <- ensure_same_revision(current, source.upstream_revision),
-             {:ok, object} <- Objects.upsert_source_projection(current, object_attrs, repo: repo),
+             {:ok, object} <- Objects.upsert_source_projection(current, object_attrs),
              expired = Claims.expire_source_session_facts(repo, object.slug, session),
-             {:ok, written} <- write_claims(repo, object, extraction.items, scope, session),
+             {:ok, written} <- write_claims(object, extraction.items, scope, session),
              {:ok, _source} <- Sources.record_revision(repo, current, fingerprint) do
           {:ok,
            %{
@@ -230,10 +231,10 @@ defmodule Ankole.Brain.SourceLearning do
         {:error, :not_found} -> "media"
       end
 
-    SchemaType
-    |> where([schema_type], schema_type.name == ^type)
-    |> select([schema_type], schema_type.extractable)
-    |> Repo.one() || false
+    case Ankole.Ash.read_one!(Ash.Query.filter(SchemaType, name == ^type)) do
+      nil -> false
+      schema_type -> schema_type.extractable
+    end
   end
 
   # `String.split_at/2` walks only the split-off window, so the whole pass
@@ -303,7 +304,7 @@ defmodule Ankole.Brain.SourceLearning do
   # revision's claims were just expired. Item-level validation rejects are
   # counted and logged; they must not wedge the source forever.
   @doc false
-  def write_claims(repo, object, items, scope, session) do
+  def write_claims(object, items, scope, session) do
     now = DateTime.utc_now(:microsecond)
 
     written =
@@ -322,7 +323,7 @@ defmodule Ankole.Brain.SourceLearning do
           provenance_session: session
         }
 
-        case Claims.write_fact(attrs, :system, repo: repo, dedup: false, embed: false) do
+        case Claims.write_fact(attrs, :system, dedup: false, embed: false) do
           {:ok, _result} ->
             Map.update!(acc, :claims, &(&1 + 1))
 

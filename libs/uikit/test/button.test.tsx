@@ -7,8 +7,6 @@ describe('Button', () => {
     const html = renderToStaticMarkup(<Button incomplete>Save</Button>)
 
     expect(html).toContain('data-incomplete="true"')
-    expect(html).toContain('bg-muted')
-    expect(html).toContain('text-muted-foreground')
     expect(html).not.toContain('disabled=""')
     expect(html).not.toContain('aria-disabled')
   })

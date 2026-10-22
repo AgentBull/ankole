@@ -7,8 +7,10 @@ defmodule Ankole.Workflow.RunServer do
 
   alias Ankole.Kernel.ProgramRunner
   alias Ankole.Repo
-  alias Ankole.Workflow
+  alias Ankole.Workflow.Lifecycle
   alias Ankole.Workflow.Program
+  alias Ankole.Workflow.Recovery
+  alias Ankole.Workflow.Replay
   alias Ankole.Workflow.Schemas.AgentCall
   alias Ankole.Workflow.Schemas.Run
 
@@ -23,6 +25,7 @@ defmodule Ankole.Workflow.RunServer do
   @type state :: %{
           run_id: pos_integer(),
           runner: module() | function(),
+          handle: ProgramRunner.handle(),
           task_supervisor: GenServer.server(),
           replay: map() | nil,
           dirty: boolean(),
@@ -114,6 +117,8 @@ defmodule Ankole.Workflow.RunServer do
      %{
        run_id: Keyword.fetch!(opts, :run_id),
        runner: Keyword.get(opts, :runner, ProgramRunner),
+       # Cancellation must also cover an owner that has not received its first poke.
+       handle: ProgramRunner.new_handle(),
        task_supervisor: Keyword.get(opts, :task_supervisor, Ankole.Workflow.ReplayTaskSupervisor),
        replay: nil,
        dirty: false,
@@ -181,9 +186,9 @@ defmodule Ankole.Workflow.RunServer do
     now = DateTime.utc_now(:microsecond)
     cutoff = DateTime.add(now, -state.stale_after_seconds, :second)
 
-    case Workflow.reconcile_stale_tasks(state.run_id, cutoff, now)
-         |> Workflow.cleanup_terminal_transition() do
-      {:ok, %{run: %Run{status: "running"}, reconciled: reconciled}} ->
+    case Recovery.reconcile_stale_tasks(state.run_id, cutoff, now)
+         |> Lifecycle.cleanup_terminal_transition() do
+      {:ok, %{run: %Run{status: :running}, reconciled: reconciled}} ->
         state = schedule_watchdog(state)
 
         if reconciled > 0 do
@@ -218,9 +223,10 @@ defmodule Ankole.Workflow.RunServer do
     ref = make_ref()
     run_id = state.run_id
     runner = state.runner
+    handle = state.handle
 
     task = fn ->
-      result = replay_once(run_id, runner)
+      result = replay_once(run_id, runner, handle)
       send(owner, {:workflow_replay_finished, ref, result})
     end
 
@@ -236,6 +242,7 @@ defmodule Ankole.Workflow.RunServer do
     case result do
       {:ok, pid} ->
         monitor = Process.monitor(pid)
+
         {:noreply, %{state | replay: %{ref: ref, pid: pid, monitor: monitor}, dirty: false}}
 
       {:error, :max_children} ->
@@ -246,13 +253,11 @@ defmodule Ankole.Workflow.RunServer do
     end
   end
 
-  defp replay_once(run_id, runner) do
+  defp replay_once(run_id, runner, handle) do
     case load_replay_input(run_id) do
       {:ok, %{program: program, memo: memo, memo_length: memo_length}} ->
         outcome =
-          run_id
-          |> program_run_id()
-          |> invoke_runner(runner, program, memo)
+          invoke_runner(handle, runner, program, memo)
 
         {:snapshot, memo_length, outcome}
 
@@ -260,7 +265,7 @@ defmodule Ankole.Workflow.RunServer do
         {:terminal, status}
 
       {:cleanup_pending, %Run{} = run} ->
-        case Workflow.cleanup_terminal_run(run) do
+        case Lifecycle.cleanup_terminal_run(run) do
           {:ok, %Run{status: status}} -> {:terminal, status}
           {:error, reason} -> {:cleanup_failed, reason}
         end
@@ -273,7 +278,7 @@ defmodule Ankole.Workflow.RunServer do
   defp load_replay_input(run_id) do
     Repo.transact(fn repo ->
       case repo.get(Run, run_id) do
-        %Run{status: "running"} = run ->
+        %Run{status: :running} = run ->
           with :ok <- Ankole.Principals.WorkAccess.check_in_tx(repo, run),
                {:ok, program} <- Program.source(run) do
             calls =
@@ -286,7 +291,7 @@ defmodule Ankole.Workflow.RunServer do
             {:ok, %{program: program, memo: memo, memo_length: memo_length}}
           else
             {:error, :human_access_revoked} ->
-              run = Workflow.revoke_run_in_tx(repo, run)
+              run = Lifecycle.revoke_run_in_tx(repo, run)
               {:ok, {:terminal, run.status}}
 
             {:error, _reason} = error ->
@@ -310,7 +315,7 @@ defmodule Ankole.Workflow.RunServer do
     end
   end
 
-  defp invoke_runner(run_id, runner, program, memo) do
+  defp invoke_runner(handle, runner, program, memo) do
     options = [
       max_pending_calls: @max_pending_calls,
       max_pending_bytes: @max_pending_bytes,
@@ -320,10 +325,10 @@ defmodule Ankole.Workflow.RunServer do
     result =
       cond do
         is_atom(runner) ->
-          apply(runner, :run, [run_id, program, @tool_bindings, memo, options])
+          apply(runner, :run, [handle, program, @tool_bindings, memo, options])
 
         is_function(runner, 5) ->
-          runner.(run_id, program, @tool_bindings, memo, options)
+          runner.(handle, program, @tool_bindings, memo, options)
 
         true ->
           {:error, :invalid_workflow_program_runner}
@@ -377,13 +382,13 @@ defmodule Ankole.Workflow.RunServer do
   end
 
   defp handle_snapshot_result({:outcome, %{status: :pending} = outcome}, memo_length, state) do
-    case Workflow.commit_replay_pending(
+    case Replay.commit_replay_pending(
            state.run_id,
            Map.get(outcome, :pending_calls, []),
            memo_length
          )
-         |> Workflow.cleanup_terminal_transition() do
-      {:ok, %{run: %Run{status: "running"}}} -> continue_or_wait(state)
+         |> Lifecycle.cleanup_terminal_transition() do
+      {:ok, %{run: %Run{status: :running}}} -> continue_or_wait(state)
       {:ok, %{run: %Run{}} = result} -> finish_or_retry_terminal(result, state)
       {:error, :workflow_replay_snapshot_changed} -> restart_stale_snapshot(state)
       {:error, _reason} -> {:noreply, schedule_retry(state)}
@@ -397,9 +402,9 @@ defmodule Ankole.Workflow.RunServer do
        ) do
     case output_text(Map.get(outcome, :output, [])) do
       {:ok, result_text} ->
-        case Workflow.complete_replay(state.run_id, result_text, memo_length)
-             |> Workflow.cleanup_terminal_transition() do
-          {:ok, %{run: %Run{status: "running"}}} ->
+        case Replay.complete_replay(state.run_id, result_text, memo_length)
+             |> Lifecycle.cleanup_terminal_transition() do
+          {:ok, %{run: %Run{status: :running}}} ->
             continue_or_wait(state)
 
           {:ok, %{run: %Run{}} = result} ->
@@ -422,7 +427,7 @@ defmodule Ankole.Workflow.RunServer do
          _memo_length,
          state
        )
-       when error_code in ["program_runtime_busy", "program_run_id_conflict"] do
+       when error_code == "program_runtime_busy" do
     {:noreply, schedule_retry(state)}
   end
 
@@ -445,9 +450,9 @@ defmodule Ankole.Workflow.RunServer do
   end
 
   defp fail_or_retry(state, code, reason, memo_length) do
-    case Workflow.fail_replay(state.run_id, code, format_reason(reason), memo_length)
-         |> Workflow.cleanup_terminal_transition() do
-      {:ok, %{run: %Run{status: "running"}}} -> continue_or_wait(state)
+    case Replay.fail_replay(state.run_id, code, format_reason(reason), memo_length)
+         |> Lifecycle.cleanup_terminal_transition() do
+      {:ok, %{run: %Run{status: :running}}} -> continue_or_wait(state)
       {:ok, %{run: %Run{}} = result} -> finish_or_retry_terminal(result, state)
       {:error, :workflow_replay_snapshot_changed} -> restart_stale_snapshot(state)
       {:error, _error} -> {:noreply, schedule_retry(state)}
@@ -504,11 +509,11 @@ defmodule Ankole.Workflow.RunServer do
       Process.demonitor(state.replay.monitor, [:flush])
     end
 
-    %{state | replay: nil}
+    %{state | replay: nil, handle: ProgramRunner.new_handle()}
   end
 
   defp cancel_in_flight_replay(state) do
-    _ = safe_cancel_runner(state.runner, program_run_id(state.run_id))
+    _ = safe_cancel_runner(state.runner, state.handle)
 
     case state.replay do
       %{pid: pid, monitor: monitor} ->
@@ -521,8 +526,8 @@ defmodule Ankole.Workflow.RunServer do
     end
   end
 
-  defp safe_cancel_runner(runner, run_id) when is_atom(runner) do
-    if function_exported?(runner, :cancel, 1), do: apply(runner, :cancel, [run_id]), else: :ok
+  defp safe_cancel_runner(runner, handle) when is_atom(runner) do
+    if function_exported?(runner, :cancel, 1), do: apply(runner, :cancel, [handle]), else: :ok
   catch
     kind, reason ->
       Ankole.Logging.warning(
@@ -534,7 +539,7 @@ defmodule Ankole.Workflow.RunServer do
       :error
   end
 
-  defp safe_cancel_runner(_runner, _run_id), do: :ok
+  defp safe_cancel_runner(_runner, _handle), do: :ok
 
   defp output_text(parts) when is_list(parts) do
     Enum.reduce_while(parts, {:ok, []}, fn
@@ -551,8 +556,6 @@ defmodule Ankole.Workflow.RunServer do
   end
 
   defp output_text(_parts), do: {:error, :invalid_program_output}
-
-  defp program_run_id(run_id), do: "wf-" <> Integer.to_string(run_id)
 
   defp via(run_id), do: {:global, {__MODULE__, run_id}}
 

@@ -16,7 +16,6 @@ defmodule Ankole.Sessions.ModelMetadataTest do
   alias Ankole.Signals.Signal
 
   setup do
-    allow_cache_database_access()
     :ok = CredentialPool.reset_for_test()
     %{principal: agent} = agent_fixture()
 
@@ -67,7 +66,7 @@ defmodule Ankole.Sessions.ModelMetadataTest do
     assert {:ok, stored} =
              ResponseChain.get_response_for_subject(context.agent.uid, response["id"])
 
-    assert stored.status == "complete"
+    assert stored.status == :complete
     assert stored.metadata["model_profile"] == profile
     assert stored.metadata["provider_model"] == "gpt-5.5"
     assert stored.metadata["request_model"] == "profile-provider/gpt-5.5"

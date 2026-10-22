@@ -21,7 +21,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
       start_response_run(%{subject_uid: subject.uid, conversation_id: conversation.id})
 
     assert {:ok, :failed} = AIGateway.reconcile_orphaned_response(live.id, force: true)
-    assert Repo.get!(Message, live.id).status == "error"
+    assert Repo.get!(Message, live.id).status == :error
     assert {:ok, :already_terminal} = ResponseCommit.commit_complete(live, [])
   end
 
@@ -137,7 +137,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
                now: DateTime.add(now, 299, :second)
              )
 
-    assert Repo.get!(Message, live.id).status == "generating"
+    assert Repo.get!(Message, live.id).status == :generating
 
     assert {:ok, :failed} =
              AIGateway.reconcile_orphaned_response(live.id,
@@ -145,7 +145,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
              )
 
     failed = Repo.get!(Message, live.id)
-    assert failed.status == "error"
+    assert failed.status == :error
     assert failed.metadata["error"]["code"] == "orphaned_generating_response"
   end
 
@@ -202,7 +202,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
              end)
 
     refute Repo.get(Message, anchor.id)
-    assert %{status: "error", previous_message_id: nil} = Repo.get!(Message, failed_child.id)
+    assert %{status: :error, previous_message_id: nil} = Repo.get!(Message, failed_child.id)
   end
 
   test "visible suffix retraction preserves audit rows and resumes from the predecessor" do
@@ -255,7 +255,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
 
     for response <- [first, second] do
       stored = Repo.get!(Message, response.id)
-      assert stored.status == "retracted"
+      assert stored.status == :retracted
       assert stored.metadata["retraction"]["reason"] == "command.retry"
       assert stored.metadata["retraction"]["retracted_at"] == DateTime.to_iso8601(retracted_at)
     end
@@ -339,7 +339,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
                progress
              )
 
-    assert touched.status == "generating"
+    assert touched.status == :generating
     assert touched.metadata["upstream_progress"] == progress
     assert touched.metadata["request_metadata"] == caller
     assert touched.metadata["provider_model"] == "kept-model"

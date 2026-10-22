@@ -17,6 +17,9 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
     @impl true
     def binding_spec(%{config_ref: "bad"}, _opts), do: {:error, :bad_config}
 
+    def binding_spec(%{config_ref: "raise", filters: filters}, _opts),
+      do: raise(filters["cel"])
+
     def binding_spec(binding, _opts),
       do:
         {:ok,
@@ -72,6 +75,7 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
 
     @impl true
     def handle_info(:exit, state), do: {:stop, {:shutdown, :fatal}, state}
+    def handle_info({:exit, reason}, state), do: {:stop, {:shutdown, reason}, state}
   end
 
   defmodule TemporaryConnections do
@@ -191,13 +195,16 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
     assert_receive {:warning_logged, @errors_event}
     refute_receive {:warning_logged, @errors_event}, 100
 
-    binding = binding |> Ecto.Changeset.change(config_ref: "retry") |> Repo.update!()
+    assert {:ok, binding} =
+             Ankole.SignalsFixtures.raw_binding_fixture(binding, %{config_ref: "retry"})
+
     assert %{started: 1, errors: []} = TemporaryConnections.reconcile(name)
     assert_receive {:client_started, "retry", _client, _}, 1_000
     refute_receive {:warning_logged, @errors_event}, 100
 
     # The next occurrence after a recovery is a new warning.
-    binding |> Ecto.Changeset.change(config_ref: "blocked") |> Repo.update!()
+    assert {:ok, _binding} =
+             Ankole.SignalsFixtures.raw_binding_fixture(binding, %{config_ref: "blocked"})
 
     assert %{errors: [%{reason: :runtime_bot_identity_unavailable}]} =
              TemporaryConnections.reconcile(name)
@@ -283,10 +290,94 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
   end
 
   setup do
-    allow_cache_database_access()
     start_supervised!({Registry, keys: :unique, name: @registry})
     start_supervised!({DynamicSupervisor, name: @supervisor, strategy: :one_for_one})
     :ok
+  end
+
+  test "snapshot failures preserve the internal cause and healthy tenant without private logs" do
+    secret = "private-connection-token-/srv/private/config"
+    filter = ~s("#{secret}" == "#{secret}")
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _} =
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
+               agent_uid: agent.uid,
+               name: "broken",
+               adapter: "connection_lifecycle_test",
+               config_ref: "raise",
+               filters: %{"cel" => filter}
+             })
+
+    other = create_tenant()
+
+    Repo.with_tenant(other.id, fn ->
+      %{principal: agent} = agent_fixture()
+
+      assert {:ok, _} =
+               Ankole.SignalsFixtures.raw_binding_fixture(%{
+                 agent_uid: agent.uid,
+                 name: "healthy",
+                 adapter: "connection_lifecycle_test",
+                 config_ref: "healthy"
+               })
+    end)
+
+    name = {:global, {__MODULE__, make_ref()}}
+
+    log =
+      ExUnit.CaptureLog.capture_log([format: "$metadata $message\n", metadata: :all], fn ->
+        start_supervised!({Connections, name: name, interval_ms: nil})
+
+        assert %{started: 1, errors: [%{reason: {:snapshot_failed, ^filter}}]} =
+                 Connections.reconcile(name)
+
+        assert [{healthy, {tenant_id, _}}] = Registry.lookup(@registry, "healthy")
+        assert tenant_id == other.id
+        assert Process.alive?(healthy)
+      end)
+
+    assert log =~ "plugins.connection_snapshot_failed"
+    assert log =~ "connection_reconciliation.completed_with_errors"
+    assert log =~ "error_count=1"
+    assert log =~ "RuntimeError"
+    assert log =~ "connection_lifecycle_test.exs"
+    refute log =~ secret
+  end
+
+  test "client restart logs preserve lifecycle diagnostics without private exit causes" do
+    secret = "private-connection-exit-/srv/private/connection"
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _} =
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
+               agent_uid: agent.uid,
+               name: "retry",
+               adapter: "connection_lifecycle_test",
+               config_ref: "retry"
+             })
+
+    name = {:global, {__MODULE__, make_ref()}}
+
+    log =
+      ExUnit.CaptureLog.capture_log([format: "$metadata $message\n", metadata: :all], fn ->
+        start_supervised!(
+          {TemporaryConnections,
+           name: name, interval_ms: nil, restart_backoff_ms: [0, 200], observer: self()}
+        )
+
+        assert_receive {:client_started, "retry", original, _}, 1_000
+        assert %{started: 1, errors: []} = TemporaryConnections.reconcile(name)
+        send(original, {:exit, %{token: secret}})
+        assert_receive {:client_started, "retry", replacement, _}, 1_000
+        refute replacement == original
+        assert [{^replacement, _}] = Registry.lookup(@registry, "retry")
+      end)
+
+    assert log =~ "connection.client_exited"
+    assert log =~ "failure=exit"
+    assert log =~ "attempt=1"
+    refute log =~ secret
   end
 
   test "temporary clients restart immediately once, then back off by key" do

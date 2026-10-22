@@ -11,8 +11,6 @@ defmodule AnkoleWeb.AIGatewayControllerTestHelpers do
   import ExUnit.Assertions
   import Plug.Conn
 
-  alias Phoenix.ConnTest
-
   @doc """
   Returns the stateless OpenResponses request templates used by the controller
   contract test.
@@ -280,7 +278,7 @@ defmodule AnkoleWeb.AIGatewayControllerTestHelpers do
 
   @doc "Builds an authenticated JSON connection for AIGateway controller tests."
   def gateway_conn(api_key) do
-    ConnTest.build_conn()
+    AnkoleWeb.ConnCase.build_conn()
     |> put_req_header("authorization", "Bearer #{api_key}")
     |> put_req_header("content-type", "application/json")
   end

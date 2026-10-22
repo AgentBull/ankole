@@ -346,7 +346,7 @@ defmodule Ankole.AIGateway.CompactionCandidate do
     history
     |> Enum.reverse()
     |> Enum.find_value(fn
-      %Message{type: "checkpoint"} = checkpoint ->
+      %Message{type: :checkpoint} = checkpoint ->
         case CompactionArtifacts.summary_for_checkpoint(subject_uid, checkpoint) do
           {:ok, summary} when is_binary(summary) -> summary
           _missing_or_invalid -> nil

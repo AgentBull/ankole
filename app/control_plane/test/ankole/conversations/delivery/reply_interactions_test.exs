@@ -6,7 +6,6 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
   import Ankole.SignalsFixtures
 
   alias Ankole.Conversations.Delivery.PreviewState
-  alias Ankole.Principals.Principal
   alias Ankole.Repo
 
   alias Ankole.Signals
@@ -525,9 +524,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
   test "re-authorizes the acting principal instead of trusting a visible button" do
     %{agent: agent, human: human, action: action} = setup_interaction()
 
-    human
-    |> Principal.status_changeset(%{status: :disabled})
-    |> Repo.update!()
+    {:ok, _} = Ankole.PrincipalsFixtures.disable_principal_fixture(human.uid)
 
     assert {:error, :reply_interaction_operator_unauthorized} =
              Observe.emit_action(

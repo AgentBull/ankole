@@ -3,164 +3,204 @@ defmodule Ankole.Workflow.Schemas.AgentCall do
   Durable queue and replay-memo entry for one Workflow Agent call.
   """
 
-  use Ankole.Schema, tenancy: :tenant
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Workflow.Domain,
+    extensions: [AshStateMachine]
 
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
+  @type status :: :queued | :running | :sleeping | :succeeded | :failed | :cancelled
 
-  alias Ankole.Ecto.JSONPayload
-  alias Ankole.Principals.Principal
-  alias Ankole.Workflow.Schemas.Run
-
-  @primary_key {:id, :id, autogenerate: true}
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
-  @statuses ~w(queued running sleeping succeeded failed cancelled)
-  @terminal_statuses ~w(succeeded failed cancelled)
+  @terminal_statuses [:succeeded, :failed, :cancelled]
   @model_profile ~r/\A[a-z][a-z0-9_-]{0,63}\z/
-  @transitions %{
-    "queued" => ~w(queued running failed cancelled),
-    "running" => ~w(running queued sleeping succeeded failed cancelled),
-    "sleeping" => ~w(sleeping running failed cancelled),
-    "succeeded" => ~w(succeeded),
-    "failed" => ~w(failed),
-    "cancelled" => ~w(cancelled)
-  }
 
   @type t :: %__MODULE__{}
 
-  @spec terminal_statuses() :: [String.t()]
+  @spec terminal_statuses() :: [status()]
   def terminal_statuses, do: @terminal_statuses
 
-  @spec transition_allowed?(String.t(), String.t()) :: boolean()
-  def transition_allowed?(current, next), do: next in Map.get(@transitions, current, [])
+  postgres do
+    table("workflow_agent_calls")
+    repo(Ankole.Repo)
+    migrate?(false)
 
-  schema "workflow_agent_calls" do
-    belongs_to(:run, Run, type: :id)
-
-    belongs_to(:agent, Principal,
-      foreign_key: :agent_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
-    )
-
-    field(:call_seq, :integer)
-    field(:arguments, :map)
-    field(:label, :string)
-    field(:model_profile, :string)
-    field(:status, :string, default: "queued")
-    field(:attempts, :integer, default: 0)
-    field(:sleep_note, :string)
-    field(:sleeping_until, :utc_datetime_usec)
-    field(:wake_count, :integer, default: 0)
-    field(:attention, :boolean, default: false)
-    field(:result, :map)
-    field(:error, :map, default: %{})
-
-    timestamps()
-  end
-
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(call, attrs) do
-    call
-    |> cast(attrs, [
-      :run_id,
-      :agent_uid,
-      :call_seq,
-      :arguments,
-      :label,
-      :model_profile,
-      :status,
-      :attempts,
-      :sleep_note,
-      :sleeping_until,
-      :wake_count,
-      :attention,
-      :result,
-      :error
+    foreign_key_names([
+      {:run_id, "workflow_agent_calls_run_id_fkey"},
+      {:agent_uid, "workflow_agent_calls_agent_uid_fkey"}
     ])
-    |> normalize_blank([:agent_uid, :label, :model_profile, :status, :sleep_note])
-    |> validate_required([
-      :run_id,
-      :agent_uid,
-      :call_seq,
-      :arguments,
-      :status,
-      :attempts,
-      :error
+
+    unique_index_names([
+      {[:run_id, :call_seq], "workflow_agent_calls_run_sequence_index"}
     ])
-    |> validate_inclusion(:status, @statuses)
-    |> validate_transition(call.status)
-    |> validate_number(:call_seq, greater_than_or_equal_to: 0)
-    |> validate_number(:attempts, greater_than_or_equal_to: 0)
-    |> validate_number(:wake_count, greater_than_or_equal_to: 0)
-    |> validate_length(:label, max: 200)
-    |> validate_length(:sleep_note, max: 200)
-    |> validate_optional_format(:model_profile, @model_profile)
-    |> JSONPayload.validate_map(:arguments)
-    |> validate_json_bytes(:arguments, 8_192)
-    |> validate_optional_result()
-    |> JSONPayload.validate_map(:error)
-    |> foreign_key_constraint(:run_id)
-    |> foreign_key_constraint(:agent_uid)
-    |> unique_constraint([:run_id, :call_seq], name: :workflow_agent_calls_run_sequence_index)
-    |> check_constraint(:id, name: :workflow_agent_calls_id_range)
-    |> check_constraint(:call_seq, name: :workflow_agent_calls_sequence_nonnegative)
-    |> check_constraint(:arguments, name: :workflow_agent_calls_arguments_valid)
-    |> check_constraint(:label, name: :workflow_agent_calls_label_valid)
-    |> check_constraint(:model_profile, name: :workflow_agent_calls_model_profile_valid)
-    |> check_constraint(:status, name: :workflow_agent_calls_status_check)
-    |> check_constraint(:attempts, name: :workflow_agent_calls_attempts_nonnegative)
-    |> check_constraint(:wake_count, name: :workflow_agent_calls_wake_count_nonnegative)
-    |> check_constraint(:sleep_note, name: :workflow_agent_calls_sleep_note_valid)
-    |> check_constraint(:sleeping_until, name: :workflow_agent_calls_sleeping_deadline_present)
-    |> check_constraint(:result, name: :workflow_agent_calls_result_valid)
-    |> check_constraint(:error, name: :workflow_agent_calls_error_object)
-  end
 
-  @spec creation_changeset(struct(), map()) :: Ecto.Changeset.t()
-  def creation_changeset(call, attrs), do: changeset(call, attrs)
-
-  defp validate_transition(changeset, nil), do: changeset
-
-  defp validate_transition(changeset, current) do
-    case fetch_change(changeset, :status) do
-      {:ok, next} ->
-        if transition_allowed?(current, next),
-          do: changeset,
-          else: add_error(changeset, :status, "cannot transition from #{current} to #{next}")
-
-      :error ->
-        changeset
+    check_constraints do
+      check_constraint(:id, "workflow_agent_calls_id_range")
+      check_constraint(:call_seq, "workflow_agent_calls_sequence_nonnegative")
+      check_constraint(:arguments, "workflow_agent_calls_arguments_valid")
+      check_constraint(:label, "workflow_agent_calls_label_valid")
+      check_constraint(:model_profile, "workflow_agent_calls_model_profile_valid")
+      check_constraint(:status, "workflow_agent_calls_status_check")
+      check_constraint(:attempts, "workflow_agent_calls_attempts_nonnegative")
+      check_constraint(:wake_count, "workflow_agent_calls_wake_count_nonnegative")
+      check_constraint(:sleep_note, "workflow_agent_calls_sleep_note_valid")
+      check_constraint(:wake_at, "workflow_agent_calls_wake_contract")
+      check_constraint(:result, "workflow_agent_calls_result_valid")
+      check_constraint(:error, "workflow_agent_calls_error_object")
     end
   end
 
-  defp validate_optional_format(changeset, field, format) do
-    validate_change(changeset, field, fn ^field, value ->
-      if is_binary(value) and Regex.match?(format, value),
-        do: [],
-        else: [{field, "has invalid format"}]
-    end)
+  attributes do
+    attribute(:id, :integer,
+      primary_key?: true,
+      allow_nil?: false,
+      generated?: true,
+      public?: true
+    )
+
+    attribute(:run_id, :integer, allow_nil?: false, public?: true)
+    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false, public?: true)
+    attribute(:call_seq, :integer, allow_nil?: false, constraints: [min: 0], public?: true)
+
+    attribute(:arguments, Ankole.Ash.Types.JSONMap,
+      allow_nil?: false,
+      constraints: [max_bytes: 8192],
+      public?: true
+    )
+
+    attribute(:label, :string,
+      constraints: [max_length: 200, length_count: :graphemes],
+      public?: true
+    )
+
+    attribute(:model_profile, :string, constraints: [match: @model_profile], public?: true)
+
+    attribute(:attempts, :integer,
+      allow_nil?: false,
+      constraints: [min: 0],
+      public?: true,
+      default: 0
+    )
+
+    attribute(:sleep_note, :string,
+      constraints: [max_length: 200, length_count: :graphemes],
+      public?: true
+    )
+
+    attribute(:wake_kind, :atom, public?: true, constraints: [one_of: [:sleep, :agent_capacity]])
+    attribute(:wake_at, :utc_datetime_usec, public?: true)
+    attribute(:progress_at, :utc_datetime_usec, public?: true)
+
+    attribute(:wake_count, :integer,
+      allow_nil?: false,
+      constraints: [min: 0],
+      public?: true,
+      default: 0
+    )
+
+    attribute(:attention, :boolean, public?: true, default: false)
+    attribute(:result, Ankole.Ash.Types.JSONMap, constraints: [max_bytes: 32768], public?: true)
+    attribute(:error, Ankole.Ash.Types.JSONMap, allow_nil?: false, public?: true, default: %{})
+    timestamps(type: :utc_datetime_usec)
   end
 
-  defp validate_json_bytes(changeset, field, maximum) do
-    validate_change(changeset, field, fn ^field, value ->
-      case Torque.encode(value) do
-        {:ok, encoded} when byte_size(encoded) <= maximum -> []
-        {:ok, _encoded} -> [{field, "is too large"}]
-        {:error, _reason} -> [{field, "must be JSON encodable"}]
-      end
-    end)
+  state_machine do
+    state_attribute(:status)
+    initial_states([:queued])
+    default_initial_state(:queued)
+
+    transitions do
+      transition(:claim, from: [:queued, :sleeping], to: :running)
+      transition(:defer_capacity, from: [:queued, :sleeping], to: :queued)
+      transition(:sleep, from: [:running], to: :sleeping)
+      transition(:requeue_stale, from: [:running], to: :queued)
+      transition(:complete, from: [:running], to: :succeeded)
+      transition(:fail, from: [:queued, :running, :sleeping], to: :failed)
+      transition(:cancel, from: [:queued, :running, :sleeping], to: :cancelled)
+      transition(:cancel_live_calls, from: [:queued, :running, :sleeping], to: :cancelled)
+    end
   end
 
-  defp validate_optional_result(changeset) do
-    validate_change(changeset, :result, fn :result, value ->
-      case Torque.encode(value) do
-        {:ok, encoded} when is_map(value) and byte_size(encoded) <= 32_768 -> []
-        {:ok, _encoded} when not is_map(value) -> [result: "must be an object"]
-        {:ok, _encoded} -> [result: "is too large"]
-        {:error, _reason} -> [result: "must be JSON encodable"]
-      end
-    end)
+  actions do
+    defaults([:read])
+
+    create :create_call do
+      transaction?(false)
+      primary?(true)
+
+      accept([
+        :run_id,
+        :agent_uid,
+        :call_seq,
+        :arguments,
+        :label,
+        :model_profile,
+        :attempts,
+        :sleep_note,
+        :wake_kind,
+        :wake_at,
+        :progress_at,
+        :wake_count,
+        :attention,
+        :result,
+        :error
+      ])
+
+      change(Ankole.Ash.RequireTransaction)
+    end
+
+    in_tx_update :claim do
+      accept([:attempts, :attention, :error, :wake_kind, :wake_at, :progress_at])
+      change(set_attribute(:wake_kind, nil))
+      change(set_attribute(:wake_at, nil))
+      change(transition_state(:running))
+    end
+
+    in_tx_update :defer_capacity do
+      accept([:wake_kind, :wake_at])
+      change(transition_state(:queued))
+    end
+
+    in_tx_update :sleep do
+      accept([:wake_kind, :attempts, :sleep_note, :wake_at, :wake_count, :attention, :error])
+      change(transition_state(:sleeping))
+    end
+
+    in_tx_update :requeue_stale do
+      accept([:wake_kind, :wake_at, :result, :error])
+      change(set_attribute(:wake_kind, nil))
+      change(set_attribute(:wake_at, nil))
+      change(transition_state(:queued))
+    end
+
+    in_tx_update :complete do
+      accept([:result, :error])
+      change(set_attribute(:wake_kind, nil))
+      change(set_attribute(:wake_at, nil))
+      change(transition_state(:succeeded))
+    end
+
+    in_tx_update :fail do
+      accept([:wake_kind, :wake_at, :result, :error])
+      change(set_attribute(:wake_kind, nil))
+      change(set_attribute(:wake_at, nil))
+      change(transition_state(:failed))
+    end
+
+    in_tx_update :cancel do
+      accept([:result, :error])
+      change(set_attribute(:wake_kind, nil))
+      change(set_attribute(:wake_at, nil))
+      change(transition_state(:cancelled))
+    end
+
+    atomic_in_tx_update :cancel_live_calls do
+      accept([:error, :result])
+      change(transition_state(:cancelled))
+      change(set_attribute(:wake_kind, nil))
+      change(set_attribute(:wake_at, nil))
+    end
+
+    in_tx_update :update_metadata do
+      accept([:progress_at])
+    end
   end
 end

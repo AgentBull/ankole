@@ -9,7 +9,6 @@ defmodule Ankole.BackgroundAgentJobs do
 
   @behaviour Ankole.Sessions.AsyncWorkUnit
 
-  alias Ankole.I18n
   alias Ankole.Signals.Signal
   alias Ankole.BackgroundAgentJobs.Control
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -18,6 +17,7 @@ defmodule Ankole.BackgroundAgentJobs do
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.TurnEvidence
   alias Ankole.BackgroundAgentJobs.Turns
+  alias Ankole.BackgroundAgentJobs.Wakeups
   alias Ankole.Sessions.TurnErrorClassifier
 
   require Ankole.ModelIntegerID
@@ -70,38 +70,9 @@ defmodule Ankole.BackgroundAgentJobs do
       )
   end
 
-  @background_job_wakeup_notice_keys %{
-    "background_agent_job.completed" => "background_agent_job_dead_letter_succeeded",
-    "background_agent_job.failed" => "background_agent_job_dead_letter_failed",
-    "background_agent_job.waiting" => "background_agent_job_dead_letter_waiting"
-  }
-
   @doc false
   @impl Ankole.Sessions.AsyncWorkUnit
-  def dead_letter_notice_text(%Signal{type: type} = event)
-      when is_map_key(@background_job_wakeup_notice_keys, type) do
-    data = event.data
-
-    detail =
-      [
-        text_value(data["result_summary"]),
-        artifacts_notice_line(data["artifacts"]),
-        successor_notice_line(data["successor_job_id"])
-      ]
-      |> Enum.reject(&is_nil/1)
-      |> Enum.join("\n")
-
-    I18n.t(
-      "conversations.delivery.reply.#{Map.fetch!(@background_job_wakeup_notice_keys, type)}",
-      %{
-        "job_id" => data["job_id"] || 0,
-        "title" => text_value(data["title"]) || "",
-        "detail" => detail
-      }
-    )
-  end
-
-  def dead_letter_notice_text(%Signal{}), do: nil
+  defdelegate dead_letter_notice_text(event), to: Wakeups
 
   @doc "Creates one durable work item and its isolated dispatch event atomically."
   defdelegate create_with_dispatch(attrs), to: Dispatch
@@ -112,9 +83,6 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc false
   defdelegate requeue_credential_pool_exhausted_attempt_in_tx(repo, job_id, agent_uid),
     to: Lifecycle
-
-  @doc "Delays one still-open job Signal without consuming it."
-  defdelegate defer_signal(signal, available_at), to: Dispatch
 
   @doc "Completes a job Signal that no longer needs execution."
   defdelegate complete_signal(signal), to: Dispatch
@@ -135,7 +103,7 @@ defmodule Ankole.BackgroundAgentJobs do
              job_id,
              agent_uid,
              %{
-               "status" => "failed",
+               "status" => :failed,
                "error" => %{
                  "code" => "turn_persistence_rejected",
                  "summary" => "Job Turn trajectory persistence was rejected by the control plane."
@@ -147,7 +115,8 @@ defmodule Ankole.BackgroundAgentJobs do
                "code" => "turn_persistence_rejected",
                "summary" =>
                  "The control plane interrupted this runtime Turn after rejecting its checkpoint."
-             }
+             },
+             transition_action: :fail_turn
            ),
          {:ok, :ok} <-
            Dispatch.complete_all_open_events_in_tx(repo, job_id, agent_uid, now) do
@@ -161,13 +130,14 @@ defmodule Ankole.BackgroundAgentJobs do
         %Signal{
           agent_uid: agent_uid,
           session_id: session_id,
-          input_state: "open"
+          status: live_status
         },
         %{
           "details_json" => %{"error_code" => "credential_pool_exhausted"}
         } = reason,
         %DateTime{} = now
-      ) do
+      )
+      when live_status in [:queued, :running] do
     case parse_job_session_id(session_id) do
       {:ok, job_id} -> compensate_credential_pool_exhaustion(repo, job_id, agent_uid, reason, now)
       :error -> {:ok, nil}
@@ -191,7 +161,7 @@ defmodule Ankole.BackgroundAgentJobs do
         %Signal{
           agent_uid: agent_uid,
           session_id: session_id,
-          input_state: "dead_letter"
+          status: :dead_letter
         },
         %{"code" => code, "message" => message, "details_json" => details},
         %DateTime{} = now
@@ -206,7 +176,7 @@ defmodule Ankole.BackgroundAgentJobs do
              job_id,
              agent_uid,
              %{
-               "status" => "failed",
+               "status" => :failed,
                "error" => %{
                  "code" => code,
                  "summary" => message,
@@ -215,7 +185,8 @@ defmodule Ankole.BackgroundAgentJobs do
              },
              now,
              nil,
-             %{"code" => code, "summary" => message}
+             %{"code" => code, "summary" => message},
+             transition_action: :fail_turn
            ),
          {:ok, :ok} <-
            Dispatch.complete_all_open_events_in_tx(repo, job_id, agent_uid, now) do
@@ -235,12 +206,12 @@ defmodule Ankole.BackgroundAgentJobs do
         %Signal{
           agent_uid: agent_uid,
           session_id: session_id,
-          input_state: "open"
+          status: live_status
         },
         reason,
         %DateTime{}
       )
-      when is_map(reason) do
+      when live_status in [:queued, :running] and is_map(reason) do
     case parse_job_session_id(session_id) do
       {:ok, job_id} -> requeue_retryable_attempt(repo, job_id, agent_uid, reason)
       :error -> {:ok, nil}
@@ -309,25 +280,6 @@ defmodule Ankole.BackgroundAgentJobs do
       {:error, _reason} = error -> error
     end
   end
-
-  defp text_value(value) when is_binary(value) and value != "", do: value
-  defp text_value(_value), do: nil
-
-  defp artifacts_notice_line(%{"paths" => paths}) when is_list(paths) and paths != [] do
-    I18n.t("conversations.delivery.reply.background_agent_job_dead_letter_artifacts", %{
-      "paths" => Enum.join(paths, ", ")
-    })
-  end
-
-  defp artifacts_notice_line(_artifacts), do: nil
-
-  defp successor_notice_line(successor_job_id) when is_integer(successor_job_id) do
-    I18n.t("conversations.delivery.reply.background_agent_job_dead_letter_successor", %{
-      "successor_job_id" => successor_job_id
-    })
-  end
-
-  defp successor_notice_line(_successor), do: nil
 
   # Context overflow is an automatic compact-and-retry recovery, not the task
   # failing, so it consumes no execution-failure budget. Every other

@@ -1,23 +1,109 @@
 defmodule Ankole.BrowserSessions.Authentication do
   @moduledoc false
-  use Ankole.Schema, tenancy: :site
+  use Ankole.Ash.Resource, tenancy: :site, domain: Ankole.BrowserSessions.Domain
 
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-  @timestamps_opts [type: :utc_datetime_usec]
+  @proof_fields [
+    :revision,
+    :auth_time,
+    :external_id,
+    :console_authenticated,
+    :csrf_token,
+    :expires_at
+  ]
 
-  schema "browser_authentications" do
-    field :browser_id, Ankole.Ecto.UUIDv7
-    field :tenant_id, Ankole.Ecto.UUIDv7
-    field :provider_id, :string
-    field :subject_id, :string
-    field :external_id, :string
-    field :purpose, Ecto.Enum, values: [:console, :oauth, :pod, :site]
-    field :console_authenticated, :boolean, default: false
-    field :revision, :integer
-    field :auth_time, :integer
-    field :csrf_token, :string
-    field :expires_at, :utc_datetime_usec
-    field :revoked_at, :utc_datetime_usec
-    timestamps()
+  postgres do
+    table("browser_authentications")
+    repo(Ankole.Repo)
+    migrate?(false)
+    identity_index_names(subject: "browser_authentications_subject_index")
+
+    foreign_key_names([
+      {:browser_id, "browser_authentications_browser_id_fkey"},
+      {:tenant_id, "browser_authentications_tenant_id_fkey"}
+    ])
+
+    unique_index_names([
+      {[:browser_id, :provider_id, :subject_id, :purpose, :tenant_id],
+       "browser_authentications_subject_index"}
+    ])
+
+    check_constraints do
+      check_constraint(:tenant_id, "browser_authentications_subject_scope")
+      check_constraint(:revision, "browser_authentications_revision_positive")
+    end
   end
+
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      public?: true,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+    )
+
+    attribute(:browser_id, Ankole.Ash.Types.UUIDv7, public?: true, allow_nil?: false)
+    attribute(:tenant_id, Ankole.Ash.Types.UUIDv7, public?: true)
+
+    attribute(:provider_id, :string,
+      public?: true,
+      allow_nil?: false,
+      constraints: [trim?: false]
+    )
+
+    attribute(:subject_id, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
+    attribute(:external_id, :string, public?: true, constraints: [trim?: false])
+
+    attribute(:purpose, :atom,
+      public?: true,
+      allow_nil?: false,
+      constraints: [one_of: [:console, :oauth, :pod, :site]]
+    )
+
+    attribute(:console_authenticated, :boolean, public?: true, allow_nil?: false, default: false)
+    attribute(:revision, :integer, public?: true, allow_nil?: false, constraints: [min: 1])
+    attribute(:auth_time, :integer, public?: true)
+
+    attribute(:csrf_token, :string,
+      public?: true,
+      allow_nil?: false,
+      sensitive?: true,
+      constraints: [trim?: false]
+    )
+
+    attribute(:expires_at, :utc_datetime_usec, public?: true, allow_nil?: false)
+    attribute(:revoked_at, :utc_datetime_usec, public?: true)
+    timestamps(type: :utc_datetime_usec)
+  end
+
+  identities do
+    identity(:subject, [:browser_id, :provider_id, :subject_id, :purpose, :tenant_id],
+      nils_distinct?: false
+    )
+  end
+
+  validations do
+    validate(Ankole.BrowserSessions.Validations.TargetScope, only_when_valid?: true)
+  end
+
+  actions do
+    defaults([:read])
+
+    create :create_in_tx do
+      accept([:browser_id, :tenant_id, :provider_id, :subject_id, :purpose] ++ @proof_fields)
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+    end
+
+    in_tx_update :renew_in_tx do
+      accept(@proof_fields)
+      change(set_attribute(:revoked_at, nil))
+    end
+
+    in_tx_update :revoke_in_tx do
+      accept([:revision])
+      change(set_attribute(:revoked_at, &DateTime.utc_now/0))
+    end
+  end
+
+  @type t :: %__MODULE__{}
 end

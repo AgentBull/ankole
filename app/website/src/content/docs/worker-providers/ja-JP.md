@@ -7,6 +7,8 @@ order: 317
 
 WorkerProvider は Agent のコンピューターの実行先と Home・キャッシュの保存方法を決めます。各 Agent は一つの固定 provider と専用 Worker を持ちます。provider はサイトに属し、認証情報は Console の別フィールドに暗号化保存します。設定 YAML に鍵を記載しないでください。作成と日常操作は [Worker](../worker-management/)を参照してください。
 
+Vercel には Control Plane Plugin `vercel-worker-provider` が必要です。Alibaba Function Compute には、モデルアダプターも提供する `china-market-ai-providers` が必要です。使用前に必要な Plugin を有効にして control plane を再起動してください。既存環境ではアップグレード前に該当する Plugin ID を選択します。休止中や削除待ちを含め、Agent が Plugin の Worker provider を参照している間は無効にできません。
+
 ## 三つのストレージ
 
 | 保存先 | 内容 | 永続性 |

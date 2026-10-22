@@ -27,10 +27,63 @@ There is no smaller pool inside a provider.
 
 `AgentWorkers.Providers` owns the dedicated site `worker_providers` table,
 configuration, credentials, default selection, and bootstrap import. Provider
-records are separate from AppConfigure keys. The type's `definition/0`
+records are separate from AppConfigure keys. The `Provider` Ash resource owns
+identity validation, immutable fields, configuration parsing, and credential
+encryption. Registry locks and the native unique index keep default selection
+atomic. Loaded settings and decrypted credentials use `Providers.Runtime`;
+they are not durable resource attributes. The type's `definition/0`
 is the single source for its schema, credential fields, example, pause support,
 and instance lifetime. The Console kinds endpoint returns the kind, example,
 and credential fields; it has no separate list of supported types.
+
+Docker, Kubernetes, Cloudflare, and Lambda are built in. Control Plane Plugins
+declare other kinds with `contract_id: "agent_workers.provider_kind"`, an `id`,
+and a `module` that implements `ProviderKind`. The declaration ID must match
+`definition().kind`. Plugin projects check the behaviour at compile time with
+warnings treated as errors. The Registry rejects unavailable modules,
+mismatched kinds, duplicate kinds, and overrides of built-in kinds at startup.
+Registry initialization builds one `persistent_term` map from the discovered
+and active Plugin specs. Each kind has its module, owning Plugin ID, and active
+state. Built-in kinds have no Plugin ID. Worker lookups read this map without
+calling the Registry process. Registry recovery publishes the same boot snapshot;
+the map remains readable while the process is down.
+
+The `china-market-ai-providers` Plugin owns `function_compute` and its model
+providers. The `vercel-worker-provider` Plugin owns `vercel`. Each Plugin keeps
+its API client and platform helpers. The Worker image still supplies Function
+Compute bootstrap and OSS recovery programs. Provider IDs, YAML, encrypted
+credentials, generation settings, and remote storage names keep their values.
+
+After setup, enable the required Plugin and restart before using its kind.
+During setup, all compiled kinds are visible, but a Plugin must also be selected
+in `plugins.enabled_ids` before an Agent can use it. The kinds endpoint lists
+active implementations. Saved provider rows remain visible when their Plugin
+is inactive; their check reports the Plugin ID and the recovery action. A
+provider's `selectable` field checks active and next-start Plugin state, without
+cloud I/O. A provider list reads the next-start policy once for all its rows.
+The Console uses this field for Agent provider choices.
+
+Agent creation and legacy assignment hold the shared Worker provider registry
+lock and read the next-start Plugin policy from PostgreSQL. Plugin selection
+writes use the AppConfigure key lock to keep concurrent changes. A change that
+removes Worker kinds also holds the exclusive Worker provider lock and rejects
+assigned Worker rows in any tenant, including paused and deleting rows. Enabling
+a Plugin or changing other Plugins does not take this Worker lock or query
+Worker references.
+This also rejects new assignments while a disable waits for restart. The same
+guard covers setup, Plugin controls, and the Plugin configuration API. General
+Console settings show the Plugin selection as read-only.
+An inactive implementation does not cause automatic instance or storage deletion.
+
+Before upgrading an installation that uses either kind, save its required
+Plugin ID in `plugins.enabled_ids`. There is no automatic enablement migration.
+The existing configuration API permits pre-authorization before the new Plugin
+is compiled. Keep all other selected IDs. See [Plugins](Plugins.md) for the
+operator commands. Provider seed import starts after the Plugin cohort, so
+configuration validation can resolve Plugin kinds. Oban starts before Plugins
+because their startup can enqueue work. A recovered job can record
+`worker_provider_missing` for an unassigned legacy Worker before the seed runs.
+The seed clears that error when it assigns the provider.
 
 The database saves YAML exactly as the operator wrote it. Validation reports
 the YAML path and line. Location and persistent-storage keys cannot change
@@ -154,6 +207,18 @@ generation. A credential hash and encrypted retry value exist exactly with a
 generation. Routes exist only in `ready` or `draining`; `ready` also requires
 an incarnation. Lifecycle times come from PostgreSQL.
 
+The `AgentWorker` Ash resource owns lifecycle transitions and the write
+contracts for generation, admission, demand, capacity, and provider assignment.
+Its state machine admits only the declared transition from the stored state.
+Reconciliation and admission retain their existing row-lock transactions;
+platform requests remain outside them. Disconnect and settlement derive the
+next state from this same machine. State time uses the database clock and
+retains one continuous not-ready budget across `starting` and `stale`. Each action
+passes its target state to the clock change. The clock compares that target with
+the stored state; a self-transition retains its time.
+PostgreSQL constraints still enforce generation credentials, connected routes,
+ready incarnation, capacity, and paired acquisition errors.
+
 ## Creation and the Single Writer
 
 Each reconciliation step has four parts:
@@ -232,7 +297,8 @@ authenticated generation. Only `starting`, `stale`, and `ready` can connect.
 A Channel join locks the row, checks generation and protocol, and records the
 route and incarnation. A different incarnation cannot replace a connected
 Worker whose last heartbeat is less than 60 seconds old. Admission checks this
-under the same row lock as heartbeats. Disconnect or heartbeat silence permits
+in the conditional admission update under the same row lock as heartbeats.
+The change does not run a second query. Disconnect or heartbeat silence permits
 a new incarnation. Join is the only transition into `ready`.
 
 The sweep includes connected rows with an expired or missing heartbeat.
@@ -266,7 +332,11 @@ idle timeout and SSRF setting and sends them in `WorkspaceOpen` or `TurnStart`.
 a reported slot for a new Codex Turn. A non-ready
 Worker returns `agent_worker_unavailable`. The caller requests it outside
 the transaction and leaves the input open.
-A full Worker returns `no_worker_capacity`.
+A full Worker returns `no_worker_capacity`. The locked caller classifies these
+errors. The action reserves capacity with one conditional SQL update: the Worker
+must be ready and have a positive slot count. It decrements `available_slots`
+and increments `active_slots` without replacing other report fields. Provider
+assignment checks its immutable binding once on the locked row.
 
 The Worker owns environment Workspace admission through `Workspaces.open`;
 it does not use the control-plane reservation. It reuses an open Workspace for
@@ -276,24 +346,28 @@ with `CAPACITY` or `DRAINING`, and the Driver keeps the calls pending. A capacit
 change broadcasts `worker_changed` to active Drivers. A Driver with pending
 environment calls checks the route and probes calls already sent. It reuses a
 ready Workspace across tool rounds. It opens a Workspace again only when
-acquisition is waiting, the route changed, or the Driver recovered. The separate
-JobDriver observes an active Codex Job. This broadcast does not advance the due
-time of input whose Codex placement was deferred.
+acquisition is waiting, the route changed, or the Driver recovered. The separate JobDriver observes an active Codex Job. When JobDriver deferred
+placement because the Worker was unavailable, a `worker_changed` broadcast
+probes Worker readiness and triggers admission immediately when the Worker is
+ready.
 
 `Sessions.WorkerAcquisition` owns one explicit acquisition state for the
 Run: idle, opening, waiting, ready, or unavailable. Pure transitions return
 effects; the Driver performs the I/O and forwards the result. A Worker change
 discards earlier readiness and connection queries before the Driver reads the
-current row. Transport sends keep their pending receipts. A new tool round
-does not clear this state or create another deadline.
+current row. Transport sends keep their pending receipts. When a tool batch
+commits, the Driver cancels that batch's pending acquisition tasks and timers.
+An opening or waiting acquisition returns to idle. A ready Workspace and an
+unavailable result remain with the Run.
 
 Workspace acquisition reports its phase at once: starting, resuming,
 preparing an image, retrying a temporary failure, replacing an instance, or
 waiting for a slot. The Driver renews demand on each lifecycle wait. Its
-first workspace open starts one monotonic 60-second acquisition deadline,
+first workspace open starts a monotonic 60-second acquisition deadline,
 including time waiting for a transport receipt or `WorkspaceReady`. Phase
-changes do not restart it. Readiness cancels it. A new Run or Driver restart
-starts a new deadline. Expiry stays with the Run across later model rounds
+changes do not restart it. Readiness cancels it. If a tool batch commits while
+acquisition is pending, the next batch starts a new acquisition and deadline.
+A new Run or Driver restart also starts a new deadline. Expiry stays with the Run across later model rounds
 and late workspace replies. It returns a tool error for a new call and an
 interrupted result for an adopted call whose outcome is unknown. The model can
 then answer without the computer. An absent Worker with a `rejected` error, a
@@ -402,6 +476,40 @@ deletes every instance, then deletes persistent storage and cache, and
 finally removes the Worker row. Agent UIDs are generated UUIDv7 values and
 are never reused. A
 legacy `deleting` row with no provider is removed directly.
+
+### New Attempt Readiness
+
+`AgentWorkers.wait_status/5` owns the readiness wait rule for new Background
+Agent Job and Automation Job attempts. It reads no storage. The caller supplies
+the observed Worker, its work-capacity result, the stored wait start, the current
+time, and `Settings.ready_timeout_ms`. It returns `ready`, `wait`, or `timed_out`
+with the wait start to persist.
+
+| Observation | Wait start and decision |
+| --- | --- |
+| Worker is ready | Clear the start and return `ready`, even when work capacity is full. |
+| Worker is not ready, work capacity is full, and no start is stored | Keep the start empty and return `wait`. |
+| Worker is not ready, work capacity is full, and a start is stored | Keep the start and return `wait`, even after its deadline. |
+| Worker is not ready, work capacity is available, and no start is stored | Store the current time and return `wait`. |
+| Worker is not ready, work capacity is available, and a start is stored | Keep the start. Return `timed_out` at or after the deadline; otherwise return `wait`. |
+
+Work capacity does not start or reset a readiness clock. An existing clock
+continues through a capacity wait, but that wait cannot report a readiness
+timeout. A ready observation clears the clock. A later unavailable observation
+can then start a new clock. Retries and process restarts keep the persisted
+start. A ready result does not reserve a Worker slot or admit a task.
+
+Each caller owns its work-capacity query and admission transaction. It persists
+the result on its Job or Run, retains its wakeup mechanism, and handles the
+timeout according to its task contract. Background Agent Jobs reserve a Worker
+slot under the existing row lock; Automation Jobs retain their own per-Agent
+script limit. This rule does not apply to adoption of an active attempt or to
+environment Workspace acquisition.
+
+Instance rebuilds use the same configured timeout value with different clocks:
+`Decision.next/1` uses instance and lifecycle observations, including the local
+observation period. Task waits use the persisted Job or Run start. These clocks
+remain separate.
 
 ## Provider Implementations
 

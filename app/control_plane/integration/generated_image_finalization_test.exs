@@ -25,7 +25,7 @@ defmodule Ankole.Sessions.GeneratedImageFinalizationIntegrationTest do
         # The provider owner first disables an active row, then deletes it.
         {:ok, _} = Ankole.AIGateway.ProviderConfigs.delete_provider(profile["provider_id"])
         {:ok, _} = Ankole.AIGateway.ProviderConfigs.delete_provider(profile["provider_id"])
-        Repo.delete!(tenant)
+        cleanup_tenant!(tenant)
       end)
     end)
 

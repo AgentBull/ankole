@@ -448,7 +448,10 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
 
       test_pid = self()
 
-      assert {:error, %Ecto.Changeset{}} =
+      assert {:error,
+              %Ash.Error.Invalid{
+                errors: [%Ash.Error.Changes.InvalidAttribute{field: :raw_payload}]
+              }} =
                Ankole.Conversations.Delivery.dispatch(
                  agent.uid,
                  "bot",

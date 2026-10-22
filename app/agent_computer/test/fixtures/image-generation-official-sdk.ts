@@ -4,12 +4,14 @@ import type { ResponseCompletedEvent } from 'openai/resources/responses/response
 
 const baseURL = process.env.ANKOLE_AI_GATEWAY_BASE_URL
 const apiKey = process.env.ANKOLE_AI_GATEWAY_API_KEY
+const gatewayHost = process.env.ANKOLE_AI_GATEWAY_HOST
 
 if (!baseURL || !apiKey) throw new Error('AIGateway SDK fixture requires base URL and API key')
 
 const imageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
 const imageBytes = Uint8Array.from(atob(imageBase64), character => character.charCodeAt(0))
-const client = new OpenAI({ apiKey, baseURL })
+const headers = gatewayHost ? { host: gatewayHost } : undefined
+const client = new OpenAI({ apiKey, baseURL, defaultHeaders: headers })
 
 const file = await client.files.create({
   file: new File([imageBytes], 'source.png', { type: 'image/png' }),
@@ -71,7 +73,7 @@ if (streamSequences.some((sequence, index) => sequence !== index)) {
   throw new Error(`non-contiguous hosted image stream: ${JSON.stringify(streamSequences)}`)
 }
 
-const ws = new ResponsesWS(client, { reconnect: null })
+const ws = new ResponsesWS(client, { reconnect: null, headers })
 const nextCompleted = () =>
   new Promise<ResponseCompletedEvent>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('ResponsesWS timed out')), 5_000)

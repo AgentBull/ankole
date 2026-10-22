@@ -3,7 +3,7 @@ defmodule Ankole.Sessions.AmbientCuration do
   Owns ambient judgment records, reply attribution, and room standing orders.
   Each Agent derives its progress from its own judgment records.
 
-  `Ankole.Sessions.Ambient` selects each ambient route. This module checks
+  `Ankole.Sessions.AmbientTriage` selects each ambient route. This module checks
   database facts under locks before it starts or skips the visible turn. One transaction stores the
   judgment and applies accepted asked_by attribution to the Signal reply
   anchor. Standing
@@ -12,6 +12,7 @@ defmodule Ankole.Sessions.AmbientCuration do
   """
 
   import Ecto.Query
+  require Ash.Query
 
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -38,15 +39,22 @@ defmodule Ankole.Sessions.AmbientCuration do
   steer in this transaction. A retry returns the first committed route instead
   of selecting another action or target.
   """
-  @spec record_judgment(Ambient.session_key(), String.t(), map(), keyword()) ::
+  @spec record_judgment(Ambient.session_key(), String.t(), map()) ::
           {:ok, map()} | {:error, term()}
-  def record_judgment(key, signal_id, attrs, opts \\ []) when is_map(attrs) do
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-    route = Map.take(attrs, [:action, :authority, :handoff_job_id])
+  def record_judgment(key, signal_id, attrs) when is_map(attrs) do
+    route = %{
+      action: Map.fetch!(attrs, :action),
+      authority: Map.fetch!(attrs, :authority),
+      handoff_job_id: Map.get(attrs, :handoff_job_id)
+    }
 
     Repo.transact(fn repo ->
-      with :ok <- Keyword.get(opts, :authorize_in_tx, fn _repo -> :ok end).(repo) do
-        lock_and_commit_judgment(repo, key, signal_id, route, attrs, now)
+      with %Signal{} = event <- repo.get(Signal, signal_id),
+           :ok <- Ankole.Sessions.Admission.authorize_new_work_in_tx(repo, event) do
+        lock_and_commit_judgment(repo, key, signal_id, route, attrs)
+      else
+        nil -> {:error, :signal_not_found}
+        error -> error
       end
     end)
     |> case do
@@ -55,30 +63,48 @@ defmodule Ankole.Sessions.AmbientCuration do
     end
   end
 
-  defp lock_and_commit_judgment(repo, key, signal_id, route, attrs, now) do
+  defp lock_and_commit_judgment(repo, key, signal_id, route, attrs) do
     locked_handoff_job = lock_handoff_job(repo, key, route)
 
-    with :ok <- Queue.lock_session_in_tx(repo, key.agent_uid, key.session_id),
+    sessions = [{key.agent_uid, key.session_id}] ++ handoff_session(locked_handoff_job)
+
+    with :ok <- Queue.lock_sessions_in_tx(repo, sessions),
          {:ok, event} <- locked_ambient_event(repo, key, signal_id) do
-      case repo.get(AmbientJudgment, event.id) do
-        %AmbientJudgment{} = judgment -> {:ok, judgment_result(judgment)}
-        nil -> commit_new_judgment(repo, event, route, locked_handoff_job, attrs, now)
+      case AmbientJudgment
+           |> Ash.Query.filter(signal_id == ^event.id)
+           |> Ankole.Ash.read_one!() do
+        %AmbientJudgment{} = judgment ->
+          {:ok, judgment_result(judgment)}
+
+        nil when event.status in [:queued, :running] ->
+          commit_new_judgment(
+            repo,
+            event,
+            route,
+            locked_handoff_job,
+            attrs,
+            DateTime.utc_now(:microsecond)
+          )
+
+        nil ->
+          {:error, :ambient_event_unavailable}
       end
     end
   end
 
-  @doc "Preserves judgment progress before its accepted message anchor is removed."
-  def message_removed_in_tx(repo, %Message{} = message) do
-    repo.update_all(
-      from(judgment in AmbientJudgment,
-        where:
-          judgment.conversation_id == ^message.conversation_id and
-            judgment.asked_by_message_id == ^message.id and judgment.asked_by_state == "accepted"
-      ),
-      set: [asked_by_state: "degraded", asked_by_message_id: nil]
-    )
+  defp handoff_session(%Job{} = job), do: [{job.agent_uid, Ankole.Sessions.Key.job(job.id)}]
+  defp handoff_session(nil), do: []
 
-    :ok
+  @doc "Preserves judgment progress before its accepted message anchor is removed."
+  def message_removed_in_tx(_repo, %Message{} = message) do
+    AmbientJudgment
+    |> Ash.Query.filter(conversation_id == ^message.conversation_id)
+    |> Ash.Query.filter(asked_by_message_id == ^message.id and asked_by_state == "accepted")
+    |> Ankole.Ash.bulk_update(:degrade_anchor, %{}, strategy: [:atomic], return_errors?: true)
+    |> case do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+    end
   end
 
   @doc """
@@ -110,6 +136,9 @@ defmodule Ankole.Sessions.AmbientCuration do
 
             {0, _rows} ->
               {:error, :channel_not_found}
+
+            {:error, _} = error ->
+              error
           end
         end
       end)
@@ -142,21 +171,31 @@ defmodule Ankole.Sessions.AmbientCuration do
       case update_channel_orders(Repo, channel_id, orders, set_by, now) do
         {1, _rows} -> conversation_standing_orders(channel_id)
         {0, _rows} -> {:error, :channel_not_found}
+        {:error, _} = error -> error
       end
     end
   end
 
-  defp update_channel_orders(repo, channel_id, orders, set_by, now) do
-    Conversation
-    |> where([channel], channel.id == ^channel_id)
-    |> repo.update_all(
-      set: [
-        ambient_standing_orders: orders,
-        ambient_standing_orders_set_by: set_by,
-        ambient_standing_orders_updated_at: now,
-        updated_at: now
-      ]
-    )
+  defp update_channel_orders(_repo, channel_id, orders, set_by, now) do
+    result =
+      Conversation
+      |> Ash.Query.filter(id == ^channel_id)
+      |> Ankole.Ash.bulk_update(
+        :set_standing_orders,
+        %{
+          ambient_standing_orders: orders,
+          ambient_standing_orders_set_by: set_by,
+          ambient_standing_orders_updated_at: now
+        },
+        strategy: [:atomic],
+        return_records?: true,
+        return_errors?: true
+      )
+
+    case result do
+      %Ash.BulkResult{status: :success, records: rows} -> {length(rows), rows}
+      %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+    end
   end
 
   defp standing_orders_projection(%Conversation{} = channel) do
@@ -212,10 +251,19 @@ defmodule Ankole.Sessions.AmbientCuration do
              asked_by_state,
              judged_until
            ),
-         :ok <- apply_asked_anchor(repo, event, asked_by_id, asked_by_state, authorization) do
+         :ok <- apply_asked_anchor(repo, event, asked_by_id, asked_by_state, authorization),
+         :ok <- settle_in_tx(repo, event, judgment, now) do
       {:ok, Map.put(judgment_result(judgment), :command_event, command_event)}
     end
   end
+
+  defp settle_in_tx(repo, event, %{action: action}, now) when action in ["NOOP", "HANDOFF"] do
+    with {:ok, _event} <-
+           Queue.complete_signal_in_tx(repo, event, completed_at: now, turn_outcome: "silent"),
+         do: :ok
+  end
+
+  defp settle_in_tx(_repo, _event, _judgment, _now), do: :ok
 
   defp enforce_authority(
          repo,
@@ -345,9 +393,7 @@ defmodule Ankole.Sessions.AmbientCuration do
         agent_uid: ^agent_uid,
         session_id: ^session_id,
         type: @ambient_event_type,
-        conversation_id: channel_id,
-        completed_at: nil,
-        input_state: "open"
+        conversation_id: channel_id
       } = event
       when is_binary(channel_id) ->
         {:ok, event}
@@ -433,7 +479,7 @@ defmodule Ankole.Sessions.AmbientCuration do
   end
 
   defp insert_judgment(
-         repo,
+         _repo,
          event,
          route,
          attrs,
@@ -441,8 +487,7 @@ defmodule Ankole.Sessions.AmbientCuration do
          asked_by_state,
          judged_until
        ) do
-    %AmbientJudgment{}
-    |> AmbientJudgment.changeset(%{
+    Ankole.Ash.create(AmbientJudgment, :record, %{
       signal_id: event.id,
       agent_uid: event.agent_uid,
       conversation_id: event.conversation_id,
@@ -454,31 +499,23 @@ defmodule Ankole.Sessions.AmbientCuration do
       asked_by_state: asked_by_state,
       judged_until: judged_until
     })
-    |> repo.insert()
   end
 
-  defp apply_asked_anchor(repo, event, asked_by_id, "accepted", authorization)
+  defp apply_asked_anchor(_repo, event, asked_by_id, "accepted", authorization)
        when is_binary(asked_by_id) do
-    Signal
-    |> where([event_row], event_row.id == ^event.id)
-    |> repo.update_all(
-      set:
-        [ambient_asked_message_id: asked_by_id] ++
-          Map.to_list(authorization)
-    )
-
-    :ok
+    with {:ok, event} <-
+           Ankole.Ash.update(event, :update_metadata, %{ambient_asked_message_id: asked_by_id}),
+         {:ok, _event} <- Ankole.Ash.update(event, :reauthorize, authorization),
+         do: :ok
   end
 
   defp apply_asked_anchor(_repo, _event, _asked_by_id, _state, _authorization), do: :ok
 
   @doc "Returns the progress of one Agent in a shared conversation."
-  def judged_until(agent_uid, conversation_id, repo \\ Repo) do
-    repo.one(
-      from judgment in AmbientJudgment,
-        where: judgment.agent_uid == ^agent_uid and judgment.conversation_id == ^conversation_id,
-        select: max(judgment.judged_until)
-    )
+  def judged_until(agent_uid, conversation_id) do
+    AmbientJudgment
+    |> Ash.Query.filter(agent_uid == ^agent_uid and conversation_id == ^conversation_id)
+    |> Ankole.Ash.max!(:judged_until)
   end
 
   # The judged batch ends at the newest batch entry; later messages stay

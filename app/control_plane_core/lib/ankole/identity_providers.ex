@@ -424,6 +424,14 @@ defmodule Ankole.IdentityProviders do
   defp validate_identity_capability(module, "oidc_code_exchange"),
     do: ensure_exported_all(module, [{:exchange_code, 3}, {:upsert_user, 2}])
 
+  defp validate_identity_capability(module, "oidc_fresh_authentication"),
+    do:
+      ensure_exported_all(module, [
+        {:authorization_url, 2},
+        {:exchange_code, 3},
+        {:upsert_user, 2}
+      ])
+
   defp validate_identity_capability(module, "directory_full_sync"),
     do: ensure_exported_all(module, [{:sync_directory, 3}, {:upsert_user, 2}])
 

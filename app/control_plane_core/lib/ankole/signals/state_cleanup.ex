@@ -1,9 +1,6 @@
 defmodule Ankole.Signals.StateCleanup do
   @moduledoc false
 
-  import Ecto.Query, warn: false
-
-  alias Ankole.Repo
   alias Ankole.Conversations.InputTombstone
   alias Ankole.Signals.Webhooks
 
@@ -12,10 +9,19 @@ defmodule Ankole.Signals.StateCleanup do
           webhook_endpoints: non_neg_integer()
         }
   def cleanup_expired_state(now \\ DateTime.utc_now(:microsecond)) do
-    {tombstones, _} =
+    result =
       InputTombstone
-      |> where([tombstone], tombstone.tombstoned_until <= ^now)
-      |> Repo.delete_all()
+      |> Ankole.Ash.bulk_destroy(:expire, %{now: now},
+        strategy: [:atomic],
+        return_records?: true,
+        return_errors?: true
+      )
+
+    tombstones =
+      case result do
+        %Ash.BulkResult{status: :success, records: records} -> length(records)
+        %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+      end
 
     %{tombstones: tombstones, webhook_endpoints: Webhooks.expire_due(now)}
   end

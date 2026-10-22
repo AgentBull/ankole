@@ -574,12 +574,12 @@ defmodule Ankole.E2E.Scenarios.Observe do
 
     assert %Message{
              id: checkpoint_id,
-             type: "checkpoint",
+             type: :checkpoint,
              content: [%{"type" => "compaction_artifact"} = ref]
            } =
              Message
              |> where([message], message.conversation_id == ^conversation_id)
-             |> where([message], message.type == "checkpoint")
+             |> where([message], message.type == :checkpoint)
              |> order_by([message], desc: message.inserted_at, desc: message.id)
              |> limit(1)
              |> Repo.one()

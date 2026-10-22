@@ -6,11 +6,9 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
   describe "type/content contract" do
     test "message rows cannot contain compaction items" do
       changeset =
-        Message.changeset(%Message{}, %{
+        prepare(:start, %{
           subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
-          type: "message",
-          status: "complete",
           content: [%{"type" => "compaction", "summary" => "compressed"}],
           metadata: %{}
         })
@@ -21,11 +19,9 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
 
     test "message rows cannot contain compaction artifact refs" do
       changeset =
-        Message.changeset(%Message{}, %{
+        prepare(:start, %{
           subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
-          type: "message",
-          status: "complete",
           content: [%{"type" => "compaction_artifact", "id" => "cmp_#{Ecto.UUID.generate()}"}],
           metadata: %{}
         })
@@ -36,11 +32,9 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
 
     test "checkpoint rows require exactly one compaction artifact ref" do
       invalid =
-        Message.changeset(%Message{}, %{
+        prepare(:checkpoint, %{
           subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
-          type: "checkpoint",
-          status: "complete",
           content: [%{"type" => "text", "text" => "compressed"}],
           metadata: %{}
         })
@@ -49,11 +43,9 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
       assert "must include exactly one compaction artifact ref" in errors_on(invalid).content
 
       duplicate =
-        Message.changeset(%Message{}, %{
+        prepare(:checkpoint, %{
           subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
-          type: "checkpoint",
-          status: "complete",
           previous_message_id: Ecto.UUID.generate(),
           content: [
             %{"type" => "compaction_artifact", "id" => "cmp_#{Ecto.UUID.generate()}"},
@@ -66,11 +58,9 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
       assert "must include exactly one compaction artifact ref" in errors_on(duplicate).content
 
       valid =
-        Message.changeset(%Message{}, %{
+        prepare(:checkpoint, %{
           subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
-          type: "checkpoint",
-          status: "complete",
           previous_message_id: Ecto.UUID.generate(),
           content: [%{"type" => "compaction_artifact", "id" => "cmp_#{Ecto.UUID.generate()}"}],
           metadata: %{}
@@ -81,17 +71,27 @@ defmodule Ankole.AIGateway.MessageSchemaTest do
 
     test "compaction row type is invalid" do
       changeset =
-        Message.changeset(%Message{}, %{
+        prepare(:start, %{
           subject_uid: "agent-x",
           conversation_id: Ecto.UUID.generate(),
           type: "compaction",
-          status: "complete",
           content: [%{"type" => "compaction", "summary" => "compressed"}],
           metadata: %{}
         })
 
       refute changeset.valid?
-      assert "is invalid" in errors_on(changeset).type
+
+      assert Enum.any?(
+               changeset.errors,
+               &match?(%Ash.Error.Invalid.NoSuchInput{input: :type}, &1)
+             )
     end
+  end
+
+  defp prepare(action, attrs) do
+    {:ok, changeset} =
+      Repo.transact(fn -> {:ok, Ankole.Ash.for_create(Message, action, attrs)} end)
+
+    changeset
   end
 end

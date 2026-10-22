@@ -53,7 +53,8 @@ defmodule Ankole.AgentWorkers.TransportTest do
       %{principal: agent} = agent_fixture()
       config_owner = Ankole.Sessions.AIGatewayAPIKeyBroker
       previous_config = Application.get_env(:ankole, config_owner)
-      Application.put_env(:ankole, config_owner, base_url: :invalid_test_value)
+      secret = "private-rpc-token-/srv/private/session"
+      Application.put_env(:ankole, config_owner, base_url: %{token: secret})
 
       on_exit(fn ->
         case previous_config do
@@ -68,21 +69,32 @@ defmodule Ankole.AgentWorkers.TransportTest do
         payload: encode_proto!(%FabricProto.AIGatewayAPIKeyRequest{})
       }
 
-      assert {:ok, response} = handle_rpc(request, "worker-route", agent.uid)
-      assert envelope_body_type(response) == :rpc_error
+      log =
+        ExUnit.CaptureLog.capture_log([format: "$metadata $message\n", metadata: :all], fn ->
+          assert {:ok, response} = handle_rpc(request, "worker-route", agent.uid)
+          assert envelope_body_type(response) == :rpc_error
 
-      assert %FabricProto.RPCError{
-               code: "rpc_handler_failed",
-               retryable: false,
-               details_json: details_json
-             } = envelope_body!(response, :rpc_error)
+          assert %FabricProto.RPCError{
+                   code: "rpc_handler_failed",
+                   retryable: false,
+                   details_json: details_json
+                 } = error = envelope_body!(response, :rpc_error)
 
-      assert %{
-               "failure_id" => failure_id,
-               "method" => "ai_gateway.api_key_for.create_or_find_by_agent"
-             } = Torque.decode!(details_json)
+          assert %{
+                   "failure_id" => failure_id,
+                   "method" => "ai_gateway.api_key_for.create_or_find_by_agent"
+                 } = Torque.decode!(details_json)
 
-      assert {:ok, _failure_id} = Ecto.UUID.cast(failure_id)
+          assert {:ok, _failure_id} = Ecto.UUID.cast(failure_id)
+          refute error.message =~ secret
+          refute details_json =~ secret
+        end)
+
+      assert log =~ "runtime_fabric.rpc_handler_failed"
+      assert log =~ "ArgumentError"
+      assert log =~ "ai_gateway_api_key_broker.ex"
+      assert log =~ request.method
+      refute log =~ secret
     end
 
     test "only reads and the idempotent Job Turn checkpoint retry handler failures" do

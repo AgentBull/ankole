@@ -147,7 +147,7 @@ defmodule Ankole.Brain.ContextPack do
           facts =
             object.slug
             |> entity_claims(conversation_id)
-            |> where([claim], claim.claim_type == "fact" and is_nil(claim.expired_at))
+            |> where([claim], claim.claim_type == :fact and is_nil(claim.expired_at))
             |> Access.filter_claims(access)
             |> LazySkillVisibility.filter_claims(visibility)
             |> order_by([claim], desc: claim.valid_from)
@@ -305,7 +305,7 @@ defmodule Ankole.Brain.ContextPack do
   defp open_threads(access, disclosure, visibility) do
     takes =
       Claim
-      |> where([claim], claim.claim_type == "take" and claim.active == true)
+      |> where([claim], claim.claim_type == :take and claim.active == true)
       |> where([claim], is_nil(claim.resolved_at))
       |> where([claim], claim.weight >= 0.6)
       |> Access.filter_claims(access)
@@ -316,7 +316,7 @@ defmodule Ankole.Brain.ContextPack do
 
     commitments =
       Claim
-      |> where([claim], claim.claim_type == "fact" and is_nil(claim.expired_at))
+      |> where([claim], claim.claim_type == :fact and is_nil(claim.expired_at))
       |> where([claim], claim.kind == "commitment")
       |> Access.filter_claims(access)
       |> LazySkillVisibility.filter_claims(visibility)
@@ -331,7 +331,7 @@ defmodule Ankole.Brain.ContextPack do
       %{
         id: claim.id,
         claim: claim.claim,
-        claim_type: claim.claim_type,
+        claim_type: Atom.to_string(claim.claim_type),
         kind: claim.kind,
         holder: claim.holder,
         weight: claim.weight,

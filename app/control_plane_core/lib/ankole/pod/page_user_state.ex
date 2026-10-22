@@ -1,29 +1,53 @@
 defmodule Ankole.Pod.PageUserState do
-  @moduledoc """
-  One person's relation to one page: when they favorited it and when they last
-  visited it. A row with neither value carries no information.
-  """
+  @moduledoc "One person's favorite and visit times for one page."
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Pod.Domain,
+    tenant_in_primary_key: true
 
-  use Ankole.Schema, tenancy: :tenant, tenant_in_primary_key: true
+  postgres do
+    table("page_user_states")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:page_id, "page_user_states_tenant_id_page_id_fkey"}])
+    unique_index_names([{[:principal_uid, :page_id], "page_user_states_pkey"}])
+  end
 
-  import Ecto.Changeset
+  attributes do
+    attribute(:principal_uid, Ankole.Ash.Types.PrincipalKey,
+      primary_key?: true,
+      allow_nil?: false
+    )
 
-  @primary_key false
-  schema "page_user_states" do
-    field :principal_uid, Ankole.Ecto.PrincipalKey, primary_key: true
-    field :page_id, Ankole.Ecto.UUIDv7, primary_key: true
-    field :favorited_at, :utc_datetime_usec
-    field :visited_at, :utc_datetime_usec
+    attribute(:page_id, Ankole.Ash.Types.UUIDv7, primary_key?: true, allow_nil?: false)
+    attribute(:favorited_at, :utc_datetime_usec)
+    attribute(:visited_at, :utc_datetime_usec)
+  end
+
+  actions do
+    defaults([:read])
+
+    create :put do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+      accept([:principal_uid, :page_id, :favorited_at, :visited_at])
+      upsert?(true)
+      upsert_fields([:favorited_at, :visited_at])
+    end
+
+    destroy :remove_empty do
+      transaction?(false)
+      require_atomic?(true)
+      change(Ankole.Ash.RequireTransaction.Atomic)
+      change(filter(expr(is_nil(favorited_at) and is_nil(visited_at))))
+    end
+
+    destroy :purge do
+      transaction?(false)
+      require_atomic?(true)
+      change(Ankole.Ash.RequireTransaction.Atomic)
+    end
   end
 
   @type t :: %__MODULE__{}
-
-  @spec changeset(t(), map()) :: Ecto.Changeset.t()
-  def changeset(state, attrs) do
-    state
-    |> cast(attrs, [:principal_uid, :page_id, :favorited_at, :visited_at])
-    |> validate_required([:principal_uid, :page_id])
-    |> foreign_key_constraint(:page_id, name: :page_user_states_tenant_id_page_id_fkey)
-    |> unique_constraint([:principal_uid, :page_id], name: :page_user_states_pkey)
-  end
 end

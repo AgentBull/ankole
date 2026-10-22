@@ -26,7 +26,7 @@ defmodule Ankole.AIGateway.CompactionHistory do
   def history_items_for_artifact(subject_uid, history) do
     history
     |> Enum.reduce_while({:ok, []}, fn
-      %Message{type: "checkpoint"} = message, {:ok, chunks} ->
+      %Message{type: :checkpoint} = message, {:ok, chunks} ->
         case CompactionArtifacts.output_for_checkpoint(subject_uid, message) do
           {:ok, items} -> {:cont, {:ok, [retained_checkpoint_items(message, items) | chunks]}}
           {:error, _reason} = error -> {:halt, error}
@@ -176,7 +176,7 @@ defmodule Ankole.AIGateway.CompactionHistory do
     |> CompactionRender.approx_tokens()
   end
 
-  def text_compactable_message?(%Message{type: "message", status: "complete", content: content})
+  def text_compactable_message?(%Message{type: :message, status: :complete, content: content})
       when is_list(content),
       do: Enum.all?(content, &text_compactable_item?/1)
 
@@ -292,7 +292,7 @@ defmodule Ankole.AIGateway.CompactionHistory do
   def split_last_compaction(history) do
     case history
          |> Enum.with_index()
-         |> Enum.filter(fn {row, _index} -> row.type == "checkpoint" end) do
+         |> Enum.filter(fn {row, _index} -> row.type == :checkpoint end) do
       [] ->
         {[], history}
 
@@ -303,7 +303,7 @@ defmodule Ankole.AIGateway.CompactionHistory do
   end
 
   def native_checkpoint_state(subject_uid, history, runtime) do
-    case Enum.find(Enum.reverse(history), &(&1.type == "checkpoint")) do
+    case Enum.find(Enum.reverse(history), &(&1.type == :checkpoint)) do
       nil ->
         {:ok, :none}
 
@@ -352,7 +352,7 @@ defmodule Ankole.AIGateway.CompactionHistory do
           previous_response_id: previous_response_id,
           stop_at_checkpoint: false
         )
-        |> Enum.reject(&(&1.type == "checkpoint"))
+        |> Enum.reject(&(&1.type == :checkpoint))
 
       _no_anchor ->
         []

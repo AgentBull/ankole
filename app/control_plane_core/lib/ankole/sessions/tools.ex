@@ -1,6 +1,7 @@
 defmodule Ankole.Sessions.Tools do
   @moduledoc "Dispatches declared calls. Durable effects and receipts share one transaction."
 
+  alias Ankole.Sessions.PendingCall
   alias Ankole.Sessions.Receipts
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Tool
@@ -40,7 +41,7 @@ defmodule Ankole.Sessions.Tools do
 
     if Tool.receipt?(tool, args) do
       Receipts.execute(run, Run.response_id(run.model_response), Run.call_id(call), fn repo ->
-        owner.execute_in_tx(repo, run, call, args)
+        owner.prepare_in_tx(repo, run, call, args)
       end)
     else
       owner.execute(run, call, args)
@@ -51,6 +52,9 @@ defmodule Ankole.Sessions.Tools do
 
       {:ok, result} ->
         result
+
+      {:error, reason} = error when reason in [:stale_driver, :run_closed] ->
+        error
 
       {:error, reason} ->
         error(reason)
@@ -83,14 +87,19 @@ defmodule Ankole.Sessions.Tools do
         "Tool execution was interrupted; its result is unknown. Do not repeat a side effect without checking its authoritative state."
       )
 
-  defp error_message(%Ecto.Changeset{} = changeset) do
-    changeset
-    |> Ecto.Changeset.traverse_errors(fn {message, opts} ->
-      Enum.reduce(opts, message, fn {key, value}, text ->
-        String.replace(text, "%{#{key}}", to_string(value))
-      end)
-    end)
-    |> Ankole.JSON.encode!()
+  defp error_message(%module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid],
+    do: error |> Ankole.Ash.validation_details() |> Ankole.JSON.encode!()
+
+  defp error_message(%Ash.Error.Forbidden{}), do: "access denied"
+
+  defp error_message(%module{} = error) when module in [Ash.Error.Framework, Ash.Error.Unknown] do
+    Ankole.Logging.warning(
+      "sessions.tools.unexpected_action_error",
+      "tool action failed",
+      Ankole.Logging.failure_fields(:error, error, [])
+    )
+
+    "the operation failed; check the server log"
   end
 
   defp error_message(reason) when is_binary(reason), do: reason
@@ -125,6 +134,20 @@ defmodule Ankole.Sessions.Tools do
       nil ->
         {run, result}
     end
+  end
+
+  def observe_pending(run, pending) do
+    steered? =
+      Enum.any?(Ankole.Sessions.Queue.due(run), fn event ->
+        Ankole.Signals.Signal.produced_by_kernel?(event) and event.id in run.pending_event_ids and
+          (event.type in ["command.steer", "conversation.message.addressed"] or
+             (String.starts_with?(event.type, "im.message.") and
+                event.type != "im.message.may_intervene"))
+      end)
+
+    Enum.map(PendingCall.waits(pending), fn {id, wait} ->
+      {id, observe(run, wait, steered?)}
+    end)
   end
 
   def observe(run, %Wait{} = wait, steered? \\ false) do

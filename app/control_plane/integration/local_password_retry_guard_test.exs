@@ -159,7 +159,6 @@ defmodule AnkoleWeb.LocalPasswordBusyIntegrationTest do
 
   setup %{tenant: tenant} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
-    allow_cache_database_access()
     Ankole.AppConfigure.Registry.clear_for_test()
     Ankole.AppConfigure.Cache.clear_for_test()
     :ok = RetryGuard.reset_for_test()

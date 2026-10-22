@@ -72,7 +72,7 @@ defmodule Ankole.Plugins.LineAdapter.Delivery do
     end
   end
 
-  defp duplicate_notice_given?(%Intent{recovery_state: %{"possible_duplicate" => true}}),
+  defp duplicate_notice_given?(%Intent{possible_duplicate: true}),
     do: true
 
   defp duplicate_notice_given?(%Intent{}), do: false

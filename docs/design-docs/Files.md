@@ -27,6 +27,14 @@ content. An object store keeps the bytes.
 | `files` | `sha256` (primary key), `size`, `deleting`, `created_at`, `last_referenced_at` | One distinct byte content |
 | `drive_files` | `tenant_id`, nullable `agent_uid`, `path`, `sha256`, `mode`, `content_type`, `source`, `conversation_id`, `message_id`, timestamps; unique `(tenant_id, agent_uid, path) NULLS NOT DISTINCT` | One file in an Agent drive or the tenant's Pod drive |
 
+Both models are Ash resources in `Ankole.Files.Domain`. Blob actions own
+storage refresh, reference renewal, collection marking, and final removal.
+The marking and removal actions use the same live-reference predicate.
+DriveFile actions own path upserts and moves under the existing natural
+identity. The `remove_paths` action uses one native `DELETE ... RETURNING`
+statement for a subtree. It requires the caller's transaction and uses the
+same tenant context as all other drive operations.
+
 - A path identifies a file. A folder is only a path prefix; there are no folder
   rows. A path is relative, uses `/`, has at most 1024 bytes, and has no empty,
   `.`, or `..` segment. A segment has at most 255 bytes. A file cannot also be
@@ -202,7 +210,7 @@ tree and rejects file/parent conflicts atomically. Deleting `a` and adding
 `a/b` in one commit is valid, as is the reverse change.
 
 The Oban cron job `Ankole.Files.Jobs.CollectUnreferenced` runs every hour. It
-marks old contents with no drive path or uncompleted Delivery attachment
+marks old contents with no drive path, Conversation attachment, or uncompleted Delivery attachment
 reference, and removes the marked rows in batches of 100: first the row, only if
 it is still unreferenced, then the object. A marked row that has a reference
 again loses its mark. The one-day interval protects a content between its

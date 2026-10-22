@@ -506,7 +506,7 @@ defmodule Ankole.AgentWorkers.LambdaTest do
     assert :ok = Ankole.AgentWorkers.request(agent.uid)
     assert {:snooze, 15} = perform_job(ReconcileJob, %{agent_uid: agent.uid})
 
-    assert %{state: "absent", generation: nil, last_error_kind: "pending"} =
+    assert %{state: :absent, generation: nil, last_error_kind: "pending"} =
              Repo.get!(AgentWorker, agent.uid)
 
     assert {:wait, :preparing} =
@@ -661,7 +661,7 @@ defmodule Ankole.AgentWorkers.LambdaTest do
 
     Repo.get!(AgentWorker, agent.uid)
     |> Ecto.Changeset.change(
-      state: "starting",
+      state: :starting,
       generation: "gen0000001",
       instance_ref: @ref,
       token_digest: <<1>>,

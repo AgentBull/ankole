@@ -4,27 +4,20 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 pub(super) type Marks = BTreeMap<String, Value>;
+// The core orders the marks by rank; readTree wraps them in that order.
 const FORMATS: [(&str, &str); 8] = [
-    ("strong", "Strong"),
-    ("em", "Emphasis"),
-    ("s", "Strikethrough"),
     ("u", "Underline"),
+    ("s", "Strikethrough"),
     ("mark", "Highlight"),
-    ("sub", "Subscript"),
     ("sup", "Superscript"),
+    ("sub", "Subscript"),
+    ("em", "Emphasis"),
+    ("strong", "Strong"),
     ("code", "Code"),
 ];
-// The core orders the marks by rank; readTree wraps them in that order.
-const FORMAT_RANK: [&str; 8] = [
-    "Underline",
-    "Strikethrough",
-    "Highlight",
-    "Superscript",
-    "Subscript",
-    "Emphasis",
-    "Strong",
-    "Code",
-];
+fn is_format_mark(name: &str) -> bool {
+    FORMATS.iter().any(|(_, mark)| *mark == name)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NodeKind {
@@ -212,7 +205,7 @@ fn child_allowed(parent: NodeKind, child: NodeKind) -> bool {
     }
 }
 fn mark_target(name: &str, kind: NodeKind) -> bool {
-    if FORMAT_RANK.contains(&name) || name == "TextStyle" {
+    if is_format_mark(name) || name == "TextStyle" {
         return matches!(kind, NodeKind::Text | NodeKind::InlineElement);
     }
     match name {
@@ -237,7 +230,7 @@ fn mark_target(name: &str, kind: NodeKind) -> bool {
     }
 }
 pub(super) fn validate_mark(name: &str, value: &Value) -> Result<()> {
-    let valid = if FORMAT_RANK.contains(&name) || name == "PagePlaceholder" {
+    let valid = if is_format_mark(name) || name == "PagePlaceholder" {
         value.is_null()
     } else {
         match name {
@@ -301,16 +294,14 @@ fn extras(attrs: &Attrs, known: &[&str]) -> Marks {
         Marks::from([("Attrs".into(), pair_value(&attrs))])
     }
 }
-fn add_attr(marks: &mut Marks, attrs: &Attrs, key: &str, mark: &str, number: bool) {
+fn add_str_attr(marks: &mut Marks, attrs: &Attrs, key: &str, mark: &str) {
     if let Some(value) = attrs.get(key) {
-        marks.insert(
-            mark.into(),
-            if number {
-                json!(value.parse::<u64>().unwrap_or(0))
-            } else {
-                json!(value)
-            },
-        );
+        marks.insert(mark.into(), json!(value));
+    }
+}
+fn add_num_attr(marks: &mut Marks, attrs: &Attrs, key: &str, mark: &str) {
+    if let Some(value) = attrs.get(key) {
+        marks.insert(mark.into(), json!(value.parse::<u64>().unwrap_or(0)));
     }
 }
 fn freeze(node: &Element) -> Value {
@@ -388,12 +379,12 @@ fn from_block(node: &Element) -> Result<DocNode> {
                 NodeKind::Heading
             };
             if kind == NodeKind::Heading {
-                param = json!(node.name[1..].parse::<u32>().unwrap());
+                param = json!(node.name[1..].parse::<u32>().expect("heading tag h1..h6"));
             }
             marks = extras(attrs, &["align", "indent", "style"]);
-            add_attr(&mut marks, attrs, "align", "Align", false);
-            add_attr(&mut marks, attrs, "indent", "Indent", true);
-            add_attr(&mut marks, attrs, "style", "BlockStyle", false);
+            add_str_attr(&mut marks, attrs, "align", "Align");
+            add_num_attr(&mut marks, attrs, "indent", "Indent");
+            add_str_attr(&mut marks, attrs, "style", "BlockStyle");
             children = Some(from_inline(&node.children, &Marks::new(), "")?);
         }
         "blockquote" => {
@@ -404,7 +395,7 @@ fn from_block(node: &Element) -> Result<DocNode> {
         "callout" => {
             kind = NodeKind::Callout;
             marks = extras(attrs, &["tone"]);
-            add_attr(&mut marks, attrs, "tone", "CalloutTone", false);
+            add_str_attr(&mut marks, attrs, "tone", "CalloutTone");
             children = Some(blocks(node)?);
         }
         "ul" | "ol" => {
@@ -434,14 +425,14 @@ fn from_block(node: &Element) -> Result<DocNode> {
         "li" => {
             kind = NodeKind::ListItem;
             marks = extras(attrs, &["task"]);
-            add_attr(&mut marks, attrs, "task", "Task", false);
+            add_str_attr(&mut marks, attrs, "task", "Task");
             children = Some(blocks(node)?);
         }
         "pre" => {
             kind = NodeKind::CodeBlock;
             marks = extras(attrs, &["lang", "meta"]);
-            add_attr(&mut marks, attrs, "lang", "CodeBlockLanguage", false);
-            add_attr(&mut marks, attrs, "meta", "CodeMeta", false);
+            add_str_attr(&mut marks, attrs, "lang", "CodeBlockLanguage");
+            add_str_attr(&mut marks, attrs, "meta", "CodeMeta");
             let value = tree::text_of(node);
             let mut content = Vec::new();
             for (index, line) in value.split('\n').enumerate() {
@@ -485,9 +476,9 @@ fn from_block(node: &Element) -> Result<DocNode> {
                 NodeKind::HeaderCell
             };
             marks = extras(attrs, &["align", "colspan", "rowspan"]);
-            add_attr(&mut marks, attrs, "align", "Align", false);
-            add_attr(&mut marks, attrs, "colspan", "ColSpan", true);
-            add_attr(&mut marks, attrs, "rowspan", "RowSpan", true);
+            add_str_attr(&mut marks, attrs, "align", "Align");
+            add_num_attr(&mut marks, attrs, "colspan", "ColSpan");
+            add_num_attr(&mut marks, attrs, "rowspan", "RowSpan");
             children = Some(blocks(node)?);
         }
         "embed" => {
@@ -498,7 +489,7 @@ fn from_block(node: &Element) -> Result<DocNode> {
                 ("table", "EmbedTable"),
                 ("view", "EmbedView"),
             ] {
-                add_attr(&mut marks, attrs, key, name, false);
+                add_str_attr(&mut marks, attrs, key, name);
             }
             children = None;
         }
@@ -553,14 +544,10 @@ fn from_inline(nodes: &[Node], context: &Marks, style: &str) -> Result<Vec<DocNo
                 mark.insert("Link".into(), link.clone());
             }
             if node.name == "img" {
-                add_attr(&mut mark, &node.attrs, "alt", "ImageAlt", false);
-                add_attr(&mut mark, &node.attrs, "title", "ImageTitle", false);
-                out.push(DocNode::new(
-                    NodeKind::Image,
-                    json!(node.attrs["src"]),
-                    mark,
-                    None,
-                ));
+                let src = node.attrs.get("src").ok_or("missing img src")?;
+                add_str_attr(&mut mark, &node.attrs, "alt", "ImageAlt");
+                add_str_attr(&mut mark, &node.attrs, "title", "ImageTitle");
+                out.push(DocNode::new(NodeKind::Image, json!(src), mark, None));
             } else {
                 out.push(DocNode::new(NodeKind::LineBreak, Value::Null, mark, None));
             }
@@ -717,9 +704,8 @@ fn to_inline(nodes: &[DocNode]) -> Result<Vec<Node>> {
             NodeKind::InlineElement => Node::Element(thaw(&node.param)?),
             _ => return Err("unexpected inline node".into()),
         };
-        for mark in FORMAT_RANK {
+        for (name, mark) in FORMATS {
             if node.marks.contains_key(mark) {
-                let name = FORMATS.iter().find(|(_, m)| *m == mark).unwrap().0;
                 value = Node::Element(element(name, Attrs::new(), vec![value]));
             }
         }

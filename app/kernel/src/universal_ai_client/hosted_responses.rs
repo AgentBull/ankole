@@ -336,7 +336,7 @@ pub(super) async fn run_hosted_stream(
             if let Some(created_at) = &response_created_at {
                 final_body["created_at"] = created_at.clone();
             }
-            let events = terminal_stream_events(&mut sequence, &final_body);
+            let events = terminal_stream_events(&mut sequence, final_body);
             match delivery
                 .push_events_bounded(events, ChunkOrigin::Provider)
                 .await
@@ -423,7 +423,7 @@ impl StreamedHostedOutput {
         if let Some(created_at) = created_at {
             response["created_at"] = created_at.clone();
         }
-        events.extend(terminal_stream_events(sequence, &response));
+        events.extend(terminal_stream_events(sequence, response));
         events
     }
 }
@@ -433,7 +433,8 @@ fn hosted_failure_metadata(
     error: &StreamError,
     output: Option<&StreamedHostedOutput>,
 ) -> Value {
-    let output = output.cloned().unwrap_or_default();
+    let default_output = StreamedHostedOutput::default();
+    let output = output.unwrap_or(&default_output);
 
     json!({
         "result": "failure",

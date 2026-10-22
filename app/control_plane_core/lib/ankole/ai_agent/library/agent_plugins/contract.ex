@@ -3,6 +3,9 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Contract do
 
   @identifier ~r/\A[a-z][a-z0-9_-]{0,63}\z/
 
+  @spec identifier_pattern() :: Regex.t()
+  def identifier_pattern, do: @identifier
+
   @spec validate_identifier(term()) :: :ok | {:error, :invalid_identifier}
   def validate_identifier(value) when is_binary(value) do
     if Regex.match?(@identifier, value), do: :ok, else: {:error, :invalid_identifier}

@@ -7,6 +7,134 @@ defmodule FeishuOpenAPI.WS.ClientTest do
   alias FeishuOpenAPI.Event.Dispatcher
   alias FeishuOpenAPI.WS.{Client, Frame}
 
+  test "callback failures keep the real WebSocket failure ack without disclosing private data" do
+    secret = "private-websocket-callback-should-not-escape"
+
+    for {mode, failure} <- [
+          returned: "Elixir.Ash.Error.Invalid",
+          raised: "Elixir.ArgumentError",
+          thrown: "throw",
+          exited: "exit"
+        ] do
+      {:ok, listener} =
+        :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+
+      {:ok, {_address, port}} = :inet.sockname(listener)
+      owner = self()
+
+      frame = %Frame{
+        seq_id: 7,
+        log_id: 8,
+        service: 9,
+        method: 1,
+        headers: [{"type", "event"}],
+        payload:
+          Torque.encode!(%{
+            "schema" => "2.0",
+            "header" => %{"event_type" => "im.message.receive_v1"},
+            "event" => %{"private" => secret}
+          })
+      }
+
+      server = spawn_link(fn -> run_dispatch_server(listener, owner, frame) end)
+      on_exit(fn -> send(server, :close) end)
+
+      dispatcher =
+        Dispatcher.new()
+        |> Dispatcher.on("im.message.receive_v1", fn _, event ->
+          value = event.content["private"]
+
+          result =
+            case mode do
+              :returned ->
+                {:error,
+                 Ash.Error.Invalid.exception(
+                   errors: [
+                     Ash.Error.Changes.InvalidAttribute.exception(
+                       field: :content,
+                       message: "invalid content",
+                       value: value
+                     )
+                   ]
+                 )}
+
+              :raised ->
+                :erlang.binary_to_integer(value)
+
+              :thrown ->
+                throw(value)
+
+              :exited ->
+                exit(value)
+            end
+
+          send(owner, {:callback_finished, mode})
+          result
+        end)
+
+      log =
+        ExUnit.CaptureLog.capture_log([format: "$metadata$message\n", metadata: :all], fn ->
+          {:ok, pid} =
+            Client.start_link(
+              client: handshake_client("cli_ws_private_#{mode}", port),
+              dispatcher: dispatcher,
+              auto_reconnect: false
+            )
+
+          try do
+            assert_receive {:dispatch_ack, ^server, {:ok, ack}}, 1_000
+            assert {ack.seq_id, ack.log_id, ack.service, ack.method} == {7, 8, 9, 1}
+            assert Torque.decode!(ack.payload) == %{"code" => 500}
+            assert Client.status(pid) == :connected
+            refute ack.payload =~ secret
+            if mode == :returned, do: assert_receive({:callback_finished, :returned})
+          after
+            if Process.alive?(pid), do: Client.stop(pid)
+            send(server, :close)
+          end
+        end)
+
+      assert log =~ "feishu_openapi.ws.dispatch_result"
+      assert log =~ "failure=#{failure}"
+      if mode != :returned, do: assert(log =~ "client_test.exs:")
+      refute log =~ secret
+    end
+  end
+
+  test "dispatch DOWN retains exit classification and call sites without the private reason" do
+    secret = "private-dispatch-exit-should-not-escape"
+
+    reason =
+      try do
+        :erlang.binary_to_integer(secret)
+      rescue
+        exception -> {exception, __STACKTRACE__}
+      end
+
+    assert inspect(reason) =~ secret
+    ref = make_ref()
+
+    state = %Client{
+      dispatch_tasks: %{
+        ref => {%Frame{}, "im.message.receive_v1", System.monotonic_time(:millisecond)}
+      }
+    }
+
+    log =
+      ExUnit.CaptureLog.capture_log([format: "$metadata$message\n", metadata: :all], fn ->
+        assert {:noreply, %{dispatch_tasks: tasks, socket: nil}} =
+                 Client.handle_info({:DOWN, ref, :process, self(), reason}, state)
+
+        assert tasks == %{}
+      end)
+
+    assert log =~ "feishu_openapi.ws.dispatch_crashed"
+    assert log =~ "failure=exit"
+    assert log =~ ":erlang.binary_to_integer/1"
+    assert log =~ "client_test.exs:"
+    refute log =~ secret
+  end
+
   test "late dispatch results after disconnect are ignored instead of crashing the client" do
     client =
       APIClient.new("cli_ws_#{System.unique_integer([:positive])}", "secret",
@@ -224,6 +352,30 @@ defmodule FeishuOpenAPI.WS.ClientTest do
     :gen_tcp.close(socket)
   end
 
+  defp run_dispatch_server(listener, parent, frame) do
+    result =
+      with {:ok, socket} <- :gen_tcp.accept(listener, 1_000),
+           :ok <- :gen_tcp.close(listener),
+           {:ok, request} <- recv_until_headers(socket),
+           {:ok, key} <- websocket_key(request),
+           :ok <- :gen_tcp.send(socket, upgrade_response(key)),
+           {:ok, {0x2, _ping}} <- recv_masked_websocket_frame(socket),
+           :ok <- :gen_tcp.send(socket, websocket_frame(0x2, Frame.encode(frame))),
+           {:ok, {0x2, ack}} <- recv_masked_websocket_frame(socket) do
+        send(parent, {:dispatch_ack, self(), Frame.decode(ack)})
+
+        receive do
+          :close -> :gen_tcp.close(socket)
+        after
+          2_000 -> :gen_tcp.close(socket)
+        end
+
+        :ok
+      end
+
+    if result != :ok, do: send(parent, {:dispatch_ack, self(), result})
+  end
+
   defp run_websocket_server(listener, parent, early_ping? \\ false) do
     result =
       with {:ok, socket} <- :gen_tcp.accept(listener, 1_000),
@@ -321,6 +473,10 @@ defmodule FeishuOpenAPI.WS.ClientTest do
 
   defp websocket_frame(opcode, payload) when byte_size(payload) < 126 do
     <<0x80 ||| opcode, byte_size(payload)>> <> payload
+  end
+
+  defp websocket_frame(opcode, payload) when byte_size(payload) <= 65_535 do
+    <<0x80 ||| opcode, 126, byte_size(payload)::16>> <> payload
   end
 
   defp websocket_payload_length(_socket, length) when length < 126, do: {:ok, length}

@@ -89,6 +89,7 @@ defmodule Ankole.Sessions.WorkerAcquisitionTest do
           :send_failed,
           :request,
           :expired,
+          :round_committed,
           {:waiting, :DRAINING},
           {:unavailable, :late_error},
           {:sent, {:ok, %{}}},
@@ -100,6 +101,20 @@ defmodule Ankole.Sessions.WorkerAcquisitionTest do
 
     assert Acquisition.error_text(elem(state, 1)) =~ "busy with other tasks"
     refute Acquisition.error_text({:rejected, "secret"}) =~ "secret"
+  end
+
+  test "a committed round abandons only unfinished acquisition and cancels its timers" do
+    row = %{transport_route: "route"}
+
+    for state <- [{:opening, 10, nil}, {:opening, 10, row}, {:waiting, :capacity, 10}] do
+      assert {{:idle, :requested} = idle, []} = Acquisition.next(state, :round_committed, 30_000)
+      assert [{:acquire, :cancel}, {:check, :cancel}] = Acquisition.timers(idle, 30_000)
+
+      assert {{:opening, 70_000, nil}, [{:phase, :starting}, :resolve]} =
+               Acquisition.next(idle, :acquire, 70_000)
+    end
+
+    assert {{:ready, ^row}, []} = Acquisition.next({:ready, row}, :round_committed, 70_000)
   end
 
   test "broadcasts do not open a computer for local work" do

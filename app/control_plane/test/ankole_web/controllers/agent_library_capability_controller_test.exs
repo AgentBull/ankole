@@ -15,7 +15,6 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
   alias Ankole.AgentWorkers.WorkerRoute
 
   setup do
-    allow_cache_database_access()
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
 
@@ -260,6 +259,34 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     assert_receive {:actor_lane, %{body: {:turn_control, control}}}, 2_000
     assert control.command == "skill_disabled"
     assert Torque.decode!(control.payload_json) == %{"skill_names" => ["pdf"]}
+
+    defaults_key = "ai_agent.library.skill_defaults"
+
+    assert {:ok, _defaults} =
+             Ankole.AppConfigure.put_tenant_by_key(defaults_key, %{"ocr" => true})
+
+    assert {:ok, %{skills: %{"ocr" => true}}} =
+             Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
+
+    assert {:ok, %{value: %{"value" => %{"ocr" => false}}}} =
+             Repo.transact(fn ->
+               Ankole.Ash.create(Ankole.AppConfigure.AppConfig, :put, %{
+                 scope: "tenant:" <> Repo.tenant_id!(),
+                 key: defaults_key,
+                 input: %{"ocr" => false}
+               })
+             end)
+
+    assert {:ok, %{skills: %{"ocr" => true}}} =
+             Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
+
+    assert {:ok, cached_capabilities} = Library.capabilities_for_agent(agent.uid)
+    assert Enum.find(cached_capabilities["skills"], &(&1["id"] == "ocr"))["effective_enabled"]
+
+    assert :ok = Ankole.AIAgent.Library.RuntimeCapabilityChanges.notify_global({:skill, "ocr"})
+    assert_receive {:actor_lane, %{body: {:turn_control, global_control}}}, 2_000
+    assert global_control.command == "skill_disabled"
+    assert Torque.decode!(global_control.payload_json) == %{"skill_names" => ["ocr"]}
     refute_receive {:actor_lane, _envelope}
   end
 

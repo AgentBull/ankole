@@ -80,7 +80,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
         Repo.delete_all(Conversation)
 
         Repo.delete_all(
-          from j in Oban.Job, where: fragment("?->>'agent_uid'", j.args) == ^agent.uid
+          from(j in Oban.Job, where: fragment("?->>'agent_uid'", j.args) == ^agent.uid)
         )
 
         :ok =
@@ -113,23 +113,43 @@ defmodule Ankole.Conversations.NativeDriverTest do
     _ = await_request()
     assert_receive {:native_model_waiting, provider}, 5_000
     key = %{agent_uid: agent.uid, session_id: detail.session_id}
+    signal_id = event_for(message_id).id
+    native_signal_id = Ecto.UUID.dump!(signal_id)
     owner = self()
     handler = "responsive-finalizing-#{message_id}"
 
     :telemetry.attach(
       handler,
       [:ankole, :repo, :query],
-      fn _, _, metadata, parent ->
-        if String.starts_with?(metadata.query, "UPDATE \"signals\" SET") and
-             String.contains?(metadata.query, "\"completed_at\"") do
-          send(parent, {:terminal_waiting, self()})
+      fn
+        _,
+        _,
+        %{
+          source: "signals",
+          result: {:ok, %Postgrex.Result{command: :update, columns: columns, rows: [values]}}
+        },
+        parent ->
+          case Map.new(Enum.zip(columns, values)) do
+            %{
+              "id" => ^native_signal_id,
+              "status" => "completed",
+              "completed_at" => completed_at
+            }
+            when not is_nil(completed_at) ->
+              send(parent, {:terminal_waiting, self()})
 
-          receive do
-            :release_terminal -> :ok
-          after
-            10_000 -> raise "terminal transaction was not released"
+              receive do
+                :release_terminal -> :ok
+              after
+                10_000 -> raise "terminal transaction was not released"
+              end
+
+            _row ->
+              :ok
           end
-        end
+
+        _, _, _, _ ->
+          :ok
       end,
       owner
     )
@@ -144,7 +164,6 @@ defmodule Ankole.Conversations.NativeDriverTest do
       assert {%{state: "active", agentUID: uid}, ^driver} = Ankole.Sessions.Activity.current(key)
       assert uid == agent.uid
       assert {:finalizing, _} = :sys.get_state(driver)
-      signal_id = event_for(message_id).id
       send(driver, {:inbox, signal_id})
       send(driver, {:recover_preview, signal_id})
       assert {%{state: "active", agentUID: ^uid}, ^driver} = Ankole.Sessions.Activity.current(key)
@@ -402,10 +421,11 @@ defmodule Ankole.Conversations.NativeDriverTest do
 
     job =
       Repo.one!(
-        from j in Oban.Job,
+        from(j in Oban.Job,
           where:
             j.worker == "Ankole.Sessions.Jobs.EnsureDriver" and
               fragment("?->>'session_id'", j.args) == ^key.session_id
+        )
       )
 
     assert :ok = EnsureDriver.perform(job)
@@ -509,12 +529,15 @@ defmodule Ankole.Conversations.NativeDriverTest do
       on_exit(
         Repo.bind_tenant(fn ->
           Repo.delete_all(
-            from b in Ankole.Signals.Binding,
+            from(b in Ankole.Signals.Binding,
               where: b.agent_uid == ^agent.uid and b.adapter == "cloudevents"
+            )
           )
 
           Repo.delete_all(
-            from e in Ankole.Signals.WebhookEndpoint, where: e.id == ^endpoint.webhook_endpoint.id
+            from(e in Ankole.Signals.WebhookEndpoint,
+              where: e.id == ^endpoint.webhook_endpoint.id
+            )
           )
         end)
       )
@@ -559,7 +582,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
       assert %{status: ^status} = Req.post!(url, headers: headers, json: body)
       request = await_request()
       assert Ankole.JSON.encode!(request.body["messages"]) =~ nonce
-      signal = Repo.one!(from s in Signal, where: s.agent_uid == ^agent.uid and s.type == ^type)
+      signal = Repo.one!(from(s in Signal, where: s.agent_uid == ^agent.uid and s.type == ^type))
       assert wait_for_completion(signal.id).attempt_count == 1
       assert signal.session_id == source.session_id
       assert signal.conversation_id == id
@@ -842,10 +865,11 @@ defmodule Ankole.Conversations.NativeDriverTest do
         assert completed.turn_outcome == "loop_finished"
       else
         refute Repo.exists?(
-                 from intent in Ankole.Conversations.Delivery.Intent,
+                 from(intent in Ankole.Conversations.Delivery.Intent,
                    where:
                      intent.source_signal_id == ^signal.id and
                        intent.delivery_class == :durable_ai_reply
+                 )
                )
       end
 
@@ -854,7 +878,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
       assert Ankole.Principals.WorkAccess.fields(Repo.reload!(signal)) ==
                Ankole.Principals.WorkAccess.fields(signal)
 
-      refute Repo.exists?(from revision in Signal, where: revision.type == "input.revised")
+      refute Repo.exists?(from(revision in Signal, where: revision.type == "input.revised"))
       assert Agent.get(script, & &1.requests) == 1
     end
   end
@@ -949,14 +973,15 @@ defmodule Ankole.Conversations.NativeDriverTest do
 
         signals =
           Repo.all(
-            from s in Signal,
+            from(s in Signal,
               select: %{
                 id: s.id,
                 type: s.type,
-                input_state: s.input_state,
+                status: s.status,
                 attempts: s.attempt_count,
                 completed_at: s.completed_at
               }
+            )
           )
 
         flunk("native model request timed out: #{inspect(%{drivers: drivers, signals: signals})}")
@@ -973,7 +998,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
       %Signal{completed_at: %DateTime{}} = event ->
         event
 
-      %Signal{input_state: "dead_letter"} = event ->
+      %Signal{status: :dead_letter} = event ->
         flunk("native input failed: #{inspect(event.dead_letter_reason)}")
 
       _ ->

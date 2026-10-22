@@ -22,6 +22,123 @@ defmodule Ankole.Conversations.LifecycleTest do
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
+  test "inbound actions own terminal state and increment the persisted revision" do
+    %{principal: agent} = agent_fixture()
+
+    conversation =
+      Ankole.ExternalConversationsFixtures.external_conversation_fixture("batch-state")
+
+    assert {:ok, batch} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.create(InboundBatch, :open, %{
+                 agent_uid: agent.uid,
+                 binding_name: "batch-state",
+                 session_id: Ankole.Sessions.Key.conversation(conversation.id),
+                 conversation_id: conversation.id,
+                 policy: :ignore,
+                 entries: [%{"provider_message_id" => "first"}],
+                 available_at: @base_time
+               })
+             end)
+
+    assert batch.batch_state == :open
+    assert batch.batch_revision == 0
+    assert batch.provider_thread_id == ""
+
+    for expected <- 1..3 do
+      assert {:ok, revised} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.update(batch, :revise, %{
+                   available_at: DateTime.add(@base_time, expected)
+                 })
+               end)
+
+      assert revised.batch_revision == expected
+    end
+
+    assert {:ok, finalized} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.update(Repo.reload!(batch), :finalize, %{})
+             end)
+
+    assert finalized.batch_state == :finalized
+    assert finalized.batch_revision == 4
+
+    for {action, attrs} <- [{:revise, %{entries: []}}, {:cancel, %{}}, {:finalize, %{}}] do
+      assert {:error, %Ash.Error.Invalid{}} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.update(finalized, action, attrs)
+               end)
+    end
+
+    Ankole.DataCase.assert_persisted_equal(Repo.reload!(finalized), finalized)
+
+    for {action, attrs} <- [
+          {:replace_prefix, %{entries: []}},
+          {:revise, %{entries: []}},
+          {:cancel, %{}},
+          {:finalize, %{}}
+        ] do
+      assert {:error, %Ash.Error.Invalid{}} =
+               Repo.transact(fn _repo -> Ankole.Ash.update(batch, action, attrs) end)
+    end
+
+    Ankole.DataCase.assert_persisted_equal(Repo.reload!(finalized), finalized)
+
+    assert_raise Postgrex.Error, ~r/inbound_batches_revision_non_negative/, fn ->
+      Repo.query!(
+        "UPDATE conversation_inbound_batches SET batch_revision = -1 WHERE id = $1",
+        [Ecto.UUID.dump!(batch.id)],
+        mode: :savepoint
+      )
+    end
+
+    assert Repo.reload!(finalized).batch_revision == 4
+  end
+
+  test "tombstone renewal preserves identity and expiry removal uses the persisted deadline" do
+    conversation =
+      Ankole.ExternalConversationsFixtures.external_conversation_fixture("tombstone-state")
+
+    attrs = %{
+      conversation_id: conversation.id,
+      provider_message_id: "retracted",
+      tombstoned_until: DateTime.add(@base_time, 1, :hour)
+    }
+
+    assert {:ok, first} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.create(InputTombstone, :record, attrs)
+             end)
+
+    assert {:ok, renewed} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.create(InputTombstone, :record, %{
+                 attrs
+                 | tombstoned_until: DateTime.add(@base_time, 2, :hour)
+               })
+             end)
+
+    assert renewed.inserted_at == first.inserted_at
+    assert Repo.aggregate(InputTombstone, :count) == 1
+
+    assert %{tombstones: 0} =
+             Ankole.Signals.StateCleanup.cleanup_expired_state(first.tombstoned_until)
+
+    assert_persisted_equal(
+      Repo.get_by!(InputTombstone,
+        conversation_id: conversation.id,
+        provider_message_id: "retracted"
+      ),
+      renewed
+    )
+
+    assert %{tombstones: 1} =
+             Ankole.Signals.StateCleanup.cleanup_expired_state(renewed.tombstoned_until)
+
+    assert Repo.aggregate(InputTombstone, :count) == 0
+  end
+
   describe "entry removal lifecycle" do
     test "removal observed by one Agent prevents another observer from restoring the shared message" do
       %{principal: first} = agent_fixture()
@@ -113,7 +230,7 @@ defmodule Ankole.Conversations.LifecycleTest do
                )
 
       assert Repo.aggregate(Signal, :count) == 0
-      assert batch.batch_state == "open"
+      assert batch.batch_state == :open
 
       assert {:ok, %{updated_inbound_batches: 1, canceled_signals: 0, lifecycle_events: []}} =
                Observe.emit_entry_removed(
@@ -126,7 +243,7 @@ defmodule Ankole.Conversations.LifecycleTest do
       assert Repo.aggregate(Message, :count) == 0
       assert Repo.aggregate(Signal, :count) == 0
 
-      assert %InboundBatch{batch_state: "canceled", entries: entries} =
+      assert %InboundBatch{batch_state: :canceled, entries: entries} =
                Repo.get!(InboundBatch, batch.id)
 
       assert entries == []
@@ -270,13 +387,13 @@ defmodule Ankole.Conversations.LifecycleTest do
         emit_addressed_signal(agent.uid, "bot", group_entry(%{explicit: true}))
 
       assert {:ok, _tombstone} =
-               %InputTombstone{}
-               |> InputTombstone.changeset(%{
-                 conversation_id: conversation_id!("lark:chat:group-a"),
-                 provider_message_id: "msg-1",
-                 tombstoned_until: DateTime.add(@base_time, 1, :day)
-               })
-               |> Repo.insert()
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.create(InputTombstone, :record, %{
+                   conversation_id: conversation_id!("lark:chat:group-a"),
+                   provider_message_id: "msg-1",
+                   tombstoned_until: DateTime.add(@base_time, 1, :day)
+                 })
+               end)
 
       assert {:error, :signal_canceled} =
                complete_signal(
@@ -294,29 +411,30 @@ defmodule Ankole.Conversations.LifecycleTest do
       binding_fixture(agent.uid, "bot", :ignore)
       %{signal: event} = emit_addressed_signal(agent.uid, "bot", group_entry(%{explicit: true}))
 
-      event =
-        event
-        |> Signal.changeset(%{
-          data:
-            Map.put(event.data, "entries", [
-              %{"provider_message_id" => event.provider_message_id},
-              %{"provider_message_id" => "batch-input"}
-            ])
-        })
-        |> Repo.update!()
+      assert {:ok, event} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.update(event, :revise_input, %{
+                   data:
+                     Map.put(event.data, "entries", [
+                       %{"provider_message_id" => event.provider_message_id},
+                       %{"provider_message_id" => "batch-input"}
+                     ])
+                 })
+               end)
 
       assert MapSet.new(Signal.input_provider_message_ids(event)) ==
                MapSet.new([event.provider_message_id, "batch-input"])
 
       assert :ok = Ankole.Sessions.Queue.ensure_event_source_live_in_tx(Repo, event, @base_time)
 
-      %InputTombstone{}
-      |> InputTombstone.changeset(%{
-        conversation_id: event.conversation_id,
-        provider_message_id: "batch-input",
-        tombstoned_until: DateTime.add(@base_time, 1, :day)
-      })
-      |> Repo.insert!()
+      assert {:ok, _} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.create(InputTombstone, :record, %{
+                   conversation_id: event.conversation_id,
+                   provider_message_id: "batch-input",
+                   tombstoned_until: DateTime.add(@base_time, 1, :day)
+                 })
+               end)
 
       handler = {__MODULE__, make_ref()}
 
@@ -353,7 +471,10 @@ defmodule Ankole.Conversations.LifecycleTest do
           "text" => "Withdraw this quoted context."
         })
 
-      event = event |> Signal.changeset(%{data: payload}) |> Repo.update!()
+      assert {:ok, event} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.update(event, :revise_input, %{data: payload})
+               end)
 
       assert Signal.provider_message_ids(event) == [event.provider_message_id]
 
@@ -418,7 +539,7 @@ defmodule Ankole.Conversations.LifecycleTest do
                Observe.emit_entry(agent.uid, "bot", group_entry(), now: @base_time)
 
       jobs =
-        for suffix <- ["queued", "running"] do
+        for suffix <- [:queued, :running] do
           attrs = %{
             "agent_uid" => agent.uid,
             "owner_session_id" => "owner-#{suffix}",
@@ -441,9 +562,10 @@ defmodule Ankole.Conversations.LifecycleTest do
           {suffix, attrs, job, dispatch}
         end
 
-      {"running", _attrs, running, _dispatch} = List.keyfind!(jobs, "running", 0)
+      {:running, _attrs, running, _dispatch} = List.keyfind!(jobs, :running, 0)
+      Repo.update!(Ecto.Changeset.change(running, status: :running, attempts: 1))
 
-      assert {:ok, %{job: %Job{status: "running"}}} =
+      assert {:ok, %{job: %Job{status: :running}}} =
                BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, %{
                  "status" => "running"
                })

@@ -11,7 +11,6 @@ defmodule Ankole.Brain.SkillLessonsTest do
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.Brain.SkillLessons
   alias Ankole.Repo
-  alias Ankole.Signals.Binding
 
   setup do
     AppConfigure.Cache.clear_for_test()
@@ -20,14 +19,13 @@ defmodule Ankole.Brain.SkillLessonsTest do
     agent = background_agent_fixture().principal
     assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
 
-    %Binding{}
-    |> Binding.changeset(%{
-      agent_uid: agent.uid,
-      name: "lark-main",
-      adapter: "lark",
-      config_ref: "cfg-lesson-test"
-    })
-    |> Repo.insert!()
+    assert {:ok, _binding} =
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
+               agent_uid: agent.uid,
+               name: "lark-main",
+               adapter: "lark",
+               config_ref: "cfg-lesson-test"
+             })
 
     %{agent: agent}
   end
@@ -54,7 +52,7 @@ defmodule Ankole.Brain.SkillLessonsTest do
     running =
       job
       |> Ecto.Changeset.change(
-        status: "running",
+        status: :running,
         attempts: 1,
         runtime_thread_id: "thread-#{job.id}"
       )
@@ -82,7 +80,7 @@ defmodule Ankole.Brain.SkillLessonsTest do
              Repo.transact(fn repo -> Turns.upsert_from_worker_in_tx(repo, running, attrs) end)
 
     running
-    |> Ecto.Changeset.change(status: "succeeded", completed_at: started_at)
+    |> Ecto.Changeset.change(status: :succeeded, completed_at: started_at)
     |> Repo.update!()
   end
 
@@ -90,7 +88,7 @@ defmodule Ankole.Brain.SkillLessonsTest do
     agent
     |> create_job!(attrs)
     |> Ecto.Changeset.change(
-      status: "succeeded",
+      status: :succeeded,
       result: result,
       completed_at: DateTime.utc_now(:microsecond)
     )
@@ -170,17 +168,12 @@ defmodule Ankole.Brain.SkillLessonsTest do
 
     # A stamped, terminal reflection advances the watermark: the two evidence
     # jobs never count again.
-    reflection
-    |> Job.changeset(%{
-      status: "succeeded",
-      metadata:
-        Map.put(
-          reflection.metadata,
-          "lessons_applied_at",
-          DateTime.to_iso8601(DateTime.utc_now())
-        )
-    })
-    |> Repo.update!()
+    {:ok, reflection} =
+      Repo.transact(fn _ ->
+        Ankole.Ash.update(reflection, :external_complete, %{completed_at: DateTime.utc_now()})
+      end)
+
+    {:ok, _reflection} = Ankole.Ash.update(reflection, :record_lessons_applied, %{})
 
     assert %{status: :ok, agents: agents} = SkillLessons.run_phase()
     assert %{trigger: %{status: :below_threshold, signal_jobs: 0}} = Map.fetch!(agents, agent.uid)
@@ -231,7 +224,7 @@ defmodule Ankole.Brain.SkillLessonsTest do
       |> where([lesson], lesson.agent_uid == ^agent.uid)
       |> Repo.all()
 
-    assert [%AgentSkillLesson{skill_name: "xlsx", author_kind: "dreaming"} = lesson] = lessons
+    assert [%AgentSkillLesson{skill_name: "xlsx", author_kind: :dreaming} = lesson] = lessons
     assert lesson.evidence_job_ids == [first.id, second.id]
     assert is_binary(lesson.checked_release)
     assert is_binary(lesson.checked_skill_hash)

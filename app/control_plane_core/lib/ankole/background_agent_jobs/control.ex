@@ -10,50 +10,58 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   alias Ankole.Repo
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
+  alias Ankole.BackgroundAgentJobs.JobState
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Turns
+  alias Ankole.BackgroundAgentJobs.WorkerWait
   alias Ankole.Sessions.JobTurnRef
-
-  @terminal_statuses Ankole.BackgroundAgentJobs.JobState.terminal_statuses()
 
   @spec request_stop(pos_integer(), map()) ::
           {:ok, %{job: Job.t(), turn: JobTurnRef.t() | nil}}
           | {:error, term()}
   def request_stop(job_id, attrs)
       when Ankole.ModelIntegerID.valid?(job_id) and is_map(attrs) do
+    Repo.transact(fn repo ->
+      with {:ok, sessions, commit} <- prepare_stop_in_tx(repo, job_id, attrs),
+           :ok <- Ankole.Sessions.Queue.lock_sessions_in_tx(repo, sessions),
+           do: commit.()
+    end)
+  end
+
+  def prepare_stop_in_tx(repo, job_id, attrs) do
     attrs = Attrs.normalize(attrs)
 
-    result =
-      with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")) do
-        now = now()
+    with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
+         :ok <- Lifecycle.lock_agent_slots(repo, agent_uid),
+         %Job{} = job <- Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
+         :ok <- Turns.lock_active_for_current_attempt_in_tx(repo, job) do
+      {:ok, job_sessions(job), fn -> request_stop_locked_in_tx(repo, job, attrs, now()) end}
+    else
+      nil -> {:error, :job_not_found}
+      {:error, _} = error -> error
+    end
+  end
 
-        Repo.transact(fn repo ->
-          case Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
-            %Job{status: status} = job when status in @terminal_statuses ->
-              {:ok, %{job: job, turn: nil}}
+  defp request_stop_locked_in_tx(repo, %Job{} = job, attrs, now) do
+    cond do
+      job.status in JobState.terminal_statuses() ->
+        {:ok, %{job: job, turn: nil}}
 
-            %Job{status: status} = job when status in ["queued", "waiting_on_user"] ->
-              with {:ok, job} <- stop_without_live_turn(repo, job, attrs, now),
-                   :ok <- complete_pending_job_events(repo, job, now) do
-                {:ok, %{job: job, turn: nil}}
-              end
+      job.status in [:queued, :waiting_on_user] ->
+        with {:ok, job} <- stop_without_live_turn(repo, job, attrs, now),
+             :ok <- complete_pending_job_events(repo, job, now) do
+          {:ok, %{job: job, turn: nil}}
+        end
 
-            %Job{} = job ->
-              turn = live_turn_ref_in_tx(repo, job)
+      true ->
+        turn = live_turn_ref_in_tx(repo, job)
 
-              with {:ok, job} <- stop_without_live_turn(repo, job, attrs, now) do
-                {:ok, %{job: job, turn: turn}}
-              end
-
-            nil ->
-              {:error, :job_not_found}
-          end
-        end)
-      end
-
-    result
+        with {:ok, job} <- stop_without_live_turn(repo, job, attrs, now) do
+          {:ok, %{job: job, turn: turn}}
+        end
+    end
   end
 
   @doc """
@@ -82,14 +90,14 @@ defmodule Ankole.BackgroundAgentJobs.Control do
             nil ->
               {:error, :job_not_found}
 
-            %Job{status: "succeeded"} = job ->
+            %Job{status: :succeeded} = job ->
               {:ok, %{job: job, turn: nil}}
 
-            %Job{status: status} when status in ["failed", "stopped"] ->
+            %Job{status: status} when status in [:failed, :stopped] ->
               {:error, :background_agent_job_terminal}
 
             %Job{status: pre_status} = job ->
-              turn = if pre_status == "running", do: live_turn_ref_in_tx(repo, job)
+              turn = if pre_status == :running, do: live_turn_ref_in_tx(repo, job)
               completed_by = Attrs.text(attrs, "completed_by")
 
               result =
@@ -103,7 +111,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
                        repo,
                        job_id,
                        agent_uid,
-                       %{"status" => "succeeded", "result" => result},
+                       %{"status" => :succeeded, "result" => result},
                        now,
                        nil,
                        nil,
@@ -135,34 +143,46 @@ defmodule Ankole.BackgroundAgentJobs.Control do
           | {:error, term()}
   def send_message(job_id, attrs)
       when Ankole.ModelIntegerID.valid?(job_id) and is_map(attrs) do
+    Repo.transact(fn repo ->
+      with {:ok, sessions, commit} <- prepare_message_in_tx(repo, job_id, attrs),
+           :ok <- Ankole.Sessions.Queue.lock_sessions_in_tx(repo, sessions),
+           do: commit.()
+    end)
+  end
+
+  def prepare_message_in_tx(repo, job_id, attrs) do
     attrs = Attrs.normalize(attrs)
 
     with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
-         {:ok, source_tool_call_id} <- require_source_tool_call_id(attrs),
-         {:ok, message} <- require_message(Map.get(attrs, "message")) do
-      Repo.transact(fn repo ->
-        with %Job{} = job <-
-               Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
-             :ok <- ensure_messageable(job),
-             now <- now(),
-             {:ok, job} <- touch_job(repo, job, now),
-             {:ok, command_event} <-
-               append_steer(
-                 repo,
-                 job,
-                 attrs
-                 |> Map.put("request_id", source_tool_call_id)
-                 |> Map.put("text", message),
-                 now
-               ) do
-          {:ok, %{job: job, command_event: command_event}}
-        else
-          nil -> {:error, :job_not_found}
-          {:error, _reason} = error -> error
-        end
-      end)
+         {:ok, request_id} <- require_source_tool_call_id(attrs),
+         {:ok, message} <- require_message(Map.get(attrs, "message")),
+         %Job{} = job <- Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
+         :ok <- ensure_messageable(job) do
+      {:ok, job_sessions(job),
+       fn ->
+         now = now()
+
+         with {:ok, job} <- JobState.touch_in_tx(job, now),
+              {:ok, command_event} <-
+                append_steer(
+                  repo,
+                  job,
+                  attrs |> Map.put("request_id", request_id) |> Map.put("text", message),
+                  now
+                ),
+              do: {:ok, %{job: job, command_event: command_event}}
+       end}
+    else
+      nil -> {:error, :job_not_found}
+      {:error, _} = error -> error
     end
   end
+
+  defp job_sessions(job),
+    do: [
+      {job.agent_uid, job.owner_session_id},
+      {job.agent_uid, BackgroundAgentJobs.job_session_id(job.id)}
+    ]
 
   @doc false
   @spec lock_ambient_handoff_target_in_tx(
@@ -193,7 +213,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     with {:ok, message} <- require_message(message),
          :ok <- ensure_ambient_handoff_target(job, source_event),
          :ok <- ensure_messageable(job),
-         {:ok, job} <- touch_job(repo, job, now),
+         {:ok, job} <- JobState.touch_in_tx(job, now),
          {:ok, command_event} <-
            append_steer(
              repo,
@@ -248,7 +268,8 @@ defmodule Ankole.BackgroundAgentJobs.Control do
         })
       )
 
-    with :ok <-
+    with {:ok, :stopped} <- JobState.transition(:stop, job.status, :stopped),
+         :ok <-
            Turns.interrupt_active_for_current_attempt_in_tx(
              repo,
              job,
@@ -258,9 +279,14 @@ defmodule Ankole.BackgroundAgentJobs.Control do
              },
              now
            ) do
-      job
-      |> Job.changeset(%{status: "stopped", completed_at: now, metadata: metadata})
-      |> repo.update()
+      Ankole.Ash.update(
+        job,
+        :stop,
+        WorkerWait.clear(%{
+          completed_at: now,
+          metadata: metadata
+        })
+      )
     end
   end
 
@@ -269,9 +295,9 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     |> where([event], event.agent_uid == ^job.agent_uid)
     |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job.id))
     |> where([event], event.type in ["background_agent_job.dispatch", "command.steer"])
-    |> where([event], is_nil(event.completed_at))
+    |> where([event], event.status in [:queued, :running])
     |> lock("FOR UPDATE")
-    |> repo.all()
+    |> repo.lock_all("signals")
     |> Enum.reduce_while(:ok, fn event, :ok ->
       case Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, event, now) do
         {:ok, %Signal{}} -> {:cont, :ok}
@@ -295,16 +321,10 @@ defmodule Ankole.BackgroundAgentJobs.Control do
 
   defp require_message(_message), do: {:error, :background_agent_job_message_missing}
 
-  defp ensure_messageable(%Job{status: status}) when status in @terminal_statuses,
-    do: {:error, {:background_agent_job_message_status_invalid, status}}
-
-  defp ensure_messageable(%Job{}), do: :ok
-
-  defp touch_job(repo, %Job{} = job, now) do
-    job
-    |> Ecto.Changeset.change()
-    |> Ecto.Changeset.force_change(:updated_at, now)
-    |> repo.update()
+  defp ensure_messageable(%Job{status: status}) do
+    if status in JobState.terminal_statuses(),
+      do: {:error, {:background_agent_job_message_status_invalid, status}},
+      else: :ok
   end
 
   defp live_turn_ref_in_tx(repo, job) do

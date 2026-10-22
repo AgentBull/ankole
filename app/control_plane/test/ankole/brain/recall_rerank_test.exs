@@ -7,7 +7,6 @@ defmodule Ankole.Brain.RecallRerankTest do
   alias Ankole.Brain.SchemaPacks
 
   test "recall sends the configured rerank options through the provider adapter" do
-    allow_cache_database_access()
     AppConfigure.Cache.clear_for_test()
     on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
     assert {:ok, _} = SchemaPacks.install_packs([])

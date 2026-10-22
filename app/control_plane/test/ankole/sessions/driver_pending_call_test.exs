@@ -20,14 +20,14 @@ defmodule Ankole.Sessions.DriverPendingCallTest do
     pending = PendingCall.new_round([call(1)], false)
     refute PendingCall.blocked?(pending, false, 0)
     assert PendingCall.blocked?(pending, true, 1)
-    pending = PendingCall.start(pending, "1", call(1), %{retry_safe: false}, %{}, :span, true)
+    pending = PendingCall.start(pending, "1", call(1), %{retry_safe: false}, %{}, true)
     assert PendingCall.blocked?(pending, false, 1)
   end
 
   test "worker dispatch probes attempted unsafe calls and executes retry-safe calls" do
     pending = PendingCall.new_round([call(1), call(2)], true)
-    pending = PendingCall.start(pending, "1", call(1), %{retry_safe: false}, %{}, :span, false)
-    pending = PendingCall.start(pending, "2", call(2), %{retry_safe: true}, %{}, :span, false)
+    pending = PendingCall.start(pending, "1", call(1), %{retry_safe: false}, %{}, false)
+    pending = PendingCall.start(pending, "2", call(2), %{retry_safe: true}, %{}, false)
     {pending, first} = PendingCall.to_worker(pending, "1")
     assert first.mode == "probe"
     {_, second} = PendingCall.to_worker(pending, "2")
@@ -89,13 +89,13 @@ defmodule Ankole.Sessions.DriverPendingCallTest do
     assert observed["sent"].probe?
   end
 
-  test "delegation and waiting retain the call identity and tool span" do
+  test "delegation and waiting retain the call identity and continuation" do
     pending = PendingCall.new_round([call(1)], false)
-    pending = PendingCall.start(pending, "1", call(1), %{retry_safe: false}, %{}, :span, false)
+    pending = PendingCall.start(pending, "1", call(1), %{retry_safe: false}, %{}, false)
     continue = fn _run, result -> result end
     pending = PendingCall.delegate(pending, "1", "worker-tool", %{key: "value"}, continue)
     assert pending["1"].tool.retry_safe
-    assert pending["1"].span == :span
+    assert pending["1"].call == call(1)
     assert pending["1"].continue == continue
     assert PendingCall.await(pending, "1", :deadline)["1"].wait == :deadline
   end

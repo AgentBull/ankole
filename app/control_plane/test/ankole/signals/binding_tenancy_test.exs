@@ -7,7 +7,6 @@ defmodule Ankole.Signals.BindingTenancyTest do
   alias Ankole.Signals.Binding
 
   setup do
-    allow_cache_database_access()
     Req.Test.set_req_test_to_shared()
 
     modules = [
@@ -19,6 +18,10 @@ defmodule Ankole.Signals.BindingTenancyTest do
     previous = Enum.map(modules, &{&1, Application.fetch_env(:ankole, &1)})
 
     on_exit(fn ->
+      # Finish the saved bindings' asynchronous reads before Sandbox stops.
+      :sys.get_state(Ankole.Plugins.LarkAdapter.ConnectionReconciler)
+      :sys.get_state(Ankole.Plugins.SlackAdapter.ConnectionReconciler)
+
       Ankole.Plugins.SlackAdapter.ConnectionReconciler.stop(
         Ankole.Plugins.SlackAdapter.Config.connection_key(bot_config("slack", "test"))
       )

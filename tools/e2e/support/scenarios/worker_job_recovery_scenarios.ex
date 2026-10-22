@@ -16,7 +16,6 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
   alias Ankole.AgentWorkers.AgentWorker
 
   def reconnect(max_slots) do
-    cleanup_committed_fixtures_on_exit!()
     ctx = start_worker_e2e_stack!(worker: false)
     provider_id = DockerWorker.provider_id!()
     {:ok, provider} = Providers.load(provider_id)
@@ -47,7 +46,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
 
     before = Repo.get!(AgentWorker, uid)
     running = Repo.get!(Job, job.id)
-    assert running.status == "running"
+    assert running.status == :running
     assert is_binary(running.runtime_thread_id)
     assert before.capacity["max_slots"] == max_slots
 
@@ -68,7 +67,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
              wait_until(deadline(30_000), fn ->
                worker = Repo.get!(AgentWorker, uid)
 
-               (worker.state == "ready" and worker.transport_route != before.transport_route) &&
+               (worker.state == :ready and worker.transport_route != before.transport_route) &&
                  worker
              end)
 
@@ -82,7 +81,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
              "kill -0 #{command_pid} && touch #{workspace}/allow-write"
            ]) == ""
 
-    completed = wait_job!(job.id, "succeeded")
+    completed = wait_job!(job.id, :succeeded)
     assert completed.attempts == running.attempts
     assert completed.runtime_thread_id == running.runtime_thread_id
     assert completed.workspace_owner_job_id == running.workspace_owner_job_id
@@ -102,7 +101,6 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
   end
 
   def run do
-    cleanup_committed_fixtures_on_exit!()
     # Idle release deletes the instance, and the reply wakes a new one.
     ctx = start_worker_e2e_stack!(replaces_workers: true)
     uid = ctx.agent.uid
@@ -121,7 +119,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
     job = Repo.one!(from j in Job, where: j.source_signal_id == ^start.id)
 
     dispatch!(job)
-    waiting = wait_job!(job.id, "waiting_on_user")
+    waiting = wait_job!(job.id, :waiting_on_user)
     assert is_binary(waiting.runtime_thread_id)
     assert waiting.metadata["legacy_thread_replay"] != true
     assert waiting.workspace_owner_job_id == job.id
@@ -149,11 +147,11 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
     # Use the real demand deadline. A sandbox transaction would freeze now().
     assert {:ok, true} =
              wait_until(deadline(360_000), fn ->
-               Repo.get!(AgentWorker, uid).state == "absent"
+               Repo.get!(AgentWorker, uid).state == :absent
              end)
 
     assert DockerWorker.container_info(old_container) == nil
-    assert Repo.get!(Job, job.id).status == "waiting_on_user"
+    assert Repo.get!(Job, job.id).status == :waiting_on_user
 
     reply = send!(ctx, "reply", "CHAOS_JOB_REPLY #{job.id}")
 
@@ -166,7 +164,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
     refute tool_result_error?(sent)
 
     dispatch!(job, "command.steer")
-    completed = wait_job!(job.id, "succeeded")
+    completed = wait_job!(job.id, :succeeded)
     assert completed.runtime_thread_id == waiting.runtime_thread_id
     assert completed.workspace_owner_job_id == waiting.workspace_owner_job_id
     assert completed.result["output_text"] =~ "CHAOS_JOB_FINISHED"
@@ -221,7 +219,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
                  %Job{status: ^status} = job ->
                    job
 
-                 %Job{status: failed} = job when failed in ["failed", "stopped"] ->
+                 %Job{status: failed} = job when failed in [:failed, :stopped] ->
                    flunk("Job #{id} #{failed}: #{inspect(job.error)}")
 
                  _job ->

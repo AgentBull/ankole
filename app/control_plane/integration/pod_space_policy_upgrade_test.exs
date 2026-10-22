@@ -34,10 +34,18 @@ defmodule Ankole.Pod.SpacePolicyUpgradeTest do
 
     Ecto.Migrator.run(UpgradeRepo, @migrations, :up, to: @migration - 1, log: false)
 
-    second =
-      %Ankole.Tenants.Tenant{}
-      |> Ankole.Tenants.Tenant.changeset(%{slug: "other", display_name: "Other tenant"})
-      |> UpgradeRepo.insert!()
+    second_id = Ankole.Ecto.UUIDv7.autogenerate()
+    now = DateTime.utc_now(:microsecond)
+
+    UpgradeRepo.insert_all("tenants", [
+      %{
+        id: Ecto.UUID.dump!(second_id),
+        slug: "other",
+        display_name: "Other tenant",
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
 
     assert SQL.query!(
              UpgradeRepo,
@@ -57,7 +65,7 @@ defmodule Ankole.Pod.SpacePolicyUpgradeTest do
            WHERE p.name = 'all_humans' AND g.action IN ('page_view', 'page_edit', 'page_manage')
              AND g.condition = 'true' AND g.resource_pattern = 'pod:space:**'
            GROUP BY g.tenant_id ORDER BY g.tenant_id
-           """).rows == [["019a2b00-0000-7000-8000-000000000001", 3], [second.id, 3]]
+           """).rows == [["019a2b00-0000-7000-8000-000000000001", 3], [second_id, 3]]
 
     assert Ecto.Migrator.run(UpgradeRepo, @migrations, :up, to: @migration, log: false) == []
     assert Repo.get_dynamic_repo() == dynamic_repo

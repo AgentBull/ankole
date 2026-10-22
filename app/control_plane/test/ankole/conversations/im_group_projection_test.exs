@@ -20,7 +20,6 @@ defmodule Ankole.Conversations.IMGroupProjectionTest do
   alias Ankole.Conversations.IMGroupProjection
 
   setup do
-    allow_cache_database_access()
     %{principal: agent} = agent_fixture()
     context = AdapterContext.new(agent_uid: agent.uid, binding_name: "group", adapter: "slack")
     %{agent: agent, context: context}

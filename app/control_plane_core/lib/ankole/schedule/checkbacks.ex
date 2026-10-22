@@ -42,41 +42,39 @@ defmodule Ankole.Schedule.Checkbacks do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      with :ok <-
-             Ankole.Principals.WorkAccess.check_record_in_tx(
+      with {:ok, snapshot} <- fetch_checkback_in_tx(repo, scheduled_event_id, false),
+           :ok <- Ankole.Principals.WorkAccess.check_in_tx(repo, snapshot),
+           :ok <- require_pending(snapshot),
+           {:ok, updated_attrs} <- Normalizer.checkback_update_attrs(snapshot, attrs, now, opts),
+           :ok <-
+             validate_updated_automation_job(
                repo,
-               ScheduledEvent,
-               scheduled_event_id
+               attrs,
+               updated_attrs.automation_job_id,
+               snapshot.agent_uid
              ),
-           {:ok, event} <- fetch_checkback_in_tx(repo, scheduled_event_id, true) do
-        case event do
-          %ScheduledEvent{status: "scheduled"} ->
-            with {:ok, updated_attrs} <-
-                   Normalizer.checkback_update_attrs(event, attrs, now, opts),
-                 :ok <-
-                   validate_updated_automation_job(
-                     repo,
-                     attrs,
-                     updated_attrs.automation_job_id,
-                     event.agent_uid
-                   ),
-                 {:ok, event} <- event |> ScheduledEvent.changeset(updated_attrs) |> repo.update(),
-                 :ok <-
-                   Ankole.Job.schedule_in_tx(
-                     repo,
-                     FireScheduledEvent,
-                     %{"scheduled_event_id" => event.id},
-                     event.due_at
-                   ) do
-              {:ok, %{status: :updated, scheduled_event: event}}
-            end
-
-          %ScheduledEvent{status: status} ->
-            {:error, {:checkback_not_pending, status}}
-        end
+           {:ok, event} <- fetch_checkback_in_tx(repo, scheduled_event_id, true),
+           true <- event == snapshot,
+           {:ok, event} <- Ankole.Ash.update(event, :reschedule, updated_attrs),
+           :ok <-
+             Ankole.Job.schedule_in_tx(
+               repo,
+               FireScheduledEvent,
+               %{"scheduled_event_id" => event.id},
+               event.due_at
+             ) do
+        {:ok, %{status: :updated, scheduled_event: event}}
+      else
+        false -> {:error, :scheduled_event_changed}
+        {:error, _reason} = error -> error
       end
     end)
   end
+
+  defp require_pending(%ScheduledEvent{status: :scheduled}), do: :ok
+
+  defp require_pending(%ScheduledEvent{status: status}),
+    do: {:error, {:checkback_not_pending, status}}
 
   @spec cancel_checkback(pos_integer(), keyword()) :: {:ok, ScheduledEvent.t()} | {:error, term()}
   def cancel_checkback(scheduled_event_id, opts \\ [])
@@ -86,10 +84,10 @@ defmodule Ankole.Schedule.Checkbacks do
     Repo.transact(fn repo ->
       with {:ok, event} <- fetch_checkback_in_tx(repo, scheduled_event_id, true) do
         case event do
-          %ScheduledEvent{status: "scheduled"} ->
+          %ScheduledEvent{status: :scheduled} ->
             cancel_locked_checkback(repo, event, now, "user_cancelled")
 
-          %ScheduledEvent{status: "cancelled"} ->
+          %ScheduledEvent{status: :cancelled} ->
             {:ok, event}
 
           %ScheduledEvent{status: status} ->
@@ -118,22 +116,16 @@ defmodule Ankole.Schedule.Checkbacks do
     provider_message_id = Attrs.map_text(attrs, "provider_message_id")
 
     if Enum.all?([agent_uid, session_id, binding_name, provider_message_id], &is_binary/1) do
-      {count, _rows} =
+      query =
         ScheduledEvent
         |> where([event], event.kind == "check_back_later")
-        |> where([event], event.status == "scheduled")
+        |> where([event], event.status == :scheduled)
         |> where([event], event.agent_uid == ^String.downcase(agent_uid))
         |> where([event], event.session_id == ^session_id)
         |> where([event], event.binding_name == ^binding_name)
         |> where([event], event.provider_message_id == ^provider_message_id)
-        |> repo.update_all(
-          set: [
-            status: "cancelled",
-            cancelled_at: now,
-            last_fire_error: %{"reason" => "source_entry_tombstoned"},
-            updated_at: now
-          ]
-        )
+
+      {count, _rows} = Store.cancel_matching_in_tx(repo, query, now, "source_entry_tombstoned")
 
       {:ok, count}
     else
@@ -154,7 +146,7 @@ defmodule Ankole.Schedule.Checkbacks do
       %ScheduledEvent{kind: kind} when kind != "check_back_later" ->
         {:error, :not_checkback}
 
-      %ScheduledEvent{status: "cancelled", last_fire_error: %{"reason" => "checkback_replaced"}} ->
+      %ScheduledEvent{status: :cancelled, last_fire_error: %{"reason" => "checkback_replaced"}} ->
         {:error, :checkback_replaced}
 
       %ScheduledEvent{} ->
@@ -162,14 +154,11 @@ defmodule Ankole.Schedule.Checkbacks do
     end
   end
 
-  defp cancel_locked_checkback(repo, event, now, reason) do
-    event
-    |> ScheduledEvent.changeset(%{
-      status: "cancelled",
+  defp cancel_locked_checkback(_repo, event, now, reason) do
+    Ankole.Ash.update(event, :cancel, %{
       cancelled_at: now,
       last_fire_error: %{"reason" => reason}
     })
-    |> repo.update()
   end
 
   defp validate_updated_automation_job(repo, requested_attrs, job_id, agent_uid) do
@@ -180,18 +169,12 @@ defmodule Ankole.Schedule.Checkbacks do
   end
 
   def stop_human_work_in_tx(repo, uid, version, now) do
-    repo.update_all(
+    query =
       from(e in ScheduledEvent,
         where:
-          e.human_uid == ^uid and e.human_access_version < ^version and
-            e.status == "scheduled"
-      ),
-      set: [
-        status: "cancelled",
-        cancelled_at: now,
-        updated_at: now,
-        last_fire_error: %{"reason" => "human_access_revoked"}
-      ]
-    )
+          e.human_uid == ^uid and e.human_access_version < ^version and e.status == :scheduled
+      )
+
+    Store.cancel_matching_in_tx(repo, query, now, "human_access_revoked")
   end
 end

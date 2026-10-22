@@ -13,6 +13,17 @@ Users can create two kinds of schedules:
 Checkbacks and manual cron runs store their event before wake-up. Automatic
 cron fires create an `scheduled_events` history row when they fire.
 
+Cron definitions and scheduled fires use AshStateMachine actions. Cron pause,
+delete, and completion clear the next-fire deadline in the same write. PostgreSQL
+rejects a deadline on any Cron state other than `active`. Updates, fires,
+and human-access revocation keep the same lock order and caller transaction.
+
+ScheduledEvent actions declare their durable types and required input directly.
+Structured provenance, wake payloads, and errors use the shared strict JSON
+object type. The existing TimeZone owner validates changed timezone inputs.
+Failure and cancellation actions validate their own evidence, so they can
+persist compensation for a legacy row with a broken execution target.
+
 ## The Control Plane Owns Time
 
 The Elixir control plane calculates times, stores schedules, and changes their
@@ -76,6 +87,24 @@ records the authenticated request and the turn-fence values that created it.
 After wake-up, the row records the new Signal or automation run ID.
 The Oban job arguments identify its owning event or rule.
 
+`ScheduledEvent` uses `AshStateMachine` for its durable status. Planned work
+starts as `scheduled`; a rejected cron fire creates cancelled history through
+`record_cancelled`. This preserves the slot index, which excludes cancelled
+rows. The `fire`, `cancel`, and `fail` actions make planned work terminal;
+`reschedule` and `record_error` retain `scheduled`. No action revives a terminal
+row. `Schedule.Store` runs updates in the caller's transaction, after the owning
+row lock. A failed delivery records its diagnostic without validating the
+unrelated target again, so an invalid retained target cannot block failure
+persistence. Creation and rescheduling still validate the complete target.
+Rescheduling accepts only the due time, time zone, wake payload, consumer,
+reply route, and last fire error. It cannot change the owner, authorization,
+source, request key, or creation time. Reauthorization has its own action.
+
+Schedule and raw Webhook delivery call `Signals.Trigger.deliver_in_tx/5`.
+The trigger's strong `automation_job_id` foreign key selects a durable
+AutomationJob run; an unbound trigger appends its owning domain's Signal.
+Each source table retains its typed Signal and AutomationJob run references.
+
 Checkbacks and manual cron runs use this request idempotency key:
 
 ```text
@@ -112,6 +141,10 @@ The `status` value is one of:
 - `paused`
 - `deleted`
 - `completed`
+
+PostgreSQL accepts these four states only. A failed fire belongs to its
+`ScheduledEvent` history row; it does not add a Cron state. An upgrade rejects
+an unsupported retained Cron state without changing its history.
 
 Each row stores the Agent, the owner Session (`owner_session_id`),
 binding, time rule, time zone, input, and delivery targets. It also records
@@ -375,8 +408,17 @@ Schedule records `signal_id` for a direct consumer or
 `automation_job_run_id` for an automation job consumer, and `fired_at`.
 An invalid recurring rule records a cancelled history row without advancing.
 
-Fire admission locks Human sources in UID order before the rule. The remaining
-lock order is CronSchedule, ScheduledEvent, then Signal. A FireCron job
+Fire admission locks Human sources in UID order before the consumer and rule.
+The remaining lock order is AutomationJob, CronSchedule, ScheduledEvent, then
+Session, Workspace, and Signal. The Store locks the operation's consumer before
+the rule. This also applies to manual runs and the final failed-history write,
+whose insert takes a native foreign-key lock on the consumer. A current-binding
+lookup rejects a binding change before it can insert history for an unlocked
+consumer. Retained events use their stored consumer; a binding edit locks its
+requested consumer. Cron updates validate and lock a requested
+AutomationJob before they lock the rule. After they acquire the rule lock,
+they normalize the request against the current rule, so a concurrent fire's
+recurrence progress is retained. Human revocation uses the same parent order. A FireCron job
 checks the current rule state and time, so an old job cannot fire a paused,
 deleted, completed, or future rule. After downtime, it fires the retained slot
 once and calculates the next time from the current time.

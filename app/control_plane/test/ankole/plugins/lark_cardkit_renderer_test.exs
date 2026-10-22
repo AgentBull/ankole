@@ -816,6 +816,18 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
              Renderer.render(presentation, mode: :terminal)
   end
 
+  test "terminal mode rejects non-terminal or missing presentation states with ArgumentError" do
+    working = ReplyPresentation.new(state: "working")
+
+    assert_raise ArgumentError, ~r/expected terminal reply presentation state/, fn ->
+      Renderer.render(working, mode: :terminal)
+    end
+
+    assert_raise ArgumentError, ~r/expected terminal reply presentation state/, fn ->
+      Renderer.render(%{"answer" => "missing state"}, mode: :terminal)
+    end
+  end
+
   defp element_index(elements, id) do
     Enum.find_index(elements, &(&1["element_id"] == id))
   end

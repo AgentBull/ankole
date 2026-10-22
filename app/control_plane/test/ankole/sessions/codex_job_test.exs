@@ -3,7 +3,6 @@ defmodule Ankole.Sessions.CodexJobTest do
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.CodexJob
   alias Ankole.Sessions.JobTurnRef
-  alias Ankole.Sessions.Run
   alias Ankole.BackgroundAgentJobs
   alias Ankole.AIGateway.Schemas.Conversation
 
@@ -60,7 +59,7 @@ defmodule Ankole.Sessions.CodexJobTest do
     assert turn_start.model_ref.provider_options_json ==
              Ankole.JSON.encode!(%{"reasoningEffort" => "medium"})
 
-    assert is_binary(Ankole.Kernel.RuntimeFabric.encode_envelope(envelope))
+    assert is_binary(Ankole.RuntimeFabric.encode_envelope(envelope))
     context = decoded_request_context(turn_start)
     refute Map.has_key?(context, "turn_mode")
     refute Map.has_key?(context, "owner_session_id")
@@ -77,7 +76,7 @@ defmodule Ankole.Sessions.CodexJobTest do
            )
 
     persisted = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
-    assert persisted.status == "running"
+    assert persisted.status == :running
     assert persisted.attempts == 1
   end
 
@@ -95,14 +94,14 @@ defmodule Ankole.Sessions.CodexJobTest do
     assert {:ok, %{job: stopped}} =
              BackgroundAgentJobs.request_stop(job.id, %{"agent_uid" => agent.uid})
 
-    assert stopped.status == "stopped"
+    assert stopped.status == :stopped
     assert Repo.reload!(attempt.event).completed_at == nil
 
     assert {:ok, %{status: :idle, signal: completed}} = Admission.admit(key, attempt.event)
     assert completed.turn_outcome == nil
     assert %DateTime{} = completed.completed_at
     assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).attempts == 1
-    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).status == "stopped"
+    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).status == :stopped
     refute_receive {:actor_lane, _}, 100
   end
 
@@ -283,7 +282,7 @@ defmodule Ankole.Sessions.CodexJobTest do
                )
 
       persisted = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
-      assert persisted.status == "queued", "retry #{retry} must remain visibly queued"
+      assert persisted.status == :queued, "retry #{retry} must remain visibly queued"
       assert persisted.attempts == 0, "retry #{retry} must not consume an execution attempt"
 
       DateTime.add(now, 31, :second)
@@ -372,7 +371,7 @@ defmodule Ankole.Sessions.CodexJobTest do
                now: DateTime.add(second_job.queued_at, 1, :second)
              )
 
-    assert %{status: "queued", attempts: 0} =
+    assert %{status: :queued, attempts: 0} =
              BackgroundAgentJobs.get_job_for_agent(second_job.id, agent.uid)
   end
 
@@ -390,7 +389,7 @@ defmodule Ankole.Sessions.CodexJobTest do
              )
 
     persisted = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
-    assert persisted.status == "queued"
+    assert persisted.status == :queued
     assert persisted.attempts == 0
     assert persisted.started_at == nil
   end
@@ -499,7 +498,7 @@ defmodule Ankole.Sessions.CodexJobTest do
       assert rejected.last_attempt_at == nil
     end
 
-    assert Repo.reload!(job) == run.job
+    Ankole.DataCase.assert_persisted_equal(Repo.reload!(job), run.job)
     assert Repo.reload!(run.event).completed_at == nil
     refute_receive {:actor_lane, _}, 50
   end
@@ -573,10 +572,10 @@ defmodule Ankole.Sessions.CodexJobTest do
       }
 
       assert {:ok, event} = CodexJob.abort(first.job_ref, agent.uid, error)
-      assert event.input_state == "open"
+      assert event.status == :queued
       assert event.completed_at == nil
 
-      assert %{status: "queued", attempts: 1, execution_failures: ^expected_failures} =
+      assert %{status: :queued, attempts: 1, execution_failures: ^expected_failures} =
                Repo.reload!(job)
 
       assert {:ok, retry} = admit_job(key, now: event.available_at)
@@ -590,6 +589,54 @@ defmodule Ankole.Sessions.CodexJobTest do
                  reason: "transport classification test complete"
                })
     end
+  end
+
+  test "a rejected Ash transition preserves the real abort transaction's settlement and wakeup" do
+    %{principal: agent} = agent_fixture()
+    route = unique_route()
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
+    assert {:ok, _} = admit_worker(route)
+    job = create_job!(agent.uid, "ash-abort-compensation")
+    key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    assert {:ok, first} = admit_job(key, now: DateTime.add(job.queued_at, 1, :second))
+    assert_receive {:actor_lane, _}
+
+    error = %{
+      "code" => "worker_turn_failed",
+      "message" => "The runtime rejected the task.",
+      "details_json" => %{"error_code" => "task_failed", "retryable" => false}
+    }
+
+    assert {:ok, event} =
+             Repo.transact(fn repo ->
+               assert {:ok, :authorized} =
+                        Ankole.AgentWorkers.WorkerRouteAuth.authorize_turn_in_tx(
+                          repo,
+                          first.job_ref,
+                          agent.uid,
+                          :terminal
+                        )
+
+               running = repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, job.id)
+               assert {:error, _} = Ankole.Ash.update(running, :claim_attempt, %{})
+               CodexJob.abort(first.job_ref, agent.uid, error)
+             end)
+
+    assert event.status == :dead_letter
+    assert Repo.get!(Signal, event.id).status == :dead_letter
+    assert Repo.reload!(job).status == :failed
+
+    assert Repo.exists?(
+             from signal in Signal,
+               where:
+                 signal.agent_uid == ^agent.uid and signal.type == "background_agent_job.failed"
+           )
+
+    assert_enqueued(
+      worker: Ankole.Sessions.Jobs.EnsureDriver,
+      args: %{agent_uid: agent.uid, session_id: key.session_id}
+    )
   end
 
   test "an unavailable profile settles an unstarted Job without creating a Worker" do
@@ -617,9 +664,9 @@ defmodule Ankole.Sessions.CodexJobTest do
     })
 
     assert {:ok, %{status: :failed}} = Admission.admit(key, event)
-    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).status == "failed"
+    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).status == :failed
     assert %Signal{producer: :kernel, completed_at: %DateTime{}} = Repo.get!(Signal, event.id)
-    assert Repo.get!(AgentWorker, agent.uid).state == "absent"
+    assert Repo.get!(AgentWorker, agent.uid).state == :absent
 
     wakeup =
       Repo.get_by!(Signal,
@@ -652,16 +699,319 @@ defmodule Ankole.Sessions.CodexJobTest do
     key = %{agent_uid: agent.uid, session_id: event.session_id}
     assert {:ok, %{status: :dead_letter}} = Admission.admit(key, event)
     persisted = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
-    assert persisted.status == "failed"
+    assert persisted.status == :failed
     assert persisted.attempts == 0
-    assert Repo.get!(Signal, event.id).input_state == "dead_letter"
+    assert Repo.get!(Signal, event.id).status == :dead_letter
     assert Repo.get!(AgentWorker, agent.uid).capacity == worker.capacity
+  end
+
+  test "a queued Job (including requeued attempts >= 1) fails when Worker ready timeout expires" do
+    %{principal: agent} = agent_fixture()
+
+    for {suffix, initial_attempts} <- [{"timeout-unstarted", 0}, {"timeout-requeued", 1}] do
+      job = create_job!(agent.uid, suffix)
+
+      if initial_attempts > 0 do
+        Repo.update!(Ecto.Changeset.change(job, attempts: initial_attempts))
+      end
+
+      session_key = %{
+        agent_uid: agent.uid,
+        session_id: BackgroundAgentJobs.job_session_id(job.id)
+      }
+
+      t0 = job.queued_at
+
+      assert {:ok, %{status: :waiting_for_worker, reason: :agent_worker_unavailable}} =
+               admit_job(session_key, now: t0, ready_timeout_ms: 60_000)
+
+      persisted = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
+      assert persisted.status == :queued
+      assert persisted.worker_wait_started_at == t0
+
+      assert {:ok,
+              %{status: :dead_letter, wakeup_event: %Signal{type: "background_agent_job.failed"}}} =
+               admit_job(session_key,
+                 now: DateTime.add(t0, 61, :second),
+                 ready_timeout_ms: 60_000
+               )
+
+      failed = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
+      assert failed.status == :failed
+      assert failed.error["code"] == "agent_worker_unavailable"
+      assert failed.worker_wait_started_at == nil
+    end
+  end
+
+  test "a waiting_on_user Job stays waiting_on_user and emits input_undeliverable when steer hits Worker ready timeout" do
+    %{principal: agent} = agent_fixture()
+    job = create_job!(agent.uid, "waiting-steer-timeout")
+    session_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    t0 = DateTime.add(job.queued_at, 1, :second)
+
+    dispatch =
+      Repo.get_by!(Signal,
+        session_id: session_key.session_id,
+        type: "background_agent_job.dispatch"
+      )
+
+    {:ok, _} = Repo.transact(&Ankole.Sessions.Queue.mark_event_completed_in_tx(&1, dispatch, t0))
+
+    Repo.update!(
+      Ecto.Changeset.change(job,
+        status: :waiting_on_user,
+        attempts: 1,
+        started_at: t0,
+        runtime_thread_id: "thread-waiting"
+      )
+    )
+
+    assert {:ok, %{command_event: steer}} =
+             BackgroundAgentJobs.send_message(job.id, %{
+               "agent_uid" => agent.uid,
+               "request_id" => "req-waiting-steer",
+               "message" => "Here is the requested input."
+             })
+
+    assert {:ok, %{status: :waiting_for_worker, reason: :agent_worker_unavailable}} =
+             admit_job(session_key, now: t0, ready_timeout_ms: 60_000)
+
+    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).worker_wait_started_at == t0
+
+    assert {:ok,
+            %{
+              status: :dead_letter,
+              signal: dead_steer,
+              wakeup_event: %Signal{type: "background_agent_job.input_undeliverable"} = wakeup
+            }} =
+             admit_job(session_key,
+               now: DateTime.add(t0, 61, :second),
+               ready_timeout_ms: 60_000
+             )
+
+    assert dead_steer.id == steer.id
+    assert dead_steer.status == :dead_letter
+    assert wakeup.session_id == job.owner_session_id
+
+    preserved = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
+    assert preserved.status == :waiting_on_user
+    assert preserved.worker_wait_started_at == nil
+  end
+
+  test "worker capacity wait clears worker_wait_started_at and does not count against ready_timeout_ms" do
+    %{principal: agent} = agent_fixture()
+    job = create_job!(agent.uid, "capacity-clears-wait")
+    session_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    t0 = job.queued_at
+
+    assert {:ok, %{status: :waiting_for_worker, reason: :agent_worker_unavailable}} =
+             admit_job(session_key, now: t0, ready_timeout_ms: 60_000)
+
+    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).worker_wait_started_at == t0
+
+    route = unique_route()
+    assert {:ok, _worker} = admit_worker(route, %{capacity: %{"available_slots" => 0}})
+
+    assert {:ok, %{status: :waiting_for_worker, reason: :no_worker_capacity}} =
+             admit_job(session_key,
+               now: DateTime.add(t0, 120, :second),
+               ready_timeout_ms: 60_000
+             )
+
+    persisted = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
+    assert persisted.status == :queued
+    assert persisted.worker_wait_started_at == nil
+  end
+
+  test "full Agent capacity preserves an old wait and does not start a new wait until a slot is free" do
+    assert {:ok, 1} =
+             Ankole.AppConfigure.put_tenant_by_key(
+               "agent_computer.background_agent_job.max_running_per_agent",
+               1
+             )
+
+    %{principal: agent} = agent_fixture()
+    waiting = create_job!(agent.uid, "old-capacity-wait")
+    fresh = create_job!(agent.uid, "new-capacity-wait")
+    blocker = create_job!(agent.uid, "capacity-blocker")
+    key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(waiting.id)}
+    fresh_key = %{key | session_id: BackgroundAgentJobs.job_session_id(fresh.id)}
+    blocker_key = %{key | session_id: BackgroundAgentJobs.job_session_id(blocker.id)}
+    t0 = DateTime.add(blocker.queued_at, 1, :second)
+
+    assert {:ok, %{reason: :agent_worker_unavailable}} =
+             admit_job(key, now: t0, ready_timeout_ms: 60_000)
+
+    route = unique_route()
+    assert {:ok, _worker} = admit_worker(route)
+    assert {:ok, %{event: event}} = CodexJob.rebuild(blocker_key, t0)
+    assert {:ok, %CodexJob.Attempt{}} = Admission.admit(blocker_key, event, now: t0)
+
+    assert {:ok, :marked_stale} =
+             AgentWorkers.WorkerAdmission.mark_route_unusable(route, :socket_closed)
+
+    after_timeout = DateTime.add(t0, 120, :second)
+
+    for {job, session_key, started_at} <- [{waiting, key, t0}, {fresh, fresh_key, nil}] do
+      assert {:ok, %{reason: :agent_worker_unavailable, retry_at: retry_at}} =
+               admit_job(session_key, now: after_timeout, ready_timeout_ms: 60_000)
+
+      assert retry_at == DateTime.add(after_timeout, 30, :second)
+
+      assert %{status: :queued, attempts: 0, worker_wait_started_at: ^started_at} =
+               Repo.reload!(job)
+    end
+
+    assert {:ok, %{job: %{status: :stopped}}} =
+             BackgroundAgentJobs.request_stop(blocker.id, %{"agent_uid" => agent.uid})
+
+    assert {:ok, %{status: :dead_letter}} =
+             admit_job(key, now: after_timeout, ready_timeout_ms: 60_000)
+
+    assert %{status: :failed, attempts: 0} = Repo.reload!(waiting)
+
+    assert {:ok, %{reason: :agent_worker_unavailable}} =
+             admit_job(fresh_key, now: after_timeout, ready_timeout_ms: 60_000)
+
+    assert %{status: :queued, attempts: 0, worker_wait_started_at: ^after_timeout} =
+             Repo.reload!(fresh)
+  end
+
+  test "an expired Worker wait cannot fail a Signal before its business deadline" do
+    %{principal: agent} = agent_fixture()
+    job = create_job!(agent.uid, "expired-wait-not-due")
+    key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    t0 = job.queued_at
+
+    assert {:ok, %{reason: :agent_worker_unavailable, signal: event}} =
+             admit_job(key, now: t0, ready_timeout_ms: 60_000)
+
+    due = DateTime.add(t0, 120, :second)
+    Repo.update!(Ecto.Changeset.change(event, available_at: due))
+
+    assert {:ok, %{status: :deferred, retry_at: ^due}} =
+             admit_job(key, now: DateTime.add(t0, 61, :second), ready_timeout_ms: 60_000)
+
+    assert %{status: :queued, attempts: 0, worker_wait_started_at: ^t0} = Repo.reload!(job)
+
+    assert {:ok, %{status: :dead_letter}} =
+             admit_job(key, now: due, ready_timeout_ms: 60_000)
+
+    assert Repo.reload!(job).status == :failed
+  end
+
+  test "a ready Worker clears a Job wait even while Agent capacity is full" do
+    assert {:ok, 1} =
+             Ankole.AppConfigure.put_tenant_by_key(
+               "agent_computer.background_agent_job.max_running_per_agent",
+               1
+             )
+
+    %{principal: agent} = agent_fixture()
+    waiting = create_job!(agent.uid, "ready-capacity-wait")
+    blocker = create_job!(agent.uid, "ready-capacity-blocker")
+    key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(waiting.id)}
+    blocker_key = %{key | session_id: BackgroundAgentJobs.job_session_id(blocker.id)}
+    t0 = DateTime.add(blocker.queued_at, 1, :second)
+
+    assert {:ok, %{reason: :agent_worker_unavailable}} =
+             admit_job(key, now: t0, ready_timeout_ms: 60_000)
+
+    assert {:ok, worker} = admit_worker(unique_route())
+    assert {:ok, %{event: event}} = CodexJob.rebuild(blocker_key, t0)
+    assert {:ok, %CodexJob.Attempt{}} = Admission.admit(blocker_key, event, now: t0)
+    slots = Repo.reload!(worker).capacity
+
+    assert {:ok, %{reason: :background_agent_job_agent_at_capacity}} =
+             admit_job(key, now: DateTime.add(t0, 120, :second), ready_timeout_ms: 60_000)
+
+    assert %{status: :queued, attempts: 0, worker_wait_started_at: nil} = Repo.reload!(waiting)
+    assert Repo.reload!(worker).capacity == slots
+  end
+
+  test "a running Job delivers fresh human mail and rejects revoked mail under ordered locks" do
+    %{principal: agent} = agent_fixture()
+    %{principal: allowed} = Ankole.PrincipalsFixtures.human_fixture()
+    %{principal: revoked} = Ankole.PrincipalsFixtures.human_fixture()
+    route = unique_route()
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+    job = create_job!(agent.uid, "human-mailbox")
+    key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    assert {:ok, run} = admit_job(key, now: DateTime.add(job.queued_at, 1, :second))
+    assert_receive {:actor_lane, _start}
+
+    [allowed_event, revoked_event] =
+      for human <- [allowed, revoked] do
+        assert {:ok, event} =
+                 Repo.transact(
+                   &Ankole.Signals.accept_in_tx(&1, %{
+                     producer: :kernel,
+                     target: key,
+                     source: "test:runtime",
+                     reply_route: %{binding_name: "control-plane:test"},
+                     sender: human.uid,
+                     id: Ecto.UUID.generate(),
+                     data: %{},
+                     type: "command.steer",
+                     available_at: DateTime.utc_now(:microsecond)
+                   })
+                 )
+
+        assert event.authorization_kind == "human"
+        assert event.last_attempt_at == nil
+        event
+      end
+
+    Repo.update!(Ecto.Changeset.change(revoked, access_version: revoked.access_version + 1))
+    assert :ok = CodexJob.mailbox(run)
+    assert_receive {:actor_lane, %{body: {:mailbox_updated, mailbox}}}
+    assert mailbox.signal.signal_id == allowed_event.id
+    assert mailbox.turn == JobTurnRef.to_proto(run.job_ref)
+    refute_receive {:actor_lane, %{body: {:mailbox_updated, _}}}
+    assert Repo.reload!(allowed_event).last_attempt_at
+    assert Repo.reload!(revoked_event).status == :dead_letter
+    assert Repo.reload!(revoked_event).last_attempt_at == nil
+  end
+
+  test "admission rechecks the queue head and its durable due time before committing a claim" do
+    %{principal: agent} = agent_fixture()
+    route = unique_route()
+    assert {:ok, worker} = admit_worker(route)
+    job = create_job!(agent.uid, "future-head")
+    key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    assert {:ok, %{event: snapshot}} = CodexJob.rebuild(key)
+    now = DateTime.utc_now(:microsecond)
+    due = DateTime.add(now, 300)
+    event = Repo.update!(Ecto.Changeset.change(snapshot, available_at: due))
+
+    assert {:ok, %{status: :deferred, signal: deferred, retry_at: ^due}} =
+             Admission.admit(key, snapshot, now: now)
+
+    assert deferred.id == event.id
+    assert Repo.reload!(job).status == :queued
+    assert Repo.reload!(job).attempts == 0
+    assert Repo.reload!(worker).capacity == worker.capacity
+    refute Repo.get_by(Ankole.Sessions.SessionWorkspace, key)
+
+    assert {:ok, %{command_event: later}} =
+             BackgroundAgentJobs.send_message(job.id, %{
+               "agent_uid" => agent.uid,
+               "request_id" => "later-command",
+               "message" => "A later command must not pass the scheduled head."
+             })
+
+    assert {:error, :input_unavailable} = Admission.admit(key, later, now: now)
+    assert Repo.reload!(job).attempts == 0
+    assert {:ok, %{job_mode: "start"}} = Admission.admit(key, event, now: due)
+    assert Repo.reload!(job).attempts == 1
   end
 
   defp admit_job(key, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    case Run.rebuild(key, now) do
+    case CodexJob.rebuild(key, now) do
       {:ok, %{event: event}} ->
         case Admission.admit(key, event, opts) do
           {:ok, %Ankole.Sessions.CodexJob.Attempt{} = run} ->

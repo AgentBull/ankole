@@ -9,6 +9,7 @@ defmodule Ankole.Brain.Experts do
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Brain.Calibration
   alias Ankole.Brain.Access
@@ -36,9 +37,10 @@ defmodule Ankole.Brain.Experts do
            Recall.recall(querier_uid, %{query: topic, limit: 50}, disclosure: disclosure) do
       expert_types =
         SchemaType
-        |> where([type], type.expert_routing == true)
-        |> select([type], type.name)
-        |> Repo.all()
+        |> Ash.Query.filter(expert_routing == true)
+        |> Ash.Query.select(:name)
+        |> Ankole.Ash.read!()
+        |> Enum.map(& &1.name)
 
       expert_slugs =
         Object
@@ -89,7 +91,7 @@ defmodule Ankole.Brain.Experts do
   defp holder_calibration(holder, access, disclosure) do
     resolved =
       Claim
-      |> where([claim], claim.claim_type == "take" and claim.holder == ^holder)
+      |> where([claim], claim.claim_type == :take and claim.holder == ^holder)
       |> where([claim], claim.resolved_quality in ["correct", "incorrect"])
       |> Access.filter_claims(access)
       |> Repo.all()

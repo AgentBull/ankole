@@ -133,15 +133,13 @@ defmodule Ankole.Brain.OIDCClientLearning do
            Repo.transact(fn repo ->
              with {:ok, current} <- Sources.lock_active(repo, source),
                   :ok <- ensure_current(repo, current, source, attrs.slug, previous),
-                  {:ok, object} <- Objects.upsert_source_projection(current, attrs, repo: repo),
+                  {:ok, object} <- Objects.upsert_source_projection(current, attrs),
                   session = "source:#{source.id}",
                   _expired = Claims.expire_source_session_facts(repo, object.slug, session),
                   {:ok, written} <-
-                    SourceLearning.write_claims(repo, object, extraction.items, scope, session),
+                    SourceLearning.write_claims(object, extraction.items, scope, session),
                   {:ok, _source} <-
-                    repo.update(
-                      Source.changeset(current, %{last_sync_at: DateTime.utc_now(:microsecond)})
-                    ) do
+                    Ankole.Ash.update(current, :record_sync, %{}) do
                {:ok, {object, written}}
              end
            end) do

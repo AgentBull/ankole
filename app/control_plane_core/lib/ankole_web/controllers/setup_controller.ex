@@ -351,6 +351,7 @@ defmodule AnkoleWeb.SetupController do
          {:ok, authorization_url} <-
            Login.authorization_url(provider_id,
              redirect_uri: redirect_uri,
+             nonce: state,
              state: state
            ) do
       conn

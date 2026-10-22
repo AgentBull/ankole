@@ -31,6 +31,7 @@ defmodule Ankole.Brain.LibraryKnowledge do
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.Library
@@ -208,7 +209,7 @@ defmodule Ankole.Brain.LibraryKnowledge do
       Repo.transact(fn repo ->
         with {:ok, current} <- Sources.lock_active(repo, source) do
           withdrawn =
-            Objects.withdraw_library_projection(current, Enum.map(pages, & &1.slug), repo: repo)
+            Objects.withdraw_library_projection(current, Enum.map(pages, & &1.slug))
 
           with {:ok, _source} <- Sources.record_revision(repo, current, fingerprint) do
             {:ok, withdrawn}
@@ -426,7 +427,8 @@ defmodule Ankole.Brain.LibraryKnowledge do
     end
   end
 
-  defp installed_type?(type), do: Repo.exists?(SchemaType |> where([t], t.name == ^type))
+  defp installed_type?(type),
+    do: not is_nil(Ankole.Ash.read_one!(Ash.Query.filter(SchemaType, name == ^type)))
 
   # One page failing must not take the sweep down with it: the page reports
   # as errored and the rest of the set still lands.

@@ -66,14 +66,18 @@ defmodule AnkoleWeb.ControlPlanePluginController do
   end
 
   defp error(conn, reason) do
-    ConsoleErrors.render(
-      conn,
-      422,
-      "validation_failed",
-      "Control Plane Plugin configuration is invalid",
-      [
-        %{reason: inspect(reason)}
-      ]
-    )
+    case Ankole.AgentWorkers.Providers.Errors.describe(reason) do
+      {:conflict, message, details} ->
+        ConsoleErrors.render(conn, 409, "worker_provider_plugin_in_use", message, details)
+
+      _other ->
+        ConsoleErrors.render(
+          conn,
+          422,
+          "validation_failed",
+          "Control Plane Plugin configuration is invalid",
+          [%{reason: inspect(reason)}]
+        )
+    end
   end
 end

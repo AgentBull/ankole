@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - run: bun run analyze
       - run: bun run --filter @ankole/webapps type-check
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - run: bun run lint:repo
       - run: bun run fmt:check:repo
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - run: bun run agent-computer:type-check
       # The host unit suite needs Bash, GNU timeout, and Python 3; the Ubuntu
@@ -62,7 +62,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
+
       - run: bun install --frozen-lockfile
       - run: bun run --filter @ankole/uikit type-check
       - run: bun run --filter @ankole/uikit test
@@ -76,10 +77,21 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - run: rustup toolchain install 1.98.1 --profile minimal
       - run: rustup default 1.98.1
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            app/kernel/target
+          key: page-codec-cargo-${{ runner.os }}-rust-1.98.1-${{ hashFiles('app/kernel/Cargo.lock', 'app/kernel/Cargo.toml', 'app/kernel/build.rs', 'app/kernel/src/**', 'app/kernel/proto/**') }}
+          restore-keys: |
+            page-codec-cargo-${{ runner.os }}-rust-1.98.1-${{ hashFiles('app/kernel/Cargo.lock') }}-
+            page-codec-cargo-${{ runner.os }}-rust-1.98.1-
       - run: bun run --filter @ankole/block-editor type-check
       - run: bun run --filter @ankole/block-editor test
       - run: cargo test --locked --manifest-path app/kernel/Cargo.toml --no-default-features page_document
@@ -97,7 +109,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - uses: erlef/setup-beam@v1
         with:
           otp-version: '29'
@@ -142,6 +154,26 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - run: rustup toolchain install 1.98.1 --profile minimal
       - run: rustup default 1.98.1
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            app/kernel/target
+            app/kernel/priv/native
+          key: mix-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-${{ env.MIX_ENV }}-rust-1.98.1-${{ hashFiles('app/kernel/Cargo.lock', 'app/kernel/Cargo.toml', 'app/kernel/src/**', 'app/kernel/proto/**', 'app/kernel/lib/**') }}
+          restore-keys: |
+            mix-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-${{ env.MIX_ENV }}-rust-1.98.1-${{ hashFiles('app/kernel/Cargo.lock') }}-
+            mix-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-${{ env.MIX_ENV }}-rust-1.98.1-
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ${{ matrix.project }}/deps
+            ${{ matrix.project }}/_build
+          key: mix-build-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-${{ env.MIX_ENV }}-otp-29-elixir-1.20.4-${{ matrix.project }}-${{ hashFiles(format('{0}/mix.exs', matrix.project), format('{0}/mix.lock', matrix.project), 'app/control_plane_core/mix.exs', 'app/control_plane_core/patches/**', 'app/kernel/mix.exs') }}
+          restore-keys: |
+            mix-build-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-${{ env.MIX_ENV }}-otp-29-elixir-1.20.4-${{ matrix.project }}-
       - run: mix local.hex --force && mix local.rebar --force && mix deps.get
       - run: mix test
 
@@ -172,7 +204,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - uses: erlef/setup-beam@v1
         with:
           otp-version: '29'
@@ -181,6 +213,26 @@ jobs:
       - run: rustup toolchain install 1.98.1 --profile minimal
       - run: rustup default 1.98.1
       - run: bun install --frozen-lockfile
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            app/kernel/target
+            app/kernel/priv/native
+          key: control-plane-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-rust-1.98.1-${{ hashFiles('app/kernel/Cargo.lock', 'app/kernel/Cargo.toml', 'app/kernel/src/**', 'app/kernel/proto/**', 'app/kernel/lib/**') }}
+          restore-keys: |
+            control-plane-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-rust-1.98.1-${{ hashFiles('app/kernel/Cargo.lock') }}-
+            control-plane-cargo-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-rust-1.98.1-
+      - uses: actions/cache@v6
+        with:
+          path: |
+            app/control_plane/deps
+            app/control_plane/_build
+          key: control-plane-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane/mix.exs', 'app/control_plane/mix.lock', 'app/control_plane_core/mix.exs', 'app/control_plane_core/patches/**', 'app/kernel/mix.exs', 'plugins/*/mix.exs', 'libs/*/mix.exs') }}
+          restore-keys: |
+            control-plane-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-
       - run: mix local.hex --force && mix local.rebar --force && mix deps.get
         working-directory: app/control_plane
       - run: bun run --filter @ankole/control-plane lint

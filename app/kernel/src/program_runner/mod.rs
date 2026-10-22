@@ -16,8 +16,8 @@ use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -61,8 +61,6 @@ const DEFAULT_MAX_TOOL_NAME_BYTES: usize = 256;
 const DEFAULT_MAX_TOOL_NAMES_BYTES: usize = 16 * 1024;
 /// Rejects an oversized request before it creates runner state.
 const MAX_RUN_REQUEST_BYTES: usize = 16 * 1024 * 1024;
-/// Keeps process-local cancellation registry keys bounded.
-const MAX_RUN_ID_BYTES: usize = 128;
 /// Bounds the number of output values even when each value is small.
 const MAX_OUTPUT_PARTS: usize = 256;
 #[cfg(not(test))]
@@ -74,8 +72,6 @@ const MAX_CONCURRENT_RUNS: usize = 64;
 
 /// Applies the process-wide V8 admission limit before an isolate is created.
 static ACTIVE_RUNS: AtomicUsize = AtomicUsize::new(0);
-/// Lets cancellation find only the isolate that owns the current run ID.
-static RUN_REGISTRY: OnceLock<Mutex<HashMap<String, Arc<RunControl>>>> = OnceLock::new();
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -370,32 +366,66 @@ deno_core::extension!(
     ops = [op_ankole_tool_call, op_ankole_text, op_ankole_image],
 );
 
-/// Runs one program to completion or to its first unanswered tool-call batch.
-pub fn run(request: RunRequest) -> RunOutcome {
-    let Some(_permit) = RunPermit::acquire() else {
-        return failed(
-            "program_runtime_busy",
-            "program runtime concurrency limit reached",
-        );
-    };
-
-    guarded_execute(request, Arc::new(RunControl::new()))
+/// One execution authority, created before admission so cancellation cannot miss.
+pub struct Handle {
+    control: Arc<RunControl>,
+    started: AtomicBool,
 }
 
-pub fn run_registered(run_id: &str, request: RunRequest) -> RunOutcome {
-    let Some(_permit) = RunPermit::acquire() else {
-        return failed(
+impl Default for Handle {
+    fn default() -> Self {
+        Self {
+            control: Arc::new(RunControl::new()),
+            started: AtomicBool::new(false),
+        }
+    }
+}
+
+impl Handle {
+    pub fn cancel(&self) {
+        self.control.terminate(TERMINATION_CANCELLED);
+    }
+}
+
+pub enum StartError {
+    Busy(RunOutcome),
+    AlreadyStarted,
+    Spawn(std::io::Error),
+}
+
+/// Reserves a slot on the calling thread; all decoding and V8 work runs elsewhere.
+pub fn start_with(
+    handle: &Handle,
+    decode: impl FnOnce() -> Result<RunRequest, String> + Send + 'static,
+    sink: impl FnOnce(Result<RunOutcome, String>) + Send + 'static,
+) -> Result<(), StartError> {
+    if handle.started.swap(true, Ordering::SeqCst) {
+        return Err(StartError::AlreadyStarted);
+    }
+    let Some(permit) = RunPermit::acquire() else {
+        return Err(StartError::Busy(failed(
             "program_runtime_busy",
             "program runtime concurrency limit reached",
-        );
+        )));
     };
+    let control = Arc::clone(&handle.control);
+    std::thread::Builder::new()
+        .name("ankole-program".to_string())
+        .spawn(move || {
+            let result = decode().map(|request| guarded_execute(request, Arc::clone(&control)));
+            control.clear_isolate();
+            control
+                .execution_phase
+                .store(EXECUTION_DONE, Ordering::SeqCst);
+            drop(permit);
+            sink(result);
+        })
+        .map(|_| ())
+        .map_err(StartError::Spawn)
+}
 
-    let running = match RunningRun::begin(run_id) {
-        Ok(running) => running,
-        Err(failure) => return failed(&failure.code, &failure.message),
-    };
-
-    guarded_execute(request, Arc::clone(&running.control))
+pub fn active_runs() -> usize {
+    ACTIVE_RUNS.load(Ordering::SeqCst)
 }
 
 fn guarded_execute(request: RunRequest, control: Arc<RunControl>) -> RunOutcome {
@@ -956,101 +986,14 @@ impl Drop for RunPermit {
     }
 }
 
-struct RunningRun {
-    run_id: String,
-    control: Arc<RunControl>,
-}
-
-impl RunningRun {
-    fn begin(run_id: &str) -> Result<Self, ProgramFailure> {
-        validate_run_id(run_id)?;
-
-        let control = Arc::new(RunControl::new());
-        let registry = run_registry();
-        let mut registry = registry.lock().unwrap_or_else(|error| error.into_inner());
-
-        if registry.contains_key(run_id) {
-            return Err(ProgramFailure {
-                code: "program_run_id_conflict".to_string(),
-                message: "program run id is already active".to_string(),
-            });
-        }
-
-        registry.insert(run_id.to_string(), Arc::clone(&control));
-
-        Ok(Self {
-            run_id: run_id.to_string(),
-            control,
-        })
-    }
-}
-
-impl Drop for RunningRun {
-    fn drop(&mut self) {
-        let registry = run_registry();
-        let mut registry = registry.lock().unwrap_or_else(|error| error.into_inner());
-
-        if registry
-            .get(&self.run_id)
-            .is_some_and(|registered| Arc::ptr_eq(registered, &self.control))
-        {
-            registry.remove(&self.run_id);
-        }
-    }
-}
-
-fn run_registry() -> &'static Mutex<HashMap<String, Arc<RunControl>>> {
-    RUN_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// A cancellation that races before registration can miss. The BEAM task is
-/// still killed, and the native watchdog bounds the rare late-registration
-/// race to one execution slot for at most the configured timeout.
-pub fn cancel(run_id: &str) -> Result<bool, String> {
-    validate_run_id(run_id).map_err(|failure| failure.message)?;
-
-    let control = run_registry()
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .get(run_id)
-        .cloned();
-
-    if let Some(control) = control {
-        control.terminate(TERMINATION_CANCELLED);
-        Ok(true)
-    } else {
-        Ok(false)
-    }
-}
-
-fn validate_run_id(run_id: &str) -> Result<(), ProgramFailure> {
-    if run_id.is_empty()
-        || run_id.len() > MAX_RUN_ID_BYTES
-        || !run_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-    {
-        return Err(ProgramFailure {
-            code: "program_invalid_run_id".to_string(),
-            message: "program run id is invalid".to_string(),
-        });
-    }
-
-    Ok(())
-}
-
-pub fn run_json(run_id: &str, request_json: &str) -> Result<String, String> {
+pub fn decode_request(request_json: &[u8]) -> Result<RunRequest, String> {
     if request_json.len() > MAX_RUN_REQUEST_BYTES {
         return Err(format!(
             "invalid program run request: exceeds {MAX_RUN_REQUEST_BYTES} bytes"
         ));
     }
-
-    let request: RunRequest = serde_json::from_str(request_json)
-        .map_err(|error| format!("invalid program run request: {error}"))?;
-
-    serde_json::to_string(&run_registered(run_id, request))
-        .map_err(|error| format!("program outcome encoding failed: {error}"))
+    serde_json::from_slice(request_json)
+        .map_err(|error| format!("invalid program run request: {error}"))
 }
 
 #[cfg(test)]

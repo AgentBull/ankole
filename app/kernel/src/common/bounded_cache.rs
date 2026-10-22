@@ -36,10 +36,7 @@ where
     }
 
     pub(crate) fn insert(&self, key: K, value: V) {
-        let mut guard = match self.entries.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let mut guard = self.entries.lock().expect("bounded cache lock");
 
         if !guard.contains_key(&key)
             && guard.len() >= self.max_entries

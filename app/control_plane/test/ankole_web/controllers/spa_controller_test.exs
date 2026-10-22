@@ -4,9 +4,10 @@ defmodule AnkoleWeb.SpaControllerTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.Setup.Config, as: SetupConfig
 
+  @host_policy Application.compile_env(:ankole, :host_policy)
+
   setup %{tenant: tenant} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
-    allow_cache_database_access()
     Cache.clear_for_test()
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
@@ -22,7 +23,7 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert redirected_to(conn) == ~p"/setup"
   end
 
-  test "GET / redirects to the tenant's canonical Pod origin after setup completes", %{
+  test "GET / opens the edition's home after setup completes", %{
     conn: conn,
     tenant: tenant
   } do
@@ -30,7 +31,11 @@ defmodule AnkoleWeb.SpaControllerTest do
 
     conn = get(conn, ~p"/")
 
-    assert redirected_to(conn) == AnkoleWeb.PodURL.origin(conn, tenant) <> "/"
+    if @host_policy do
+      assert redirected_to(conn) == "/account"
+    else
+      assert redirected_to(conn) == AnkoleWeb.PodURL.origin(conn, tenant) <> "/"
+    end
   end
 
   test "GET /setup serves setup before completion", %{conn: conn} do
@@ -47,18 +52,19 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert redirected_to(conn) == ~p"/"
   end
 
-  test "GET /sessions/new serves auth on the tenant host after completion", %{
+  test "GET /sessions/new starts the tenant's browser login after completion", %{
     conn: conn,
     tenant: tenant
   } do
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
-    conn = conn |> Map.put(:host, tenant.slug <> ".ankole.localhost") |> get(~p"/sessions/new")
-    next = redirected_to(conn)
-    assert next =~ "/sessions/new?flow="
-    conn = conn |> recycle() |> get(next)
+    conn = conn |> pod_conn(tenant) |> get(~p"/sessions/new")
+    assert_pod_login(conn, tenant, "/")
 
-    assert html_response(conn, 200) =~ ~s(http://assets.test/entrypoints/auth.tsx)
+    unless @host_policy do
+      conn = conn |> recycle() |> get(redirected_to(conn))
+      assert html_response(conn, 200) =~ ~s(http://assets.test/entrypoints/auth.tsx)
+    end
   end
 
   test "GET /site-admin-console redirects anonymous users to auth after completion", %{conn: conn} do
@@ -84,17 +90,8 @@ defmodule AnkoleWeb.SpaControllerTest do
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
     path = "/pages/" <> Ankole.Kernel.uuid_shorten(Ankole.Kernel.gen_uuid_v7())
-    conn = conn |> Map.put(:host, tenant.slug <> ".ankole.localhost") |> get(path)
-
-    flow =
-      redirected_to(conn)
-      |> URI.parse()
-      |> Map.fetch!(:query)
-      |> URI.decode_query()
-      |> Map.fetch!("flow")
-
-    assert {:ok, %{purpose: :pod, request: %{"return_to" => ^path}}} =
-             AnkoleWeb.Session.login_transaction(conn, flow)
+    conn = conn |> pod_conn(tenant) |> get(path)
+    assert_pod_login(conn, tenant, path)
   end
 
   test "the canonical Pod serves its shell without the console path", %{
@@ -103,26 +100,58 @@ defmodule AnkoleWeb.SpaControllerTest do
   } do
     conn =
       conn
-      |> Map.put(:host, tenant.slug <> ".ankole.localhost")
+      |> pod_conn(tenant)
       |> active_admin_conn()
       |> get(~p"/")
 
     html = html_response(conn, 200)
 
-    assert html =~ ~s(http://assets.test/entrypoints/pod.tsx)
+    entry = if @host_policy, do: "saas-pod", else: "pod"
+    source = Application.fetch_env!(:ankole, :webapp_entries) |> Map.fetch!(entry)
+    assert html =~ "http://assets.test/#{String.trim_leading(source, "/")}"
     refute html =~ "/site-admin-console"
   end
 
-  test "GET /sessions/new sends a signed-in administrator to the pod", %{
+  test "GET /sessions/new uses the edition's Pod entry for a signed-in administrator", %{
     conn: conn,
     tenant: tenant
   } do
     conn =
       conn
-      |> Map.put(:host, tenant.slug <> ".ankole.localhost")
+      |> pod_conn(tenant)
       |> active_admin_conn()
       |> get(~p"/sessions/new")
 
-    assert redirected_to(conn) == ~p"/"
+    if @host_policy do
+      assert_pod_login(conn, tenant, "/")
+    else
+      assert redirected_to(conn) == ~p"/"
+    end
+  end
+
+  if @host_policy do
+    defp assert_pod_login(conn, tenant, return_to) do
+      uri = URI.parse(redirected_to(conn))
+      origin = URI.to_string(%{uri | path: nil, query: nil})
+      assert origin == AnkoleWeb.PodURL.site_origin(conn)
+      assert uri.path == "/account/enter"
+      query = URI.decode_query(uri.query)
+      assert query["tenant_id"] == tenant.id
+      assert query["return_to"] == return_to
+
+      assert %{"tenant_id" => tenant_id, "return_to" => ^return_to} =
+               AnkoleWeb.Session.handoff_state(recycle(conn), query["state"])
+
+      assert tenant_id == tenant.id
+    end
+  else
+    defp assert_pod_login(conn, _tenant, return_to) do
+      uri = URI.parse(redirected_to(conn))
+      assert uri.path == "/sessions/new"
+      flow = URI.decode_query(uri.query) |> Map.fetch!("flow")
+
+      assert {:ok, %{purpose: :pod, request: %{"return_to" => ^return_to}}} =
+               AnkoleWeb.Session.login_transaction(conn, flow)
+    end
   end
 end

@@ -46,9 +46,7 @@ defmodule Ankole.RepoTenancyTest do
       assert_raise Ankole.TenantContextMissing, fn -> Repo.all(Principal) end
 
       assert_raise Ankole.TenantContextMissing, fn ->
-        %Principal{}
-        |> Principal.changeset(%{uid: "missing-context", type: :human})
-        |> Repo.insert!()
+        Ankole.Ash.create(Principal, :create_in_tx, %{uid: "missing-context", type: :human})
       end
 
       assert Repo.aggregate(Tenant, :count) >= 1
@@ -60,15 +58,15 @@ defmodule Ankole.RepoTenancyTest do
       %{uid: Ankole.Ecto.UUIDv7.autogenerate(), type: :system, display_name: "System"}
     end
 
-    assert {:ok, _} = %Principal{} |> Principal.changeset(attrs.()) |> Repo.insert()
+    assert {:ok, _} = create_principal(attrs.())
     other = new_tenant()
 
     assert {:ok, _} =
              Repo.with_tenant(other.id, fn ->
-               %Principal{} |> Principal.changeset(attrs.()) |> Repo.insert()
+               create_principal(attrs.())
              end)
 
-    assert {:error, changeset} = %Principal{} |> Principal.changeset(attrs.()) |> Repo.insert()
+    assert {:error, changeset} = create_principal(attrs.())
     assert %{type: [_]} = errors_on(changeset)
   end
 
@@ -78,9 +76,10 @@ defmodule Ankole.RepoTenancyTest do
 
     principal =
       Repo.with_tenant(other.id, fn ->
-        %Principal{}
-        |> Principal.changeset(%{uid: Ankole.Ecto.UUIDv7.autogenerate(), type: :human})
-        |> Repo.insert!()
+        {:ok, principal} =
+          create_principal(%{uid: Ankole.Ecto.UUIDv7.autogenerate(), type: :human})
+
+        principal
       end)
 
     assert {:ok, other.id} == Ankole.Principals.resolve_tenant(principal.uid)
@@ -222,7 +221,7 @@ defmodule Ankole.RepoTenancyTest do
           where: g.id in ^ids,
           select: g
 
-      assert Repo.all(query) == [first]
+      Ankole.DataCase.assert_persisted_equal(Repo.all(query), [first])
 
       Repo.without_tenant(fn ->
         assert_raise Ankole.TenantContextMissing, fn -> Repo.all(query) end
@@ -231,6 +230,57 @@ defmodule Ankole.RepoTenancyTest do
       assert Repo.across_tenants(fn -> Repo.all(query) end) |> Enum.map(& &1.id) |> Enum.sort() ==
                Enum.sort([first.id, second.id])
     end
+  end
+
+  test "direct nested tenant queries scope their rows before a site join", %{tenant: tenant} do
+    first = group("direct-nested")
+    other = new_tenant()
+    second = Repo.with_tenant(other.id, fn -> group("direct-nested") end)
+    ids = [first.id, second.id]
+    nested = from(g in Group, where: g.id in ^ids)
+
+    query = from(t in Tenant, join: g in Group, on: g.tenant_id == t.id, select: g)
+    query = %{query | joins: [%{hd(query.joins) | source: nested}]}
+
+    Ankole.DataCase.assert_persisted_equal(Repo.all(query), [first])
+    assert first.tenant_id == tenant.id
+
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.with_tenant(other.id, fn -> Repo.all(query) end),
+      [second]
+    )
+
+    Repo.without_tenant(fn ->
+      assert_raise Ankole.TenantContextMissing, fn -> Repo.all(query) end
+    end)
+
+    assert Repo.across_tenants(fn -> Repo.all(query) end) |> Enum.map(& &1.id) |> Enum.sort() ==
+             Enum.sort(ids)
+  end
+
+  test "direct nested site queries retain site ownership inside a tenant join", %{tenant: tenant} do
+    first = group("direct-site")
+    other = new_tenant()
+    second = Repo.with_tenant(other.id, fn -> group("direct-site") end)
+    ids = [first.id, second.id]
+    nested = from(t in Tenant)
+
+    query =
+      from(g in Group,
+        join: t in Tenant,
+        on: g.tenant_id == t.id,
+        where: g.id in ^ids,
+        select: {g.id, t.id}
+      )
+
+    query = %{query | joins: [%{hd(query.joins) | source: nested}]}
+
+    assert Repo.all(query) == [{first.id, tenant.id}]
+    assert Repo.with_tenant(other.id, fn -> Repo.all(query) end) == [{second.id, other.id}]
+
+    Repo.without_tenant(fn ->
+      assert_raise Ankole.TenantContextMissing, fn -> Repo.all(query) end
+    end)
   end
 
   test "raw table queries use the explicit tenant context", %{tenant: tenant} do
@@ -251,7 +301,10 @@ defmodule Ankole.RepoTenancyTest do
     other = new_tenant()
     Repo.with_tenant(other.id, fn -> group("oban-option") end)
 
-    assert Repo.all(from(g in Group, where: g.name == "oban-option"), oban: true) == [own]
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.all(from(g in Group, where: g.name == "oban-option"), oban: true),
+      [own]
+    )
 
     queries = [
       from(g in Group),
@@ -291,20 +344,35 @@ defmodule Ankole.RepoTenancyTest do
       context.(fn -> assert_raise exception, fn -> apply(Repo, operation, [changeset]) end end)
     end
 
-    assert Repo.get!(Group, own.id) == own
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(Group, own.id), own)
   end
 
   test "per-call insert context supplies ownership without changing the caller", %{tenant: tenant} do
     other = new_tenant()
 
     inserted =
-      Repo.insert!(%Group{name: "per-call-write", display_name: "Per-call write"},
-        tenant: {:id, other.id}
-      )
+      %Group{
+        id: Ankole.Ecto.UUIDv7.autogenerate(),
+        name: "per-call-write",
+        display_name: "Per-call write",
+        domain: :operator,
+        kind: :static,
+        built_in: false,
+        metadata: %{},
+        inserted_at: DateTime.utc_now(:microsecond),
+        updated_at: DateTime.utc_now(:microsecond)
+      }
+      |> AshPostgres.DataLayer.to_ecto()
+      |> Repo.insert!(tenant: {:id, other.id})
+      |> AshPostgres.DataLayer.from_ecto()
 
     assert inserted.tenant_id == other.id
     assert Repo.get(Group, inserted.id) == nil
-    assert Repo.with_tenant(other.id, fn -> Repo.get!(Group, inserted.id) end) == inserted
+
+    assert Repo.with_tenant(other.id, fn ->
+             Repo.get!(Group, inserted.id) |> AshPostgres.DataLayer.from_ecto()
+           end) == inserted
+
     assert Repo.tenant_id!() == tenant.id
   end
 
@@ -329,7 +397,7 @@ defmodule Ankole.RepoTenancyTest do
       own |> Ecto.Changeset.change(tenant_id: other.id) |> Repo.update!()
     end
 
-    assert Repo.get!(Group, own.id) == own
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(Group, own.id), own)
   end
 
   test "batch inserts validate every row's tenant", %{tenant: tenant} do
@@ -383,7 +451,10 @@ defmodule Ankole.RepoTenancyTest do
         select: {root.id, joined.id}
 
     assert Repo.all(outer) == [{own.id, nil}]
-    assert Repo.across_tenants(fn -> Repo.all(inner) end) == [foreign]
+
+    Ankole.DataCase.assert_persisted_equal(Repo.across_tenants(fn -> Repo.all(inner) end), [
+      foreign
+    ])
   end
 
   test "compound ON parameters keep their binding and type across multiple outer joins" do
@@ -411,20 +482,39 @@ defmodule Ankole.RepoTenancyTest do
     foreign = Repo.with_tenant(other.id, fn -> group("batch-write") end)
     rows = from(g in Group, where: g.name == "batch-write")
     assert {1, nil} = Repo.update_all(rows, set: [display_name: "Updated"])
-    assert Repo.with_tenant(other.id, fn -> Repo.get!(Group, foreign.id) end) == foreign
+
+    assert_persisted_equal(
+      Repo.with_tenant(other.id, fn -> Repo.get!(Group, foreign.id) end),
+      foreign
+    )
+
     assert_raise ArgumentError, fn -> Repo.update_all(Group, set: [tenant_id: other.id]) end
     assert Repo.get!(Group, own.id).tenant_id == own.tenant_id
     assert {1, nil} = Repo.delete_all(rows)
-    assert Repo.with_tenant(other.id, fn -> Repo.get!(Group, foreign.id) end) == foreign
+
+    assert_persisted_equal(
+      Repo.with_tenant(other.id, fn -> Repo.get!(Group, foreign.id) end),
+      foreign
+    )
   end
 
   test "conflict updates cannot take ownership of another tenant's global key" do
     other = new_tenant()
     uid = Ankole.Ecto.UUIDv7.autogenerate()
+    now = DateTime.utc_now()
 
     foreign =
       Repo.with_tenant(other.id, fn ->
-        Repo.insert!(%Principal{uid: uid, type: :human, display_name: "Foreign"})
+        %Principal{
+          uid: uid,
+          type: :human,
+          display_name: "Foreign",
+          inserted_at: now,
+          updated_at: now
+        }
+        |> AshPostgres.DataLayer.to_ecto()
+        |> Repo.insert!()
+        |> AshPostgres.DataLayer.from_ecto()
       end)
 
     actions = [
@@ -436,17 +526,32 @@ defmodule Ankole.RepoTenancyTest do
 
     for action <- actions do
       assert_raise Ecto.StaleEntryError, fn ->
-        Repo.insert!(%Principal{uid: uid, type: :human, display_name: "Changed"},
+        Repo.insert!(
+          AshPostgres.DataLayer.to_ecto(%Principal{
+            uid: uid,
+            type: :human,
+            display_name: "Changed",
+            inserted_at: now,
+            updated_at: now
+          }),
           on_conflict: action,
           conflict_target: [:uid]
         )
       end
 
-      assert Repo.with_tenant(other.id, fn -> Repo.get!(Principal, uid) end) == foreign
+      assert Repo.with_tenant(other.id, fn ->
+               Repo.get!(Principal, uid) |> AshPostgres.DataLayer.from_ecto()
+             end) == foreign
     end
 
     assert_raise ArgumentError, fn ->
-      Repo.insert!(%Principal{uid: uid, type: :human},
+      Repo.insert!(
+        AshPostgres.DataLayer.to_ecto(%Principal{
+          uid: uid,
+          type: :human,
+          inserted_at: now,
+          updated_at: now
+        }),
         on_conflict: [set: [tenant_id: other.id]],
         conflict_target: [:uid]
       )
@@ -542,6 +647,81 @@ defmodule Ankole.RepoTenancyTest do
     end
   end
 
+  test "batch scalar queries and conflict scalar queries retain the caller's tenant", %{
+    tenant: tenant
+  } do
+    own = group("scalar-source")
+    other = new_tenant()
+
+    Repo.with_tenant(other.id, fn ->
+      group("scalar-source") |> Ecto.Changeset.change(display_name: "foreign") |> Repo.update!()
+    end)
+
+    value_query =
+      from g in Group, where: g.name == "scalar-source", select: g.display_name, limit: 1
+
+    now = DateTime.utc_now(:microsecond)
+    id = Ankole.Ecto.UUIDv7.autogenerate()
+
+    attrs = %{
+      id: id,
+      tenant_id: tenant.id,
+      name: "scalar-result",
+      display_name: value_query,
+      domain: :operator,
+      kind: :static,
+      built_in: false,
+      metadata: %{},
+      inserted_at: now,
+      updated_at: now
+    }
+
+    assert {1, nil} = Repo.insert_all(Group, [attrs])
+    assert Repo.get!(Group, id).display_name == own.display_name
+
+    conflict =
+      from g in Group,
+        where:
+          exists(
+            from source in Group,
+              where: source.name == "scalar-source" and source.display_name == "foreign",
+              select: 1
+          ),
+        update: [set: [display_name: "foreign"]]
+
+    assert {0, nil} =
+             Repo.insert_all(Group, [%{attrs | display_name: "replacement"}],
+               on_conflict: conflict,
+               conflict_target: [:tenant_id, :name]
+             )
+
+    assert Repo.get!(Group, id).display_name == own.display_name
+
+    Repo.without_tenant(fn ->
+      assert_raise Ankole.TenantContextMissing, fn ->
+        Repo.insert_all(Tenant, [
+          %{
+            id: Ankole.Ecto.UUIDv7.autogenerate(),
+            slug: "nested",
+            display_name: value_query,
+            inserted_at: now,
+            updated_at: now
+          }
+        ])
+      end
+    end)
+  end
+
+  test "a CTE join selects only its declared columns and retains scoped inner rows" do
+    own = group("cte-limited")
+    other = new_tenant()
+    Repo.with_tenant(other.id, fn -> group("cte-limited") end)
+    limited = from g in Group, where: g.name == "cte-limited", select: %{id: g.id}
+    query = Group |> with_cte("ash_limited_rows", as: ^limited)
+    query = from g in query, join: limited in "ash_limited_rows", on: limited.id == g.id
+    Ankole.DataCase.assert_persisted_equal(Repo.all(query), [own])
+  end
+
   defp tenant_schemas do
     for schema <- Ankole.TestModules.all(),
         Code.ensure_loaded?(schema),
@@ -566,26 +746,23 @@ defmodule Ankole.RepoTenancyTest do
   end
 
   defp new_tenant do
-    %Tenant{}
-    |> Tenant.changeset(%{
+    create_tenant(%{
       slug: "other-" <> Ankole.Ecto.UUIDv7.autogenerate(),
       display_name: "Other"
     })
-    |> Repo.insert!()
   end
 
   defp group(name) do
-    %Group{} |> Group.changeset(%{name: name, display_name: name}) |> Repo.insert!()
+    {:ok, group} = Ankole.AuthZ.create_principal_group(%{name: name, display_name: name})
+    group
   end
 
   defp conversation(id, title) do
     now = DateTime.utc_now(:microsecond)
 
-    %Conversation{}
-    |> Conversation.changeset(%{
+    Ankole.ExternalConversationsFixtures.create_external_conversation!(%{
       id: id,
       title: title,
-      kind: :external,
       external_kind: :im_group,
       reply_mode: :entry,
       provider_conversation_id: "lark:same",
@@ -593,32 +770,37 @@ defmodule Ankole.RepoTenancyTest do
       first_seen_at: now,
       last_seen_at: now
     })
-    |> Repo.insert!()
   end
 
   defp message(conversation_id, id, text) do
     now = DateTime.utc_now(:microsecond)
 
-    %Message{}
-    |> Message.changeset(%{
-      id: id,
-      conversation_id: conversation_id,
-      seq: 1,
-      origin: :external,
-      author_type: :unknown,
-      text: text,
-      created_at: now
-    })
-    |> Repo.insert!()
+    assert {:ok, _} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.create(Message, :record, %{
+                 id: id,
+                 conversation_id: conversation_id,
+                 seq: 1,
+                 origin: :external,
+                 author_type: :unknown,
+                 text: text,
+                 created_at: now
+               })
+             end)
 
-    %ExternalMessageRef{}
-    |> ExternalMessageRef.changeset(%{
-      message_id: id,
-      conversation_id: conversation_id,
-      provider_message_id: "same-message",
-      first_seen_at: now,
-      last_seen_at: now
-    })
-    |> Repo.insert!()
+    assert {:ok, _} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.create(ExternalMessageRef, :record, %{
+                 message_id: id,
+                 conversation_id: conversation_id,
+                 provider_message_id: "same-message",
+                 first_seen_at: now,
+                 last_seen_at: now
+               })
+             end)
+  end
+
+  defp create_principal(attrs) do
+    Repo.transact(fn _repo -> Ankole.Ash.create(Principal, :create_in_tx, attrs) end)
   end
 end

@@ -194,7 +194,7 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
       assert {:ok, %{status: :dead_letter, signal: rejected}} = Admission.admit(key, event)
       assert rejected.dead_letter_reason["code"] == "invalid_signal_target"
       assert %DateTime{} = rejected.dead_letter_at
-      assert rejected.input_state == "dead_letter"
+      assert rejected.status == :dead_letter
 
       refute Repo.get_by(Ankole.AIGateway.Schemas.Conversation,
                subject_uid: c.agent.uid,
@@ -227,13 +227,14 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
 
       assert {:ok, result} =
                Repo.transact(fn repo ->
-                 with {:ok, result, []} <-
-                        Ankole.Sessions.Tools.Session.execute_in_tx(
+                 with {:ok, [], commit} <-
+                        Ankole.Sessions.Tools.Session.prepare_in_tx(
                           repo,
                           run,
                           %{"name" => "set_channel_standing_orders"},
                           %{"orders" => "Only report material changes."}
                         ),
+                      {:ok, result, []} <- commit.(),
                       do: {:ok, result}
                end)
 

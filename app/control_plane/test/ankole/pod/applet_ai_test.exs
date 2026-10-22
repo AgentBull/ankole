@@ -4,7 +4,6 @@ defmodule Ankole.Pod.AppletAITest do
   alias Ankole.AIGateway.Schemas.UsageRecord
 
   setup do
-    allow_cache_database_access()
     Ankole.AppConfigure.Cache.clear_for_test()
     :ok
   end
@@ -40,15 +39,14 @@ defmodule Ankole.Pod.AppletAITest do
         "limit_tokens" => 1
       })
 
-    Repo.insert!(
-      UsageRecord.changeset(%UsageRecord{}, %{
-        subject_uid: agent,
-        origin: "agent",
-        model: "prior/model",
-        input_tokens: 1,
-        output_tokens: 0
-      })
-    )
+    assert {:ok, _record} =
+             Ankole.Ash.create(UsageRecord, :record_round, %{
+               subject_uid: agent,
+               origin: "agent",
+               model: "prior/model",
+               input_tokens: 1,
+               output_tokens: 0
+             })
 
     assert {:error, {:agent_token_quota_exceeded, _}} =
              Ankole.AIAgent.TokenQuota.ensure_available(agent)
@@ -110,9 +108,7 @@ defmodule Ankole.Pod.AppletAITest do
 
     refute_receive {:unexpected_ai, _}
 
-    Repo.get!(Ankole.Principals.Principal, agent)
-    |> Ankole.Principals.Principal.status_changeset(%{status: :disabled})
-    |> Repo.update!()
+    {:ok, _} = Ankole.PrincipalsFixtures.disable_principal_fixture(agent)
 
     assert {:error, %{code: "ai_not_configured"}} =
              AI.generate_text(%{"model" => "primary", "prompt" => "Hello"})

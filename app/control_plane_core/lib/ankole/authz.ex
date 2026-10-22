@@ -89,8 +89,8 @@ defmodule Ankole.AuthZ do
             select: %{
               id: g.id,
               name: g.name,
-              domain: g.domain,
-              kind: g.kind,
+              domain: fragment("?::text", g.domain),
+              kind: fragment("?::text", g.kind),
               condition: g.computed_condition
             }
         )
@@ -154,9 +154,9 @@ defmodule Ankole.AuthZ do
   """
   @spec create_principal_group(map()) :: {:ok, Group.t()} | {:error, term()}
   def create_principal_group(attrs) when is_map(attrs) do
-    %Group{}
-    |> Group.changeset(Input.group_create_attrs(attrs))
-    |> Repo.insert()
+    Repo.transact(fn _repo ->
+      Ankole.Ash.create(Group, :create_in_tx, Input.group_create_attrs(attrs))
+    end)
   end
 
   @doc """
@@ -164,9 +164,9 @@ defmodule Ankole.AuthZ do
   """
   @spec update_principal_group(Group.t(), map()) :: {:ok, Group.t()} | {:error, term()}
   def update_principal_group(%Group{} = group, attrs) when is_map(attrs) do
-    group
-    |> Group.changeset(Input.group_update_attrs(group, attrs))
-    |> Repo.update()
+    Repo.transact(fn _repo ->
+      Ankole.Ash.update(group, :profile_in_tx, Input.group_update_attrs(group, attrs))
+    end)
   end
 
   @doc """
@@ -621,7 +621,7 @@ defmodule Ankole.AuthZ do
 
       with {:ok, id} <- Ecto.UUID.cast(id),
            %Grant{} = grant <- repo.get(Grant, id) do
-        repo.delete(grant)
+        Ankole.Ash.destroy(grant, :delete_in_tx)
       else
         _not_found -> {:error, :not_found}
       end

@@ -9,7 +9,7 @@ defmodule Ankole.AIAgent.Library do
   registry semantics, and manifest hashes; it is not a file content table.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.Library.AgentPlugins.Config, as: AgentPluginConfig
@@ -18,7 +18,6 @@ defmodule Ankole.AIAgent.Library do
   alias Ankole.AIAgent.Library.Schemas.AgentSkillLesson
   alias Ankole.AIAgent.Library.SkillLessons
   alias Ankole.AIAgent.Library.SourceReader
-  alias Ankole.Ecto.UUIDv7
   alias Ankole.Files
   alias Ankole.Principals
   alias Ankole.Principals.Agent
@@ -47,8 +46,10 @@ defmodule Ankole.AIAgent.Library do
   @spec shipped_skill_sources(keyword()) :: {:ok, [map()]} | {:error, term()}
   def shipped_skill_sources(opts \\ []) do
     with {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
-         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(opts) do
-      reject_skill_source_conflicts(builtin_sources ++ agent_plugin_sources)
+         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(opts),
+         sources = builtin_sources ++ agent_plugin_sources,
+         :ok <- reject_skill_name_conflicts(Enum.map(sources, & &1.name)) do
+      {:ok, sources}
     end
   end
 
@@ -60,12 +61,11 @@ defmodule Ankole.AIAgent.Library do
   """
   @spec sync_agent_skills(String.t(), keyword()) :: {:ok, sync_result()} | {:error, term()}
   def sync_agent_skills(agent_uid, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, sources} <- shipped_skill_sources(opts) do
-      repo.transact(fn repo -> sync_agent_skills_in_tx(repo, agent_uid, sources, now) end)
+      Repo.transact(fn repo -> sync_agent_skills_in_tx(repo, agent_uid, sources, now) end)
     end
   end
 
@@ -81,17 +81,15 @@ defmodule Ankole.AIAgent.Library do
 
   def set_agent_skill_override(agent_uid, skill_id, enabled, opts)
       when is_boolean(enabled) or is_nil(enabled) do
-    repo = Keyword.get(opts, :repo, Repo)
-
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, _result} <- sync_agent_skills(agent_uid, opts),
          {:ok, skill_name, expected_agent_plugin_id} <- normalize_skill_id(skill_id),
          %AgentSkill{} = skill <-
-           repo.get_by(AgentSkill, agent_uid: agent_uid, skill_name: skill_name),
+           AgentSkill
+           |> Ash.Query.filter(agent_uid == ^agent_uid and skill_name == ^skill_name)
+           |> Ankole.Ash.read_one!(),
          :ok <- validate_skill_owner(skill, expected_agent_plugin_id) do
-      skill
-      |> AgentSkill.changeset(%{enabled_override: enabled})
-      |> repo.update()
+      Ankole.Ash.update(skill, :set_override, %{enabled_override: enabled})
     else
       nil -> {:error, :skill_not_found}
       {:error, _reason} = error -> error
@@ -133,16 +131,14 @@ defmodule Ankole.AIAgent.Library do
   @doc "Returns effective Agent Plugin and standalone Skill capabilities for one Agent."
   @spec capabilities_for_agent(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def capabilities_for_agent(agent_uid, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, agent_plugins} <- AgentPlugins.capabilities_for_agent(agent_uid, opts),
          {:ok, defaults} <- library_defaults(opts) do
       skills =
         AgentSkill
-        |> where([skill], skill.agent_uid == ^agent_uid and is_nil(skill.agent_plugin_id))
-        |> order_by([skill], asc: skill.skill_name)
-        |> repo.all()
+        |> Ash.Query.filter(agent_uid == ^agent_uid and is_nil(agent_plugin_id))
+        |> Ash.Query.sort(skill_name: :asc)
+        |> Ankole.Ash.read!()
         |> Enum.map(&standalone_skill_capability(&1, defaults))
 
       {:ok, %{"agent_plugins" => agent_plugins, "skills" => skills}}
@@ -182,10 +178,10 @@ defmodule Ankole.AIAgent.Library do
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, sources} <- shipped_skill_sources(),
-         {:ok, _soul} <- seed_agent_document_in_tx(repo, agent_uid, "soul"),
-         {:ok, _mission} <- seed_agent_document_in_tx(repo, agent_uid, "mission"),
-         {:ok, _design} <- seed_agent_document_in_tx(repo, agent_uid, "design"),
-         {:ok, _policy} <- seed_agent_document_in_tx(repo, agent_uid, "confidentiality_policy"),
+         {:ok, _soul} <- seed_agent_document_in_tx(agent_uid, "soul"),
+         {:ok, _mission} <- seed_agent_document_in_tx(agent_uid, "mission"),
+         {:ok, _design} <- seed_agent_document_in_tx(agent_uid, "design"),
+         {:ok, _policy} <- seed_agent_document_in_tx(agent_uid, "confidentiality_policy"),
          {:ok, _result} <- sync_agent_skills_in_tx(repo, agent_uid, sources, now) do
       :ok
     end
@@ -207,16 +203,14 @@ defmodule Ankole.AIAgent.Library do
   @spec skill_view(String.t(), String.t(), String.t() | nil, keyword()) ::
           {:ok, map()} | {:error, term()}
   def skill_view(agent_uid, skill_name, file_path \\ nil, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, opts} <- skill_catalog_options(agent_uid, opts),
          {:ok, _result} <- sync_agent_skills(agent_uid, opts),
          {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
          {:ok, file_path} <- SourceReader.normalize_virtual_path(file_path || @skill_file),
          :ok <- reject_agent_append_file(file_path),
-         {:ok, skill} <- enabled_skill(repo, agent_uid, skill_name, opts) do
-      do_skill_view(repo, agent_uid, skill, file_path, opts)
+         {:ok, skill} <- enabled_skill(agent_uid, skill_name, opts) do
+      do_skill_view(agent_uid, skill, file_path, opts)
     end
   end
 
@@ -231,15 +225,14 @@ defmodule Ankole.AIAgent.Library do
   @spec apply_skill_lesson_adds(String.t(), [map()], map(), keyword()) ::
           {:ok, %{accepted: [AgentSkillLesson.t()], rejected: [map()]}} | {:error, term()}
   def apply_skill_lesson_adds(agent_uid, adds, context, opts \\ []) when is_list(adds) do
-    repo = Keyword.get(opts, :repo, Repo)
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, agent_uid, sources, opts} <- prepare_skill_lesson_write(agent_uid, opts) do
-      repo.transact(fn repo ->
+      Repo.transact(fn repo ->
         with {:ok, _result} <- sync_agent_skills_in_tx(repo, agent_uid, sources, now) do
-          catalog = skill_lesson_catalog(repo, agent_uid, opts)
+          catalog = skill_lesson_catalog(agent_uid, opts)
 
-          SkillLessons.apply_adds_in_tx(repo, agent_uid, adds, context, now, catalog)
+          SkillLessons.apply_adds_in_tx(agent_uid, adds, context, now, catalog)
         end
       end)
     end
@@ -264,9 +257,9 @@ defmodule Ankole.AIAgent.Library do
   Due = lease expiring inside the horizon, or a fingerprint (release or skill
   content hash) that no longer matches the current environment.
   """
-  @spec skill_lesson_review_docket(String.t(), DateTime.t(), String.t(), keyword()) ::
+  @spec skill_lesson_review_docket(String.t(), DateTime.t(), String.t()) ::
           {:ok, [AgentSkillLesson.t()]} | {:error, term()}
-  defdelegate skill_lesson_review_docket(agent_uid, horizon, current_release, opts \\ []),
+  defdelegate skill_lesson_review_docket(agent_uid, horizon, current_release),
     to: SkillLessons
 
   @doc """
@@ -277,23 +270,21 @@ defmodule Ankole.AIAgent.Library do
   """
   @spec list_skill_lessons(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def list_skill_lessons(agent_uid, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         :ok <- ensure_agent(repo, agent_uid),
+         :ok <- ensure_agent(agent_uid),
          {:ok, defaults} <- library_defaults(opts),
          {:ok, parent_enabled} <- parent_enablement(agent_uid, opts) do
       skills =
         AgentSkill
-        |> where([skill], skill.agent_uid == ^agent_uid)
-        |> repo.all()
+        |> Ash.Query.filter(agent_uid == ^agent_uid)
+        |> Ankole.Ash.read!()
         |> Map.new(&{&1.skill_name, &1})
 
       lessons =
         AgentSkillLesson
-        |> where([lesson], lesson.agent_uid == ^agent_uid)
-        |> order_by([lesson], asc: lesson.skill_name, desc: lesson.inserted_at)
-        |> repo.all()
+        |> Ash.Query.filter(agent_uid == ^agent_uid)
+        |> Ash.Query.sort(skill_name: :asc, inserted_at: :desc)
+        |> Ankole.Ash.read!()
         |> Enum.map(
           &skill_lesson_summary(&1, Map.get(skills, &1.skill_name), defaults, parent_enabled)
         )
@@ -310,15 +301,18 @@ defmodule Ankole.AIAgent.Library do
   @spec create_skill_lesson(String.t(), String.t(), String.t(), Ankole.ActorRef.t(), keyword()) ::
           {:ok, AgentSkillLesson.t()} | {:error, term()}
   def create_skill_lesson(agent_uid, skill_name, content, author, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
     with {:ok, agent_uid, sources, opts} <- prepare_skill_lesson_write(agent_uid, opts) do
-      repo.transact(fn repo ->
+      Repo.transact(fn repo ->
         with {:ok, _result} <-
                sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
              {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
-             {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts) do
-          SkillLessons.create_in_tx(repo, agent_uid, skill_name, content, author)
+             {:ok, _skill} <- enabled_skill(agent_uid, skill_name, opts) do
+          Ankole.Ash.create(AgentSkillLesson, :teach_human, %{
+            agent_uid: agent_uid,
+            skill_name: skill_name,
+            content: content,
+            author: author
+          })
         end
       end)
     end
@@ -330,23 +324,23 @@ defmodule Ankole.AIAgent.Library do
   A human retirement of a dreaming lesson is permanent: the row joins the
   immunity list and Dreaming never re-adds equivalent content.
   """
-  @spec retire_skill_lesson(String.t(), String.t(), keyword()) ::
+  @spec retire_skill_lesson(String.t(), String.t()) ::
           {:ok, AgentSkillLesson.t()} | {:error, term()}
-  defdelegate retire_skill_lesson(agent_uid, lesson_id, opts \\ []), to: SkillLessons
+  defdelegate retire_skill_lesson(agent_uid, lesson_id), to: SkillLessons
 
   @doc """
   Returns the active lessons of one agent for reflection prompt assembly.
   """
-  @spec active_skill_lessons(String.t(), keyword()) ::
+  @spec active_skill_lessons(String.t()) ::
           {:ok, [AgentSkillLesson.t()]} | {:error, term()}
-  defdelegate active_skill_lessons(agent_uid, opts \\ []), to: SkillLessons
+  defdelegate active_skill_lessons(agent_uid), to: SkillLessons
 
   @doc """
   Returns the human-revoked lessons of one agent: the never-relearn list.
   """
-  @spec revoked_skill_lessons(String.t(), keyword()) ::
+  @spec revoked_skill_lessons(String.t()) ::
           {:ok, [AgentSkillLesson.t()]} | {:error, term()}
-  defdelegate revoked_skill_lessons(agent_uid, opts \\ []), to: SkillLessons
+  defdelegate revoked_skill_lessons(agent_uid), to: SkillLessons
 
   @doc """
   Returns the operator-visible agent documents (MISSION, SOUL, DESIGN, and
@@ -356,17 +350,15 @@ defmodule Ankole.AIAgent.Library do
   template and its content hash, so a subsequent compare-and-swap write can
   materialize that same effective document without a migration.
   """
-  @spec list_agent_documents(String.t(), keyword()) ::
+  @spec list_agent_documents(String.t()) ::
           {:ok, %{required(agent_document_kind()) => agent_document()}} | {:error, term()}
-  def list_agent_documents(agent_uid, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
+  def list_agent_documents(agent_uid) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         :ok <- ensure_agent(repo, agent_uid) do
+         :ok <- ensure_agent(agent_uid) do
       {:ok,
        Map.new(@agent_document_kinds, fn kind ->
          {:ok, spec} = agent_document_spec(kind)
-         {kind, agent_document_payload(repo, agent_uid, spec)}
+         {kind, read_agent_document(agent_uid, spec)}
        end)}
     end
   end
@@ -383,30 +375,19 @@ defmodule Ankole.AIAgent.Library do
           String.t(),
           agent_document_kind(),
           String.t(),
-          String.t(),
-          keyword()
+          String.t()
         ) :: {:ok, agent_document()} | {:error, term()}
-  def replace_agent_document(
-        agent_uid,
-        kind,
-        content,
-        expected_content_hash,
-        opts \\ []
-      )
-
-  def replace_agent_document(agent_uid, kind, content, expected_content_hash, opts)
+  def replace_agent_document(agent_uid, kind, content, expected_content_hash)
       when is_binary(kind) and is_binary(content) and is_binary(expected_content_hash) do
-    repo = Keyword.get(opts, :repo, Repo)
-
     with {:ok, spec} <- agent_document_spec(kind) do
-      repo.transact(fn repo ->
+      Repo.transact(fn repo ->
         with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-             :ok <- ensure_agent(repo, agent_uid),
+             :ok <- ensure_agent(agent_uid),
              :ok <- lock_agent_document(repo, agent_uid, spec.kind),
-             current = agent_document_payload(repo, agent_uid, spec),
+             current = read_agent_document(agent_uid, spec),
              :ok <- verify_agent_document_hash(current, expected_content_hash),
              {:ok, entry} <-
-               upsert_agent_document_in_tx(repo, agent_uid, spec, content, %{
+               upsert_agent_document_in_tx(agent_uid, spec, content, %{
                  "source" => "console"
                }) do
           {:ok, agent_document_payload(entry, spec)}
@@ -415,7 +396,7 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
-  def replace_agent_document(_agent_uid, _kind, _content, _expected_content_hash, _opts),
+  def replace_agent_document(_agent_uid, _kind, _content, _expected_content_hash),
     do: {:error, :invalid_agent_document}
 
   @doc "Returns one coherent Agent Plugin and Skill catalog for an Agent runtime."
@@ -444,13 +425,11 @@ defmodule Ankole.AIAgent.Library do
   end
 
   defp enabled_runtime_state(agent_uid, opts) do
-    repo = Keyword.get(opts, :repo, Repo)
-
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, defaults} <- library_defaults(opts),
          runtime_opts = Keyword.put(opts, :agent_library_defaults, defaults),
          {:ok, agent_plugins} <- AgentPlugins.capabilities_for_agent(agent_uid, runtime_opts) do
-      lesson_skills = SkillLessons.delivered_skill_names(repo, agent_uid)
+      lesson_skills = SkillLessons.delivered_skill_names(agent_uid)
 
       plugin_member_enabled =
         Map.new(
@@ -461,9 +440,9 @@ defmodule Ankole.AIAgent.Library do
 
       skills =
         AgentSkill
-        |> where([skill], skill.agent_uid == ^agent_uid)
-        |> order_by([skill], asc: skill.skill_name)
-        |> repo.all()
+        |> Ash.Query.filter(agent_uid == ^agent_uid)
+        |> Ash.Query.sort(skill_name: :asc)
+        |> Ankole.Ash.read!()
         |> Enum.map(fn skill ->
           effective = runtime_skill_enabled?(skill, defaults, plugin_member_enabled)
           {skill, effective}
@@ -520,38 +499,44 @@ defmodule Ankole.AIAgent.Library do
 
   defp sync_agent_skills_in_tx(repo, agent_uid, sources, now) do
     with :ok <- Files.lock_drive(repo, agent_uid),
-         {:ok, installed} <- SourceReader.read_installed_skill_sources(agent_uid, repo: repo) do
+         {:ok, installed} <- SourceReader.read_installed_skill_sources(agent_uid) do
       source_rows =
-        Enum.map(sources, &source_attrs(&1, "builtin", now)) ++
-          Enum.map(installed, &source_attrs(&1, "installed", now))
+        Enum.map(sources, &source_attrs(&1, :builtin, now)) ++
+          Enum.map(installed, &source_attrs(&1, :installed, now))
 
       source_names = Enum.map(source_rows, & &1.skill_name)
 
       existing_by_name =
         AgentSkill
-        |> where([skill], skill.agent_uid == ^agent_uid)
-        |> repo.all()
+        |> Ash.Query.filter(agent_uid == ^agent_uid)
+        |> Ankole.Ash.read!()
         |> Map.new(&{&1.skill_name, &1})
 
       changed_rows =
         Enum.reject(source_rows, &source_row_current?(existing_by_name[&1.skill_name], &1))
 
-      with :ok <- reject_skill_row_conflicts(source_rows),
-           :ok <- upsert_agent_skill_rows(repo, agent_uid, changed_rows, now),
-           {stale_count, _rows} <-
+      with :ok <- reject_skill_name_conflicts(source_names),
+           :ok <- upsert_agent_skill_rows(agent_uid, changed_rows, now),
+           %Ash.BulkResult{status: :success, records: stale_rows} <-
              AgentSkill
-             |> where(
-               [skill],
-               skill.agent_uid == ^agent_uid and skill.skill_name not in ^source_names
-             )
-             |> repo.delete_all() do
+             |> Ash.Query.filter(agent_uid == ^agent_uid and skill_name not in ^source_names)
+             |> Ankole.Ash.bulk_destroy(:remove_stale, %{},
+               strategy: [:atomic],
+               transaction: false,
+               return_records?: true,
+               select: [:id],
+               return_errors?: true
+             ) do
         {:ok,
          %{
-           changed: changed_rows != [] or stale_count > 0,
+           changed: changed_rows != [] or stale_rows != [],
            content_hash: agent_skill_hash(source_rows),
            skills: length(source_rows),
            files: Enum.reduce(source_rows, 0, fn row, count -> count + row.file_count end)
          }}
+      else
+        %Ash.BulkResult{errors: errors} -> {:error, errors}
+        error -> error
       end
     end
   end
@@ -578,7 +563,7 @@ defmodule Ankole.AIAgent.Library do
       description: source.description,
       metadata:
         source.metadata
-        |> Map.put("source_kind", source_kind)
+        |> Map.put("source_kind", Atom.to_string(source_kind))
         |> Map.put("relative_path", source.relative_path),
       content_hash: source.source_hash,
       synced_at: now,
@@ -586,29 +571,12 @@ defmodule Ankole.AIAgent.Library do
     }
   end
 
-  @agent_skill_conflict_replace [
-    :source_kind,
-    :agent_plugin_id,
-    :relative_path,
-    :default_enabled,
-    :description,
-    :metadata,
-    :content_hash,
-    :synced_at,
-    :updated_at
-  ]
+  # Bulk actions retain validation on each row and preserve operator overrides.
+  defp upsert_agent_skill_rows(_agent_uid, [], _now), do: :ok
 
-  # Creating an Agent seeds every builtin bundle, so a row-at-a-time upsert made
-  # Agent creation pay one database round trip per Skill. The changeset still
-  # runs on every row, so normalization and validation keep their owner; only
-  # the write is batched. `enabled_override` stays out of the replace list, so
-  # an operator's per-Skill choice survives a resync.
-  defp upsert_agent_skill_rows(_repo, _agent_uid, [], _now), do: :ok
-
-  defp upsert_agent_skill_rows(repo, agent_uid, source_rows, now) do
-    source_rows
-    |> Enum.reduce_while({:ok, []}, fn row, {:ok, entries} ->
-      attrs =
+  defp upsert_agent_skill_rows(agent_uid, source_rows, now) do
+    inputs =
+      Enum.map(source_rows, fn row ->
         row
         |> Map.take([
           :skill_name,
@@ -621,49 +589,17 @@ defmodule Ankole.AIAgent.Library do
           :content_hash,
           :synced_at
         ])
-        |> Map.put(:agent_uid, agent_uid)
-        |> Map.put(:enabled_override, nil)
+        |> Map.merge(%{agent_uid: agent_uid, inserted_at: now, updated_at: now})
+      end)
 
-      %AgentSkill{}
-      |> AgentSkill.changeset(attrs)
-      |> Ecto.Changeset.apply_action(:insert)
-      |> case do
-        {:ok, skill} -> {:cont, {:ok, [agent_skill_entry(skill, now) | entries]}}
-        {:error, _changeset} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, entries} ->
-        repo.insert_all(AgentSkill, Enum.reverse(entries),
-          on_conflict: {:replace, @agent_skill_conflict_replace},
-          conflict_target: [:agent_uid, :skill_name]
-        )
-
-        :ok
-
-      {:error, _reason} = error ->
-        error
+    case Ankole.Ash.bulk_create(inputs, AgentSkill, :sync,
+           transaction: false,
+           return_errors?: true,
+           stop_on_error?: true
+         ) do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: errors} -> {:error, errors}
     end
-  end
-
-  defp agent_skill_entry(%AgentSkill{} = skill, now) do
-    %{
-      tenant_id: Repo.tenant_id!(),
-      id: UUIDv7.autogenerate(),
-      agent_uid: skill.agent_uid,
-      skill_name: skill.skill_name,
-      source_kind: skill.source_kind,
-      agent_plugin_id: skill.agent_plugin_id,
-      relative_path: skill.relative_path,
-      enabled_override: skill.enabled_override,
-      default_enabled: skill.default_enabled,
-      description: skill.description,
-      metadata: skill.metadata,
-      content_hash: skill.content_hash,
-      synced_at: skill.synced_at,
-      inserted_at: now,
-      updated_at: now
-    }
   end
 
   defp agent_skill_hash(rows) do
@@ -673,10 +609,9 @@ defmodule Ankole.AIAgent.Library do
     |> SourceReader.hash()
   end
 
-  defp seed_agent_document_in_tx(repo, agent_uid, kind) do
+  defp seed_agent_document_in_tx(agent_uid, kind) do
     with {:ok, spec} <- agent_document_spec(kind) do
       upsert_agent_document_in_tx(
-        repo,
         agent_uid,
         spec,
         spec.fallback,
@@ -685,39 +620,14 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
-  defp upsert_agent_document_in_tx(repo, agent_uid, spec, content, metadata) do
-    upsert_agent_text_entry_in_tx(repo, %{
+  defp upsert_agent_document_in_tx(agent_uid, spec, content, metadata) do
+    Ankole.Ash.create(AgentLibraryContainerEntry, :put, %{
       agent_uid: agent_uid,
       path: spec.path,
       source_kind: spec.kind,
       content: content,
       metadata: metadata
     })
-  end
-
-  defp upsert_agent_text_entry_in_tx(repo, attrs) do
-    attrs =
-      attrs
-      |> Map.put(:path, SourceReader.normalize_virtual_path!(attrs.path))
-      |> Map.put(:content_hash, SourceReader.hash(attrs.content || ""))
-      |> Map.put_new(:metadata, %{})
-
-    %AgentLibraryContainerEntry{}
-    |> AgentLibraryContainerEntry.changeset(attrs)
-    |> repo.insert(
-      on_conflict: [
-        set: [
-          source_kind: attrs.source_kind,
-          content: attrs.content,
-          content_hash: attrs.content_hash,
-          metadata: attrs.metadata,
-          deleted_at: nil,
-          updated_at: DateTime.utc_now(:microsecond)
-        ]
-      ],
-      conflict_target: {:unsafe_fragment, "(agent_uid, path) WHERE deleted_at IS NULL"},
-      returning: true
-    )
   end
 
   defp agent_document_spec("mission") do
@@ -758,9 +668,8 @@ defmodule Ankole.AIAgent.Library do
 
   defp agent_document_spec(_kind), do: {:error, :invalid_document_kind}
 
-  defp agent_document_payload(repo, agent_uid, spec) do
-    repo
-    |> active_agent_entry(agent_uid, spec.path)
+  defp read_agent_document(agent_uid, spec) do
+    active_agent_entry(agent_uid, spec.path)
     |> agent_document_payload(spec)
   end
 
@@ -783,19 +692,15 @@ defmodule Ankole.AIAgent.Library do
     }
   end
 
-  defp ensure_agent(repo, agent_uid) do
-    case repo.get(Agent, agent_uid) do
+  defp ensure_agent(agent_uid) do
+    case Agent |> Ash.Query.filter(uid == ^agent_uid) |> Ankole.Ash.read_one!() do
       %Agent{} -> :ok
       nil -> {:error, :not_found}
     end
   end
 
   defp lock_agent_document(repo, agent_uid, kind) do
-    Ecto.Adapters.SQL.query!(
-      repo,
-      "SELECT pg_advisory_xact_lock(hashtext($1))",
-      ["agent-library-document:#{agent_uid}:#{kind}"]
-    )
+    Ankole.AdvisoryLock.lock!(repo, "agent-library-document:#{agent_uid}:#{kind}")
 
     :ok
   end
@@ -808,8 +713,10 @@ defmodule Ankole.AIAgent.Library do
   defp reject_agent_append_file("AGENT_APPEND.md"), do: {:error, :skill_file_not_found}
   defp reject_agent_append_file(_file_path), do: :ok
 
-  defp enabled_skill(repo, agent_uid, skill_name, opts) do
-    case repo.get_by(AgentSkill, agent_uid: agent_uid, skill_name: skill_name) do
+  defp enabled_skill(agent_uid, skill_name, opts) do
+    case AgentSkill
+         |> Ash.Query.filter(agent_uid == ^agent_uid and skill_name == ^skill_name)
+         |> Ankole.Ash.read_one!() do
       %AgentSkill{} = skill ->
         with {:ok, defaults} <- library_defaults(opts),
              {:ok, parent_enabled} <- parent_enablement(agent_uid, opts) do
@@ -823,11 +730,11 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
-  defp do_skill_view(repo, agent_uid, %AgentSkill{} = skill, file_path, opts) do
+  defp do_skill_view(agent_uid, %AgentSkill{} = skill, file_path, opts) do
     case read_skill_file(skill, file_path, opts) do
       {:ok, raw_content} when file_path == @skill_file ->
         base_content = SourceReader.skill_body(raw_content)
-        lessons_text = SkillLessons.delivered_text(repo, agent_uid, skill.skill_name)
+        lessons_text = SkillLessons.delivered_text(agent_uid, skill.skill_name)
 
         content =
           case lessons_text do
@@ -842,7 +749,7 @@ defmodule Ankole.AIAgent.Library do
         {:ok,
          %{
            "skill_name" => skill.skill_name,
-           "source_kind" => skill.source_kind,
+           "source_kind" => Atom.to_string(skill.source_kind),
            "relative_path" => skill.relative_path,
            "skill_uri" => skill_uri(skill.skill_name, file_path),
            "content" => content,
@@ -854,12 +761,12 @@ defmodule Ankole.AIAgent.Library do
         {:ok,
          %{
            "skill_name" => skill.skill_name,
-           "source_kind" => skill.source_kind,
+           "source_kind" => Atom.to_string(skill.source_kind),
            "relative_path" => skill.relative_path,
            "skill_uri" => skill_uri(skill.skill_name, file_path),
            "content" => content,
            "has_agent_overlay" =>
-             is_binary(SkillLessons.delivered_text(repo, agent_uid, skill.skill_name))
+             is_binary(SkillLessons.delivered_text(agent_uid, skill.skill_name))
          }}
 
       {:error, _reason} ->
@@ -867,36 +774,22 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
-  defp read_skill_file(%AgentSkill{source_kind: "builtin"} = skill, file_path, _opts) do
+  defp read_skill_file(%AgentSkill{source_kind: :builtin} = skill, file_path, _opts) do
     SourceReader.read_builtin_skill_file(skill.relative_path, file_path)
   end
 
   # An installed Skill lives in the Agent's drive under `skills/<name>/`.
-  defp read_skill_file(%AgentSkill{source_kind: "installed"} = skill, file_path, _opts) do
+  defp read_skill_file(%AgentSkill{source_kind: :installed} = skill, file_path, _opts) do
     with {:ok, _file, content} <-
            Ankole.Files.read(skill.agent_uid, "skills/#{skill.relative_path}/#{file_path}") do
       {:ok, content}
     end
   end
 
-  defp reject_skill_source_conflicts(sources) do
+  defp reject_skill_name_conflicts(names) do
     conflicts =
-      sources
-      |> Enum.frequencies_by(& &1.name)
-      |> Enum.filter(fn {_name, count} -> count > 1 end)
-      |> Enum.map(&elem(&1, 0))
-      |> Enum.sort()
-
-    case conflicts do
-      [] -> {:ok, sources}
-      _names -> {:error, {:skill_source_name_conflicts, conflicts}}
-    end
-  end
-
-  defp reject_skill_row_conflicts(rows) do
-    conflicts =
-      rows
-      |> Enum.frequencies_by(& &1.skill_name)
+      names
+      |> Enum.frequencies()
       |> Enum.filter(fn {_name, count} -> count > 1 end)
       |> Enum.map(&elem(&1, 0))
       |> Enum.sort()
@@ -907,12 +800,13 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
-  defp active_agent_entry(repo, agent_uid, path) do
+  defp active_agent_entry(agent_uid, path) do
     AgentLibraryContainerEntry
-    |> where([entry], entry.agent_uid == ^agent_uid)
-    |> where([entry], entry.path == ^SourceReader.normalize_virtual_path!(path))
-    |> where([entry], is_nil(entry.deleted_at))
-    |> repo.one()
+    |> Ash.Query.filter(
+      agent_uid == ^agent_uid and path == ^SourceReader.normalize_virtual_path!(path) and
+        is_nil(deleted_at)
+    )
+    |> Ankole.Ash.read_one!()
   end
 
   defp skill_lesson_summary(%AgentSkillLesson{} = lesson, skill, defaults, parent_enabled) do
@@ -924,13 +818,13 @@ defmodule Ankole.AIAgent.Library do
       "effective_enabled" =>
         not is_nil(skill) and effective_skill_enabled?(skill, defaults, parent_enabled),
       "content" => lesson.content,
-      "author_kind" => lesson.author_kind,
+      "author_kind" => Atom.to_string(lesson.author_kind),
       "author" => lesson.author && Map.from_struct(lesson.author),
       "evidence_job_ids" => lesson.evidence_job_ids,
       "checked_release" => lesson.checked_release,
       "review_after" => lesson.review_after && DateTime.to_iso8601(lesson.review_after),
       "retired_at" => lesson.retired_at && DateTime.to_iso8601(lesson.retired_at),
-      "retire_reason" => lesson.retire_reason,
+      "retire_reason" => lesson.retire_reason && Atom.to_string(lesson.retire_reason),
       "created_at" => DateTime.to_iso8601(lesson.inserted_at)
     }
   end
@@ -943,7 +837,7 @@ defmodule Ankole.AIAgent.Library do
       "id" => skill_stable_id(skill),
       "skill_name" => skill.skill_name,
       "description" => skill.description,
-      "source_kind" => skill.source_kind,
+      "source_kind" => Atom.to_string(skill.source_kind),
       "agent_plugin_id" => skill.agent_plugin_id,
       "relative_path" => skill.relative_path,
       "default_enabled" => skill.default_enabled,
@@ -967,7 +861,7 @@ defmodule Ankole.AIAgent.Library do
       "id" => skill.skill_name,
       "name" => skill.skill_name,
       "description" => skill.description,
-      "source_kind" => skill.source_kind,
+      "source_kind" => Atom.to_string(skill.source_kind),
       "agent_plugin_id" => nil,
       "global_default_enabled" => global_default,
       "override_enabled" => skill.enabled_override,
@@ -975,13 +869,13 @@ defmodule Ankole.AIAgent.Library do
     }
   end
 
-  defp skill_lesson_catalog(repo, agent_uid, opts) do
+  defp skill_lesson_catalog(agent_uid, opts) do
     defaults = Keyword.fetch!(opts, :agent_library_defaults)
     parent_enabled = Keyword.fetch!(opts, :parent_enablement)
 
     AgentSkill
-    |> where([skill], skill.agent_uid == ^agent_uid)
-    |> repo.all()
+    |> Ash.Query.filter(agent_uid == ^agent_uid)
+    |> Ankole.Ash.read!()
     |> Map.new(fn skill ->
       result =
         if effective_skill_enabled?(skill, defaults, parent_enabled),
@@ -1009,7 +903,7 @@ defmodule Ankole.AIAgent.Library do
     effective_override(skill.enabled_override, skill_global_default(skill, defaults))
   end
 
-  defp skill_global_default(%AgentSkill{source_kind: "installed"} = skill, _defaults),
+  defp skill_global_default(%AgentSkill{source_kind: :installed} = skill, _defaults),
     do: skill.default_enabled
 
   defp skill_global_default(%AgentSkill{agent_plugin_id: id} = skill, defaults)
@@ -1048,7 +942,7 @@ defmodule Ankole.AIAgent.Library do
         {:ok, %{agent_plugins: agent_plugins, skills: skills}}
 
       _value ->
-        AgentPluginConfig.defaults(opts)
+        AgentPluginConfig.defaults()
     end
   end
 

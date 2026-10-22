@@ -5,7 +5,6 @@ defmodule AnkoleWeb.TenantControllerTest do
   alias Ankole.AppConfigure.Cache
 
   setup do
-    allow_cache_database_access()
     Cache.clear_for_test()
     :ok
   end

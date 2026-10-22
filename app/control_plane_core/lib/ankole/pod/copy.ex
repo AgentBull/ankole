@@ -1,6 +1,7 @@
 defmodule Ankole.Pod.Copy do
   @moduledoc false
   import Ecto.Query
+  require Ash.Query
   alias Ankole.{Files, Repo}
   alias Ankole.Pod.Database.Write
 
@@ -40,13 +41,11 @@ defmodule Ankole.Pod.Copy do
                  private_owner_uid: Ankole.Attrs.get(attrs, :private_owner_uid)
                }),
              {:ok, target} <-
-               Repo.insert(
-                 DbTable.changeset(%DbTable{}, %{
-                   page_id: page.id,
-                   name: source.name,
-                   position: Ankole.Ecto.UUIDv7.autogenerate()
-                 })
-               ),
+               Ankole.Ash.create(DbTable, :create_in_tx, %{
+                 page_id: page.id,
+                 name: source.name,
+                 position: Ankole.Ecto.UUIDv7.autogenerate()
+               }),
              definitions <- Database.fields(source.id),
              {:ok, copied_fields, mapping} <- copy_fields(definitions, target),
              :ok <- copy_views(source.id, target.id, mapping),
@@ -93,7 +92,7 @@ defmodule Ankole.Pod.Copy do
           is_primary: field.is_primary
         }
 
-        case Repo.insert(DbField.changeset(%DbField{}, attrs)) do
+        case Ankole.Ash.create(DbField, :create_in_tx, attrs) do
           {:ok, new} -> {:cont, {:ok, [new | copied], mapping}}
           error -> {:halt, error}
         end
@@ -139,21 +138,24 @@ defmodule Ankole.Pod.Copy do
   end
 
   defp copy_views(source_id, target_id, mapping) do
-    Enum.reduce_while(Repo.all(from v in DbView, where: v.table_id == ^source_id), :ok, fn view,
-                                                                                           :ok ->
-      attrs = %{
-        table_id: target_id,
-        name: view.name,
-        type: view.type,
-        config: remap_view(view.config, mapping),
-        position: view.position
-      }
+    Enum.reduce_while(
+      Ankole.Ash.read!(Ash.Query.filter(DbView, table_id == ^source_id)),
+      :ok,
+      fn view, :ok ->
+        attrs = %{
+          table_id: target_id,
+          name: view.name,
+          type: view.type,
+          config: remap_view(view.config, mapping),
+          position: view.position
+        }
 
-      case Repo.insert(DbView.changeset(%DbView{}, attrs)) do
-        {:ok, _} -> {:cont, :ok}
-        error -> {:halt, error}
+        case Ankole.Ash.create(DbView, :create_in_tx, attrs) do
+          {:ok, _} -> {:cont, :ok}
+          error -> {:halt, error}
+        end
       end
-    end)
+    )
   end
 
   defp copy_records(uid, source, target, fields, copied, filter, limits) do
@@ -297,9 +299,7 @@ defmodule Ankole.Pod.Copy do
         1
       end
 
-    Repo.update(
-      DbTable.changeset(table, %{record_count: count, next_auto_number: next, data_version: 1})
-    )
+    Ankole.Ash.update(table, :initialize_copy, %{record_count: count, next_auto_number: next})
   end
 
   defp remap_view(config, mapping) do

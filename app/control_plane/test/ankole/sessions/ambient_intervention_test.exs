@@ -6,11 +6,12 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
 
   setup do
     %{principal: agent} = agent_fixture()
-    {:ok, agent: agent}
+    {:ok, agent: agent, base_time: DateTime.utc_now(:microsecond)}
   end
 
   test "supersedes an older ambient scene and delivers only the latest stable scene", %{
-    agent: agent
+    agent: agent,
+    base_time: base_time
   } do
     binding_fixture(agent.uid, "bot", :may_intervene)
 
@@ -23,10 +24,10 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
                  provider_message_id: "ambient-first-entry",
                  text: "Which benchmark should we use?"
                }),
-               now: @base_time
+               now: base_time
              )
 
-    second_at = DateTime.add(@base_time, 20, :second)
+    second_at = DateTime.add(base_time, 20, :second)
 
     assert {:ok, %{signal: second_event}} =
              emit_entry(
@@ -42,7 +43,7 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
              )
 
     first_snapshot = first_event.data["ambient_batch"]
-    third_at = DateTime.add(@base_time, 40, :second)
+    third_at = DateTime.add(base_time, 40, :second)
 
     assert {:ok, %{signal: third_event}} =
              emit_entry(
@@ -85,23 +86,22 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
     assert is_nil(Repo.get!(Signal, third_event.id).completed_at)
     refute_receive {:actor_lane, _envelope}, 50
 
-    assert {:ok, run} =
-             Admission.admit(
-               %{agent_uid: agent.uid, session_id: third_event.session_id},
-               third_event,
-               now: process_at
-             )
+    assert {:ok, %{status: :ambient_fresh, signal: fresh}} =
+             Ankole.Sessions.Ambient.resolve(third_event, process_at)
 
-    assert run.signal_id == third_event.id
-    assert Repo.get!(AgentWorker, agent.uid).state == "absent"
+    assert fresh.id == third_event.id
+    assert Repo.get!(AgentWorker, agent.uid).state == :absent
   end
 
-  test "expires a queued ambient opportunity without starting a worker turn", %{agent: agent} do
+  test "expires a queued ambient opportunity without starting a worker turn", %{
+    agent: agent,
+    base_time: base_time
+  } do
     binding_fixture(agent.uid, "bot", :may_intervene)
 
     assert {:ok, %{signal: event}} =
              emit_entry(agent.uid, "bot", group_entry(%{text: "Could this be useful?"}),
-               now: @base_time
+               now: base_time
              )
 
     {:ok, expires_at, _offset} =
@@ -120,10 +120,13 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
 
     assert completed_event.id == event.id
     refute_receive {:actor_lane, _envelope}, 50
-    assert Repo.get!(AgentWorker, agent.uid).state == "absent"
+    assert Repo.get!(AgentWorker, agent.uid).state == :absent
   end
 
-  test "does not stale an ambient scene on an exact provider redelivery", %{agent: agent} do
+  test "does not stale an ambient scene on an exact provider redelivery", %{
+    agent: agent,
+    base_time: base_time
+  } do
     binding_fixture(agent.uid, "bot", :may_intervene)
 
     entry =
@@ -134,26 +137,27 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
       })
 
     assert {:ok, %{signal: event}} =
-             emit_entry(agent.uid, "bot", entry, now: @base_time)
+             emit_entry(agent.uid, "bot", entry, now: base_time)
 
     assert {:ok, %{status: :duplicate}} =
              Observe.emit_entry(agent.uid, "bot", entry,
-               now: DateTime.add(@base_time, 20, :second)
+               now: DateTime.add(base_time, 20, :second)
              )
 
-    assert {:ok, run} =
-             Admission.admit(%{agent_uid: agent.uid, session_id: event.session_id}, event,
-               now: DateTime.add(@base_time, 21, :second)
-             )
+    assert {:ok, %{status: :ambient_fresh, signal: fresh}} =
+             Ankole.Sessions.Ambient.resolve(event, DateTime.add(base_time, 21, :second))
 
-    assert run.signal_id == event.id
+    assert fresh.id == event.id
   end
 
-  test "supersedes queued ambient work after its binding policy changes", %{agent: agent} do
+  test "supersedes queued ambient work after its binding policy changes", %{
+    agent: agent,
+    base_time: base_time
+  } do
     binding_fixture(agent.uid, "bot", :may_intervene)
 
     assert {:ok, %{signal: event}} =
-             emit_entry(agent.uid, "bot", group_entry(%{}), now: @base_time)
+             emit_entry(agent.uid, "bot", group_entry(%{}), now: base_time)
 
     binding_fixture(agent.uid, "bot", :record_only)
 
@@ -164,14 +168,17 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
               signal: completed_event
             }} =
              Admission.admit(%{agent_uid: agent.uid, session_id: event.session_id}, event,
-               now: DateTime.add(@base_time, 20, :second)
+               now: DateTime.add(base_time, 20, :second)
              )
 
     assert completed_event.id == event.id
     refute_receive {:actor_lane, _envelope}, 50
   end
 
-  test "injects only bounded live work candidates from the same room session", %{agent: agent} do
+  test "injects only bounded live work candidates from the same room session", %{
+    agent: agent,
+    base_time: base_time
+  } do
     binding_fixture(agent.uid, "bot", :may_intervene)
 
     assert {:ok, %{signal: event}} =
@@ -179,7 +186,7 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
                agent.uid,
                "bot",
                group_entry(%{text: "The deploy has a new database timeout."}),
-               now: @base_time
+               now: base_time
              )
 
     matching = create_job!(agent.uid, event, "matching", %{})
@@ -193,12 +200,9 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
           Ankole.ExternalConversationsFixtures.external_conversation_id("lark:chat:other")
       })
 
-    assert {:ok, run} =
-             Admission.admit(%{agent_uid: agent.uid, session_id: event.session_id}, event,
-               now: DateTime.add(@base_time, 20, :second)
-             )
-
-    context = run.spec.request_context
+    context = %{
+      "ambient_work_candidates" => Ankole.Sessions.Ambient.candidates_in_tx(Repo, event)
+    }
 
     assert %{
              "complete" => true,
@@ -216,28 +220,31 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
     assert task_excerpt =~ "matching"
   end
 
-  test "a policy change after admission rejects judgment and supersedes the next admission", %{
-    agent: agent
+  test "a policy change after observation rejects judgment and supersedes the next input", %{
+    agent: agent,
+    base_time: base_time
   } do
     binding_fixture(agent.uid, "bot", :may_intervene)
 
     assert {:ok, %{signal: event}} =
              emit_entry(agent.uid, "bot", group_entry(%{text: "Which benchmark?"}),
-               now: @base_time
+               now: base_time
              )
 
     key = %{agent_uid: agent.uid, session_id: event.session_id}
-    now = DateTime.add(@base_time, 20, :second)
-    assert {:ok, run} = Admission.admit(key, event, now: now)
-    assert run.signal_id == event.id
+    now = DateTime.add(base_time, 20, :second)
+
+    assert {:ok, %{status: :ambient_fresh, signal: fresh}} =
+             Ankole.Sessions.Ambient.resolve(event, now)
+
+    assert fresh.id == event.id
     binding_fixture(agent.uid, "bot", :record_only)
 
     assert {:error, {:ambient_stale, :binding_policy_changed}} =
              Ankole.Sessions.AmbientCuration.record_judgment(
                key,
                event.id,
-               %{action: "NOOP", authority: "NONE", handoff_job_id: nil},
-               now: now
+               %{action: "NOOP", authority: "NONE", handoff_job_id: nil}
              )
 
     assert is_nil(Repo.get(Ankole.Sessions.AmbientJudgment, event.id))
@@ -253,20 +260,31 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
 
     completed = Repo.get!(Signal, event.id)
     assert %DateTime{} = completed.completed_at
-    refute completed.input_state == "dead_letter"
+    refute completed.status == :dead_letter
     refute_receive {:actor_lane, _envelope}, 50
   end
 
-  test "a visible reply keeps the admitted light model and other request context", %{agent: agent} do
+  test "a visible reply keeps the admitted light model and other request context", %{
+    agent: agent,
+    base_time: base_time
+  } do
     binding_fixture(agent.uid, "bot", :may_intervene)
 
     assert {:ok, %{signal: event}} =
              emit_entry(agent.uid, "bot", group_entry(%{text: "Which benchmark?"}),
-               now: @base_time
+               now: base_time
              )
 
     key = %{agent_uid: agent.uid, session_id: event.session_id}
-    now = DateTime.add(@base_time, 20, :second)
+    now = DateTime.add(base_time, 20, :second)
+
+    assert {:ok, _} =
+             Ankole.Sessions.AmbientCuration.record_judgment(
+               key,
+               event.id,
+               %{action: "FOREGROUND_REPLY", authority: "NONE", handoff_job_id: nil}
+             )
+
     assert {:ok, run} = Admission.admit(key, event, now: now)
 
     run = %{
@@ -278,8 +296,7 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
              Ankole.Sessions.AmbientCuration.record_judgment(
                key,
                event.id,
-               %{action: "FOREGROUND_REPLY", authority: "NONE", handoff_job_id: nil},
-               now: now
+               %{action: "FOREGROUND_REPLY", authority: "NONE", handoff_job_id: nil}
              )
 
     assert {:ok, {:prepare, prepared}} = Ankole.Sessions.Ambient.prepare(run)

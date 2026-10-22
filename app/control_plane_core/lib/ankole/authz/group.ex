@@ -1,117 +1,148 @@
 defmodule Ankole.AuthZ.Group do
-  @moduledoc """
-  Principal group used by the AuthZ rule engine.
-  """
+  @moduledoc "Principal group used by the AuthZ rule engine."
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AuthZ.Domain
 
-  use Ankole.Schema, tenancy: :tenant
+  @fields [
+    :name,
+    :display_name,
+    :domain,
+    :kind,
+    :built_in,
+    :computed_condition,
+    :description,
+    :metadata
+  ]
 
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
+  postgres do
+    table("principal_groups")
+    repo(Ankole.Repo)
+    migrate?(false)
+    identity_index_names(name: "principal_groups_name_index")
+    unique_index_names([{[:name], "principal_groups_name_index"}])
 
-  alias Ankole.Ecto.JSONPayload
-  alias Ankole.AuthZ.ExternalBinding
-  alias Ankole.AuthZ.Grant
-  alias Ankole.AuthZ.Input
-  alias Ankole.AuthZ.Membership
-
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-  @foreign_key_type :binary_id
-  @timestamps_opts [type: :utc_datetime_usec]
-
-  schema "principal_groups" do
-    field :name, :string
-    field :display_name, :string
-
-    field :domain, Ecto.Enum,
-      values: [:operator, :directory, :im_group, :signal_source],
-      default: :operator
-
-    field :kind, Ecto.Enum, values: [:static, :computed], default: :static
-    field :built_in, :boolean, default: false
-    field :computed_condition, :string
-    field :description, :string
-    field :metadata, :map, default: %{}
-
-    has_many :memberships, Membership, foreign_key: :group_id
-    has_many :external_bindings, ExternalBinding, foreign_key: :group_id
-    has_many :grants, Grant, foreign_key: :group_id
-
-    timestamps()
-  end
-
-  @doc """
-  Builds a changeset for authorization group rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(group, attrs) do
-    group
-    |> cast(attrs, [
-      :name,
-      :display_name,
-      :domain,
-      :kind,
-      :built_in,
-      :computed_condition,
-      :description,
-      :metadata
-    ])
-    |> normalize_blank([:name, :display_name, :computed_condition, :description])
-    |> normalize_name()
-    |> validate_required([:name, :display_name, :domain, :kind, :built_in, :metadata])
-    |> JSONPayload.validate_map(:metadata)
-    |> validate_kind_shape()
-    |> unique_constraint(:name, name: :principal_groups_name_index)
-    |> check_constraint(:name, name: :principal_groups_name_present)
-    |> check_constraint(:name, name: :principal_groups_name_lowercase)
-    |> check_constraint(:display_name, name: :principal_groups_display_name_present)
-    |> check_constraint(:computed_condition, name: :principal_groups_computed_condition_by_kind)
-    |> check_constraint(:domain, name: :principal_groups_computed_domain)
-    |> check_constraint(:metadata, name: :principal_groups_metadata_object)
-  end
-
-  defp validate_kind_shape(changeset) do
-    case get_field(changeset, :kind) do
-      :static ->
-        validate_absent(changeset, :computed_condition)
-
-      :computed ->
-        changeset
-        |> validate_required([:computed_condition])
-        |> validate_condition(:computed_condition)
-        |> validate_operator_domain()
-
-      _kind ->
-        changeset
+    check_constraints do
+      check_constraint(:name, "principal_groups_name_present")
+      check_constraint(:name, "principal_groups_name_lowercase")
+      check_constraint(:display_name, "principal_groups_display_name_present")
+      check_constraint(:computed_condition, "principal_groups_computed_condition_by_kind")
+      check_constraint(:domain, "principal_groups_computed_domain")
+      check_constraint(:metadata, "principal_groups_metadata_object")
     end
   end
 
-  defp validate_operator_domain(changeset) do
-    case get_field(changeset, :domain) do
-      :operator -> changeset
-      _domain -> add_error(changeset, :domain, "must be operator for computed groups")
-    end
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      public?: true,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+    )
+
+    attribute(:name, :string, public?: true, allow_nil?: false)
+    attribute(:display_name, :string, public?: true, allow_nil?: false)
+
+    attribute(:domain, :atom,
+      public?: true,
+      allow_nil?: false,
+      default: :operator,
+      constraints: [one_of: [:operator, :directory, :im_group, :signal_source]]
+    )
+
+    attribute(:kind, :atom,
+      public?: true,
+      allow_nil?: false,
+      default: :static,
+      constraints: [one_of: [:static, :computed]]
+    )
+
+    attribute(:built_in, :boolean, public?: true, allow_nil?: false, default: false)
+    attribute(:computed_condition, :string, public?: true)
+    attribute(:description, :string, public?: true)
+    attribute(:metadata, Ankole.Ash.Types.JSONMap, public?: true, allow_nil?: false, default: %{})
+    timestamps(type: :utc_datetime_usec)
   end
 
-  defp validate_condition(changeset, field) do
-    validate_change(changeset, field, fn ^field, value ->
-      case Input.validate_condition_syntax(value) do
-        :ok -> []
-        {:error, reason} -> [{field, reason}]
+  identities do
+    identity(:name, [:name])
+  end
+
+  relationships do
+    has_many(:memberships, Ankole.AuthZ.Membership, destination_attribute: :group_id)
+    has_many(:external_bindings, Ankole.AuthZ.ExternalBinding, destination_attribute: :group_id)
+    has_many(:grants, Ankole.AuthZ.Grant, destination_attribute: :group_id)
+  end
+
+  changes do
+    change(fn changeset, _context ->
+      case Ash.Changeset.get_attribute(changeset, :name) do
+        name when is_binary(name) ->
+          Ash.Changeset.change_attribute(changeset, :name, String.downcase(name))
+
+        _name ->
+          changeset
       end
     end)
   end
 
-  defp validate_absent(changeset, field) do
-    case get_field(changeset, field) do
-      nil -> changeset
-      _value -> add_error(changeset, field, "must be blank")
+  validations do
+    validate(absent(:computed_condition), where: [attribute_equals(:kind, :static)])
+    validate(present(:computed_condition), where: [attribute_equals(:kind, :computed)])
+
+    validate(attribute_equals(:domain, :operator),
+      where: [attribute_equals(:kind, :computed)],
+      message: "must be operator for computed groups"
+    )
+
+    validate({Ankole.AuthZ.Validations.Syntax, attribute: :computed_condition, kind: :condition},
+      where: [attribute_equals(:kind, :computed)],
+      only_when_valid?: true
+    )
+  end
+
+  actions do
+    defaults([:read])
+
+    create :create_in_tx do
+      accept(@fields)
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+    end
+
+    create :ensure_in_tx do
+      accept(@fields)
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+      upsert?(true)
+      upsert_identity(:name)
+      upsert_fields([:name])
+    end
+
+    in_tx_update :profile_in_tx do
+      accept(@fields -- [:built_in])
+
+      validate(fn changeset, _context ->
+        immutable =
+          if changeset.data.built_in,
+            do:
+              Enum.filter([:name, :kind, :computed_condition], fn field ->
+                Ash.Changeset.changing_attribute?(changeset, field)
+              end),
+            else: []
+
+        case immutable do
+          [] -> :ok
+          fields -> {:error, fields: fields, message: "cannot change a built-in group"}
+        end
+      end)
+    end
+
+    destroy :delete_in_tx do
+      transaction?(false)
+      require_atomic?(false)
+      atomic_upgrade?(false)
+      change(Ankole.Ash.RequireTransaction)
     end
   end
 
-  defp normalize_name(changeset) do
-    update_change(changeset, :name, fn
-      value when is_binary(value) -> String.downcase(value)
-      value -> value
-    end)
-  end
+  @type t :: %__MODULE__{}
 end

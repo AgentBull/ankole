@@ -46,9 +46,9 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   end
 
   @doc "Reads installed Skill manifests from the Agent's drive."
-  @spec read_installed_skill_sources(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
-  def read_installed_skill_sources(agent_uid, opts \\ []) do
-    read_installed_skill_page(agent_uid, opts, nil, [])
+  @spec read_installed_skill_sources(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def read_installed_skill_sources(agent_uid) do
+    read_installed_skill_page(agent_uid, nil, [])
   end
 
   @doc """
@@ -376,9 +376,9 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end
   end
 
-  defp read_installed_skill_page(agent_uid, opts, after_path, acc) do
+  defp read_installed_skill_page(agent_uid, after_path, acc) do
     with {:ok, %{files: files, next_after: next_after}} <-
-           Files.list(agent_uid, "skills", Keyword.merge(opts, limit: 5_000, after: after_path)),
+           Files.list(agent_uid, "skills", limit: 5_000, after: after_path),
          {:ok, sources} <-
            files
            |> Enum.flat_map(fn file ->
@@ -395,7 +395,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
 
       if is_nil(next_after),
         do: {:ok, Enum.reverse(acc)},
-        else: read_installed_skill_page(agent_uid, opts, next_after, acc)
+        else: read_installed_skill_page(agent_uid, next_after, acc)
     end
   end
 

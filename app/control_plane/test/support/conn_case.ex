@@ -8,7 +8,7 @@ defmodule AnkoleWeb.ConnCase do
   use AnkoleWeb, :verified_routes
 
   import Plug.Conn
-  import Phoenix.ConnTest
+  import Phoenix.ConnTest, except: [build_conn: 0, recycle: 1, recycle: 2]
 
   alias Ankole.PrincipalsFixtures
   alias AnkoleWeb.Session, as: WebSession
@@ -20,9 +20,8 @@ defmodule AnkoleWeb.ConnCase do
       use AnkoleWeb, :verified_routes
 
       import Plug.Conn
-      import Phoenix.ConnTest
+      import Phoenix.ConnTest, except: [build_conn: 0, recycle: 1, recycle: 2]
       import AnkoleWeb.ConnCase
-      import Ankole.DataCase, only: [allow_cache_database_access: 0]
     end
   end
 
@@ -31,7 +30,70 @@ defmodule AnkoleWeb.ConnCase do
     tenant = Ankole.DataCase.create_tenant()
     # Fixtures use this tenant; Endpoint.ResetTenant resets it for each request.
     Ankole.Repo.put_tenant_id(tenant.id)
-    {:ok, tenant: tenant, conn: Phoenix.ConnTest.build_conn() |> assign(:test_tenant, tenant)}
+    conn = build_conn() |> assign(:test_tenant, tenant)
+
+    conn =
+      case Map.get(tags, :host, :site) do
+        :site -> conn
+        :pod -> pod_conn(conn, tenant)
+      end
+
+    {:ok, tenant: tenant, conn: conn}
+  end
+
+  @doc "Builds an unauthenticated connection at the site's canonical origin."
+  def build_conn, do: site_conn(Phoenix.ConnTest.build_conn())
+
+  @doc "Recycles browser state and selected headers at the connection's current origin."
+  def recycle(conn, headers \\ ~w(accept accept-language authorization)) do
+    conn
+    |> Phoenix.ConnTest.recycle(headers)
+    |> Map.merge(%{scheme: conn.scheme, port: conn.port})
+  end
+
+  @doc "Uses the site's canonical origin for Console and public API requests."
+  def site_conn(conn), do: at_origin(conn, AnkoleWeb.PodURL.site_origin(conn))
+
+  @doc "Uses the tenant's canonical origin for Pod requests."
+  def pod_conn(conn, tenant), do: at_origin(conn, AnkoleWeb.PodURL.origin(conn, tenant))
+
+  @doc "Sets a canonical HTTPS site behind a proxy for a synchronous controller test."
+  def forwarded_https_conn(conn) do
+    previous = Application.fetch_env!(:ankole, AnkoleWeb.Endpoint)
+    url = Keyword.merge(AnkoleWeb.Endpoint.config(:url), scheme: "https", port: 443)
+    configured = Keyword.put(previous, :url, url)
+    Application.put_env(:ankole, AnkoleWeb.Endpoint, configured)
+
+    AnkoleWeb.Endpoint.config_change(
+      [{AnkoleWeb.Endpoint, configured}],
+      []
+    )
+
+    on_exit(fn ->
+      Application.put_env(:ankole, AnkoleWeb.Endpoint, previous)
+      AnkoleWeb.Endpoint.config_change([{AnkoleWeb.Endpoint, previous}], [])
+    end)
+
+    %{conn | scheme: :https, port: 443}
+    |> then(&at_origin(&1, AnkoleWeb.PodURL.site_origin(&1)))
+    |> Map.merge(%{scheme: :http, port: 80})
+    |> put_req_header("x-forwarded-proto", "https")
+  end
+
+  defp at_origin(conn, origin) do
+    uri = URI.parse(origin)
+    %{conn | host: uri.host, port: uri.port, scheme: String.to_existing_atom(uri.scheme)}
+  end
+
+  @doc "Adds a WebSocket handshake for the connection's selected origin."
+  def websocket_upgrade_headers(conn) do
+    authority = AnkoleWeb.Plugs.RequestHost.origin(conn) |> URI.parse() |> Map.fetch!(:authority)
+
+    %{conn | req_headers: List.keystore(conn.req_headers, "host", 0, {"host", authority})}
+    |> put_req_header("connection", "Upgrade")
+    |> put_req_header("upgrade", "websocket")
+    |> put_req_header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
+    |> put_req_header("sec-websocket-version", "13")
   end
 
   @doc """

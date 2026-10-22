@@ -4,6 +4,7 @@ defmodule Ankole.Brain.ObjectsTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AuthZ
+  alias Ankole.Brain.Chunks
   alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Chunk
@@ -152,22 +153,21 @@ defmodule Ankole.Brain.ObjectsTest do
     test "previously promoted types stay writable after the promotion path is removed", %{
       human: human
     } do
-      Repo.insert!(%Ankole.Brain.Schemas.SchemaPack{
-        name: "promoted",
-        version: "0",
-        content_hash: "promoted",
-        manifest: %{"name" => "promoted", "promoted" => true},
-        installed_at: DateTime.utc_now(:microsecond)
-      })
-
-      Repo.insert!(%Ankole.Brain.Schemas.SchemaType{
-        name: "research",
-        primitive: "concept",
-        slug_prefix: "researchs/",
-        pack_name: "promoted",
-        extractable: true,
-        created_at: DateTime.utc_now(:microsecond)
-      })
+      {:ok, _} =
+        Repo.transact(fn _ ->
+          with {:ok, _} <-
+                 Ankole.Ash.create(Ankole.Brain.Schemas.SchemaPack, :ensure_promoted, %{}),
+               {:ok, type} <-
+                 Ankole.Ash.create(Ankole.Brain.Schemas.SchemaType, :register, %{
+                   name: "research",
+                   primitive: "concept",
+                   slug_prefix: "researchs/",
+                   pack_name: "promoted",
+                   extractable: true,
+                   created_at: DateTime.utc_now(:microsecond)
+                 }),
+               do: {:ok, type}
+        end)
 
       assert Enum.any?(Objects.writable_types(), &(&1.name == "research" and &1.extractable))
 
@@ -436,8 +436,12 @@ defmodule Ankole.Brain.ObjectsTest do
                )
 
       assert {:error, :object_deleted} = Objects.rollback(deleted.slug, version.id, human.uid)
-      assert Repo.get!(Object, original.id) == deleted
-      assert Repo.all(from(v in ObjectVersion, where: v.object_id == ^original.id)) == [version]
+      Ankole.DataCase.assert_persisted_equal(Repo.get!(Object, original.id), deleted)
+
+      Ankole.DataCase.assert_persisted_equal(
+        Repo.all(from(v in ObjectVersion, where: v.object_id == ^original.id)),
+        [version]
+      )
 
       assert Repo.all(from(c in Chunk, where: c.object_id == ^original.id, order_by: c.id)) ==
                before_chunks
@@ -535,18 +539,21 @@ defmodule Ankole.Brain.ObjectsTest do
                  human.uid
                )
 
-      Repo.insert!(%Timeline{
-        id: UUIDv7.autogenerate(),
-        object_slug: "events/kickoff",
-        date: ~D[2026-08-01],
-        provenance: "test",
-        summary: "Project kicked off",
-        detail: "",
-        audience_scope: "group:#{group.name}",
-        created_at: DateTime.utc_now(:microsecond)
-      })
+      assert {:ok, _row} =
+               Repo.transact(fn ->
+                 Ankole.Ash.create(Timeline, :record, %{
+                   id: UUIDv7.autogenerate(),
+                   object_slug: "events/kickoff",
+                   date: ~D[2026-08-01],
+                   provenance: "test",
+                   summary: "Project kicked off",
+                   detail: "",
+                   audience_scope: "group:#{group.name}",
+                   created_at: DateTime.utc_now(:microsecond)
+                 })
+               end)
 
-      assert {:ok, _object} = Objects.reconcile_chunks(object)
+      assert {:ok, _object} = Chunks.reconcile(object)
 
       chunks =
         Chunk
@@ -555,8 +562,8 @@ defmodule Ankole.Brain.ObjectsTest do
         |> Repo.all()
 
       assert [body_chunk, timeline_chunk] = chunks
-      assert body_chunk.content_kind == "body"
-      assert timeline_chunk.content_kind == "timeline"
+      assert body_chunk.content_kind == :body
+      assert timeline_chunk.content_kind == :timeline
       assert timeline_chunk.audience_scope == "group:#{group.name}"
       assert String.contains?(timeline_chunk.chunk_text, "2026-08-01")
       assert String.contains?(timeline_chunk.chunk_text, "Project kicked off")
@@ -571,12 +578,15 @@ defmodule Ankole.Brain.ObjectsTest do
                  human.uid
                )
 
-      Repo.insert!(%Ankole.Brain.Schemas.SlugAlias{
-        id: UUIDv7.autogenerate(),
-        alias_slug: "companies/old-name",
-        canonical_slug: "companies/new-name",
-        created_at: DateTime.utc_now(:microsecond)
-      })
+      assert {:ok, _row} =
+               Repo.transact(fn ->
+                 Ankole.Ash.create(Ankole.Brain.Schemas.SlugAlias, :add, %{
+                   id: UUIDv7.autogenerate(),
+                   alias_slug: "companies/old-name",
+                   canonical_slug: "companies/new-name",
+                   created_at: DateTime.utc_now(:microsecond)
+                 })
+               end)
 
       assert {:ok, object} = Objects.resolve_slug("companies/old-name")
       assert object.slug == "companies/new-name"
@@ -603,12 +613,15 @@ defmodule Ankole.Brain.ObjectsTest do
       assert {:ok, resolved} = Objects.resolve_reference(object.slug)
       assert resolved.slug == object.slug
 
-      Repo.insert!(%Ankole.Brain.Schemas.SlugAlias{
-        id: UUIDv7.autogenerate(),
-        alias_slug: "companies/minghu",
-        canonical_slug: object.slug,
-        created_at: DateTime.utc_now(:microsecond)
-      })
+      assert {:ok, _row} =
+               Repo.transact(fn ->
+                 Ankole.Ash.create(Ankole.Brain.Schemas.SlugAlias, :add, %{
+                   id: UUIDv7.autogenerate(),
+                   alias_slug: "companies/minghu",
+                   canonical_slug: object.slug,
+                   created_at: DateTime.utc_now(:microsecond)
+                 })
+               end)
 
       assert {:ok, redirected} = Objects.resolve_reference("companies/minghu")
       assert redirected.slug == object.slug

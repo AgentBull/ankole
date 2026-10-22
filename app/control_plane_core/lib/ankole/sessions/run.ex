@@ -2,7 +2,7 @@ defmodule Ankole.Sessions.Run do
   alias Ankole.AIGateway.ToolResultJournal
 
   @moduledoc """
-  Rebuilds one run from its inbox and tape and commits driver decisions.
+  Rebuilds one run from its inbox and tape and commits Turn decisions.
 
   The workspace epoch serializes these decisions with tool transactions.
   A process contains no authoritative progress that must survive its exit.
@@ -78,7 +78,7 @@ defmodule Ankole.Sessions.Run do
   def type(:scheduled), do: Ankole.Sessions.Scheduled
   def type(:workflow_task), do: Ankole.Sessions.WorkflowTask
 
-  @spec kind(String.t() | map()) :: :job | :workflow_task | :ambient | :scheduled | :main
+  @spec kind(String.t() | map()) :: :workflow_task | :ambient | :scheduled | :main
   def kind(%Signal{} = event) do
     if Signal.produced_by_kernel?(event), do: kernel_kind(event), else: :main
   end
@@ -87,7 +87,6 @@ defmodule Ankole.Sessions.Run do
 
   def kind(key) do
     case Ankole.Sessions.Key.parse(key) do
-      {:job, _} -> :job
       {:workflow_task, _} -> :workflow_task
       _ -> :main
     end
@@ -112,9 +111,7 @@ defmodule Ankole.Sessions.Run do
   @spec rebuild(map(), DateTime.t()) ::
           {:ok, :idle | %{event: Signal.t(), delay_ms: non_neg_integer()}}
   def rebuild(key, now \\ DateTime.utc_now(:microsecond)) do
-    case Queue.next_ready_event(key.agent_uid, key.session_id, now,
-           strict_queue_order?: kind(key.session_id) == :job
-         ) do
+    case Queue.next_ready_event(key.agent_uid, key.session_id, now) do
       nil ->
         {:ok, :idle}
 
@@ -124,27 +121,17 @@ defmodule Ankole.Sessions.Run do
   end
 
   @spec retry_delay_ms(Signal.t(), DateTime.t()) :: non_neg_integer()
-  def retry_delay_ms(%Signal{last_attempt_at: nil}, _now), do: 0
+  def retry_delay_ms(%Signal{status: :queued, available_at: due}, now),
+    do: max(DateTime.diff(due, now, :millisecond), 0)
 
-  def retry_delay_ms(event, now) do
-    if kind(event.session_id) == :job,
-      do: 0,
-      else: input_retry_delay_ms(event, now)
-  end
+  def retry_delay_ms(%Signal{status: :running} = event, now) do
+    retry_at =
+      DateTime.add(
+        event.last_attempt_at,
+        backoff_seconds(event.attempt_count - event.provider_capacity_attempt_count, :execution)
+      )
 
-  defp input_retry_delay_ms(event, now) do
-    due =
-      if DateTime.compare(event.available_at, event.last_attempt_at) == :gt,
-        do: event.available_at,
-        else:
-          DateTime.add(
-            event.last_attempt_at,
-            backoff_seconds(
-              event.attempt_count - event.provider_capacity_attempt_count,
-              :execution
-            )
-          )
-
+    due = if DateTime.after?(event.available_at, retry_at), do: event.available_at, else: retry_at
     max(DateTime.diff(due, now, :millisecond), 0)
   end
 
@@ -187,11 +174,10 @@ defmodule Ankole.Sessions.Run do
 
         with {:ok, event} <-
                event
-               |> Signal.changeset(%{
+               |> Ankole.Ash.update(:defer, %{
                  available_at: due,
-                 provider_capacity_attempt_count: count
-               })
-               |> repo.update(),
+                 provider_capacity?: capacity?
+               }),
              :ok <-
                Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
                  repo,
@@ -351,8 +337,9 @@ defmodule Ankole.Sessions.Run do
 
   @spec record_round_in_tx(module(), t()) :: {:ok, map()} | {:error, term()}
   def record_round_in_tx(repo, run) do
-    with :ok <- Fence.check_in_tx(repo, run),
-         {:ok, workflow_call} <- lock_workflow_progress_in_tx(repo, run),
+    with {:ok, workflow_call} <- lock_workflow_progress_in_tx(repo, run),
+         :ok <- Queue.lock_session_in_tx(repo, run.agent_uid, run.session_id),
+         :ok <- Fence.check_in_tx(repo, run),
          {:ok, journal} <-
            record_tool_results_and_complete_events_in_tx(
              repo,
@@ -479,13 +466,19 @@ defmodule Ankole.Sessions.Run do
   end
 
   def inject_in_tx(repo, run, events, now) do
-    with :ok <- Queue.lock_session_in_tx(repo, run.agent_uid, run.session_id),
-         :ok <- Fence.check_in_tx(repo, run) do
-      ids = Enum.map(events, & &1.id)
+    ids = Enum.map(events, & &1.id)
 
+    events =
       repo.all(
-        from input in Signal, where: input.id in ^ids, order_by: [asc: input.queue_sequence]
+        from(input in Signal, where: input.id in ^ids, order_by: [asc: input.queue_sequence])
       )
+
+    :ok = Ankole.Principals.WorkAccess.lock_authorizers_in_tx(repo, events)
+
+    with :ok <- Ankole.Sessions.Notices.lock_work_in_tx(repo, run),
+         :ok <- Queue.lock_session_in_tx(repo, run.agent_uid, run.session_id),
+         :ok <- Fence.check_in_tx(repo, run) do
+      events
       |> Enum.reduce_while({:ok, {[], []}}, fn event, {:ok, {injected, completed}} ->
         case inject_event_in_tx(repo, run, event, now) do
           {:ok, nil} -> {:cont, {:ok, {injected, completed}}}
@@ -502,19 +495,24 @@ defmodule Ankole.Sessions.Run do
   end
 
   defp inject_event_in_tx(repo, run, event, now) do
-    with %Signal{agent_uid: uid, session_id: session, input_state: "open", completed_at: nil} =
-           current <-
+    with %Signal{agent_uid: uid, session_id: session, status: live_status} =
+           current
+         when live_status in [:queued, :running] <-
            Ankole.Signals.lock_signal_in_tx(repo, event.id),
          true <- uid == run.agent_uid and session == run.session_id,
+         true <-
+           Ankole.Principals.WorkAccess.fields(current) ==
+             Ankole.Principals.WorkAccess.fields(event),
          false <- Ankole.Sessions.Commands.queued_followup?(current),
          true <-
            Ankole.Conversations.ModelPreferences.compatible?(
              current,
              run.spec.model_ref["profile"] || "primary"
            ),
-         {:ok, %Signal{input_state: "open", completed_at: nil} = authorized} <-
+         {:ok, %Signal{status: live_status} = authorized}
+         when live_status in [:queued, :running] <-
            Ankole.Sessions.Admission.authorize_event_in_tx(repo, current) do
-      authorized |> Signal.changeset(%{last_attempt_at: now}) |> repo.update()
+      authorized |> Ankole.Ash.update(:start_attempt, %{last_attempt_at: now})
     else
       {:error, _} = error -> error
       {:ok, %{signal: _} = result} -> {:ok, result}
@@ -646,7 +644,8 @@ defmodule Ankole.Sessions.Run do
   @spec finalize_recovered_in_tx(module(), t(), Outcome.t(), term()) ::
           {:ok, map()} | {:error, term()}
   def finalize_recovered_in_tx(repo, run, outcome, reason) do
-    with :ok <- Fence.check_in_tx(repo, run),
+    with :ok <- lock_for_write_in_tx(repo, run),
+         :ok <- Fence.check_in_tx(repo, run),
          {:ok, _} <- end_model_in_tx(repo, run, :stopped, DateTime.utc_now(:microsecond)),
          {:ok, {_state, run}} <- restore_tape(run),
          do: finalize_in_tx(repo, run, outcome, reason)
@@ -656,9 +655,12 @@ defmodule Ankole.Sessions.Run do
   @spec finalize_committed_workflow_input_in_tx(module(), Signal.t()) ::
           {:ok, :not_committed | map()} | {:error, term()}
   def finalize_committed_workflow_input_in_tx(repo, snapshot) do
-    with %SessionWorkspace{} = workspace <- Fence.lock_workspace_in_tx(repo, snapshot),
-         %Signal{completed_at: nil, input_state: "open", last_attempt_at: %DateTime{}} =
-           event <- Ankole.Signals.lock_signal_in_tx(repo, snapshot.id),
+    with :ok <- lock_workflow_in_tx(repo, snapshot),
+         %SessionWorkspace{} = workspace <- Fence.lock_workspace_in_tx(repo, snapshot),
+         %Signal{status: live_status, last_attempt_at: %DateTime{}} =
+           event
+         when live_status in [:queued, :running] <-
+           Ankole.Signals.lock_signal_in_tx(repo, snapshot.id),
          %{} = conversation <-
            AIGateway.active_conversation_for_update(
              repo,
@@ -683,14 +685,14 @@ defmodule Ankole.Sessions.Run do
            ),
          outcome when outcome in [:sleeping, :submitted] <- committed_workflow_outcome(run),
          {:ok, workspace} <-
-           workspace |> Ecto.Changeset.change(epoch: workspace.epoch + 1) |> repo.update() do
+           Ankole.Ash.update(workspace, :advance_epoch, %{}) do
       # The existing attempt ended before its input closed. A new claim would
       # change its committed domain state, including during tenant suspension.
       attempt = RoundState.get(run.model_response).workflow_attempt
       run = %{run | epoch: workspace.epoch, spec: %{request_context: %{"attempt" => attempt}}}
       finalize_in_tx(repo, run, outcome, nil)
     else
-      %Signal{completed_at: %DateTime{}} = event ->
+      %Signal{status: :completed} = event ->
         {:ok, %{status: :completed, signal: event}}
 
       {:error, _} = error ->
@@ -735,7 +737,7 @@ defmodule Ankole.Sessions.Run do
            ),
          workspace <- Fence.lock_workspace_in_tx(repo, snapshot),
          %Signal{} = event <- Ankole.Signals.lock_signal_in_tx(repo, snapshot.id) do
-      if event.completed_at || event.input_state != "open" do
+      if event.status not in [:queued, :running] do
         {:ok, %{status: :already_completed, signal: event}}
       else
         with {:ok, conversation} <-
@@ -746,7 +748,7 @@ defmodule Ankole.Sessions.Run do
                  event
                ),
              {:ok, workspace} <-
-               workspace |> Ecto.Changeset.change(epoch: workspace.epoch + 1) |> repo.update() do
+               Ankole.Ash.update(workspace, :advance_epoch, %{}) do
           run = %__MODULE__{
             agent_uid: event.agent_uid,
             session_id: event.session_id,
@@ -768,6 +770,7 @@ defmodule Ankole.Sessions.Run do
 
   @spec finalize_in_tx(module(), t(), Outcome.t(), term()) :: {:ok, map()} | {:error, term()}
   def finalize_in_tx(repo, run, outcome, reason, images \\ %{}) do
+    :ok = lock_for_write_in_tx(repo, run)
     :ok = Queue.lock_session_in_tx(repo, run.agent_uid, run.session_id)
     now = DateTime.utc_now(:microsecond)
 
@@ -794,6 +797,23 @@ defmodule Ankole.Sessions.Run do
          reply_event: reply_event,
          run: run
        }}
+    end
+  end
+
+  @doc "Locks domain work and participating Sessions before the epoch fence."
+  def lock_for_write_in_tx(repo, %{kind: :workflow_task} = run),
+    do: lock_workflow_in_tx(repo, run)
+
+  def lock_for_write_in_tx(repo, run),
+    do: Queue.lock_session_in_tx(repo, run.agent_uid, run.session_id)
+
+  defp lock_workflow_in_tx(repo, run) do
+    with {:ok, %{run: workflow}} <-
+           Ankole.Workflow.Slot.lock_session_work_in_tx(repo, run.agent_uid, run.session_id) do
+      Queue.lock_sessions_in_tx(repo, [
+        {run.agent_uid, run.session_id},
+        {run.agent_uid, workflow.owner_session_id}
+      ])
     end
   end
 
@@ -919,7 +939,7 @@ defmodule Ankole.Sessions.Run do
 
   defp update_events(events, operation) do
     Enum.reduce_while(events, {:ok, []}, fn event, {:ok, updated} ->
-      if event.completed_at || event.input_state != "open" do
+      if event.status not in [:queued, :running] do
         {:cont, {:ok, [event | updated]}}
       else
         case operation.(event) do
@@ -994,14 +1014,10 @@ defmodule Ankole.Sessions.Run do
              (mode == :stale_driver and workspace.epoch > run.epoch))
 
       with true <- eligible?,
-           %Signal{
-             completed_at: nil,
-             input_state: "open",
-             attempt_count: count,
-             provider_capacity_attempt_count: capacity
-           } = event
-           when count > capacity <- Ankole.Signals.lock_signal_in_tx(repo, run.signal_id) do
-        event |> Signal.changeset(%{attempt_count: count - 1}) |> repo.update()
+           %Signal{status: live_status} = event
+           when live_status in [:queued, :running] <-
+             Ankole.Signals.lock_signal_in_tx(repo, run.signal_id) do
+        event |> Ankole.Ash.update(:refund_attempt, %{})
       else
         _ -> {:ok, :unchanged}
       end
@@ -1029,6 +1045,15 @@ defmodule Ankole.Sessions.Run do
 
   @spec call_id(map()) :: String.t()
   def call_id(call), do: call[ResponseItems.pair_identity_field(call)]
+
+  def text(%{model_response: nil}), do: ""
+
+  def text(run),
+    do: Ankole.Conversations.Delivery.Text.visible_text(response_output(run.model_response)) || ""
+
+  def user(text),
+    do: %{"role" => "user", "content" => [%{"type" => "input_text", "text" => text}]}
+
   @spec response_id(map() | nil) :: String.t() | nil
   def response_id(nil), do: nil
   def response_id(%{id: id}), do: "resp_#{id}"
@@ -1061,7 +1086,7 @@ defmodule Ankole.Sessions.Run do
                  repo,
                  run.agent_uid,
                  run.conversation.id,
-                 statuses: ["generating"],
+                 statuses: [:generating],
                  lock: true
                ) do
           Enum.reduce_while(generating, {:ok, []}, fn message, {:ok, reclaimed} ->
@@ -1130,7 +1155,7 @@ defmodule Ankole.Sessions.Run do
           run = %{run | todo: result.todos || run.todo}
 
           follow_ups = run.follow_ups
-          run = Ankole.Sessions.Machine.failure(run, call, result)
+          run = Ankole.Sessions.Turn.track_failure(run, call, result)
 
           %{
             run

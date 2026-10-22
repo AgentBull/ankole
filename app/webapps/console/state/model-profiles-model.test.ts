@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { CustomModelProfileModel, draftFromProfile, ModelProfilesModel, PROFILE_NAMES } from './model-profiles-model'
+import { CustomModelProfileModel, ModelProfilesModel, PROFILE_NAMES } from './model-profiles-model'
 
 describe('ModelProfilesModel', () => {
   test('exposes and initializes every provider-backed profile', () => {
@@ -117,33 +117,6 @@ describe('ModelProfilesModel', () => {
     )
     expect(model.profiles.primary.dirty.value).toBeFalse()
     model[Symbol.dispose]()
-  })
-})
-
-describe('draftFromProfile', () => {
-  test('converts one persisted profile object into the editor draft shape', () => {
-    expect(
-      draftFromProfile({
-        description: 'Research profile',
-        provider_id: 'openai',
-        model: 'gpt-5',
-        context_length: 131_072,
-        provider_options: { reasoningEffort: 'high' }
-      })
-    ).toEqual({
-      description: 'Research profile',
-      providerID: 'openai',
-      model: 'gpt-5',
-      contextLength: '131072',
-      providerOptions: { reasoningEffort: 'high' }
-    })
-    expect(draftFromProfile({})).toEqual({
-      description: '',
-      providerID: '',
-      model: '',
-      contextLength: '',
-      providerOptions: {}
-    })
   })
 })
 

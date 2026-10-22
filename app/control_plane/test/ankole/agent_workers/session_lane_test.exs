@@ -33,7 +33,7 @@ defmodule Ankole.AgentWorkers.SessionLaneTest do
 
     assert :ok = SessionLane.handle(envelope, %{worker_id: agent.uid})
 
-    assert {:ok, %{job: %{status: "stopped"}}} =
+    assert {:ok, %{job: %{status: :stopped}}} =
              BackgroundAgentJobs.request_stop(job.id, %{"agent_uid" => agent.uid})
 
     assert {:error, :background_agent_job_attempt_changed} =

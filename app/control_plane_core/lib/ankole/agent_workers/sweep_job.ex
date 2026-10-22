@@ -27,7 +27,7 @@ defmodule Ankole.AgentWorkers.SweepJob do
   defp sweep(%Oban.Job{args: args}) do
     rows(
       from w in AgentWorker,
-        where: w.state == "deleting" and is_nil(w.provider_id),
+        where: w.state == :deleting and is_nil(w.provider_id),
         select: w
     )
     |> Enum.each(&ReconcileJob.enqueue/1)
@@ -80,14 +80,14 @@ defmodule Ankole.AgentWorkers.SweepJob do
     conditions =
       dynamic(
         [w, p],
-        w.state in ["starting", "stale", "draining", "deleting"] or
+        w.state in [:starting, :stale, :draining, :deleting] or
           (not is_nil(w.generation) and
              (w.image != ^provider.runtime.image or
                 w.protocol_version != ^provider.runtime.protocol_version or
                 w.settings_digest != ^provider.settings_digest)) or
-          (w.state in ["absent", "paused"] and p.status == :active and
+          (w.state in [:absent, :paused] and p.status == :active and
              (w.initial_start_pending or w.wanted_until > fragment("now()") or ^turn)) or
-          (w.state == "ready" and
+          (w.state == :ready and
              (is_nil(p.uid) or p.status != :active or ^idle or
                 is_nil(w.last_worker_heartbeat_at) or
                 w.last_worker_heartbeat_at <=
@@ -144,8 +144,8 @@ defmodule Ankole.AgentWorkers.SweepJob do
 
   defp missing_instance?(row, present, now) do
     eligible =
-      row.state in ["ready", "stale", "paused"] or
-        (row.state == "starting" and DateTime.diff(now, row.state_changed_at) > 60)
+      row.state in [:ready, :stale, :paused] or
+        (row.state == :starting and DateTime.diff(now, row.state_changed_at) > 60)
 
     eligible and not MapSet.member?(present, {row.agent_uid, row.generation})
   end
@@ -153,7 +153,7 @@ defmodule Ankole.AgentWorkers.SweepJob do
   # The platform changed the instance outside the control plane, for example
   # an operator resumed a paused instance or the process ended.
   defp phase_differs?(row, object),
-    do: object.phase == :exited or row.state == "paused" != (object.phase == :paused)
+    do: object.phase == :exited or row.state == :paused != (object.phase == :paused)
 
   # Check durable ownership again before deleting a platform orphan.
   # The platform call runs outside any transaction.

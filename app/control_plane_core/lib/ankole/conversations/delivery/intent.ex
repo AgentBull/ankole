@@ -7,158 +7,308 @@ defmodule Ankole.Conversations.Delivery.Intent do
   Failed and expired rows stop; unknown sends require explicit operator action.
   """
 
-  use Ankole.Schema, tenancy: :tenant
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Conversations.Domain,
+    extensions: [AshStateMachine]
 
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
+  @type t :: %__MODULE__{}
 
-  alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JSONPayload
+  postgres do
+    table("deliveries")
+    repo(Ankole.Repo)
+    migrate?(false)
 
-  @primary_key false
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
+    foreign_key_names([
+      {:agent_uid, "deliveries_agent_uid_fkey"},
+      {:conversation_id, "deliveries_conversation_id_fkey"},
+      {:created_message_id, "deliveries_created_message_id_fkey"},
+      {:target_message_id, "deliveries_target_message_id_fkey"},
+      {:reply_to_message_id, "deliveries_reply_to_message_id_fkey"}
+    ])
 
-  schema "deliveries" do
-    belongs_to :agent, Principal,
-      foreign_key: :agent_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey,
-      primary_key: true
+    unique_index_names([{[:agent_uid, :binding_name, :outbound_key], "deliveries_pkey"}])
 
-    field :binding_name, :string, primary_key: true
-    field :outbound_key, :string, primary_key: true
+    check_constraints do
+      check_constraint(:recovery_status, "deliveries_recovery_status_valid")
+      check_constraint(:recovery_status, "deliveries_recovery_status_delivery")
+      check_constraint(:recovery_reason, "deliveries_recovery_reason_paired")
+      check_constraint(:possible_duplicate_notice, "deliveries_duplicate_notice_requires_flag")
+      check_constraint(:recovery_state, "deliveries_recovery_state_adapter_only")
+      check_constraint(:recovery_state, "deliveries_recovery_state_object")
+      check_constraint(:payload, "deliveries_payload_object")
+      check_constraint(:last_error, "deliveries_last_error_object")
+      check_constraint(:attempt_count, "deliveries_attempts_non_negative")
+      check_constraint(:delivery_class, "deliveries_delivery_class_check")
+    end
+  end
 
-    field :delivery_class, Ecto.Enum,
-      values: [:generic, :durable_ai_reply],
+  attributes do
+    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:binding_name, :string, primary_key?: true, allow_nil?: false, public?: true)
+    attribute(:outbound_key, :string, primary_key?: true, allow_nil?: false, public?: true)
+
+    attribute(:delivery_class, Ankole.Ash.Types.State,
+      constraints: [one_of: [:generic, :durable_ai_reply]],
+      public?: true,
+      allow_nil?: false,
       default: :generic
+    )
 
-    # The provider-visible action this row represents. `reply_to_provider_message_id`
-    # is the entry being replied to; `target_provider_message_id` is the entry an
-    # edit/delete/reaction acts on; `created_provider_message_id` is filled in after a
-    # successful post with the id the provider assigned to the new entry.
-    field :operation, Ecto.Enum,
-      values: [:post, :reply, :edit, :delete, :reaction_add, :reaction_remove, :divider, :card]
+    attribute(:operation, Ankole.Ash.Types.State,
+      constraints: [
+        one_of: [:post, :reply, :edit, :delete, :reaction_add, :reaction_remove, :divider, :card]
+      ],
+      public?: true,
+      allow_nil?: false
+    )
 
-    field :status, Ecto.Enum,
-      values: [:pending, :sent, :failed, :expired, :unknown],
+    attribute(:status, Ankole.Ash.Types.State,
+      constraints: [one_of: [:pending, :sent, :failed, :expired, :unknown]],
+      public?: true,
+      allow_nil?: false,
       default: :pending
+    )
 
-    field :conversation_id, Ecto.UUID
-    field :provider_thread_id, :string
-    field :reply_to_provider_message_id, :string
-    field :target_provider_message_id, :string
-    field :created_provider_message_id, :string
-    field :created_message_id, Ecto.UUID
-    field :target_message_id, Ecto.UUID
-    field :reply_to_message_id, Ecto.UUID
-    field :expires_at, :utc_datetime_usec
-    # Back-references to where this side effect originated, for audit/recovery.
-    field :source_signal_id, Ecto.UUID
-    field :ai_message_id, Ecto.UUID
-    field :payload, :map, default: %{}
-    # Plain-text rendering used both as the search/mirror text and as the
-    # fallback when a rich operation (card/divider) needs a text representation.
-    field :fallback_visible_text, :string
-    field :idempotency_key, :string
-    field :attempt_count, :integer, default: 0
-    # Hard automatic provider-call ceiling for every delivery class.
-    field :max_attempts, :integer, default: 10
-    field :last_error, :map, default: %{}
-    # Set the moment dispatch tells the adapter to send. If the node restarts
-    # while still in `:pending`, this timestamp is the signal that a provider
-    # call may already be in flight, triggering reconcile-or-mark-unknown
-    # recovery instead of a blind resend (see in_flight_recovery_action/2).
-    field :platform_send_started_at, :utc_datetime_usec
-    # When a `:failed` or recoverable `:unknown` row becomes eligible
-    # for its next attempt. This is nil after exhaustion or a blocking failure.
-    field :next_attempt_at, :utc_datetime_usec
-    # Adapter-supplied breadcrumb carried across a reconcile (e.g. a provider
-    # idempotency token) so recovery can confirm a prior send.
-    field :recovery_state, :map, default: %{}
+    attribute(:recovery_status, Ankole.Ash.Types.State,
+      constraints: [one_of: [:blocked, :permanent, :exhausted]],
+      public?: true
+    )
 
-    timestamps()
+    attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:created_message_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:target_message_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:reply_to_message_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:source_signal_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:ai_message_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:provider_thread_id, :string, public?: true)
+    attribute(:reply_to_provider_message_id, :string, public?: true)
+    attribute(:target_provider_message_id, :string, public?: true)
+    attribute(:created_provider_message_id, :string, public?: true)
+    attribute(:fallback_visible_text, :string, public?: true)
+    attribute(:idempotency_key, :string, public?: true)
+    attribute(:recovery_reason, :string, public?: true)
+    attribute(:possible_duplicate_notice, :string, public?: true)
+    attribute(:expires_at, :utc_datetime_usec, public?: true)
+    attribute(:platform_send_started_at, :utc_datetime_usec, public?: true)
+    attribute(:next_attempt_at, :utc_datetime_usec, public?: true)
+    attribute(:payload, Ankole.Ash.Types.JSONMap, default: %{}, allow_nil?: false, public?: true)
+
+    attribute(:last_error, Ankole.Ash.Types.JSONMap,
+      default: %{},
+      allow_nil?: false,
+      public?: true,
+      constraints: [allow_datetime?: true]
+    )
+
+    attribute(:recovery_state, Ankole.Ash.Types.JSONMap,
+      default: %{},
+      allow_nil?: false,
+      public?: true,
+      constraints: [allow_datetime?: true]
+    )
+
+    attribute(:attempt_count, :integer, default: 0, allow_nil?: false, constraints: [min: 0])
+
+    attribute(:max_attempts, :integer,
+      default: 10,
+      allow_nil?: false,
+      constraints: [min: 1],
+      public?: true
+    )
+
+    attribute(:possible_duplicate, :boolean, default: false, allow_nil?: false, public?: true)
+    timestamps(type: :utc_datetime_usec)
   end
 
-  @doc """
-  Builds a changeset for signal gateway intent rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(entry, attrs) do
-    entry
-    |> cast(attrs, [
-      :agent_uid,
-      :binding_name,
-      :outbound_key,
-      :delivery_class,
-      :operation,
-      :status,
-      :conversation_id,
-      :provider_thread_id,
-      :reply_to_provider_message_id,
-      :target_provider_message_id,
-      :created_provider_message_id,
-      :created_message_id,
-      :target_message_id,
-      :reply_to_message_id,
-      :expires_at,
-      :source_signal_id,
-      :ai_message_id,
-      :payload,
-      :fallback_visible_text,
-      :idempotency_key,
-      :attempt_count,
-      :max_attempts,
-      :last_error,
-      :platform_send_started_at,
-      :next_attempt_at,
-      :recovery_state
-    ])
-    |> normalize_blank([
-      :agent_uid,
-      :binding_name,
-      :outbound_key,
-      :delivery_class,
-      :conversation_id,
-      :provider_thread_id,
-      :reply_to_provider_message_id,
-      :target_provider_message_id,
-      :created_provider_message_id,
-      :fallback_visible_text,
-      :idempotency_key
-    ])
-    |> validate_required([
-      :agent_uid,
-      :binding_name,
-      :outbound_key,
-      :delivery_class,
-      :operation,
-      :status,
-      :payload,
-      :attempt_count,
-      :max_attempts,
-      :last_error,
-      :recovery_state
-    ])
-    |> validate_number(:attempt_count, greater_than_or_equal_to: 0)
-    |> validate_number(:max_attempts, greater_than: 0)
-    |> JSONPayload.validate_map(:payload)
-    |> JSONPayload.validate_map(:last_error, allow_datetime: true)
-    |> JSONPayload.validate_map(:recovery_state, allow_datetime: true)
-    |> foreign_key_constraint(:agent_uid)
-    |> unique_constraint([:agent_uid, :binding_name, :outbound_key],
-      name: :deliveries_pkey
-    )
-    |> check_constraint(:payload, name: :deliveries_payload_object)
-    |> check_constraint(:last_error, name: :deliveries_last_error_object)
-    |> check_constraint(:recovery_state,
-      name: :deliveries_recovery_state_object
-    )
-    |> check_constraint(:attempt_count,
-      name: :deliveries_attempts_non_negative
-    )
-    |> check_constraint(:delivery_class,
-      name: :deliveries_delivery_class_check
+  changes do
+    change(
+      fn changeset, _context ->
+        Ash.Changeset.filter(changeset,
+          status: changeset.data.status,
+          attempt_count: changeset.data.attempt_count
+        )
+      end,
+      on: [:update]
     )
   end
+
+  state_machine do
+    state_attribute(:status)
+    initial_states([:pending, :failed])
+    default_initial_state(:pending)
+
+    transitions do
+      transition(:start_attempt, from: [:pending, :failed], to: :pending)
+      transition(:succeed, from: :pending, to: :sent)
+      transition(:fail, from: [:pending, :failed], to: :failed)
+      transition(:mark_unknown, from: :pending, to: :unknown)
+      transition(:expire, from: [:pending, :failed], to: :expired)
+      transition(:requeue, from: [:failed, :unknown], to: :pending)
+    end
+  end
+
+  actions do
+    defaults([:read])
+
+    create_if_absent :commit do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+
+      accept([
+        :agent_uid,
+        :binding_name,
+        :outbound_key,
+        :delivery_class,
+        :operation,
+        :status,
+        :conversation_id,
+        :provider_thread_id,
+        :reply_to_provider_message_id,
+        :target_provider_message_id,
+        :target_message_id,
+        :reply_to_message_id,
+        :expires_at,
+        :source_signal_id,
+        :ai_message_id,
+        :payload,
+        :fallback_visible_text,
+        :idempotency_key,
+        :max_attempts,
+        :last_error,
+        :recovery_status,
+        :recovery_reason,
+        :recovery_state
+      ])
+    end
+
+    in_tx_update :prepare do
+      accept([:payload, :operation, :reply_to_provider_message_id, :target_provider_message_id])
+      validate(attribute_in(:status, [:pending, :failed]))
+    end
+
+    in_tx_update :import_attachments do
+      accept([:payload])
+      validate(attribute_does_not_equal(:status, :sent))
+    end
+
+    in_tx_update :start_attempt do
+      accept([:platform_send_started_at])
+      require_attributes([:platform_send_started_at])
+
+      change(fn changeset, _context ->
+        case check_attempt(changeset.data) do
+          :ok ->
+            changeset
+
+          {:error, reason} ->
+            Ash.Changeset.add_error(changeset, Ankole.Ash.DomainError.exception(reason: reason))
+        end
+      end)
+
+      change(transition_state(:pending))
+      change(atomic_update(:attempt_count, expr(attempt_count + 1)))
+      change(set_attribute(:next_attempt_at, nil))
+    end
+
+    in_tx_update :succeed do
+      accept([
+        :created_provider_message_id,
+        :provider_thread_id,
+        :payload,
+        :fallback_visible_text,
+        :recovery_state,
+        :operation,
+        :target_provider_message_id,
+        :reply_to_provider_message_id
+      ])
+
+      change(transition_state(:sent))
+      change(set_attribute(:last_error, %{}))
+      change(set_attribute(:next_attempt_at, nil))
+      change(set_attribute(:recovery_status, nil))
+      change(set_attribute(:recovery_reason, nil))
+    end
+
+    in_tx_update :link_message do
+      accept([:created_message_id])
+      validate(attribute_equals(:status, :sent))
+    end
+
+    in_tx_update :fail do
+      accept([
+        :last_error,
+        :next_attempt_at,
+        :recovery_status,
+        :recovery_reason,
+        :possible_duplicate,
+        :possible_duplicate_notice
+      ])
+
+      change(transition_state(:failed))
+    end
+
+    in_tx_update :mark_unknown do
+      accept([
+        :last_error,
+        :recovery_status,
+        :recovery_reason,
+        :possible_duplicate,
+        :possible_duplicate_notice
+      ])
+
+      change(transition_state(:unknown))
+      change(set_attribute(:next_attempt_at, nil))
+    end
+
+    in_tx_update :expire do
+      accept([])
+      change(transition_state(:expired))
+      change(set_attribute(:next_attempt_at, nil))
+      change(set_attribute(:recovery_status, nil))
+      change(set_attribute(:recovery_reason, nil))
+    end
+
+    in_tx_update :requeue do
+      accept([
+        :payload,
+        :fallback_visible_text,
+        :possible_duplicate,
+        :possible_duplicate_notice,
+        :next_attempt_at
+      ])
+
+      require_attributes([:next_attempt_at])
+      validate(attribute_equals(:delivery_class, :durable_ai_reply))
+
+      validate(fn changeset, _context ->
+        if is_nil(changeset.data.next_attempt_at),
+          do: :ok,
+          else:
+            {:error, field: :next_attempt_at, message: "automatic recovery is already scheduled"}
+      end)
+
+      change(transition_state(:pending))
+      change(atomic_update(:max_attempts, expr(attempt_count + 1)))
+      change(set_attribute(:platform_send_started_at, nil))
+      change(set_attribute(:recovery_status, nil))
+      change(set_attribute(:recovery_reason, nil))
+    end
+  end
+
+  @doc "Checks the attempt budget and whether another provider send owns the row."
+  def check_attempt(%__MODULE__{status: :pending, platform_send_started_at: started_at})
+      when not is_nil(started_at),
+      do: {:error, :intent_send_in_progress}
+
+  def check_attempt(%__MODULE__{attempt_count: attempts, max_attempts: maximum})
+      when attempts >= maximum,
+      do: {:error, :intent_attempts_exhausted}
+
+  def check_attempt(%__MODULE__{}), do: :ok
 end

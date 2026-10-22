@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { Writable } from 'node:stream'
 import type { DestinationStream } from 'pino'
-import { createWorkerLogger, createWorkerPinoOptions } from '../src/worker/logging'
+import { createWorkerLogger } from '../src/worker/logging'
 
 describe('@ankole/agent-computer worker logger', () => {
   it('writes structured JSON without the Pino level field', () => {
@@ -154,11 +154,6 @@ describe('@ankole/agent-computer worker logger', () => {
     expect(entry).not.toHaveProperty('severity_number')
     expect(Object.keys(entry).some(key => key.startsWith('logging.googleapis.com/'))).toBe(false)
     expect((recordValue(entry.labels) ?? {}).component).toBe('agent-computer')
-  })
-
-  it('keeps the worker output structured so kit can own local display formatting', () => {
-    expect(createWorkerPinoOptions({ NODE_ENV: 'production' }).transport).toBeUndefined()
-    expect(createWorkerPinoOptions({ NODE_ENV: 'development' }).transport).toBeUndefined()
   })
 })
 

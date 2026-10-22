@@ -7,6 +7,8 @@ order: 317
 
 WorkerProvider는 Agent 컴퓨터의 실행 위치와 Home 및 캐시 저장 방식을 정합니다. Agent마다 고정된 provider와 전용 Worker가 있습니다. provider는 사이트 소유이며 자격 증명은 Console의 별도 필드에 암호화해 저장합니다. 설정 YAML에 키를 넣지 마세요. 생성과 일상 운영은 [Worker](../worker-management/)를 참조하세요.
 
+Vercel은 `vercel-worker-provider` Control Plane Plugin이 필요합니다. Alibaba Function Compute는 모델 어댑터도 제공하는 `china-market-ai-providers`가 필요합니다. 사용 전에 필요한 Plugin을 활성화하고 제어면을 재시작하세요. 기존 배포는 업그레이드 전에 해당 Plugin ID를 선택해야 합니다. 일시 중지되거나 삭제 대기 중인 Agent를 포함하여 Worker provider를 참조하는 Agent가 있으면 Plugin을 비활성화할 수 없습니다.
+
 ## 세 가지 저장소
 
 | 저장소 | 내용 | 영속성 |

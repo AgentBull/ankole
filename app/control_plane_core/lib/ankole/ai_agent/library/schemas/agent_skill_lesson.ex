@@ -1,98 +1,117 @@
 defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
-  @moduledoc """
-  One leased process-guardrail checklist item for one (agent, skill).
+  @moduledoc "Immutable lesson content with a renewable lease and terminal retirement."
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIAgent.Library.Domain
 
-  A row's content is immutable: correcting a lesson retires the old row and
-  writes a new one. Only the lease fields (`review_after`, `checked_release`,
-  `checked_skill_hash`) change in place on renewal. Rows are never hard
-  deleted, so the table is its own audit trail.
-  """
+  postgres do
+    table("agent_skill_lessons")
+    repo(Ankole.Repo)
+    migrate?(false)
+    storage_types(evidence_job_ids: :map)
+    foreign_key_names(agent_uid: "agent_skill_lessons_agent_uid_fkey")
 
-  use Ankole.Schema, tenancy: :tenant
-
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2, normalize_lower: 2]
-
-  alias Ankole.Principals.Principal
-
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
-  @skill_name_format ~r/\A[a-z][a-z0-9_-]{0,63}\z/
-  @author_kinds ~w(dreaming human)
-  @retire_reasons ~w(human_revoked lapsed obsolete)
-
-  schema "agent_skill_lessons" do
-    belongs_to(:agent, Principal,
-      foreign_key: :agent_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
-    )
-
-    field(:skill_name, :string)
-    field(:content, :string)
-    field(:author_kind, :string)
-
-    field(:author, Ankole.Ecto.ActorRef)
-
-    field(:evidence_job_ids, {:array, :integer}, default: [])
-    field(:checked_release, :string)
-    field(:checked_skill_hash, :string)
-    field(:review_after, :utc_datetime_usec)
-    field(:retired_at, :utc_datetime_usec)
-    field(:retire_reason, :string)
-
-    timestamps()
-  end
-
-  @doc """
-  Builds a changeset for skill lesson rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(lesson, attrs) do
-    lesson
-    |> cast(attrs, [
-      :agent_uid,
-      :skill_name,
-      :content,
-      :author_kind,
-      :author,
-      :evidence_job_ids,
-      :checked_release,
-      :checked_skill_hash,
-      :review_after,
-      :retired_at,
-      :retire_reason
-    ])
-    |> normalize_blank([:agent_uid, :skill_name, :content, :author_kind])
-    |> normalize_lower(:skill_name)
-    |> validate_required([:agent_uid, :skill_name, :content, :author_kind])
-    |> validate_format(:skill_name, @skill_name_format)
-    |> validate_inclusion(:author_kind, @author_kinds)
-    |> validate_inclusion(:retire_reason, @retire_reasons)
-    |> validate_lease_shape()
-    |> foreign_key_constraint(:agent_uid)
-    |> check_constraint(:author_kind, name: :agent_skill_lessons_author_kind)
-    |> check_constraint(:skill_name, name: :agent_skill_lessons_skill_name_format)
-    |> check_constraint(:content, name: :agent_skill_lessons_content_present)
-    |> check_constraint(:retire_reason, name: :agent_skill_lessons_retire_shape)
-    |> check_constraint(:review_after, name: :agent_skill_lessons_lease_shape)
-  end
-
-  defp validate_lease_shape(changeset) do
-    case get_field(changeset, :author_kind) do
-      "dreaming" ->
-        changeset
-        |> validate_required([:review_after, :checked_release, :checked_skill_hash])
-        |> validate_length(:evidence_job_ids, min: 1)
-
-      "human" ->
-        if is_nil(get_field(changeset, :review_after)),
-          do: changeset,
-          else: add_error(changeset, :review_after, "human lessons carry no lease")
-
-      _other ->
-        changeset
+    check_constraints do
+      check_constraint(:author_kind, "agent_skill_lessons_author_kind")
+      check_constraint(:skill_name, "agent_skill_lessons_skill_name_format")
+      check_constraint(:content, "agent_skill_lessons_content_present")
+      check_constraint(:evidence_job_ids, "agent_skill_lessons_evidence_array")
+      check_constraint(:retire_reason, "agent_skill_lessons_retire_shape")
+      check_constraint(:review_after, "agent_skill_lessons_lease_shape")
     end
   end
+
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+    )
+
+    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false, public?: true)
+
+    attribute(:skill_name, :string,
+      allow_nil?: false,
+      public?: true,
+      constraints: [trim?: false, allow_empty?: true]
+    )
+
+    attribute(:content, :string,
+      allow_nil?: false,
+      public?: true,
+      constraints: [trim?: false, allow_empty?: true]
+    )
+
+    attribute(:author_kind, :atom,
+      allow_nil?: false,
+      public?: true,
+      constraints: [one_of: [:dreaming, :human]]
+    )
+
+    attribute(:author, Ankole.Ash.Types.ActorRef, public?: true)
+
+    attribute(:evidence_job_ids, {:array, :integer},
+      allow_nil?: false,
+      default: [],
+      public?: true
+    )
+
+    attribute(:checked_release, :string, public?: true)
+    attribute(:checked_skill_hash, :string, public?: true)
+    attribute(:review_after, :utc_datetime_usec, public?: true)
+    attribute(:retired_at, :utc_datetime_usec, public?: true)
+
+    attribute(:retire_reason, :atom,
+      public?: true,
+      constraints: [one_of: [:human_revoked, :lapsed, :obsolete]]
+    )
+
+    create_timestamp(:inserted_at, type: :utc_datetime_usec)
+    update_timestamp(:updated_at, type: :utc_datetime_usec)
+  end
+
+  validations do
+    validate(Ankole.AIAgent.Library.Validations.LeaseShape)
+  end
+
+  actions do
+    defaults([:read])
+
+    create :teach_human do
+      accept([:agent_uid, :skill_name, :content, :author])
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+      change(set_attribute(:author_kind, :human))
+      change(Ankole.AIAgent.Library.Changes.PrepareLesson, only_when_valid?: true)
+    end
+
+    create :teach_dreaming do
+      accept([
+        :agent_uid,
+        :skill_name,
+        :content,
+        :author,
+        :evidence_job_ids,
+        :checked_release,
+        :checked_skill_hash,
+        :review_after
+      ])
+
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+      change(set_attribute(:author_kind, :dreaming))
+      change(Ankole.AIAgent.Library.Changes.PrepareLesson, only_when_valid?: true)
+    end
+
+    in_tx_update :renew do
+      accept([:review_after, :checked_release, :checked_skill_hash])
+      change(filter(expr(is_nil(retired_at) and author_kind == :dreaming)))
+    end
+
+    in_tx_update :retire do
+      accept([:retired_at, :retire_reason])
+      validate(present([:retired_at, :retire_reason]))
+      change(filter(expr(is_nil(retired_at))))
+    end
+  end
+
+  @type t :: %__MODULE__{}
 end

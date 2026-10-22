@@ -141,22 +141,30 @@ defmodule Ankole.AIGateway.CodexVisionTest do
   end
 
   test "logs unexpected fallback crashes before safely removing images" do
-    log =
-      capture_log([level: :error, metadata: [:event, :model_selector, :reason]], fn ->
-        assert {:ok, adapted} =
-                 CodexVision.adapt(
-                   "agent-1",
-                   request_with_images(["text"], fallback_binding()),
-                   request_fallback: fn _subject_uid, _request ->
-                     raise "vision adapter exploded"
-                   end
-                 )
+    secret = "private-vision-token-/srv/private/image"
 
-        assert image_parts(adapted["input"]) == []
-      end)
+    log =
+      capture_log(
+        [level: :error, metadata: [:event, :model_selector, :failure, :stacktrace]],
+        fn ->
+          assert {:ok, adapted} =
+                   CodexVision.adapt(
+                     "agent-1",
+                     request_with_images(["text"], fallback_binding()),
+                     request_fallback: fn _subject_uid, _request ->
+                       raise secret
+                     end
+                   )
+
+          assert image_parts(adapted["input"]) == []
+        end
+      )
 
     assert log =~ "Codex vision fallback crashed"
-    assert log =~ "vision adapter exploded"
+    assert log =~ "ai_gateway.codex_vision.fallback_crashed"
+    assert log =~ "RuntimeError"
+    assert log =~ "codex_vision_test.exs"
+    refute log =~ secret
   end
 
   defp request_with_images(input_modalities, fallback) do

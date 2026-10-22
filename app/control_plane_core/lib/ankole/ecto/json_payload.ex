@@ -7,8 +7,6 @@ defmodule Ankole.Ecto.JSONPayload do
   should fail before they are stringified into durable state.
   """
 
-  import Ecto.Changeset
-
   @type reason ::
           :unsupported_atom
           | :unsupported_struct
@@ -98,65 +96,6 @@ defmodule Ankole.Ecto.JSONPayload do
     end
   end
 
-  @doc """
-  Normalizes and validates any JSON value in an Ecto changeset.
-  """
-  @spec validate_json(Ecto.Changeset.t(), atom(), keyword()) :: Ecto.Changeset.t()
-  def validate_json(changeset, field, opts \\ []) do
-    changeset
-    |> update_change(field, &normalize_change(&1, opts))
-    |> validate_change(field, fn ^field, value ->
-      case normalize(value, opts) do
-        {:ok, _normalized} -> []
-        {:error, reason} -> [{field, "must be JSON-serializable: #{reason_text(reason)}"}]
-      end
-    end)
-  end
-
-  @doc """
-  Normalizes and validates a map field in an Ecto changeset.
-  """
-  @spec validate_map(Ecto.Changeset.t(), atom(), keyword()) :: Ecto.Changeset.t()
-  def validate_map(changeset, field, opts \\ []) do
-    changeset
-    |> update_change(field, &normalize_change(&1, opts))
-    |> validate_change(field, fn ^field, value ->
-      case normalize_map(value, opts) do
-        {:ok, _normalized} ->
-          []
-
-        {:error, reason} ->
-          [{field, "must be JSON-serializable object: #{reason_text(reason)}"}]
-      end
-    end)
-  end
-
-  @doc """
-  Normalizes and validates a list field in an Ecto changeset.
-  """
-  @spec validate_list(Ecto.Changeset.t(), atom(), keyword()) :: Ecto.Changeset.t()
-  def validate_list(changeset, field, opts \\ []) do
-    changeset
-    |> update_change(field, &normalize_change(&1, opts))
-    |> validate_change(field, fn ^field, value ->
-      case normalize_list(value, opts) do
-        {:ok, _normalized} -> []
-        {:error, reason} -> [{field, "must be JSON-serializable list: #{reason_text(reason)}"}]
-      end
-    end)
-  end
-
-  # In a changeset, normalization is best-effort: rewrite the value when it can
-  # be made JSON-safe, but on failure leave the original in place so the paired
-  # `validate_change` produces a real validation error (rather than this step
-  # swallowing the bad value).
-  defp normalize_change(value, opts) do
-    case normalize(value, opts) do
-      {:ok, normalized} -> normalized
-      {:error, _reason} -> value
-    end
-  end
-
   defp normalize_key(key) when is_binary(key), do: normalize(key)
   defp normalize_key(key) when is_atom(key), do: {:ok, Atom.to_string(key)}
   defp normalize_key(_key), do: {:error, :non_string_map_key}
@@ -164,8 +103,8 @@ defmodule Ankole.Ecto.JSONPayload do
   defp normalized_key(key) when is_binary(key), do: key
   defp normalized_key(key) when is_atom(key), do: Atom.to_string(key)
 
-  defp reason_text({:duplicate_normalized_key, key}), do: "duplicate normalized key #{key}"
-  defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
+  def reason_text({:duplicate_normalized_key, _key}), do: "duplicate normalized key"
+  def reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
 
   defp ensure_encodable(value) do
     case Ankole.JSON.encode(value) do

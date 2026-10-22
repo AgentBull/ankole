@@ -8,6 +8,7 @@ defmodule Ankole.Signals.Webhooks do
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.AutomationJobs
@@ -17,7 +18,7 @@ defmodule Ankole.Signals.Webhooks do
   alias Ankole.Conversations.Route
   alias Ankole.Signals.WebhookEndpoint
 
-  @active_statuses ~w(armed active)
+  @active_statuses [:armed, :active]
   @token_pattern ~r/\Awh_[A-Za-z0-9_-]{43}\z/
 
   @type receive_result ::
@@ -54,7 +55,7 @@ defmodule Ankole.Signals.Webhooks do
                  Map.fetch!(attrs, "agent_uid")
                ),
              {:ok, endpoint} <-
-               %WebhookEndpoint{} |> WebhookEndpoint.changeset(attrs) |> repo.insert() do
+               Ankole.Ash.create(WebhookEndpoint, :create, attrs) do
           {:ok, %{webhook_endpoint: endpoint, token: token}}
         end
       end)
@@ -198,13 +199,20 @@ defmodule Ankole.Signals.Webhooks do
   """
   @spec expire_due(DateTime.t()) :: non_neg_integer()
   def expire_due(%DateTime{} = now) do
-    {count, _rows} =
-      WebhookEndpoint
-      |> where(
-        [endpoint],
-        endpoint.status in ^@active_statuses and endpoint.expires_at <= ^now
-      )
-      |> Repo.update_all(set: [status: "expired", updated_at: now])
+    {:ok, count} =
+      Repo.transact(fn repo ->
+        WebhookEndpoint
+        |> Ash.Query.filter(status in ^@active_statuses and expires_at <= ^now)
+        |> Ankole.Ash.bulk_update(:expire, %{},
+          strategy: [:atomic],
+          return_records?: true,
+          return_errors?: true
+        )
+        |> case do
+          %Ash.BulkResult{status: :success, records: records} -> {:ok, length(records)}
+          %Ash.BulkResult{errors: errors} -> repo.rollback(errors)
+        end
+      end)
 
     count
   end
@@ -228,7 +236,7 @@ defmodule Ankole.Signals.Webhooks do
       automation_job_id: endpoint.automation_job_id,
       label: endpoint.label,
       mode: endpoint.mode,
-      status: endpoint.status,
+      status: Atom.to_string(endpoint.status),
       expires_at: Ankole.Attrs.datetime_iso8601(endpoint.expires_at),
       fired_at: Ankole.Attrs.datetime_iso8601(endpoint.fired_at),
       cancelled_at: Ankole.Attrs.datetime_iso8601(endpoint.cancelled_at),
@@ -246,7 +254,7 @@ defmodule Ankole.Signals.Webhooks do
       "id" => endpoint.id,
       "label" => endpoint.label,
       "mode" => endpoint.mode,
-      "status" => endpoint.status,
+      "status" => Atom.to_string(endpoint.status),
       "automation_job_id" => endpoint.automation_job_id,
       "expires_at" => Ankole.Attrs.datetime_iso8601(endpoint.expires_at),
       "created_at" => Ankole.Attrs.datetime_iso8601(endpoint.inserted_at)
@@ -265,14 +273,6 @@ defmodule Ankole.Signals.Webhooks do
 
   defp create_attrs(attrs, token) do
     attrs = Ankole.Attrs.normalize_external_attrs(attrs)
-    mode = Map.get(attrs, "mode")
-
-    status =
-      case mode do
-        "one_shot" -> "armed"
-        "standing" -> "active"
-        _mode -> nil
-      end
 
     {:ok,
      attrs
@@ -282,8 +282,7 @@ defmodule Ankole.Signals.Webhooks do
          if is_binary(uid), do: Ankole.PrincipalKey.canonicalize(uid), else: uid
        end)
      )
-     |> Map.put("token_digest", token_digest(token))
-     |> Map.put("status", status)}
+     |> Map.put("token_digest", token_digest(token))}
   end
 
   defp validate_expiry(%{"expires_at" => %DateTime{} = expires_at}, %DateTime{} = now) do
@@ -306,24 +305,19 @@ defmodule Ankole.Signals.Webhooks do
 
   defp validate_public_target(_attrs), do: :ok
 
-  defp cancel_locked_endpoint(repo, endpoint, now) do
+  defp cancel_locked_endpoint(_repo, endpoint, now) do
     cond do
       endpoint.status not in @active_statuses ->
         {:ok, %{status: :already_terminal, webhook_endpoint: endpoint}}
 
       DateTime.compare(endpoint.expires_at, now) != :gt ->
-        with {:ok, expired} <- update_status(repo, endpoint, "expired") do
+        with {:ok, expired} <- Ankole.Ash.update(endpoint, :expire, %{}) do
           {:ok, %{status: :already_terminal, webhook_endpoint: expired}}
         end
 
       true ->
         with {:ok, cancelled} <-
-               endpoint
-               |> WebhookEndpoint.changeset(%{
-                 status: "cancelled",
-                 cancelled_at: now
-               })
-               |> repo.update() do
+               Ankole.Ash.update(endpoint, :cancel, %{cancelled_at: now}) do
           {:ok, %{status: :cancelled, webhook_endpoint: cancelled}}
         end
     end
@@ -338,7 +332,7 @@ defmodule Ankole.Signals.Webhooks do
         {:ok, %{status: :ignored, webhook_endpoint: endpoint}}
 
       DateTime.compare(endpoint.expires_at, now) != :gt ->
-        with {:ok, expired} <- update_status(repo, endpoint, "expired") do
+        with {:ok, expired} <- Ankole.Ash.update(endpoint, :expire, %{}) do
           {:ok, %{status: :ignored, webhook_endpoint: expired}}
         end
 
@@ -375,42 +369,18 @@ defmodule Ankole.Signals.Webhooks do
     end
   end
 
-  defp deliver_receipt(
-         repo,
-         %WebhookEndpoint{automation_job_id: nil} = endpoint,
-         source_event_id,
-         payload,
-         now
-       ) do
-    with {:ok, owner} <- Route.long_lived_owner(endpoint.agent_uid, endpoint.session_id),
-         attrs <- receipt_signal_attrs(endpoint, source_event_id, payload, now),
-         attrs <-
-           Map.merge(attrs, %{
-             target: %{agent_uid: endpoint.agent_uid, session_id: owner.session_id},
-             reply_route: owner.reply_route || attrs.reply_route
-           }),
-         {:ok, signal} <- Ankole.Signals.accept_in_tx(repo, attrs) do
-      {:ok, {:signal, signal}}
-    end
-  end
-
-  defp deliver_receipt(
-         repo,
-         %WebhookEndpoint{automation_job_id: automation_job_id} = endpoint,
-         _source_event_id,
-         payload,
-         now
-       ) do
-    with {:ok, %{automation_job_run: run} = result} <-
-           AutomationJobs.enqueue_run_in_tx(
-             repo,
-             automation_job_id,
-             endpoint.agent_uid,
-             payload,
-             now: now
-           ) do
-      {:ok, {:automation_job_run, run, Map.get(result, :signal)}}
-    end
+  defp deliver_receipt(repo, endpoint, source_event_id, payload, now) do
+    Ankole.Signals.Trigger.deliver_in_tx(repo, endpoint, payload, now, fn ->
+      with {:ok, owner} <- Route.long_lived_owner(endpoint.agent_uid, endpoint.session_id),
+           attrs <- receipt_signal_attrs(endpoint, source_event_id, payload, now),
+           attrs <-
+             Map.merge(attrs, %{
+               target: %{agent_uid: endpoint.agent_uid, session_id: owner.session_id},
+               reply_route: owner.reply_route || attrs.reply_route
+             }) do
+        Ankole.Signals.accept_in_tx(repo, attrs)
+      end
+    end)
   end
 
   defp receipt_signal_attrs(endpoint, source_event_id, payload, now) do
@@ -481,20 +451,11 @@ defmodule Ankole.Signals.Webhooks do
     }
   end
 
-  defp maybe_mark_fired(repo, %WebhookEndpoint{mode: "one_shot"} = endpoint, now) do
-    endpoint
-    |> WebhookEndpoint.changeset(%{status: "fired", fired_at: now})
-    |> repo.update()
-  end
+  defp maybe_mark_fired(_repo, %WebhookEndpoint{mode: "one_shot"} = endpoint, now),
+    do: Ankole.Ash.update(endpoint, :fire, %{fired_at: now})
 
   defp maybe_mark_fired(_repo, %WebhookEndpoint{mode: "standing"} = endpoint, _now),
     do: {:ok, endpoint}
-
-  defp update_status(repo, endpoint, status) do
-    endpoint
-    |> WebhookEndpoint.changeset(%{status: status})
-    |> repo.update()
-  end
 
   defp lock_endpoint(repo, endpoint_id, agent_uid, session_id) do
     WebhookEndpoint

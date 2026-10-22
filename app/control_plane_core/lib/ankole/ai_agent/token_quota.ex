@@ -224,10 +224,10 @@ defmodule Ankole.AIAgent.TokenQuota do
     end
   end
 
-  defp write_quota(repo, %Agent{} = agent, quota) do
-    agent
-    |> Agent.changeset(%{options: put_quota_options(agent.options || %{}, quota)})
-    |> repo.update()
+  defp write_quota(_repo, %Agent{} = agent, quota) do
+    Ankole.Ash.update(agent, :options_in_tx, %{
+      options: put_quota_options(agent.options || %{}, quota)
+    })
   end
 
   defp put_quota_options(options, nil) do

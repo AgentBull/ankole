@@ -114,7 +114,7 @@ defmodule Ankole.PrincipalsTest do
       assert agent.group_memory_disclosure_mode == :strict
 
       assert %AgentWorker{
-               state: "absent",
+               state: :absent,
                initial_start_pending: true,
                wanted_until: nil,
                provider_id: provider_id
@@ -450,8 +450,10 @@ defmodule Ankole.PrincipalsTest do
     test "resolve_platform_subject/2 returns only active humans" do
       %{principal: principal, identity: identity} = platform_subject_fixture()
 
-      assert {:ok, ^principal} =
+      assert {:ok, resolved} =
                Principals.resolve_platform_subject("lark-main", identity.external_id)
+
+      assert_persisted_equal(resolved, principal)
 
       assert {:ok, _disabled} = Ankole.PrincipalsFixtures.disable_principal_fixture(principal.uid)
 
@@ -627,11 +629,13 @@ defmodule Ankole.PrincipalsTest do
       %{principal: principal, identity: identity} =
         platform_subject_fixture(%{provider: "lark-main"})
 
-      assert {:ok, ^principal} =
+      assert {:ok, matched} =
                Principals.match_platform_subject_human(%{
                  provider: "lark-main",
                  external_ids: ["unknown_primary", identity.external_id]
                })
+
+      assert_persisted_equal(matched, principal)
     end
 
     test "matches by email and then mobile when no candidate id is bound" do
@@ -642,19 +646,23 @@ defmodule Ankole.PrincipalsTest do
           mobile: "+14155550101"
         })
 
-      assert {:ok, ^principal} =
+      assert {:ok, matched_email} =
                Principals.match_platform_subject_human(%{
                  provider: "slack-main",
                  external_id: "U_UNSEEN",
                  email: "Match.Target@example.com"
                })
 
-      assert {:ok, ^principal} =
+      assert_persisted_equal(matched_email, principal)
+
+      assert {:ok, matched_mobile} =
                Principals.match_platform_subject_human(%{
                  provider: "slack-main",
                  external_id: "U_UNSEEN",
                  mobile: "+1 415 555 0101"
                })
+
+      assert_persisted_equal(matched_mobile, principal)
     end
 
     test "matches contacts but never an equal Principal UID" do
@@ -664,12 +672,14 @@ defmodule Ankole.PrincipalsTest do
       %{principal: contact_principal, human_user: contact_owner} =
         human_fixture(%{uid: "different-contact-owner", email: "other.owner@example.com"})
 
-      assert {:ok, ^contact_principal} =
+      assert {:ok, matched} =
                Principals.match_platform_subject_human(%{
                  provider: "lark-main",
                  external_id: "SHARED-GLOBAL-SUBJECT",
                  email: contact_owner.email
                })
+
+      assert_persisted_equal(matched, contact_principal)
 
       assert {:error, :not_found} =
                Principals.match_platform_subject_human(%{

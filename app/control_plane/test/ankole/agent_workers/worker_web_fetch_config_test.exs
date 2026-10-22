@@ -5,7 +5,6 @@ defmodule Ankole.AgentWorkers.WorkerWebFetchConfigTest do
   alias Ankole.AgentWorkers.WorkerWebFetchConfig
 
   setup do
-    allow_cache_database_access()
     definition = WorkerWebFetchConfig.definition()
     :ok = AppConfigure.delete_global(definition)
     {:ok, definition: definition}

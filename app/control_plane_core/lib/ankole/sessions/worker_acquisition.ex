@@ -20,6 +20,9 @@ defmodule Ankole.Sessions.WorkerAcquisition do
   def next({:waiting, _phase, since}, :acquire, _now), do: {{:opening, since, nil}, [:resolve]}
   def next({:ready, _} = state, :acquire, _now), do: {state, [:ready]}
 
+  def next({:opening, _, _}, :round_committed, _now), do: {{:idle, :requested}, []}
+  def next({:waiting, _, _}, :round_committed, _now), do: {{:idle, :requested}, []}
+
   def next({:opening, since, _}, {:resolved, {:ok, row, message}}, _now),
     do: {{:opening, since, row}, [{:send_open, row, message}]}
 

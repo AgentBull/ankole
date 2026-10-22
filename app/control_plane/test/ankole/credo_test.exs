@@ -1,4 +1,5 @@
 Code.require_file("../../credo/append_in_loop.ex", __DIR__)
+Code.require_file("../../credo/ash_actions.ex", __DIR__)
 
 defmodule Ankole.CredoTest do
   use ExUnit.Case, async: true
@@ -32,6 +33,35 @@ defmodule Ankole.CredoTest do
                def linear(xs), do: Enum.reduce(xs, [], fn x, acc -> [x | acc] end) |> Enum.reverse()
              end
              """)
+  end
+
+  test "Ash mutations execute their filters and bulk actions use the tenant facade" do
+    source = """
+    defmodule Sample do
+      atomic_in_tx_update :finish do
+        filter(expr(status == :queued))
+      end
+      def bulk(query), do: Ash.bulk_update(query, :finish, %{})
+    end
+    """
+
+    assert [_, _] =
+             source |> Credo.SourceFile.parse("sample.ex") |> Ankole.Credo.AshActions.run([])
+
+    assert [] ==
+             """
+             defmodule Sample do
+               atomic_in_tx_update :finish do
+                 change(filter(expr(status == :queued)))
+               end
+               read :queued do
+                 filter(expr(status == :queued))
+               end
+               def bulk(query), do: Ankole.Ash.bulk_update(query, :finish, %{})
+             end
+             """
+             |> Credo.SourceFile.parse("sample.ex")
+             |> Ankole.Credo.AshActions.run([])
   end
 
   defp issues(source) do

@@ -4,7 +4,7 @@ defmodule Ankole.E2E.FakeSlack.Router do
   use Plug.Router
 
   alias Ankole.E2E.FakeSlack.State
-alias Ankole.E2E.FakeSlack.WebSocketHandler
+  alias Ankole.E2E.FakeSlack.WebSocketHandler
 
   plug :match
 
@@ -193,17 +193,31 @@ alias Ankole.E2E.FakeSlack.WebSocketHandler
   end
 
   post "/api/openid.connect.token" do
-    ok(conn, %{"access_token" => "xoxp-fake", "id_token" => "fake.jwt"})
+    case State.exchange_oidc_code(state(conn), conn.params) do
+      {:ok, token} -> ok(conn, token)
+      {:error, reason} -> send_json(conn, 200, %{"ok" => false, "error" => to_string(reason)})
+    end
   end
 
   post "/api/openid.connect.userInfo" do
-    ok(conn, %{
-      "sub" => "U1",
-      "https://slack.com/user_id" => "U1",
-      "https://slack.com/team_id" => "TFAKE",
-      "email" => "ada@example.com",
-      "name" => "Ada"
+    case State.oidc_user_info(state(conn), get_req_header(conn, "authorization")) do
+      {:ok, user_info} -> ok(conn, user_info)
+      {:error, reason} -> send_json(conn, 200, %{"ok" => false, "error" => to_string(reason)})
+    end
+  end
+
+  get "/.well-known/openid-configuration" do
+    send_json(conn, 200, %{
+      "issuer" => "https://slack.com",
+      "jwks_uri" => "https://slack.com/openid/connect/keys"
     })
+  end
+
+  get "/openid/connect/keys" do
+    case State.oidc_jwks(state(conn)) do
+      {:ok, jwks} -> send_json(conn, 200, jwks)
+      {:error, reason} -> send_json(conn, 404, %{"error" => to_string(reason)})
+    end
   end
 
   match _ do

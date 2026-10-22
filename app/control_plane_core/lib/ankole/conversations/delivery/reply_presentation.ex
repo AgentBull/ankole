@@ -287,20 +287,46 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
     |> Map.delete("thought")
   end
 
+  @spec terminal_states() :: [String.t()]
+  def terminal_states, do: @terminal_states
+
+  @doc """
+  Builds exact terminal truth from a live or checkpointed presentation without raising.
+  """
+  @spec fetch_terminal(t(), String.t() | atom() | nil, String.t() | nil, keyword()) ::
+          {:ok, t()} | {:error, {:invalid_terminal_state, term()}}
+  def fetch_terminal(presentation, state, answer, opts \\ []) do
+    case normalize_terminal_state(state) do
+      {:ok, normalized_state} ->
+        {:ok, do_terminal(presentation, normalized_state, answer, opts)}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
   @doc """
   Builds exact terminal truth from a live or checkpointed presentation.
   """
   @spec terminal(t(), String.t() | atom(), String.t() | nil, keyword()) :: t()
   def terminal(presentation, state, answer, opts \\ []) do
-    state = normalize_state(state)
-    state = if state in @terminal_states, do: state, else: "completed"
+    case fetch_terminal(presentation, state, answer, opts) do
+      {:ok, terminal_presentation} ->
+        terminal_presentation
 
+      {:error, {:invalid_terminal_state, invalid}} ->
+        raise ArgumentError,
+              "expected terminal reply presentation state in #{inspect(@terminal_states)}, got: #{inspect(invalid)}"
+    end
+  end
+
+  defp do_terminal(presentation, state, answer, opts) do
     presentation = preserve_terminal_interaction(presentation, state, opts)
 
     presentation
     |> normalize()
     |> Map.put("state", state)
-    |> Map.put("answer", terminal_answer(answer))
+    |> Map.put("answer", terminal_answer(answer, state))
     |> remove_transient_fields_unless_working()
     |> terminalize_activities(state)
     |> terminalize_plan()
@@ -1118,14 +1144,35 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
     Map.update!(presentation, "meta", &Map.put(&1, key, value))
   end
 
-  defp terminal_answer(answer) when is_binary(answer) do
+  defp terminal_answer(answer, "stopped") when is_binary(answer) do
+    case String.trim(answer) do
+      "" -> ""
+      _text -> answer
+    end
+  end
+
+  defp terminal_answer(_answer, "stopped"), do: ""
+
+  defp terminal_answer(answer, _state) when is_binary(answer) do
     case String.trim(answer) do
       "" -> I18n.t("conversations.delivery.reply.no_content")
       _text -> answer
     end
   end
 
-  defp terminal_answer(_answer), do: I18n.t("conversations.delivery.reply.no_content")
+  defp terminal_answer(_answer, _state), do: I18n.t("conversations.delivery.reply.no_content")
+
+  defp normalize_terminal_state(state) when is_atom(state) or is_binary(state) do
+    normalized = to_string(state)
+
+    if normalized in @terminal_states do
+      {:ok, normalized}
+    else
+      {:error, {:invalid_terminal_state, state}}
+    end
+  end
+
+  defp normalize_terminal_state(state), do: {:error, {:invalid_terminal_state, state}}
 
   defp working_state(state) when state in ["debouncing", "working"], do: "working"
   defp working_state(state), do: state

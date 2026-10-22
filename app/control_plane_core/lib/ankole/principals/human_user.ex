@@ -1,81 +1,70 @@
 defmodule Ankole.Principals.HumanUser do
-  @moduledoc """
-  Human-specific profile row keyed by `principals.uid`.
-  """
-
-  use Ankole.Schema, tenancy: :tenant
-
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
-
-  alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.Principals.Principal
-
-  @primary_key false
-  @timestamps_opts [type: :utc_datetime_usec]
+  @moduledoc false
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals.Domain
 
   @email_format ~r/\A[^\s@]+@[^\s@]+\.[^\s@]+\z/
 
-  @doc """
-  Returns the email shape this schema's changeset validates against.
-  """
-  @spec email_format() :: Regex.t()
-  def email_format, do: @email_format
+  postgres do
+    table("human_users")
+    repo(Ankole.Repo)
+    migrate?(false)
+    identity_index_names(email: "human_users_email_index", mobile: "human_users_mobile_index")
+    foreign_key_names([{:principal_uid, "human_users_principal_uid_fkey"}])
 
-  schema "human_users" do
-    belongs_to :principal, Principal,
-      foreign_key: :principal_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey,
-      primary_key: true
-
-    field :email, :string
-    field :mobile, :string
-    field :job_title, :string
-
-    timestamps()
+    unique_index_names([
+      {[:email], "human_users_email_index"},
+      {[:mobile], "human_users_mobile_index"}
+    ])
   end
 
-  @doc """
-  Builds a changeset for human user profile rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(human_user, attrs) do
-    human_user
-    |> cast(attrs, [:principal_uid, :email, :mobile, :job_title])
-    |> normalize_blank([:email, :mobile, :job_title])
-    |> normalize_email()
-    |> normalize_mobile()
-    |> validate_required([:principal_uid])
-    |> validate_format(:email, @email_format, message: "is invalid")
-    |> foreign_key_constraint(:principal_uid)
-    |> unique_constraint(:principal_uid, name: :human_users_pkey)
-    |> unique_constraint(:email, name: :human_users_email_index)
-    |> unique_constraint(:mobile, name: :human_users_mobile_index)
+  attributes do
+    attribute(:principal_uid, Ankole.Ash.Types.PrincipalKey,
+      public?: true,
+      primary_key?: true,
+      allow_nil?: false
+    )
+
+    attribute(:email, :string, public?: true)
+    attribute(:mobile, :string, public?: true)
+    attribute(:job_title, :string, public?: true)
+    timestamps(type: :utc_datetime_usec)
   end
 
-  # A blank value stays as given so the format validation rejects it instead
-  # of silently clearing the field.
-  defp normalize_email(changeset) do
-    update_change(changeset, :email, fn
-      value when is_binary(value) -> Ankole.Principals.normalize_email(value) || value
-      value -> value
-    end)
+  identities do
+    identity(:email, [:email])
+    identity(:mobile, [:mobile])
   end
 
-  defp normalize_mobile(changeset) do
-    case fetch_change(changeset, :mobile) do
-      {:ok, nil} ->
-        changeset
-
-      {:ok, value} ->
-        case NativeKernel.phone_normalize_e164(value) do
-          normalized when is_binary(normalized) -> put_change(changeset, :mobile, normalized)
-          {:error, _reason} -> add_error(changeset, :mobile, "must be E.164")
-        end
-
-      :error ->
-        changeset
+  relationships do
+    belongs_to :principal, Ankole.Principals.Principal do
+      source_attribute(:principal_uid)
+      destination_attribute(:uid)
+      define_attribute?(false)
     end
   end
+
+  changes do
+    change(Ankole.Principals.Changes.NormalizeContact)
+  end
+
+  validations do
+    validate(match(:email, @email_format), message: "is invalid")
+  end
+
+  actions do
+    defaults([:read])
+
+    create :create_in_tx do
+      accept([:principal_uid, :email, :mobile, :job_title])
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+    end
+
+    in_tx_update :profile_in_tx do
+      accept([:email, :mobile, :job_title])
+    end
+  end
+
+  @type t :: %__MODULE__{}
+  def email_format, do: @email_format
 end

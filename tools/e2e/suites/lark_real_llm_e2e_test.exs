@@ -8,6 +8,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   """
 
   use Ankole.DataCase, async: false
+  @moduletag sandbox: false
 
   import Ankole.E2E.Harness
   import Ankole.E2E.Scenarios.DeepResearchRealLLM
@@ -34,14 +35,39 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   @rerank_model "qwen/qwen3-reranker-8b"
   @chatgpt_coding_model "gpt-5.6-sol"
 
+  setup_all do
+    start_committed_repo!()
+  end
+
+  setup do
+    cleanup_committed_fixtures_on_exit!()
+    :ok
+  end
+
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
   @tag :real_llm
   @tag :deepseek_release_stories
   test "real OpenRouter LLM drives direct and skill tool-loop turns over Lark" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!(), worker: false)
 
-    assert %AgentWorker{state: "absent", wanted_until: nil, generation: nil} =
+    # Finish initial startup and release its idle instance before testing pure turns.
+    assert {:ok, initialized} =
+             WaitHelpers.wait_for_worker(%{agent_uid: ctx.agent.uid}, deadline(60_000))
+
+    refute initialized.initial_start_pending
+    assert initialized.wanted_until == nil
+    assert {:ok, provider} = Ankole.AgentWorkers.Providers.load(initialized.provider_id)
+    config = provider.settings |> Map.put("idleReleaseAfter", "1s") |> Ankole.JSON.encode!()
+
+    assert {:ok, _provider} =
+             Ankole.AgentWorkers.Providers.update(provider.provider_id, %{config: config})
+
+    assert {:ok, true} =
+             WaitHelpers.wait_until(deadline(60_000), fn ->
+               Repo.get!(AgentWorker, ctx.agent.uid).state == :absent
+             end)
+
+    assert %AgentWorker{state: :absent, wanted_until: nil, generation: nil} =
              Repo.get!(AgentWorker, ctx.agent.uid)
 
     direct = run_real_lark_direct_turn(ctx)
@@ -54,7 +80,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
       "om_real_1"
     )
 
-    assert %AgentWorker{state: "absent", wanted_until: nil, generation: nil} =
+    assert %AgentWorker{state: :absent, wanted_until: nil, generation: nil} =
              Repo.get!(AgentWorker, ctx.agent.uid)
 
     skill = run_real_lark_skill_tool_loop(ctx)
@@ -67,12 +93,11 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
       "om_real_skill_1"
     )
 
-    assert %AgentWorker{state: "absent", wanted_until: nil, generation: nil} =
+    assert %AgentWorker{state: :absent, wanted_until: nil, generation: nil} =
              Repo.get!(AgentWorker, ctx.agent.uid)
   end
 
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
   @tag :real_llm
   @tag :deepseek_clarification_flow
   test "real DeepSeek asks for a shipping choice and continues after an ordinary Lark reply" do
@@ -118,6 +143,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
              )
 
     assert question_intent.payload["metadata"]["source"] == "ai_gateway_clarify"
+
     [ground, air] = question_intent.payload["interactive_output"]["choices"]
     assert String.downcase(ground["label"]) =~ "ground"
     assert String.downcase(air["label"]) =~ "air"
@@ -187,7 +213,6 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   end
 
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
   @tag :real_llm
   @tag :web_fetch
   test "real OpenRouter LLM uses web_fetch" do
@@ -205,29 +230,26 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   end
 
   @tag timeout: 900_000
-  @tag ownership_timeout: 900_000
   @tag :real_llm
   @tag :skill_lessons
   test "real codex reflection distills seeded evidence into delivered skill lessons" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
 
     %{lessons: lessons} = run_real_skill_lesson_reflection_loop(ctx)
-    assert Enum.all?(lessons, &(&1.author_kind == "dreaming"))
+    assert Enum.all?(lessons, &(&1.author_kind == :dreaming))
   end
 
   @tag timeout: 900_000
-  @tag ownership_timeout: 900_000
   @tag :real_llm
   @tag :skill_lessons
   test "a real codex background job recalls instance memory through the hosted Brain tool" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
 
     %{job: job} = run_real_job_brain_recall_turn(ctx)
-    assert job.status == "succeeded"
+    assert job.status == :succeeded
   end
 
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
   @tag :real_llm
   @tag :terminal_tools_real_llm
   @tag :deepseek_release_stories
@@ -246,7 +268,6 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   end
 
   @tag timeout: 1_800_000
-  @tag ownership_timeout: 1_800_000
   @tag :real_llm
   @tag :deepseek_delivery_chaos
   test "real DeepSeek delivers pinned file bytes once after the platform accepts a send but its confirmation fails" do
@@ -345,7 +366,6 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   end
 
   @tag timeout: 1_800_000
-  @tag ownership_timeout: 1_800_000
   @tag :real_llm
   @tag :codex_pptx_skill_real_llm
   test "real OpenRouter parent runs the Office Agent Plugin and delivers a PPTX" do
@@ -353,7 +373,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
 
     result = run_real_lark_codex_pptx_skill_turn(ctx)
 
-    assert result.job.status == "succeeded"
+    assert result.job.status == :succeeded
     assert result.intent.status == :sent
     assert result.platform_message.msg_type == "file"
     assert result.outline =~ "2 slides"
@@ -361,7 +381,6 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   end
 
   @tag timeout: 3_600_000
-  @tag ownership_timeout: 3_600_000
   @tag :real_llm
   @tag :deep_research_real_llm
   test "real parent Job flow runs Deep Research as a standard Codex Plugin" do
@@ -373,7 +392,6 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   end
 
   @tag timeout: 1_800_000
-  @tag ownership_timeout: 1_800_000
   @tag :real_llm
   @tag :codex_subscription_main_real_llm
   test "real ChatGPT subscription drives the main Agent tool loop" do
@@ -399,7 +417,6 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   end
 
   @tag timeout: 1_800_000
-  @tag ownership_timeout: 1_800_000
   @tag :real_llm
   @tag :codex_subscription_real_llm
   test "real ChatGPT subscription runs Codex Tool Search and MCP code mode" do
@@ -434,7 +451,6 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   end
 
   @tag timeout: 1_800_000
-  @tag ownership_timeout: 1_800_000
   @tag :real_llm
   @tag :codex_subscription_background_direct_real_llm
   test "real ChatGPT subscription completes a directly dispatched Background Agent Job" do
@@ -448,28 +464,39 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
                provider_options: %{"reasoningEffort" => "high"}
              })
 
-    owner_session_id = "codex-background-direct-real"
+    message_id = "om_codex_background_direct_real"
 
-    assert {:ok, owner_conversation} =
-             Ankole.AIGatewayCase.ensure_conversation(ctx.agent.uid, owner_session_id)
+    assert :ok =
+             FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+               event_id: "evt_codex_background_direct_real",
+               message_id: message_id,
+               chat_id: "oc_codex_background_direct_real",
+               chat_type: "p2p",
+               text:
+                 "@_user_1 Verify the direct Codex subscription path in a Background Agent Job.",
+               mentions: [lark_bot_mention()]
+             )
+
+    source = signal_by_provider_message_id!(ctx.agent.uid, message_id)
+    assert source.authorization_kind == "human"
+    assert source.session_id == "conversation:#{source.conversation_id}"
 
     marker = "ANKOLE_CODEX_BACKGROUND_DIRECT_REAL_OK"
 
     assert {:ok, %{job: job, dispatch_event: dispatch_event}} =
              BackgroundAgentJobs.create_with_dispatch(%{
                "agent_uid" => ctx.agent.uid,
-               "owner_session_id" => owner_session_id,
+               "owner_session_id" => source.session_id,
+               "source_signal_id" => source.id,
                "source_tool_call_id" => "codex-background-direct-real",
                "title" => "Verify the direct Codex subscription path",
                "task" => "Do not call tools. Reply exactly #{marker}.",
-               "metadata" => %{"owner_conversation_id" => owner_conversation.id},
-               "reply_route" => %{
-                 "binding_name" => ctx.primary_binding.name,
-                 "conversation_id" => "oc_codex_background_direct_real",
-                 "provider_thread_id" => "",
-                 "provider_message_id" => "om_codex_background_direct_real"
-               }
+               "reply_route" => Ankole.Conversations.Route.snapshot(%{signal_id: source.id})
              })
+
+    assert job.source_signal_id == source.id
+    assert job.owner_session_id == source.session_id
+    assert Ankole.Principals.WorkAccess.fields(job) == Ankole.Principals.WorkAccess.fields(source)
 
     completed =
       wait_for_direct_background_job!(
@@ -491,7 +518,6 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   end
 
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
   @tag :real_llm
   test "real OpenRouter LLM handles Lark post images and vision fallback" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
@@ -524,7 +550,6 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   end
 
   @tag timeout: 300_000
-  @tag ownership_timeout: 300_000
   @tag :real_llm
   test "AIGateway embedding and rerank reach the real provider" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!(), worker: false)
@@ -576,10 +601,10 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   defp wait_for_direct_background_job!(job_id, dispatch_event_id, deadline) do
     case WaitHelpers.wait_until(deadline, fn ->
            case Repo.get!(BackgroundAgentJob, job_id) do
-             %BackgroundAgentJob{status: "succeeded"} = job ->
+             %BackgroundAgentJob{status: :succeeded} = job ->
                job
 
-             %BackgroundAgentJob{status: status} = job when status in ["failed", "stopped"] ->
+             %BackgroundAgentJob{status: status} = job when status in [:failed, :stopped] ->
                flunk("""
                direct real Codex Background Agent Job ended as #{status}.
                error=#{inspect(job.error, printable_limit: 4_000)}
@@ -609,7 +634,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
 
     now = DateTime.utc_now(:microsecond)
 
-    if is_nil(event.completed_at) and event.input_state == "open" and
+    if event.status in [:queued, :running] and
          DateTime.compare(event.available_at, now) != :gt do
       assert {:ok, _result} = ensure_input_driver!(event, now)
     end

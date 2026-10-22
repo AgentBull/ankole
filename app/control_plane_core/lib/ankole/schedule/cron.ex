@@ -2,6 +2,7 @@ defmodule Ankole.Schedule.Cron do
   @moduledoc false
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Conversations.Target, as: StatementTarget
   alias Ankole.AIGateway
@@ -81,7 +82,12 @@ defmodule Ankole.Schedule.Cron do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
+      with %CronSchedule{} = snapshot <- repo.get(CronSchedule, cron_schedule_id),
+           {:ok, job_id} <- Normalizer.automation_job_id(attrs),
+           :ok <- AutomationJobs.validate_bindable_in_tx(repo, job_id, snapshot.agent_uid),
+           %CronSchedule{} = schedule <-
+             Store.lock_cron_schedule(repo, cron_schedule_id, job_id),
+           true <- schedule.agent_uid == snapshot.agent_uid,
            :ok <- Store.reject_terminal(schedule),
            {:ok, attrs} <- Normalizer.cron_schedule_update_attrs(schedule, attrs, now, opts),
            :ok <-
@@ -90,16 +96,14 @@ defmodule Ankole.Schedule.Cron do
                schedule.agent_uid,
                attrs[:delivery] || schedule.delivery
              ),
-           :ok <-
-             validate_updated_automation_job(repo, schedule, attrs),
-           changeset = CronSchedule.changeset(schedule, attrs),
+           changeset = Ankole.Ash.for_update(schedule, :update_definition, attrs),
            recurrence_changed? =
-             Ecto.Changeset.changed?(changeset, :schedule) or
-               Ecto.Changeset.changed?(changeset, :timezone),
+             Ash.Changeset.changing_attribute?(changeset, :schedule) or
+               Ash.Changeset.changing_attribute?(changeset, :timezone),
            task_context_changed? =
-             Ecto.Changeset.changed?(changeset, :payload) or
-               Ecto.Changeset.changed?(changeset, :delivery),
-           {:ok, schedule} <- repo.update(changeset),
+             Ash.Changeset.changing_attribute?(changeset, :payload) or
+               Ash.Changeset.changing_attribute?(changeset, :delivery),
+           {:ok, schedule} <- Ankole.Ash.update(changeset),
            :ok <-
              maybe_end_execution_conversation_in_tx(repo, schedule, task_context_changed?, now),
            {:ok, schedule} <-
@@ -107,6 +111,7 @@ defmodule Ankole.Schedule.Cron do
         {:ok, schedule}
       else
         nil -> {:error, :cron_schedule_not_found}
+        false -> {:error, :cron_schedule_changed}
         {:error, _reason} = error -> error
       end
     end)
@@ -118,8 +123,7 @@ defmodule Ankole.Schedule.Cron do
     Repo.transact(fn repo ->
       with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
            :ok <- Store.reject_terminal(schedule),
-           {:ok, schedule} <- put_schedule_status(repo, schedule, "paused"),
-           {:ok, schedule} <- put_next_fire_at(repo, schedule, nil) do
+           {:ok, schedule} <- put_schedule_status(repo, schedule, :paused) do
         {:ok, schedule}
       else
         nil -> {:error, :cron_schedule_not_found}
@@ -137,20 +141,20 @@ defmodule Ankole.Schedule.Cron do
       with :ok <-
              Ankole.Principals.WorkAccess.check_record_in_tx(repo, CronSchedule, cron_schedule_id) do
         case Store.lock_cron_schedule(repo, cron_schedule_id) do
-          %CronSchedule{status: "paused"} = schedule ->
+          %CronSchedule{status: :paused} = schedule ->
             resume_paused_in_tx(repo, schedule, now, opts)
 
-          %CronSchedule{status: "active"} = schedule ->
+          %CronSchedule{status: :active} = schedule ->
             with :ok <-
                    Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
                  :ok <- schedule_wake_in_tx(repo, schedule) do
               {:ok, schedule}
             end
 
-          %CronSchedule{status: "completed"} ->
+          %CronSchedule{status: :completed} ->
             {:error, :cron_schedule_completed}
 
-          %CronSchedule{status: "deleted"} ->
+          %CronSchedule{status: :deleted} ->
             {:error, :cron_schedule_deleted}
 
           nil ->
@@ -170,7 +174,7 @@ defmodule Ankole.Schedule.Cron do
       if bound_spent?(repo, schedule, next_fire_at) do
         complete_schedule_in_tx(repo, schedule, now)
       else
-        with {:ok, schedule} <- put_schedule_status(repo, schedule, "active") do
+        with {:ok, schedule} <- put_schedule_status(repo, schedule, :active) do
           schedule_next_fire_in_tx(repo, schedule, next_fire_at)
         end
       end
@@ -184,9 +188,8 @@ defmodule Ankole.Schedule.Cron do
 
     Repo.transact(fn repo ->
       with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
-           {:ok, schedule} <- put_schedule_status(repo, schedule, "deleted"),
+           {:ok, schedule} <- put_schedule_status(repo, schedule, :deleted),
            :ok <- end_execution_conversation_in_tx(repo, schedule, now),
-           {:ok, schedule} <- put_next_fire_at(repo, schedule, nil),
            {:ok, _events} <- Store.cancel_pending_cron_events(repo, schedule, now) do
         {:ok, schedule}
       else
@@ -221,7 +224,7 @@ defmodule Ankole.Schedule.Cron do
 
   @spec validate_fire_schedule(CronSchedule.t()) :: :ok | {:cancel, atom()}
   def validate_fire_schedule(%CronSchedule{status: status} = schedule)
-      when status in ["active", "paused"], do: validate_fire_preconditions(schedule)
+      when status in [:active, :paused], do: validate_fire_preconditions(schedule)
 
   def validate_fire_schedule(%CronSchedule{}), do: {:cancel, :cron_schedule_not_active}
 
@@ -255,8 +258,7 @@ defmodule Ankole.Schedule.Cron do
            Planner.next_fire_after(schedule.schedule, schedule.timezone, now),
          {:ok, schedule} <-
            schedule
-           |> CronSchedule.changeset(%{last_fire_at: slot_at})
-           |> repo.update() do
+           |> Ankole.Ash.update(:record_fire, %{last_fire_at: slot_at}) do
       advance_within_bound(repo, schedule, next_fire_at, now)
     end
   end
@@ -297,9 +299,9 @@ defmodule Ankole.Schedule.Cron do
   end
 
   defp complete_schedule_in_tx(repo, schedule, now) do
-    with {:ok, schedule} <- put_schedule_status(repo, schedule, "completed"),
+    with {:ok, schedule} <- put_schedule_status(repo, schedule, :completed),
          :ok <- end_execution_conversation_in_tx(repo, schedule, now) do
-      put_next_fire_at(repo, schedule, nil)
+      {:ok, schedule}
     end
   end
 
@@ -339,7 +341,7 @@ defmodule Ankole.Schedule.Cron do
     end
   end
 
-  defp schedule_wake_in_tx(repo, %CronSchedule{status: "active"} = schedule) do
+  defp schedule_wake_in_tx(repo, %CronSchedule{status: :active} = schedule) do
     Ankole.Job.schedule_in_tx(
       repo,
       FireCron,
@@ -351,22 +353,18 @@ defmodule Ankole.Schedule.Cron do
   defp schedule_wake_in_tx(_repo, %CronSchedule{}), do: :ok
 
   defp insert_cron_schedule_in_tx(repo, attrs) do
-    changeset = CronSchedule.changeset(%CronSchedule{}, attrs)
+    attrs = Map.put(attrs, :id, Ankole.Kernel.gen_uuid_v7())
 
-    with {:ok, attempted} <-
-           repo.insert(changeset,
-             on_conflict: :nothing,
-             conflict_target: [:agent_uid, :owner_session_id, :idempotency_key],
-             returning: true
-           ),
+    with {:ok, _attempted} <-
+           Ankole.Ash.create(CronSchedule, :create, attrs, touch_update_defaults?: false),
          {:ok, persisted} <- Store.lock_cron_by_idempotency(repo, attrs),
          :ok <- schedule_wake_in_tx(repo, persisted) do
-      status = if attempted.id == persisted.id, do: :created, else: :already_exists
+      status = if attrs.id == persisted.id, do: :created, else: :already_exists
       {:ok, %{status: status, cron_schedule: persisted}}
     end
   end
 
-  defp sync_after_update_in_tx(repo, %CronSchedule{status: "active"} = schedule, true, now, _opts) do
+  defp sync_after_update_in_tx(repo, %CronSchedule{status: :active} = schedule, true, now, _opts) do
     with {:ok, next_fire_at} <-
            Planner.next_fire_after(schedule.schedule, schedule.timezone, now) do
       if bound_spent?(repo, schedule, next_fire_at) do
@@ -379,7 +377,7 @@ defmodule Ankole.Schedule.Cron do
 
   defp sync_after_update_in_tx(
          repo,
-         %CronSchedule{status: "active"} = schedule,
+         %CronSchedule{status: :active} = schedule,
          false,
          _now,
          _opts
@@ -387,8 +385,8 @@ defmodule Ankole.Schedule.Cron do
     with :ok <- schedule_wake_in_tx(repo, schedule), do: {:ok, schedule}
   end
 
-  defp sync_after_update_in_tx(repo, %CronSchedule{} = schedule, _changed, _now, _opts),
-    do: put_next_fire_at(repo, schedule, nil)
+  defp sync_after_update_in_tx(_repo, %CronSchedule{} = schedule, _changed, _now, _opts),
+    do: {:ok, schedule}
 
   defp arm_manual_cron_fire_in_tx(repo, schedule, request_id, now, opts) do
     with {:ok, attrs} <-
@@ -438,7 +436,6 @@ defmodule Ankole.Schedule.Cron do
       human_uid: schedule.human_uid,
       human_access_version: schedule.human_access_version,
       kind: "cron_fire",
-      status: "scheduled",
       agent_uid: schedule.agent_uid,
       session_id: execution_session_id(schedule.id),
       binding_name: schedule.binding_name,
@@ -478,36 +475,27 @@ defmodule Ankole.Schedule.Cron do
   defp put_schedule_status(_repo, %CronSchedule{status: status} = schedule, status),
     do: {:ok, schedule}
 
-  defp put_schedule_status(repo, schedule, status) do
+  defp put_schedule_status(_repo, schedule, status) do
     schedule
-    |> CronSchedule.changeset(%{status: status})
-    |> repo.update()
+    |> Ankole.Ash.update(
+      %{active: :resume, paused: :pause, deleted: :delete, completed: :complete}[status],
+      %{}
+    )
   end
 
-  defp put_next_fire_at(_repo, %CronSchedule{next_fire_at: nil} = schedule, nil),
-    do: {:ok, schedule}
-
-  defp put_next_fire_at(repo, schedule, nil) do
-    schedule
-    |> CronSchedule.changeset(%{next_fire_at: nil})
-    |> repo.update()
-  end
-
-  defp put_next_fire_at(repo, schedule, %DateTime{} = next_fire_at) do
+  defp put_next_fire_at(_repo, schedule, %DateTime{} = next_fire_at) do
     case schedule.next_fire_at do
       %DateTime{} = current ->
         if same_datetime?(current, next_fire_at) do
           {:ok, schedule}
         else
           schedule
-          |> CronSchedule.changeset(%{next_fire_at: next_fire_at})
-          |> repo.update()
+          |> Ankole.Ash.update(:schedule_fire, %{next_fire_at: next_fire_at})
         end
 
       _current ->
         schedule
-        |> CronSchedule.changeset(%{next_fire_at: next_fire_at})
-        |> repo.update()
+        |> Ankole.Ash.update(:schedule_fire, %{next_fire_at: next_fire_at})
     end
   end
 
@@ -528,24 +516,19 @@ defmodule Ankole.Schedule.Cron do
     DateTime.compare(left, right) == :eq
   end
 
-  defp validate_updated_automation_job(repo, schedule, attrs) do
-    if Map.has_key?(attrs, :automation_job_id) do
-      AutomationJobs.validate_bindable_in_tx(
-        repo,
-        attrs.automation_job_id,
-        schedule.agent_uid
-      )
-    else
-      :ok
-    end
-  end
-
-  def stop_human_work_in_tx(repo, uid, version, now) do
-    repo.update_all(
-      from(s in CronSchedule,
-        where: s.human_uid == ^uid and s.human_access_version < ^version and s.status == "active"
-      ),
-      set: [status: "paused", next_fire_at: nil, updated_at: now]
+  def stop_human_work_in_tx(repo, uid, version, _now) do
+    CronSchedule
+    |> Ash.Query.filter(
+      human_uid == ^uid and human_access_version < ^version and status == :active
     )
+    |> Ankole.Ash.bulk_update(:stop_human_work, %{},
+      strategy: [:atomic],
+      return_records?: true,
+      return_errors?: true
+    )
+    |> case do
+      %Ash.BulkResult{status: :success, records: records} -> {length(records), nil}
+      %Ash.BulkResult{errors: errors} -> repo.rollback(errors)
+    end
   end
 end

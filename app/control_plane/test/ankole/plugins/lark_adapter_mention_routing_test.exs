@@ -255,7 +255,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
                finalize_due_inbound_batch_events(now: parent_due_at)
 
       assert Enum.all?(finalized_parent_results, &(&1.status == :ignored))
-      assert Enum.all?(Repo.all(InboundBatch), &(&1.batch_state == "finalized"))
+      assert Enum.all?(Repo.all(InboundBatch), &(&1.batch_state == :finalized))
 
       assert [
                %{
@@ -317,7 +317,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       assert Enum.any?(reply_results, &(&1.status == :ignored))
       refute_receive {:materialized, _source_message_ids}, 10
 
-      reply_batches = Enum.filter(Repo.all(InboundBatch), &(&1.batch_state == "open"))
+      reply_batches = Enum.filter(Repo.all(InboundBatch), &(&1.batch_state == :open))
       assert length(reply_batches) == 2
 
       reply_due_at =
@@ -387,7 +387,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       [agent_b_batch] =
         InboundBatch
         |> Repo.all()
-        |> Enum.filter(&(&1.agent_uid == agent_b.uid and &1.batch_state == "open"))
+        |> Enum.filter(&(&1.agent_uid == agent_b.uid and &1.batch_state == :open))
 
       assert {:ok, agent_b_results} =
                finalize_due_inbound_batch_events(now: agent_b_batch.available_at)

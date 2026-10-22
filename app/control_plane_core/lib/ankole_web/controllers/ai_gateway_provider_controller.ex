@@ -224,8 +224,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   def put_provider(conn, params) do
     with {:ok, provider_id} <- provider_id_param(params),
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
-         {:ok, attrs} <- provider_attrs(provider_id, conn.body_params),
-         {:ok, provider} <- put_provider_row(provider_id, attrs) do
+         {:ok, provider} <- ProviderConfigs.put_provider(provider_id, conn.body_params) do
       json(conn, %{ai_gateway_provider: ProviderConfigs.projection(provider)})
     end
   end
@@ -330,45 +329,13 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     end
   end
 
-  # Upserts by existence check rather than a DB on_conflict clause: the
-  # provider_id is operator-supplied through the URL (not a generated key), so a
-  # plain "fetch, then update or create" expresses the PUT-create-or-replace
-  # contract clearly.
-  defp put_provider_row(provider_id, attrs) do
-    case ProviderConfigs.fetch_provider(provider_id) do
-      {:ok, _provider} -> ProviderConfigs.update_provider(provider_id, attrs)
-      {:error, :not_found} -> ProviderConfigs.create_provider(attrs)
-    end
-  end
-
-  # Reconciles the provider_id from the URL path with an optional provider_id in
-  # the request body: a missing body id is filled in from the path, but a body id
-  # that disagrees with the path is rejected, so a PUT can never silently target a
-  # different provider than the one named in its URL.
-  defp provider_attrs(provider_id, attrs) when is_map(attrs) do
-    case Map.get(attrs, :provider_id) do
-      nil ->
-        {:ok, Map.put(attrs, :provider_id, provider_id)}
-
-      body_provider_id ->
-        with {:ok, body_provider_id} <- normalize_provider_id(body_provider_id) do
-          case body_provider_id == provider_id do
-            true -> {:ok, Map.put(attrs, :provider_id, provider_id)}
-            false -> {:error, :provider_id_mismatch}
-          end
-        end
-    end
-  end
-
-  defp provider_attrs(_provider_id, _attrs), do: {:error, :invalid_provider}
-
   defp provider_id_param(%{provider_id: provider_id}), do: normalize_provider_id(provider_id)
 
   defp normalize_provider_id(value) when is_binary(value) do
     # Provider ids are treated as case- and whitespace-insensitive, so they are
     # trimmed and lowercased before use as identity and inside authz resource
     # strings (an empty id is rejected).
-    case value |> String.trim() |> String.downcase() do
+    case Ankole.AIGateway.ProviderConfigs.Provider.normalize_id(value) do
       "" -> {:error, :blank_id}
       value -> {:ok, value}
     end
@@ -405,7 +372,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     ConsoleErrors.required_field(conn, key)
   end
 
-  defp error(conn, %Ecto.Changeset{} = changeset) do
+  defp error(conn, %module{} = changeset) when module in [Ash.Changeset, Ash.Error.Invalid] do
     ConsoleErrors.changeset(conn, changeset)
   end
 

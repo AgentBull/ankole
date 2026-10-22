@@ -1354,7 +1354,7 @@ defmodule Ankole.AIGateway.ResponseStreamProgressTest do
 
     assert_receive {:ai_gateway_response_stream, _, :events, _, {:terminal, _}}, 1_000
     stored = Repo.get!(Message, response.id)
-    assert stored.status == "complete"
+    assert stored.status == :complete
     assert stored.metadata["upstream_progress"]["event_count"] == 2
     assert stored.metadata["upstream_progress"]["first_event_at"] == progress["first_event_at"]
     assert stored.metadata["upstream_progress"]["last_event_at"] >= progress["last_event_at"]
@@ -1370,7 +1370,7 @@ defmodule Ankole.AIGateway.ResponseStreamProgressTest do
     assert_receive {:ai_gateway_response_stream, _, :events, _, :continue}, 1_000
     assert :ok = ResponseStream.cancel(stream, "test_cancel")
     stored = Repo.get!(Message, response.id)
-    assert stored.status == "error"
+    assert stored.status == :error
     assert stored.metadata["upstream_progress"]["event_count"] == 1
     assert is_binary(stored.metadata["upstream_progress"]["last_event_at"])
     assert stored.metadata["request_metadata"] == %{"tag" => "kept"}
@@ -1421,7 +1421,7 @@ defmodule Ankole.AIGateway.ResponseStreamProgressTest do
 
     assert :ok = StatefulLifecycle.commit_socket_open_error(%{message_id: response.id}, reason)
     stored = Repo.get!(Message, response.id)
-    assert stored.status == "error"
+    assert stored.status == :error
     assert stored.metadata["upstream_progress"] == progress
     assert stored.metadata["request_metadata"] == %{"tag" => "kept"}
   end
@@ -1431,7 +1431,7 @@ defmodule Ankole.AIGateway.ResponseStreamProgressTest do
     await_terminal(stream)
 
     stored = Repo.get!(Message, response.id)
-    assert stored.status == "error"
+    assert stored.status == :error
     progress = stored.metadata["upstream_progress"]
     assert progress["attempt"] == 1
     assert progress["ready_status"] == 200
@@ -1467,7 +1467,7 @@ defmodule Ankole.AIGateway.ResponseStreamProgressTest do
     assert_receive {:progress_retry_ready, ^server}, 1_000
     await_terminal(stream)
     stored = Repo.get!(Message, response.id)
-    assert stored.status == "error"
+    assert stored.status == :error
     progress = stored.metadata["upstream_progress"]
     assert progress["attempt"] == 2
     assert progress["dispatched_at"] == second_progress["dispatched_at"]
@@ -1501,7 +1501,7 @@ defmodule Ankole.AIGateway.ResponseStreamProgressTest do
              error |> ProviderFailure.from_event_error() |> FailureResponse.project()
 
     stored = Repo.get!(Message, response.id)
-    assert stored.status == "error"
+    assert stored.status == :error
     progress = stored.metadata["upstream_progress"]
     assert progress["attempt"] == 1
     assert progress["event_count"] == 1

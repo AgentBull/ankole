@@ -27,6 +27,7 @@ config :ankole, :control_plane_plugin_modules, [
   Ankole.Plugins.Microsoft365Adapter,
   Ankole.Plugins.SlackAdapter,
   Ankole.Plugins.TelegramAdapter,
+  Ankole.Plugins.VercelWorkerProvider,
   Ankole.Plugins.WeComAdapter,
   Ankole.Plugins.WhatsAppAdapter
 ]
@@ -41,23 +42,7 @@ config :ankole, AnkoleWeb.Endpoint,
   ],
   pubsub_server: Ankole.PubSub
 
-config :boruta, Boruta.Oauth,
-  repo: Ankole.Repo,
-  contexts: [
-    access_tokens: Ankole.OIDC.Boruta.AccessTokens,
-    clients: Ankole.OIDC.Boruta.Clients,
-    codes: Ankole.OIDC.Boruta.Codes,
-    resource_owners: Ankole.OIDC.Boruta.ResourceOwners,
-    scopes: Ankole.OIDC.Boruta.Scopes
-  ],
-  max_ttl: [
-    authorization_code: 5 * 60,
-    access_token: 30 * 60,
-    id_token: 5 * 60,
-    refresh_token: 30 * 24 * 60 * 60
-  ],
-  token_generator: Ankole.OIDC.Boruta.TokenGenerator,
-  issuer: "http://ankole.localhost:4000"
+config :ankole, Ankole.TokenSigning, issuer: "http://ankole.localhost:4000"
 
 # Configure Elixir's Logger for Docker/Kubernetes structured-log ingestion.
 config :logger, :default_handler,
@@ -75,7 +60,7 @@ config :logger, :default_handler,
 config :ankole, Oban,
   repo: Ankole.Repo,
   notifier: Oban.Notifiers.PG,
-  queues: [default: 10, agent_workers: 20, conversations: 20, outbox: 20],
+  queues: [default: 10, automation_jobs: 10, agent_workers: 20, conversations: 20, outbox: 20],
   plugins: [
     Oban.Plugins.Pruner,
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(30)},

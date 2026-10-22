@@ -32,8 +32,10 @@ defmodule Ankole.Sessions.Tool do
   @callback normalize(String.t(), term()) :: term()
   @callback execute(Ankole.Sessions.Run.t(), map(), term()) ::
               {:ok, execution()} | {:error, term()}
-  @callback execute_in_tx(module(), Ankole.Sessions.Run.t(), map(), term()) ::
-              {:ok, execution(), [(-> term())]} | {:error, term()}
+  @callback prepare_in_tx(module(), Ankole.Sessions.Run.t(), map(), term()) ::
+              {:ok, [{String.t(), String.t()}],
+               (-> {:ok, execution(), [(-> term())]} | {:error, term()})}
+              | {:error, term()}
   @callback observe(
               Ankole.Sessions.Run.t(),
               Ankole.Sessions.Wait.t(),
@@ -45,7 +47,7 @@ defmodule Ankole.Sessions.Tool do
                       declarations: 1,
                       activity: 4,
                       execute: 3,
-                      execute_in_tx: 4,
+                      prepare_in_tx: 4,
                       observe: 4
 
   @internal_keys ~w(execution_mode read_only destructive retry_safe receipt receipt_read_actions visible_delivery activity run_kinds ends_run)

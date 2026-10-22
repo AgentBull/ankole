@@ -1,5 +1,6 @@
 defmodule Ankole.TenantsTest do
   use Ankole.DataCase, async: false
+  import ExUnit.CaptureLog
   import Ankole.PrincipalsFixtures
 
   alias Ankole.{AppConfigure, AuthZ, BrowserSessions, Tenants}
@@ -14,9 +15,41 @@ defmodule Ankole.TenantsTest do
 
   setup %{tenant: tenant} do
     :ok = set_privileged_tenant(tenant)
-    allow_cache_database_access()
     :ok = Tenants.ensure_scaffold(tenant)
     :ok
+  end
+
+  test "profile persistence cannot set lifecycle markers", %{tenant: tenant} do
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.update(tenant, :profile_in_tx, %{
+                 suspended_at: DateTime.utc_now(),
+                 deleting_at: DateTime.utc_now()
+               })
+             end)
+
+    assert Enum.sort(
+             Enum.map(errors, fn %Ash.Error.Invalid.NoSuchInput{input: field} -> field end)
+           ) == [:deleting_at, :suspended_at]
+
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(Tenants.Tenant, tenant.id), tenant)
+  end
+
+  test "final persistence requires deletion and repeated requests retain its first time" do
+    tenant = new_tenant()
+
+    assert {:error, error} =
+             Repo.transact(fn _repo -> Ankole.Ash.destroy(tenant, :delete_in_tx) end)
+
+    assert %{deleting_at: [_]} = errors_on(error)
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(Tenants.Tenant, tenant.id), tenant)
+
+    assert {:ok, first} = Tenants.delete(tenant)
+    assert {:ok, repeated} = Tenants.delete(tenant)
+    assert repeated.deleting_at == first.deleting_at
+    assert {:error, :tenant_deleting} = Tenants.resume(repeated)
+    assert {:error, :tenant_deleting} = Tenants.update(repeated, %{display_name: "Changed"})
+    assert Repo.get!(Tenants.Tenant, tenant.id).display_name == tenant.display_name
   end
 
   test "active slug lookup follows durable lifecycle state without selecting a tenant", %{
@@ -75,6 +108,58 @@ defmodule Ankole.TenantsTest do
     assert {broken.id, {:error, {:exception, "broken provider"}}} in results
     assert {healthy.id, {:ok, healthy.id}} in results
     assert Repo.tenant_id!() == original.id
+  end
+
+  test "fanout logs keep failure classes without exposing returned or raised private data", %{
+    tenant: original
+  } do
+    raised = new_tenant()
+    thrown = new_tenant()
+    returned = new_tenant()
+    healthy = new_tenant()
+    secret = "private-fanout-request-credential"
+
+    {results, log} =
+      with_log(
+        [format: "$metadata$message\n", metadata: :all],
+        fn ->
+          Repo.without_tenant(fn ->
+            Tenants.map_active(fn ->
+              cond do
+                Repo.tenant_id!() == raised.id -> raise_private_fanout_error(secret)
+                Repo.tenant_id!() == thrown.id -> throw(secret)
+                Repo.tenant_id!() == returned.id -> {:error, %{credential: secret}}
+                true -> {:ok, Repo.tenant_id!()}
+              end
+            end)
+          end)
+        end
+      )
+
+    raised_id = raised.id
+
+    assert {^raised_id, {:error, {:exception, raised_message}}} =
+             List.keyfind(results, raised.id, 0)
+
+    assert raised_message =~ secret
+    assert {thrown.id, {:error, {:throw, secret}}} in results
+    assert {returned.id, {:error, %{credential: secret}}} in results
+    assert {healthy.id, {:ok, healthy.id}} in results
+    assert Repo.tenant_id!() == original.id
+
+    assert length(Regex.scan(~r/event=tenants\.site_fanout_failed/, log)) == 3
+    assert log =~ "failure=Elixir.ArgumentError"
+    assert log =~ "failure=throw"
+    assert log =~ "failure=Elixir.ErlangError"
+    assert log =~ ":erlang.binary_to_integer/1"
+    refute log =~ secret
+  end
+
+  defp raise_private_fanout_error(secret) do
+    :erlang.binary_to_integer(secret)
+  rescue
+    error in ArgumentError ->
+      reraise %{error | message: secret <> ": " <> Exception.message(error)}, __STACKTRACE__
   end
 
   test "retention fanout includes suspended and deleting tenants", %{tenant: original} do
@@ -208,9 +293,12 @@ defmodule Ankole.TenantsTest do
 
     %{principal: human} =
       Repo.with_tenant(second.id, fn ->
-        %Group{}
-        |> Group.changeset(%{name: "siteadmin", display_name: "Custom", kind: :static})
-        |> Repo.insert!()
+        {:ok, _group} =
+          AuthZ.create_principal_group(%{
+            name: "siteadmin",
+            display_name: "Custom",
+            kind: :static
+          })
 
         human_fixture()
       end)
@@ -233,7 +321,11 @@ defmodule Ankole.TenantsTest do
     assert {:ok, renamed} =
              Tenants.update(privileged, %{slug: "renamed-#{Ecto.UUID.generate()}"})
 
-    assert Repo.get_by!(SiteConfig, scope: "global", key: key) == assignment
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.get_by!(SiteConfig, scope: "global", key: key),
+      assignment
+    )
+
     refute Repo.get_by(SiteConfig, scope: "global", key: "tenants.privileged_slug")
     assert {:ok, %{id: id}} = Tenants.privileged()
     assert id == renamed.id
@@ -319,7 +411,7 @@ defmodule Ankole.TenantsTest do
 
     Repo.with_tenant(second.id, fn ->
       persisted = Repo.get!(Signal, event.id)
-      assert persisted.input_state == "dead_letter"
+      assert persisted.status == :dead_letter
       assert persisted.human_uid == author.uid
       assert persisted.authorization_kind == "human"
 
@@ -375,7 +467,7 @@ defmodule Ankole.TenantsTest do
       assert {:error, :work_review_changed} =
                WorkAccess.classify("cron", cron.id, nil, ref, "Already authorized")
 
-      assert {:ok, %{status: "active"}} = Ankole.Schedule.resume_cron_schedule(cron.id)
+      assert {:ok, %{status: :active}} = Ankole.Schedule.resume_cron_schedule(cron.id)
     end)
   end
 
@@ -452,7 +544,7 @@ defmodule Ankole.TenantsTest do
       end)
 
     assert {:ok, _} = Ankole.Principals.WorkCleanup.cleanup(human.uid, disabled.access_version)
-    assert Repo.get!(Signal, event.id).input_state == "open"
+    assert Repo.get!(Signal, event.id).status == :queued
 
     {:ok, revoked_again} =
       HumanAccess.disable(human.uid, "review again", nil, Ecto.UUID.generate())
@@ -463,7 +555,7 @@ defmodule Ankole.TenantsTest do
     assert {:ok, _} =
              Ankole.Principals.WorkCleanup.cleanup(human.uid, revoked_again.access_version)
 
-    assert Repo.get!(Signal, event.id).input_state == "dead_letter"
+    assert Repo.get!(Signal, event.id).status == :dead_letter
     assert 2 == Enum.count(HumanAccess.history(human.uid), &(&1.source == "work_cleanup"))
   end
 
@@ -547,27 +639,20 @@ defmodule Ankole.TenantsTest do
   defp oidc_session(browser) do
     %{principal: human} = human_fixture()
 
-    client =
-      %Client{}
-      |> Client.changeset(%{
-        name: "Logout test",
-        client_type: :public,
-        redirect_uris: ["https://example.test/callback"],
-        backchannel_logout_uri: "https://example.test/logout"
-      })
-      |> Repo.insert!()
+    {:ok, client} =
+      Repo.transact(fn _repo ->
+        Ankole.Ash.create(Client, :create_in_tx, %{
+          name: "Logout test",
+          client_type: :public,
+          redirect_uris: ["https://example.test/callback"],
+          backchannel_logout_uri: "https://example.test/logout"
+        })
+      end)
 
-    %Session{}
-    |> Ecto.Changeset.change(%{
-      client_id: client.id,
-      principal_uid: human.uid,
-      browser_id: browser.id,
-      access_version: human.access_version,
-      provider_id: "local",
-      auth_time: System.system_time(:second),
-      expires_at: DateTime.add(DateTime.utc_now(), 3600)
-    })
-    |> Repo.insert!()
+    {:ok, session} =
+      Ankole.OIDCFixtures.session(human.uid, client.id, "openid", browser: browser)
+
+    session
   end
 
   defp listed({:ok, items}, name), do: Enum.find(items, &(&1.name == name))
@@ -583,14 +668,10 @@ defmodule Ankole.TenantDeletionConcurrencyTest do
     Ankole.DataCase.setup_sandbox(%{sandbox: false})
 
     tenant =
-      %Tenants.Tenant{}
-      |> Tenants.Tenant.changeset(%{
+      Ankole.DataCase.create_committed_tenant(%{
         slug: "deletion-race-#{Ecto.UUID.generate()}",
         display_name: "Deletion race"
       })
-      |> Repo.insert!()
-
-    :ok = Tenants.ensure_scaffold(tenant)
 
     on_exit(fn ->
       if match?({:ok, _}, Tenants.get(tenant.id)) do
@@ -599,8 +680,9 @@ defmodule Ankole.TenantDeletionConcurrencyTest do
       end
 
       Repo.delete_all(
-        from job in Oban.Job,
+        from(job in Oban.Job,
           where: fragment("?->>'tenant_id' = ?", job.args, ^tenant.id)
+        )
       )
     end)
 

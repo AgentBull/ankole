@@ -4,23 +4,13 @@ defmodule Ankole.OIDC.LoginPolicy do
   alias Ankole.OIDC
   alias Ankole.OIDC.Client
 
-  def validate(params) do
-    with {:ok, _} <- prompts(params),
-         {:ok, _} <- max_age(params),
-         {:ok, _} <- essential_auth_time(params) do
-      :ok
-    else
-      _ -> {:error, "invalid_request", "prompt, max_age, or essential claims are not supported"}
-    end
-  end
-
   defp requires_auth_time?(params) do
-    requires_login?(params) or Map.has_key?(params, "max_age") or
-      essential_auth_time(params) == {:ok, true}
+    requires_login?(params) or is_integer(params["max_age"]) or
+      params["auth_time_essential?"] == true
   end
 
   def can_reuse?(auth, params) when is_map(auth) do
-    with {:ok, age} <- max_age(params) do
+    with age when is_nil(age) or is_integer(age) <- params["max_age"] do
       cond do
         requires_login?(params) or selection_required?(params) -> false
         requires_auth_time?(params) and not is_integer(auth["auth_time"]) -> false
@@ -60,7 +50,7 @@ defmodule Ankole.OIDC.LoginPolicy do
   end
 
   def completed_authentication_allowed?(auth, params) do
-    with {:ok, age} <- max_age(params) do
+    with age when is_nil(age) or is_integer(age) <- params["max_age"] do
       cond do
         requires_auth_time?(params) and not is_integer(auth["auth_time"]) ->
           {:error, :authentication_time_unavailable}
@@ -126,7 +116,28 @@ defmodule Ankole.OIDC.LoginPolicy do
     end
   end
 
-  def requires_login?(params), do: "login" in prompt_values(params) or max_age(params) == {:ok, 0}
+  def requires_login?(params), do: "login" in prompt_values(params) or params["max_age"] == 0
+
+  def upstream_options(transaction) do
+    request = transaction.request
+
+    prompt =
+      cond do
+        requires_login?(request) -> "login"
+        select_account?(request) -> "select_account"
+        true -> nil
+      end
+
+    [
+      nonce: transaction.upstream_state,
+      prompt: prompt,
+      max_age: if(requires_login?(request), do: 0, else: request["max_age"]),
+      auth_time_required: requires_auth_time?(request),
+      auth_time_not_before:
+        if(requires_login?(request), do: DateTime.to_unix(transaction.updated_at))
+    ]
+  end
+
   def select_account?(params), do: "select_account" in prompt_values(params)
   def silent?(params), do: "none" in prompt_values(params)
 
@@ -135,63 +146,8 @@ defmodule Ankole.OIDC.LoginPolicy do
          do: {:ok, providers ++ Ankole.IdentityProviders.SiteSources.providers()}
   end
 
-  defp prompt_values(params) do
-    case prompts(params) do
-      {:ok, values} -> values
-      _ -> []
-    end
-  end
-
-  defp prompts(%{"prompt" => value}) when is_binary(value) do
-    values = String.split(value, " ", trim: true)
-
-    if values != [] and length(values) == length(Enum.uniq(values)) and
-         Enum.all?(values, &(&1 in ["none", "login", "select_account"])) and
-         ("none" not in values or length(values) == 1), do: {:ok, values}, else: :error
-  end
-
-  defp prompts(%{"prompt" => _}), do: :error
-  defp prompts(_), do: {:ok, []}
+  defp prompt_values(params), do: params["prompt"] || []
 
   defp source_allowed?(%Client{allowed_identity_provider_ids: ids}, provider_id),
     do: is_binary(provider_id) and (ids == [] or provider_id in ids)
-
-  defp max_age(%{"max_age" => value}) when is_binary(value) do
-    case Integer.parse(value) do
-      {seconds, ""} when seconds >= 0 and seconds <= 2_147_483_647 ->
-        if Regex.match?(~r/\A[0-9]+\z/, value), do: {:ok, seconds}, else: :error
-
-      _ ->
-        :error
-    end
-  end
-
-  defp max_age(%{"max_age" => _}), do: :error
-  defp max_age(_), do: {:ok, nil}
-
-  defp essential_auth_time(%{"claims" => raw}) when is_binary(raw) do
-    with {:ok, %{} = claims} <- Ankole.JSON.decode(raw),
-         true <-
-           Enum.all?(claims, fn {target, fields} ->
-             target in ["id_token", "userinfo"] and is_map(fields) and
-               Enum.all?(fields, fn
-                 {"auth_time", %{} = requirement} ->
-                   target == "id_token" and Map.keys(requirement) -- ["essential"] == [] and
-                     requirement["essential"] in [nil, true, false]
-
-                 {_name, %{"essential" => true}} ->
-                   false
-
-                 {_name, value} ->
-                   is_nil(value) or is_map(value)
-               end)
-           end) do
-      {:ok, get_in(claims, ["id_token", "auth_time", "essential"]) == true}
-    else
-      _ -> :error
-    end
-  end
-
-  defp essential_auth_time(%{"claims" => _}), do: :error
-  defp essential_auth_time(_), do: {:ok, false}
 end

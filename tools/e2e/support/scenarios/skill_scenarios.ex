@@ -232,7 +232,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     assert inspect(skill_result) =~ "E2E_INSTALLED_SKILL_BODY"
 
-    assert %AgentSkill{source_kind: "installed"} =
+    assert %AgentSkill{source_kind: :installed} =
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "e2e-installed")
 
     # Removing the drive folder uninstalls the Skill: the next context read

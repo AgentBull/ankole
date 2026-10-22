@@ -20,7 +20,6 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
   alias AnkoleWeb.AIGatewayResponsesSocket
 
   setup do
-    allow_cache_database_access()
     AppConfigure.Cache.clear_for_test()
     on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
     {:ok, _} = SchemaPacks.install_packs([])
@@ -454,9 +453,10 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
     source = source!(ctx.client)
     assert {:ok, _} = SourceLearning.learn(source.id)
 
-    first
-    |> Ecto.Changeset.change(status: "retracted", updated_at: DateTime.utc_now(:microsecond))
-    |> Repo.update!()
+    assert {:ok, _} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.update(first, :retract, %{metadata: %{}})
+             end)
 
     assert OIDCClientLearning.sweep() == 1
     assert {:ok, _} = SourceLearning.learn(source.id)

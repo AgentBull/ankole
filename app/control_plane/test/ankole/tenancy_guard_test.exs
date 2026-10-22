@@ -16,11 +16,13 @@ defmodule Ankole.TenancyGuardTest do
       1,
     "across_tenants:../../plugins/whatsapp_adapter/lib/ankole/plugins/whatsapp_adapter/webhook.ex:consumers_for_app" =>
       1,
-    "across_tenants:../control_plane_core/lib/ankole_web/controllers/oidc_controller.ex:put_client_tenant" =>
-      1,
     "across_tenants:../control_plane_core/lib/ankole_web/controllers/oidc_logout_controller.ex:confirmation" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole_web/plugs/oidc_cors.ex:call" => 1,
+    "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:assign_legacy_provider_in_tx" =>
+      1,
+    "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:clear_provider_rejections_in_tx" =>
+      1,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:inventory_with_workers" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers/lambda.ex:rows" => 1,
@@ -28,7 +30,9 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:../control_plane_core/lib/ankole/agent_workers/providers.ex:list_projections" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers/providers.ex:projection" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/agent_workers/providers.ex:update" => 2,
+    "across_tenants:../control_plane_core/lib/ankole/agent_workers/providers.ex:update" => 1,
+    "across_tenants:../control_plane_core/lib/ankole/agent_workers/providers.ex:validate_disabled_kinds" =>
+      1,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers/providers/seed.ex:import_file" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers/sweep_job.ex:rows" => 1,
@@ -39,16 +43,19 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:../control_plane_core/lib/ankole/browser_sessions.ex:site_principals" => 1,
     "across_tenants:../control_plane_core/lib/ankole/browser_sessions.ex:save_pod_authentications" =>
       1,
-    "across_tenants:../control_plane_core/lib/ankole/browser_sessions.ex:cleanup_expired" => 1,
     "across_tenants:../control_plane_core/lib/ankole/conversations/delivery/dispatch.ex:reconcile_wakeups" =>
       1,
+    "across_tenants:../control_plane_core/lib/ankole/oidc/client_authentication.ex:put_client_tenant" =>
+      1,
     "across_tenants:../control_plane_core/lib/ankole/oidc/logout.ex:deliver_browser" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/oidc/rp_logout.ex:confirmation" => 1,
+    "across_tenants:../control_plane_core/lib/ankole/oidc/rp_logout.ex:find_request" => 1,
     "across_tenants:../control_plane_core/lib/ankole/oidc/rp_logout.ex:prepare" => 1,
     "across_tenants:../control_plane_core/lib/ankole/oidc/sessions.ex:end_browser_in_tx" => 1,
     "across_tenants:../control_plane_core/lib/ankole/oidc/sessions.ex:end_authentication_in_tx" =>
       1,
-    "across_tenants:../control_plane_core/lib/ankole/oidc/tokens.ex:validate_access_claims" => 1,
+    "across_tenants:../control_plane_core/lib/ankole/oidc/sessions.ex:lock_credential_parents_in_tx" =>
+      1,
+    "across_tenants:../control_plane_core/lib/ankole/oidc/tokens.ex:access_context" => 1,
     "across_tenants:../control_plane_core/lib/ankole/plugins/channel_sync.ex:enqueue_enabled_bindings" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/principals.ex:resolve_tenant" => 1,
@@ -59,6 +66,8 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:list_unresolved" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:lock_authorizer" =>
+      1,
+    "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:lock_authorizers_in_tx" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:valid_subject_now?" =>
       1,
@@ -77,24 +86,19 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:lib/ankole/upgrade_202610.ex:legacy_jobs" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:migrate_binding_configurations" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:migrate_shared_key" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/workflow.ex:reconcile_run_wakeups" => 1,
+    "across_tenants:../control_plane_core/lib/ankole/workflow/recovery.ex:reconcile_run_wakeups" =>
+      1,
+    "raw_sql:../control_plane_core/lib/ankole/advisory_lock.ex:lock" => 1,
+    "raw_sql:../control_plane_core/lib/ankole/advisory_lock.ex:lock!" => 1,
     "raw_sql:../control_plane_core/lib/ankole/agent_workers/config.ex:database_now" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/agent_workers/providers.ex:lock_registry" => 2,
     "raw_sql:../control_plane_core/lib/ankole/agent_workers/reconcile_job.ex:decide_with" => 1,
     "raw_sql:../control_plane_core/lib/ankole/agent_workers/sweep_job.ex:sweep_objects" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/ai_agent/library.ex:lock_agent_document" => 1,
     "raw_sql:../control_plane_core/lib/ankole/ai_gateway/provider_configs.ex:provider_references" =>
       1,
     "raw_sql:../control_plane_core/lib/ankole/ai_gateway/response_chain.ex:chain_messages" => 1,
     "raw_sql:../control_plane_core/lib/ankole/ai_gateway/response_chain.ex:chain_metadata" => 1,
     "raw_sql:../control_plane_core/lib/ankole/ai_gateway/response_chain.ex:suffix_messages" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/app_configure.ex:lock_global_key" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/app_configure.ex:update_tenant_in_tx" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/background_agent_jobs/dispatch.ex:lock_start_idempotency" =>
-      1,
     "raw_sql:../control_plane_core/lib/ankole/background_agent_jobs/dispatch.ex:next_job_id" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/background_agent_jobs/lifecycle.ex:lock_agent_slots" =>
-      1,
     "raw_sql:../control_plane_core/lib/ankole/brain/merge.ex:repoint_link_column" => 2,
     "raw_sql:../control_plane_core/lib/ankole/brain/merge.ex:repoint_links" => 1,
     "raw_sql:../control_plane_core/lib/ankole/brain/merge.ex:repoint_timelines" => 4,
@@ -106,52 +110,34 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:../control_plane_core/lib/ankole/brain/search_indexes.ex:index_usable?" => 1,
     "raw_sql:../control_plane_core/lib/ankole/conversations/attachments.ex:next_attachment_id" =>
       1,
-    "raw_sql:../control_plane_core/lib/ankole/conversations/external.ex:lock_identity" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/conversations/im_group_projection.ex:lock_group" =>
-      1,
-    "raw_sql:../control_plane_core/lib/ankole/conversations/inbound_batches.ex:lock_in_tx" => 2,
-    "raw_sql:../control_plane_core/lib/ankole/conversations/observe.ex:lock_entry" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/files.ex:lock_drive" => 2,
-    "raw_sql:../control_plane_core/lib/ankole/files.ex:upsert_blob" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/files/jobs/collect_unreferenced.ex:mark_unreferenced" =>
-      1,
-    "raw_sql:../control_plane_core/lib/ankole/files/jobs/collect_unreferenced.ex:remove_one" => 1,
     # Reviewed owner queries bind tenant at every recursive and DML entry;
     # lock_tree binds the tenant advisory key, and conversions/copies also bind table.
     "raw_sql:../control_plane_core/lib/ankole/pod/access.ex:path" => 1,
     "raw_sql:../control_plane_core/lib/ankole/pod/access.ex:canonical_navigation" => 1,
     "raw_sql:../control_plane_core/lib/ankole/pod/access.ex:subtree_preserves_permissions?" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/pages.ex:lock_tree" => 1,
     "raw_sql:../control_plane_core/lib/ankole/pod/database_schema.ex:convert_values" => 1,
     "raw_sql:../control_plane_core/lib/ankole/pod/database_schema.ex:persist_conversion" => 1,
     "raw_sql:../control_plane_core/lib/ankole/pod/database_schema.ex:remove_field_values" => 1,
     "raw_sql:../control_plane_core/lib/ankole/pod/copy.ex:copy_field" => 1,
     "raw_sql:../control_plane_core/lib/ankole/pod/copy.ex:copy_attachments" => 1,
+    "raw_sql:../control_plane_core/lib/ankole/pod/copy.ex:copy_records" => 2,
+    "raw_sql:../control_plane_core/lib/ankole/pod/copy.ex:table" => 1,
+    "raw_sql:../control_plane_core/lib/ankole/pod/copy.ex:update_count" => 1,
     "raw_sql:../control_plane_core/lib/ankole/pod/copy.ex:validate_record_sizes" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/tenants/jobs/delete.ex:delete_rows" => 1,
+    "raw_sql:../control_plane_core/lib/ankole/pod/jobs/purge_page.ex:descendants" => 1,
     "raw_sql:../control_plane_core/lib/ankole/pod/query.ex:records" => 1,
     "raw_sql:../control_plane_core/lib/ankole/pod/query.ex:aggregate" => 1,
     "raw_sql:../control_plane_core/lib/ankole/pod/database.ex:query_transaction" => 1,
     "raw_sql:../control_plane_core/lib/ankole/pod/database.ex:query_capabilities" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/copy.ex:table" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/copy.ex:copy_records" => 2,
-    "raw_sql:../control_plane_core/lib/ankole/pod/copy.ex:update_count" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/jobs/purge_page.ex:descendants" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/jobs/purge_page.ex:delete_batches" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/jobs/purge_page.ex:delete_pages" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/principals.ex:advisory_xact_lock" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/sessions/queue.ex:lock_session_in_tx" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/signals/bindings.ex:validate_platform_application_in_tx" =>
-      1,
+    "raw_sql:../control_plane_core/lib/ankole/tenants/jobs/delete.ex:delete_rows" => 1,
     "raw_sql:../control_plane_core/lib/ankole/tenants/jobs/delete.ex:delete_batch" => 1,
     "raw_sql:../control_plane_core/lib/ankole/tenants/jobs/delete.ex:finish_in_tx" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/workflow.ex:lock_agent_slots" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/workflow.ex:lock_idempotency" => 1,
     "sql_fragment:../control_plane_core/lib/ankole/agent_workers/sweep_job.ex:candidates" => 1,
     "sql_fragment:../control_plane_core/lib/ankole/ai_gateway/response_chain.ex:latest_visible_leaf_for_uuid" =>
       1,
     "sql_fragment:../control_plane_core/lib/ankole/background_agent_jobs/trajectory_reader.ex:lineage_query" =>
       1,
+    "sql_fragment:../control_plane_core/lib/ankole/browser_sessions.ex:cleanup_expired" => 1,
     "sql_fragment:../control_plane_core/lib/ankole/conversations/delivery/interactions.ex:older_reply_interaction_events" =>
       1,
     "sql_fragment:../control_plane_core/lib/ankole/conversations/inbound_batches.ex:finalized_batch_contains_source_entry?" =>
@@ -162,15 +148,22 @@ defmodule Ankole.TenancyGuardTest do
       1,
     "sql_fragment:../control_plane_core/lib/ankole/conversations/input_revisions.ex:event_for_supplement_source_entry" =>
       1,
+    "sql_fragment:../control_plane_core/lib/ankole/oidc.ex:cleanup_expired_credentials" => 1,
     "sql_fragment:../control_plane_core/lib/ankole/sessions/console_queries.ex:maybe_filter_min_messages" =>
       1,
     "sql_fragment:../control_plane_core/lib/ankole/signals.ex:signals_for_entry_in_tx" => 1
   }
 
   # Independent classification: changing a tenant schema to :site must fail.
-  @site_tables ~w(site_app_configurations browser_login_transactions browser_sessions browser_authentications
-    ai_gateway_providers oidc_signing_keys site_worker_envs files
-    worker_providers tenants oban_jobs oban_peers schema_migrations)
+  @site_tables Enum.concat(
+                 ~w(site_app_configurations browser_login_transactions browser_sessions browser_authentications
+                   ai_gateway_providers oidc_signing_keys site_worker_envs files
+                   worker_providers tenants oban_jobs oban_peers schema_migrations),
+                 if(Application.compile_env(:ankole, :edition) == :saas,
+                   do: ~w(saas_accounts saas_email_limits saas_email_logins),
+                   else: []
+                 )
+               )
 
   @global_unique_indexes %{
     "pages_pkey" => "The application generates each page's globally unique UUIDv7.",
@@ -306,6 +299,10 @@ defmodule Ankole.TenancyGuardTest do
       "The durable row id is generated globally, not from a tenant-local name.",
     "oidc_refresh_tokens_pkey" =>
       "A random protocol token digest must resolve before tenant discovery.",
+    "oidc_refresh_token_families_pkey" =>
+      "Attesto generates a globally random refresh-token family identity.",
+    "oidc_refresh_tokens_family_id_generation_index" =>
+      "The generation key includes a globally unique refresh-token family id.",
     "oidc_sessions_client_id_authentication_id_authentication_revisi" =>
       "The key includes a globally unique OIDC client id.",
     "oidc_sessions_pkey" =>
@@ -343,6 +340,125 @@ defmodule Ankole.TenancyGuardTest do
     use Ankole.Job, tenancy: :site, queue: :tenancy_guard
     @impl true
     def run(_job), do: :ok
+  end
+
+  test "resource error mappings name real constraints and indexes" do
+    constraints =
+      SQL.query!(Repo, """
+      SELECT relation.relname, constraint_row.conname, constraint_row.contype::text, referenced.relname
+      FROM pg_constraint constraint_row
+      JOIN pg_class relation ON relation.oid = constraint_row.conrelid
+      JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+      LEFT JOIN pg_class referenced ON referenced.oid = constraint_row.confrelid
+      WHERE namespace.nspname = current_schema()
+      """).rows
+      |> MapSet.new()
+
+    indexes =
+      SQL.query!(Repo, """
+      SELECT tablename, indexname FROM pg_indexes WHERE schemaname = current_schema()
+      """).rows
+      |> MapSet.new()
+
+    for schema <- schemas(), Spark.Dsl.is?(schema, Ash.Resource) do
+      table = schema.__schema__(:source)
+
+      for constraint <- AshPostgres.DataLayer.Info.check_constraints(schema) do
+        assert MapSet.member?(constraints, [table, constraint.name, "c", nil]),
+               "#{inspect(schema)} maps a missing check constraint #{constraint.name}"
+      end
+
+      for {_fields, name} <- AshPostgres.DataLayer.Info.foreign_key_names(schema) do
+        assert Enum.any?(constraints, fn
+                 [child, ^name, "f", parent] -> table in [child, parent]
+                 _constraint -> false
+               end),
+               "#{inspect(schema)} maps a missing foreign key #{name}"
+      end
+
+      for {_fields, name} <- AshPostgres.DataLayer.Info.unique_index_names(schema) do
+        assert MapSet.member?(indexes, [table, name]),
+               "#{inspect(schema)} maps a missing unique index #{name}"
+      end
+    end
+  end
+
+  test "Ash identities use the existing index and its exact tenant scope" do
+    for schema <- schemas(),
+        Spark.Dsl.is?(schema, Ash.Resource),
+        identity <- Ash.Resource.Info.identities(schema) do
+      table = schema.__schema__(:source)
+      index = AshPostgres.DataLayer.Info.identity_index_names(schema)[identity.name]
+      assert is_binary(index), "#{inspect(schema)}.#{identity.name} needs its existing index name"
+
+      rows =
+        SQL.query!(
+          Repo,
+          """
+          SELECT COALESCE(attribute.attname, pg_get_indexdef(index_info.indexrelid, key.position::int, true))
+          FROM pg_index index_info
+          JOIN pg_class index_table ON index_table.oid = index_info.indexrelid
+          JOIN pg_class source_table ON source_table.oid = index_info.indrelid
+          JOIN unnest(index_info.indkey) WITH ORDINALITY AS key(attnum, position) ON true
+          LEFT JOIN pg_attribute attribute ON attribute.attrelid = source_table.oid AND attribute.attnum = key.attnum
+          WHERE source_table.relname = $1 AND index_table.relname = $2 AND index_info.indisunique
+          ORDER BY key.position
+          """,
+          [table, index]
+        ).rows
+        |> List.flatten()
+
+      assert rows != [], "#{inspect(schema)}.#{identity.name} has no matching unique index"
+
+      expected =
+        Enum.map(identity.keys, fn key ->
+          case Ash.Resource.Info.attribute(schema, key) do
+            nil ->
+              assert Ash.Resource.Info.calculation(schema, key)
+              sql = AshPostgres.DataLayer.Info.calculations_to_sql(schema)[key]
+              assert is_binary(sql), "#{inspect(schema)}.#{key} needs its exact index expression"
+              index_expression!(table, sql)
+
+            _attribute ->
+              to_string(key)
+          end
+        end)
+
+      if sql = AshPostgres.DataLayer.Info.identity_wheres_to_sql(schema)[identity.name] do
+        [[predicate]] =
+          SQL.query!(
+            Repo,
+            "SELECT pg_get_expr(index_info.indpred, index_info.indrelid) FROM pg_index index_info JOIN pg_class index_table ON index_table.oid = index_info.indexrelid WHERE index_table.relname = $1",
+            [index]
+          ).rows
+
+        assert index_expression!(table, predicate) == index_expression!(table, sql)
+      end
+
+      expected =
+        case schema.__tenancy__() do
+          :site ->
+            expected
+
+          :tenant ->
+            assert identity.all_tenants? == "tenant_id" not in rows
+            if identity.all_tenants?, do: assert(Map.has_key?(@global_unique_indexes, index))
+            if identity.all_tenants?, do: expected, else: ["tenant_id" | expected]
+        end
+
+      assert MapSet.new(rows) == MapSet.new(expected)
+    end
+  end
+
+  defp index_expression!(table, expression) do
+    [[[%{"Plan" => %{"Output" => [canonical]}}]]] =
+      SQL.query!(
+        Repo,
+        ~s|EXPLAIN (VERBOSE, FORMAT JSON, COSTS OFF) SELECT #{expression} FROM "#{table}"|,
+        []
+      ).rows
+
+    canonical
   end
 
   test "every table has an explicit site declaration or a required tenant foreign key" do
@@ -387,6 +503,38 @@ defmodule Ankole.TenancyGuardTest do
         assert MapSet.member?(site_tables, hd(row))
       end
     end
+  end
+
+  test "every tenant-to-tenant foreign key binds the same tenant" do
+    tenant_tables =
+      for schema <- schemas(), schema.__tenancy__() == :tenant, do: schema.__schema__(:source)
+
+    assert tenant_tables != []
+
+    assert %{rows: []} =
+             SQL.query!(
+               Repo,
+               """
+               SELECT child.relname, parent.relname, foreign_key.conname
+               FROM pg_constraint foreign_key
+               JOIN pg_class child ON child.oid = foreign_key.conrelid
+               JOIN pg_class parent ON parent.oid = foreign_key.confrelid
+               JOIN pg_namespace namespace ON namespace.oid = child.relnamespace
+               JOIN pg_attribute child_tenant ON child_tenant.attrelid = child.oid
+                 AND child_tenant.attname = 'tenant_id' AND NOT child_tenant.attisdropped
+               JOIN pg_attribute parent_tenant ON parent_tenant.attrelid = parent.oid
+                 AND parent_tenant.attname = 'tenant_id' AND NOT parent_tenant.attisdropped
+               WHERE foreign_key.contype = 'f' AND namespace.nspname = current_schema()
+                 AND child.relname = ANY($1) AND parent.relname = ANY($1)
+                 AND NOT EXISTS (
+                   SELECT 1
+                   FROM unnest(foreign_key.conkey, foreign_key.confkey) AS key(child, parent)
+                   WHERE key.child = child_tenant.attnum AND key.parent = parent_tenant.attnum
+                 )
+               ORDER BY child.relname, foreign_key.conname
+               """,
+               [tenant_tables]
+             )
   end
 
   test "tenant deletion covers every table with tenant ownership" do
@@ -470,29 +618,6 @@ defmodule Ankole.TenancyGuardTest do
         function_exported?(module, :__opts__, 0) do
       assert function_exported?(module, :__tenancy__, 0), "#{inspect(module)} must use Ankole.Job"
       assert module.__tenancy__() in [:site, :tenant]
-    end
-  end
-
-  test "request changesets cannot cast tenant_id" do
-    for file <- source_files() do
-      ast = file |> File.read!() |> Code.string_to_quoted!()
-
-      Macro.prewalk(ast, fn
-        {:cast, _, args} = node when is_list(args) ->
-          refute Enum.any?(args, &(is_list(&1) and :tenant_id in &1)),
-                 "#{file} casts tenant_id from request data"
-
-          node
-
-        {{:., _, [_module, :cast]}, _, args} = node when is_list(args) ->
-          refute Enum.any?(args, &(is_list(&1) and :tenant_id in &1)),
-                 "#{file} casts tenant_id from request data"
-
-          node
-
-        node ->
-          node
-      end)
     end
   end
 
@@ -612,7 +737,7 @@ defmodule Ankole.TenancyGuardTest do
         function_exported?(module, :__schema__, 1),
         module.__schema__(:source) != nil do
       assert function_exported?(module, :__tenancy__, 0),
-             "#{inspect(module)} must use Ankole.Schema"
+             "#{inspect(module)} must declare its ownership through Ankole.Ash.Resource"
 
       module
     end

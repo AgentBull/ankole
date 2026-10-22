@@ -336,7 +336,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
     # for a later polling cycle to resend B.
     record_request_turn(running, ref, ctx.agent, steer.id, "in_progress")
     checkpointed = BackgroundAgentJobs.get_job_for_agent(job.id, ctx.agent)
-    assert checkpointed.status == "running"
+    assert checkpointed.status == :running
     assert checkpointed.metadata["applied_source_signal_id"] == steer.id
     assert Repo.reload!(steer).completed_at == nil
     assert original_request(ref)["text"] == text
@@ -456,7 +456,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
     envelope =
       Ankole.Sessions.TurnEnvelope.turn_start(ref, signal, %{request_context: %{}}, mode, nil)
 
-    bytes = Ankole.Kernel.RuntimeFabric.encode_envelope(envelope)
+    bytes = Ankole.RuntimeFabric.encode_envelope(envelope)
 
     assert {:ok, %{body: {:turn_start, start}}} =
              Ankole.RuntimeFabric.V1.Envelope.decode(bytes)
@@ -573,6 +573,19 @@ defmodule Ankole.Pod.RPCBrokerTest do
 
     assert {:ok, %{job: job, dispatch_event: dispatch}} = result
     assert {:ok, attempt} = Ankole.Sessions.Admission.admit(dispatch, dispatch)
+
+    assert {:ok, %{job: job}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(
+               job.id,
+               ctx.agent,
+               %{
+                 "status" => "running",
+                 "runtime_thread_id" => job.runtime_thread_id || "source-test-#{job.id}"
+               },
+               turn_ref: attempt.job_ref,
+               worker_id: ctx.agent
+             )
+
     {job, attempt.job_ref}
   end
 
@@ -581,7 +594,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
              BackgroundAgentJobs.commit_status_with_wakeup(
                job.id,
                job.agent_uid,
-               %{"status" => "succeeded", "runtime_thread_id" => "source-test-#{job.id}"},
+               %{"status" => "succeeded"},
                external_completion: true
              )
 

@@ -12,10 +12,10 @@ defmodule Ankole.Signals.Bindings do
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.Conversations.Delivery.PreviewState
-  alias Ecto.Adapters.SQL
   alias Ankole.Repo
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.AppConfig
@@ -50,16 +50,6 @@ defmodule Ankole.Signals.Bindings do
     "whatsapp" => :whatsapp_binding_config_unavailable
   }
 
-  defp upsert_binding(repo, attrs) do
-    %Binding{}
-    |> Binding.changeset(attrs)
-    |> repo.insert(
-      on_conflict: {:replace_all_except, [:inserted_at]},
-      conflict_target: [:agent_uid, :name],
-      returning: true
-    )
-  end
-
   @doc false
   def delete_agent_config_rows_in_tx(repo, uid) do
     binding = Ankole.Signals.Binding
@@ -72,11 +62,13 @@ defmodule Ankole.Signals.Bindings do
                from(row in binding, where: row.config_ref == ^reference and row.agent_uid != ^uid)
              )
            end) do
-          repo.delete_all(
-            from(config in Ankole.AppConfigure.SiteConfig,
-              where: config.scope == "global" and config.key == ^key
-            )
-          )
+          Ankole.AppConfigure.SiteConfig
+          |> Ash.Query.filter(scope == "global" and key == ^key)
+          |> Ankole.Ash.bulk_destroy(:remove, %{}, strategy: [:atomic], return_errors?: true)
+          |> case do
+            %Ash.BulkResult{status: :success} -> :ok
+            %Ash.BulkResult{errors: errors} -> repo.rollback(errors)
+          end
         end
 
       _ ->
@@ -172,10 +164,12 @@ defmodule Ankole.Signals.Bindings do
                  binding.adapter,
                  current_config
                ),
-             {:ok, result} <- put_cloud_binding(target.uid, binding_name, attrs) do
-          if result.binding.agent_uid != binding.agent_uid,
-            do: repo.delete!(binding)
-
+             {:ok, result} <- put_cloud_binding(target.uid, binding_name, attrs),
+             {:ok, _binding} <-
+               if(result.binding.agent_uid != binding.agent_uid,
+                 do: Ankole.Ash.destroy(binding, :remove),
+                 else: {:ok, binding}
+               ) do
           {:ok, result}
         end
       end)
@@ -256,7 +250,7 @@ defmodule Ankole.Signals.Bindings do
       Repo.transact(fn repo ->
         if cloud_target_owned?(repo, principal.uid, target) do
           with {:ok, binding} <-
-                 upsert_binding(repo, %{
+                 Ankole.Ash.create(Binding, :put, %{
                    agent_uid: principal.uid,
                    name: name,
                    adapter: "cloudevents",
@@ -380,19 +374,15 @@ defmodule Ankole.Signals.Bindings do
   defp maybe_where_agent(query, agent_uid) when is_binary(agent_uid),
     do: where(query, [binding], binding.agent_uid == ^String.downcase(agent_uid))
 
-  @spec list_agent_bindings(String.t(), keyword()) ::
+  @spec list_agent_bindings(String.t()) ::
           {:ok, [Binding.t()]} | {:error, term()}
-  def list_agent_bindings(agent_uid, opts \\ [])
-
-  def list_agent_bindings(agent_uid, opts) when is_binary(agent_uid) do
-    repo = Keyword.get(opts, :repo, Repo)
-
+  def list_agent_bindings(agent_uid) when is_binary(agent_uid) do
     with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid) do
       bindings =
         Binding
         |> where([binding], binding.agent_uid == ^principal.uid)
         |> order_by([binding], asc: binding.adapter, asc: binding.name)
-        |> repo.all()
+        |> Repo.all()
 
       {:ok, bindings}
     else
@@ -401,7 +391,7 @@ defmodule Ankole.Signals.Bindings do
     end
   end
 
-  def list_agent_bindings(_agent_uid, _opts), do: {:error, :agent_not_found}
+  def list_agent_bindings(_agent_uid), do: {:error, :agent_not_found}
 
   @spec disable_binding(String.t(), String.t()) :: {:ok, Binding.t()} | {:error, term()}
   def disable_binding(agent_uid, binding_name)
@@ -409,9 +399,7 @@ defmodule Ankole.Signals.Bindings do
     Repo.transact(fn repo ->
       with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
            %Binding{} = binding <- lock_binding(repo, principal.uid, binding_name) do
-        binding
-        |> Binding.changeset(%{enabled: false, unavailable_reason: nil})
-        |> repo.update()
+        Ankole.Ash.update(binding, :disable, %{})
       else
         nil -> {:error, :binding_not_found}
         {:error, :not_found} -> {:error, :agent_not_found}
@@ -666,7 +654,7 @@ defmodule Ankole.Signals.Bindings do
                     normalized_config
                   ),
                 {:ok, binding} <-
-                  upsert_binding(repo, %{
+                  Ankole.Ash.create(Binding, :put, %{
                     agent_uid: agent_uid,
                     name: binding_name,
                     adapter: definition.id,
@@ -734,7 +722,7 @@ defmodule Ankole.Signals.Bindings do
                     normalized_config
                   ),
                 {:ok, binding} <-
-                  upsert_binding(repo, %{
+                  Ankole.Ash.create(Binding, :put, %{
                     agent_uid: target_agent_uid,
                     name: binding_name,
                     adapter: definition.id,
@@ -855,11 +843,8 @@ defmodule Ankole.Signals.Bindings do
        ),
        do: {:ok, source_binding}
 
-  defp maybe_disable_source_binding(repo, %Binding{} = source_binding, _target_agent_uid) do
-    source_binding
-    |> Binding.changeset(%{enabled: false, unavailable_reason: nil})
-    |> repo.update()
-  end
+  defp maybe_disable_source_binding(_repo, %Binding{} = source_binding, _target_agent_uid),
+    do: Ankole.Ash.update(source_binding, :disable, %{})
 
   @doc "Adapter-owned identity resolution; callers run this before acquiring database locks."
   def resolve_platform_application(
@@ -882,9 +867,7 @@ defmodule Ankole.Signals.Bindings do
     tenant_id = Repo.tenant_id!()
 
     with {:ok, _} <-
-           SQL.query(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [
-             "signals:application:" <> application
-           ]) do
+           Ankole.AdvisoryLock.lock(repo, "signals:application:" <> application) do
       conflict =
         Repo.across_tenants(fn ->
           repo.exists?(
@@ -915,19 +898,17 @@ defmodule Ankole.Signals.Bindings do
   def record_platform_application_in_tx(repo, {_parsed, scope, key}, application) do
     schema = AppConfig.for_scope(scope)
 
-    query =
-      from(row in schema,
-        where: row.scope == ^scope and row.key == ^key,
-        update: [
-          set: [
-            value: fragment("? || ?::jsonb", row.value, ^%{"platform_application" => application})
-          ]
-        ]
-      )
-
-    case repo.update_all(query, []) do
-      {1, _} -> :ok
-      {0, _} -> {:error, :configuration_not_found}
+    schema
+    |> Ash.Query.filter(scope == ^scope and key == ^key)
+    |> Ankole.Ash.bulk_update(:record_platform_application, %{application: application},
+      strategy: [:atomic],
+      return_records?: true,
+      return_errors?: true
+    )
+    |> case do
+      %Ash.BulkResult{status: :success, records: [_config]} -> :ok
+      %Ash.BulkResult{status: :success, records: []} -> {:error, :configuration_not_found}
+      %Ash.BulkResult{errors: errors} -> repo.rollback(errors)
     end
   end
 
@@ -951,14 +932,12 @@ defmodule Ankole.Signals.Bindings do
     |> where([binding], is_nil(binding.unavailable_reason))
   end
 
-  @spec list_enabled_bindings(String.t(), keyword()) :: [Binding.t()]
-  def list_enabled_bindings(adapter, opts \\ []) when is_binary(adapter) do
-    repo = Keyword.get(opts, :repo, Repo)
-
+  @spec list_enabled_bindings(String.t()) :: [Binding.t()]
+  def list_enabled_bindings(adapter) when is_binary(adapter) do
     available_bindings_query()
     |> where([binding], binding.adapter == ^adapter)
     |> order_by([binding], asc: binding.agent_uid, asc: binding.name)
-    |> repo.all()
+    |> Repo.all()
   end
 
   @spec binding_config(Binding.t(), module()) :: {:ok, map()} | :error | {:error, term()}

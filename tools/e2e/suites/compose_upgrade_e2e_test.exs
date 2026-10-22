@@ -491,7 +491,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     {old, owner} = Compose.start!(:pooled) |> Compose.setup_admin!()
     uid = "compose-real-llm-agent"
     proof = "preserved-" <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
-    work = "/workspace/sessions/compose-real-llm"
+    chat_id = "oc_compose_real_recovery"
 
     assert %{"agent" => %{"uid" => ^uid}} =
              Compose.api!(old, :post, "/api/v1/agents", %{
@@ -509,18 +509,66 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
                )
              end)
 
+    workspace_result = "/tmp/compose-session-workspace.json"
+
+    code = """
+    channel_id = Ankole.Plugins.LarkAdapter.Inbound.signal_channel_id(#{inspect(chat_id)})
+    session_id = Ankole.SignalsGateway.signal_session_id(channel_id)
+    {:ok, workspace} = Ankole.Repo.transact(fn repo ->
+      with {:ok, _channel} <- Ankole.SignalsGateway.Projection.upsert_channel(repo, %{
+             signal_channel_id: channel_id, channel_kind: :im_dm, reply_mode: :entry,
+             channel_name: nil, channel_visibility: nil, channel_metadata: %{},
+             channel_raw_payload: %{}
+           }, DateTime.utc_now(:microsecond)) do
+        Ankole.SignalsGateway.ActorRuntime.SessionWorkspaces.ensure_in_tx(
+          repo, #{inspect(uid)}, session_id)
+      end
+    end)
+    File.write!(#{inspect(workspace_result)}, Ankole.JSON.encode!(%{
+      id: workspace.id, channel_id: channel_id,
+      path: Ankole.AgentHomePaths.session_workspace(#{inspect(uid)}, workspace.id)
+    }))
+    """
+
+    Compose.compose!(old, [
+      "exec",
+      "-T",
+      "-e",
+      "ANKOLE_DIST_PORT=0",
+      "control-plane",
+      "/app/bin/ankole",
+      "rpc",
+      code
+    ])
+
+    assert %{"id" => workspace_id, "channel_id" => channel_id, "path" => pooled_path} =
+             Compose.compose!(old, ["exec", "-T", "control-plane", "cat", workspace_result])
+             |> Ankole.JSON.decode!()
+
     Compose.compose!(old, [
       "exec",
       "-T",
       "worker",
       "sh",
       "-ec",
-      "mkdir -p /agents/#{uid}/sessions/compose-real-llm; " <>
+      "mkdir -p #{pooled_path}; " <>
         "chmod 700 /agents/#{uid}; " <>
-        "printf '%s\\n' '#{proof}' > /agents/#{uid}/sessions/compose-real-llm/source.txt"
+        "printf '%s\\n' '#{proof}' > #{pooled_path}/source.txt"
     ])
 
     deployment = Compose.upgrade!(old, lark_base_url: "http://host.docker.internal:#{port}")
+
+    assert %{"id" => ^workspace_id, "kind" => "conversation"} =
+             compose_query!(deployment, """
+             SELECT json_build_object('id', session.id, 'kind', session.kind)
+             FROM sessions session JOIN conversations conversation
+               ON conversation.tenant_id = session.tenant_id
+               AND conversation.id = session.conversation_id
+             WHERE session.tenant_id = '#{deployment.tenant_id}' AND session.agent_uid = '#{uid}'
+               AND conversation.provider_conversation_id = '#{channel_id}'
+             """)
+
+    work = Ankole.AgentHomePaths.session_workspace(workspace_id)
     compose_public_network_diagnostic!(deployment)
 
     Compose.api!(deployment, :put, "/api/v1/site/ai-gateway/providers/compose-real-model", %{
@@ -561,7 +609,6 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
         "cp #{work}/source.txt #{work}/recovered-report.txt"
 
     message_id = "om_compose_real_recovery"
-    chat_id = "oc_compose_real_recovery"
 
     assert :ok =
              FakeFeishu.State.user_sends_message(platform,
@@ -722,7 +769,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
                "SELECT COALESCE(json_agg(json_build_object('message_id', created_provider_message_id, " <>
                  "'attachments', payload->'attachments')), '[]'::json) " <>
                  "FROM deliveries WHERE source_signal_id = '#{input_id}' " <>
-                 "AND status = 'succeeded' AND jsonb_array_length(payload->'attachments') > 0"
+                 "AND status = 'sent' AND jsonb_array_length(payload->'attachments') > 0"
              )
 
     assert sent_file_id == file_message.id
@@ -738,7 +785,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     compose_query!(
       deployment,
       "SELECT json_build_object('id', id::text, 'attempt_count', attempt_count, " <>
-        "'session_id', session_id, 'input_state', input_state, 'last_attempt_at', last_attempt_at, " <>
+        "'session_id', session_id, 'status', status, 'last_attempt_at', last_attempt_at, " <>
         "'completed', completed_at IS NOT NULL) FROM signals " <>
         "WHERE agent_uid = '#{uid}' AND provider_message_id = '#{message_id}'"
     )

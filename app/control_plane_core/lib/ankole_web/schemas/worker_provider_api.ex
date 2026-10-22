@@ -23,7 +23,12 @@ defmodule AnkoleWeb.Schemas.WorkerProviderAPI do
             description: "Stored credentials are masked."
           },
           is_default: %Schema{type: :boolean},
-          agent_count: %Schema{type: :integer, minimum: 0}
+          agent_count: %Schema{type: :integer, minimum: 0},
+          selectable: %Schema{
+            type: :boolean,
+            description:
+              "The kind is active and its Plugin is selected for the next start. This does not check cloud connectivity."
+          }
         },
         required: [
           :provider_id,
@@ -32,7 +37,8 @@ defmodule AnkoleWeb.Schemas.WorkerProviderAPI do
           :config,
           :credentials,
           :is_default,
-          :agent_count
+          :agent_count,
+          :selectable
         ],
         additionalProperties: false
       },

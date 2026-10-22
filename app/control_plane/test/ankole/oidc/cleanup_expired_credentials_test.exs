@@ -10,7 +10,6 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
   alias Ankole.Repo
 
   setup do
-    allow_cache_database_access()
     Ankole.AppConfigure.Registry.clear_for_test()
     Ankole.AppConfigure.Cache.clear_for_test()
     :ok
@@ -68,31 +67,28 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
     offline = make_session.(expires_at: DateTime.add(now, 3600), ended_at: old)
     credential = make_session.(expires_at: old, ended_at: old)
 
-    %RefreshToken{}
-    |> RefreshToken.changeset(%{
-      digest: "protected-refresh",
-      session_id: credential.id,
-      client_id: client_id,
-      principal_uid: human.principal.uid,
-      scope: "openid offline_access",
-      issued_at: old,
-      absolute_expires_at: DateTime.add(now, 3600)
-    })
-    |> Repo.insert!()
+    insert_refresh_for_session!(credential, "protected-refresh", DateTime.add(now, 3600))
 
     deliveries =
       for status <- [:pending, :delivering, :failed, :delivered] do
         session = make_session.(expires_at: old, ended_at: old)
 
-        delivery =
-          %LogoutDelivery{}
-          |> Ecto.Changeset.change(
-            session_id: session.id,
-            endpoint: "https://rp.example/logout",
-            status: status,
-            deadline: old
-          )
-          |> Repo.insert!()
+        {:ok, delivery} =
+          Repo.transact(fn _repo ->
+            with {:ok, delivery} <-
+                   Ankole.Ash.create(LogoutDelivery, :enqueue_in_tx, %{
+                     session_id: session.id,
+                     endpoint: "https://rp.example/logout",
+                     deadline: old
+                   }) do
+              case status do
+                :pending -> {:ok, delivery}
+                :delivering -> Ankole.Ash.update(delivery, :claim_in_tx, %{at: old})
+                :failed -> Ankole.Ash.update(delivery, :exhaust_in_tx, %{})
+                :delivered -> Ankole.Ash.update(delivery, :acknowledge_in_tx, %{at: old})
+              end
+            end
+          end)
 
         {session, delivery}
       end
@@ -104,14 +100,14 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
 
     login |> Ecto.Changeset.change(expires_at: old) |> Repo.update!()
 
-    request =
-      %LogoutRequest{}
-      |> Ecto.Changeset.change(
-        browser_id: anonymous.id,
-        browser_revision: anonymous.revision,
-        expires_at: old
-      )
-      |> Repo.insert!()
+    {:ok, request} =
+      Repo.transact(fn _repo ->
+        Ankole.Ash.create(LogoutRequest, :prepare_in_tx, %{
+          browser_id: anonymous.id,
+          browser_revision: anonymous.revision,
+          expires_at: old
+        })
+      end)
 
     anonymous |> Ecto.Changeset.change(expires_at: old) |> Repo.update!()
 
@@ -172,7 +168,6 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
 
     {:ok, browser} = BrowserSessions.create()
     old = DateTime.add(DateTime.utc_now(:microsecond), -2 * 24 * 60 * 60)
-    Repo.update!(Ecto.Changeset.change(browser, expires_at: old))
     suspended = create_tenant()
     deleting = create_tenant()
 
@@ -181,11 +176,14 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
         Repo.with_tenant(tenant.id, fn ->
           human = human_fixture()
           client_id = create_client!()
-          {:ok, session} = Ankole.OIDCFixtures.session(human.principal.uid, client_id, "openid")
+
+          {:ok, session} =
+            Ankole.OIDCFixtures.session(human.principal.uid, client_id, "openid",
+              browser: browser
+            )
 
           Repo.update!(
             Ecto.Changeset.change(session,
-              browser_id: browser.id,
               expires_at: old,
               ended_at: if(tenant.id == deleting.id, do: DateTime.utc_now(), else: old)
             )
@@ -193,6 +191,7 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
         end)
       end
 
+    Repo.update!(Ecto.Changeset.change(browser, expires_at: old))
     Repo.update!(Ecto.Changeset.change(suspended, suspended_at: DateTime.utc_now()))
     Repo.update!(Ecto.Changeset.change(deleting, deleting_at: DateTime.utc_now()))
     tenant_count = length(Ankole.Tenants.list())
@@ -265,36 +264,56 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
   defp insert_code!(client_id, principal_uid, digest, expires_at) do
     {:ok, session} = Ankole.OIDCFixtures.session(principal_uid, client_id, "openid")
 
-    %AuthorizationCode{}
-    |> AuthorizationCode.changeset(%{
-      digest: digest,
-      session_id: session.id,
-      client_id: client_id,
-      principal_uid: principal_uid,
-      redirect_uri: "https://cleanup.example.test/callback",
-      scope: "openid",
-      code_challenge_digest: "challenge",
-      code_challenge_method: "S256",
-      expires_at: expires_at
-    })
-    |> Repo.insert!()
+    {:ok, code} =
+      Repo.transact(fn ->
+        Ankole.Ash.create(AuthorizationCode, :issue_in_tx, %{
+          digest: digest,
+          session_id: session.id,
+          client_id: client_id,
+          principal_uid: principal_uid,
+          redirect_uri: "https://cleanup.example.test/callback",
+          scope: "openid",
+          code_challenge: String.duplicate("a", 43),
+          expires_at: expires_at
+        })
+      end)
+
+    code
   end
 
   defp insert_refresh!(client_id, principal_uid, digest, absolute_expires_at) do
     {:ok, session} =
       Ankole.OIDCFixtures.session(principal_uid, client_id, "openid offline_access")
 
-    %RefreshToken{}
-    |> RefreshToken.changeset(%{
-      digest: digest,
-      session_id: session.id,
-      client_id: client_id,
-      principal_uid: principal_uid,
-      scope: "openid offline_access",
-      issued_at: DateTime.add(absolute_expires_at, -60, :second),
-      absolute_expires_at: absolute_expires_at
-    })
-    |> Repo.insert!()
+    insert_refresh_for_session!(session, digest, absolute_expires_at)
+  end
+
+  defp insert_refresh_for_session!(session, digest, expiry) do
+    deadline = DateTime.to_unix(expiry)
+
+    assert :ok =
+             Ankole.OIDC.RefreshStore.insert(%{
+               token_hash: digest,
+               family_id: digest,
+               generation: 0,
+               data: %{
+                 subject: session.principal_uid,
+                 client_id: session.client_id,
+                 scope: ["openid", "offline_access"],
+                 resource: [],
+                 dpop_jkt: nil,
+                 acr: nil,
+                 auth_time: nil,
+                 family_expires_at: deadline,
+                 claims: %{"session_id" => session.id}
+               },
+               expires_at: deadline,
+               consumed: false,
+               consumed_at: nil,
+               successor: nil
+             })
+
+    Repo.get!(RefreshToken, digest)
   end
 
   defp before(now), do: DateTime.add(now, -1, :second)

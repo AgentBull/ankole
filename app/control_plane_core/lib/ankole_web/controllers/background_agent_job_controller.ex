@@ -11,7 +11,6 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.BackgroundAgentJobs
-  alias Ankole.BackgroundAgentJobs.JobState
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsoleParams
@@ -19,10 +18,9 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
   alias AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobHealthResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobListResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobStatus
   alias AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobResponse
   alias OpenAPISpex.Schema
-
-  @statuses JobState.statuses()
 
   tags(["Background Agent Jobs"])
   security([%{"consoleSession" => []}])
@@ -33,7 +31,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
   operation(:index,
     summary: "List background Agent Jobs",
     parameters: [
-      status: [in: :query, schema: %Schema{type: :string, enum: @statuses}, required: false],
+      status: [in: :query, schema: BackgroundAgentJobStatus, required: false],
       agent: [in: :query, type: :string, required: false],
       q: [
         in: :query,
@@ -235,6 +233,16 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
         "background_agent_job_terminal",
         "background Agent Job already failed or stopped"
       )
+
+  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid] do
+    ConsoleErrors.render(
+      conn,
+      422,
+      "invalid_background_agent_job_request",
+      "background Agent Job request is invalid",
+      Ankole.Ash.validation_details(error)
+    )
+  end
 
   defp error(conn, reason) do
     ConsoleErrors.render(

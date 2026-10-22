@@ -4,7 +4,7 @@ defmodule Ankole.ComposeAgentHomeMigrationIntegrationTest do
   alias Ankole.AgentWorkers.Docker
   alias Ankole.AgentWorkers.ProviderKind
   alias Ankole.AgentWorkers.Providers.Configuration
-  alias Ankole.AgentWorkers.Providers.Provider
+  alias Ankole.AgentWorkers.Providers.Runtime
   alias Ankole.AgentWorkers.WorkerBootstrap
 
   @moduletag timeout: 180_000
@@ -213,10 +213,13 @@ defmodule Ankole.ComposeAgentHomeMigrationIntegrationTest do
     {:ok, settings} =
       Configuration.parse(Docker.definition().schema, Ankole.JSON.encode!(%{socket: socket}))
 
-    %Provider{
+    %Runtime{
+      id: Ankole.Ecto.UUIDv7.autogenerate(),
       provider_id: "docker",
       kind: "docker",
       settings: settings,
+      settings_digest: Configuration.digest(Docker.definition().schema, settings),
+      secrets: %{},
       runtime: %{
         installation: project,
         image: image,

@@ -11,6 +11,7 @@ defmodule Ankole.Brain.Dreaming do
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Brain.Calibration
   alias Ankole.Brain.Claims
@@ -24,7 +25,6 @@ defmodule Ankole.Brain.Dreaming do
   alias Ankole.Brain.Schemas.SchemaType
   alias Ankole.Brain.Schemas.Tag
   alias Ankole.Brain.Timelines
-  alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
 
   @consolidate_similarity 0.85
@@ -32,7 +32,6 @@ defmodule Ankole.Brain.Dreaming do
   @consolidate_min_oldest_hours 24
   @consolidate_bucket_limit 200
   @contradiction_batch_limit 50
-  @contradiction_min_confidence 0.7
   @contradiction_verdicts ~w(
     no_contradiction contradiction temporal_regression temporal_supersession
     evolution negation_artifact
@@ -149,32 +148,34 @@ defmodule Ankole.Brain.Dreaming do
   end
 
   @doc "Lists contradiction findings and loads their Claims for the Console read model."
-  @spec list_contradictions_for_console(String.t(), keyword()) :: [map()]
+  @spec list_contradictions_for_console(String.t(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
   def list_contradictions_for_console(status, opts)
       when is_binary(status) and is_list(opts) do
     limit = Keyword.fetch!(opts, :limit)
 
-    contradictions =
-      Contradiction
-      |> where([contradiction], contradiction.status == ^status)
-      |> order_by([contradiction], desc: contradiction.created_at)
-      |> limit(^limit)
-      |> Repo.all()
+    with {:ok, contradictions} <-
+           Contradiction
+           |> Ash.Query.filter(status == ^status)
+           |> Ash.Query.sort(created_at: :desc)
+           |> Ash.Query.limit(limit)
+           |> Ankole.Ash.read() do
+      claims_by_id =
+        contradictions
+        |> Enum.flat_map(&[&1.a_claim_id, &1.b_claim_id])
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
+        |> claims_by_id()
 
-    claims_by_id =
-      contradictions
-      |> Enum.flat_map(&[&1.a_claim_id, &1.b_claim_id])
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq()
-      |> claims_by_id()
-
-    Enum.map(contradictions, fn contradiction ->
-      %{
-        contradiction: contradiction,
-        a_claim: Map.get(claims_by_id, contradiction.a_claim_id),
-        b_claim: Map.get(claims_by_id, contradiction.b_claim_id)
-      }
-    end)
+      {:ok,
+       Enum.map(contradictions, fn contradiction ->
+         %{
+           contradiction: contradiction,
+           a_claim: Map.get(claims_by_id, contradiction.a_claim_id),
+           b_claim: Map.get(claims_by_id, contradiction.b_claim_id)
+         }
+       end)}
+    end
   end
 
   defp consolidation_candidates(query) do
@@ -247,7 +248,7 @@ defmodule Ankole.Brain.Dreaming do
     prepared = Claims.prepare_embedding(top.claim)
 
     result =
-      Repo.transact(fn repo ->
+      Repo.transact(fn _repo ->
         with {:ok, take} <-
                Claims.write_take(
                  %{
@@ -260,15 +261,12 @@ defmodule Ankole.Brain.Dreaming do
                    provenance: "dreaming consolidation of #{length(cluster)} facts"
                  },
                  :system,
-                 repo: repo,
                  embedding: prepared
                ) do
           now = DateTime.utc_now(:microsecond)
           ids = Enum.map(cluster, & &1.id)
 
-          Claim
-          |> where([claim], claim.id in ^ids)
-          |> repo.update_all(set: [consolidated_at: now, consolidated_into: take.id])
+          Claims.consolidate_in_tx(ids, take.id, now)
 
           {:ok, take}
         end
@@ -305,11 +303,14 @@ defmodule Ankole.Brain.Dreaming do
             case extract_object_timelines(model, object) do
               {:ok, written} ->
                 Object
-                |> where(
-                  [current],
-                  current.id == ^object.id and current.updated_at == ^object.updated_at
+                |> Ash.Query.filter(id == ^object.id)
+                |> Ankole.Ash.bulk_update(
+                  :stamp_timelines,
+                  %{content_updated_at: object.updated_at},
+                  strategy: [:atomic],
+                  return_errors?: true
                 )
-                |> Repo.update_all(set: [timelines_extracted_at: object.updated_at])
+                |> completed_projection!()
 
                 count + written
 
@@ -413,10 +414,10 @@ defmodule Ankole.Brain.Dreaming do
 
     existing =
       Contradiction
-      |> where([c], c.a_claim_id in ^ids and c.b_claim_id in ^ids)
-      |> select([c], {c.a_claim_id, c.b_claim_id})
-      |> Repo.all()
-      |> MapSet.new()
+      |> Ash.Query.filter(a_claim_id in ^ids and b_claim_id in ^ids)
+      |> Ash.Query.select([:a_claim_id, :b_claim_id])
+      |> Ankole.Ash.read!()
+      |> MapSet.new(&{&1.a_claim_id, &1.b_claim_id})
 
     claims
     |> Enum.group_by(& &1.object_slug)
@@ -467,25 +468,17 @@ defmodule Ankole.Brain.Dreaming do
   # queue.
   @doc false
   def record_contradiction_verdict(a_claim_id, b_claim_id, verdict, confidence, output) do
-    status =
-      if verdict != "no_contradiction" and confidence >= @contradiction_min_confidence,
-        do: "open",
-        else: "dismissed"
-
-    %Contradiction{
-      id: UUIDv7.autogenerate(),
-      a_claim_id: a_claim_id,
-      b_claim_id: b_claim_id,
-      verdict: verdict,
-      axis: to_string(output["axis"] || ""),
-      severity: normalize_severity(output["severity"]),
-      confidence: min(max(confidence * 1.0, 0.0), 1.0),
-      status: status,
-      created_at: DateTime.utc_now(:microsecond)
-    }
-    |> Repo.insert(on_conflict: :nothing, conflict_target: [:tenant_id, :a_claim_id, :b_claim_id])
-
-    :ok
+    with {:ok, _} <-
+           Ankole.Ash.create(Contradiction, :record_verdict, %{
+             a_claim_id: a_claim_id,
+             b_claim_id: b_claim_id,
+             verdict: verdict,
+             axis: to_string(output["axis"] || ""),
+             severity: normalize_severity(output["severity"]),
+             confidence: min(max(confidence * 1.0, 0.0), 1.0),
+             created_at: DateTime.utc_now(:microsecond)
+           }),
+         do: :ok
   end
 
   defp normalize_severity(severity) when severity in ["info", "low", "medium", "high"],
@@ -509,14 +502,9 @@ defmodule Ankole.Brain.Dreaming do
       |> lock("FOR UPDATE")
       |> repo.one()
       |> case do
-        %Contradiction{status: "open"} = contradiction ->
-          contradiction
-          |> Ecto.Changeset.change(
-            status: status,
-            resolution_note: resolution_note,
-            decided_at: DateTime.utc_now(:microsecond)
-          )
-          |> repo.update()
+        %Contradiction{status: :open} = contradiction ->
+          action = if status == "resolved", do: :resolve, else: :dismiss
+          Ankole.Ash.update(contradiction, action, %{resolution_note: resolution_note})
 
         %Contradiction{} ->
           {:error, :conflict}
@@ -532,7 +520,7 @@ defmodule Ankole.Brain.Dreaming do
 
     installed =
       SchemaType
-      |> Repo.all()
+      |> Ankole.Ash.read!()
       |> Enum.flat_map(fn type -> [type.name | type.subtypes] end)
       |> MapSet.new()
 
@@ -577,9 +565,11 @@ defmodule Ankole.Brain.Dreaming do
 
   defp insert_suggestion(term, kind, count) do
     rejected_before =
-      SchemaSuggestion
-      |> where([s], s.term == ^term and s.kind == ^kind and s.status == "rejected")
-      |> Repo.exists?()
+      Repo.exists?(
+        from(s in SchemaSuggestion,
+          where: s.term == ^term and s.kind == ^kind and s.status == :rejected
+        )
+      )
 
     if rejected_before do
       :skip
@@ -587,19 +577,20 @@ defmodule Ankole.Brain.Dreaming do
       threshold =
         if kind == "new_type", do: @suggest_type_threshold, else: @suggest_subtype_threshold
 
-      %SchemaSuggestion{
-        id: UUIDv7.autogenerate(),
-        kind: kind,
-        term: term,
-        evidence_count: count,
-        rationale:
-          "The vocabulary term \"#{term}\" names #{count} pages, at or above the #{threshold}-page promotion threshold.",
-        status: "pending",
-        created_at: DateTime.utc_now(:microsecond)
-      }
-      |> Repo.insert(on_conflict: :nothing)
+      case Ankole.Ash.create(SchemaSuggestion, :suggest, %{
+             kind: kind,
+             term: term,
+             evidence_count: count,
+             rationale:
+               "The vocabulary term \"#{term}\" names #{count} pages, at or above the #{threshold}-page promotion threshold.",
+             created_at: DateTime.utc_now(:microsecond)
+           }) do
+        {:ok, suggestion} ->
+          if Map.get(suggestion.__metadata__, :upsert_skipped, false), do: :skip, else: :ok
 
-      :ok
+        error ->
+          error
+      end
     end
   end
 
@@ -612,18 +603,33 @@ defmodule Ankole.Brain.Dreaming do
     ttl_hours = Map.get(Config.forgetting(), "purge_soft_delete_ttl_hours", 72)
     threshold = DateTime.add(DateTime.utc_now(), -round(ttl_hours * 3600), :second)
 
-    {purged, _rows} =
-      Object
-      |> where([object], not is_nil(object.deleted_at))
-      |> where([object], object.deleted_at < ^threshold)
-      # A soft-deleted library-managed page is a withdrawn projection, not a
-      # forgotten memory: purge would destroy the instance periphery attached
-      # to its slug, and re-enabling the shipped set restores the page.
-      |> where([object], is_nil(object.managed_by_source_id))
-      |> Repo.delete_all()
+    {:ok, purged} =
+      Repo.transact(fn _ ->
+        result =
+          Object
+          |> Ash.Query.filter(
+            not is_nil(deleted_at) and deleted_at < ^threshold and is_nil(managed_by_source_id)
+          )
+          |> Ankole.Ash.bulk_destroy(:purge, %{},
+            strategy: [:atomic],
+            return_records?: true,
+            select: [:id],
+            return_errors?: true
+          )
+
+        case result do
+          %Ash.BulkResult{status: :success, records: records} -> {:ok, length(records)}
+          %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+        end
+      end)
 
     # Chunks of soft-deleted objects survive until this hard delete; expired
     # facts and superseded claims are never hard-deleted.
     %{status: :ok, purged: purged}
   end
+
+  defp completed_projection!(%Ash.BulkResult{status: :success}), do: :ok
+
+  defp completed_projection!(%Ash.BulkResult{errors: errors}),
+    do: raise(Ash.Error.to_error_class(errors))
 end

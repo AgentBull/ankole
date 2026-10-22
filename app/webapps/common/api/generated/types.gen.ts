@@ -2052,6 +2052,10 @@ export type PodAppletPublishErrors = {
    * Error
    */
   422: PodErrorEnvelope
+  /**
+   * Error
+   */
+  503: PodErrorEnvelope
 }
 
 export type PodAppletPublishError = PodAppletPublishErrors[keyof PodAppletPublishErrors]
@@ -4696,6 +4700,10 @@ export type PodAppletRouteDeleteErrors = {
   /**
    * Error
    */
+  503: PodErrorEnvelope
+  /**
+   * Error
+   */
   504: PodErrorEnvelope
 }
 
@@ -4764,6 +4772,10 @@ export type PodAppletRouteGetErrors = {
    * Error
    */
   502: PodErrorEnvelope
+  /**
+   * Error
+   */
+  503: PodErrorEnvelope
   /**
    * Error
    */
@@ -4841,6 +4853,10 @@ export type PodAppletRoutePatchErrors = {
   /**
    * Error
    */
+  503: PodErrorEnvelope
+  /**
+   * Error
+   */
   504: PodErrorEnvelope
 }
 
@@ -4915,6 +4931,10 @@ export type PodAppletRoutePostErrors = {
   /**
    * Error
    */
+  503: PodErrorEnvelope
+  /**
+   * Error
+   */
   504: PodErrorEnvelope
 }
 
@@ -4986,6 +5006,10 @@ export type PodAppletRoutePutErrors = {
    * Error
    */
   502: PodErrorEnvelope
+  /**
+   * Error
+   */
+  503: PodErrorEnvelope
   /**
    * Error
    */

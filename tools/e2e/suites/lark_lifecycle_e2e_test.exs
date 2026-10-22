@@ -39,13 +39,13 @@ defmodule Ankole.E2E.LarkLifecycleE2ETest do
     )
 
     failed = run_malformed_stream_failure(ctx)
-    assert failed.message.status == "error"
+    assert failed.message.status == :error
 
     recalled = run_recall_during_generation(ctx)
-    assert recalled.message.status == "error"
+    assert recalled.message.status == :error
 
     stopped = run_stop_command_abort(ctx)
-    assert stopped.message.status == "error"
+    assert stopped.message.status == :error
 
     run_new_during_generation(ctx)
 

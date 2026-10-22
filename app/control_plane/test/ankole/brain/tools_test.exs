@@ -540,9 +540,10 @@ defmodule Ankole.Brain.ToolsTest do
       event = insert_signal!(context.agent.uid, nil, channel.id)
       turn_context = turn_context!(context.agent.uid, event)
 
-      event
-      |> Ecto.Changeset.change(completed_at: DateTime.utc_now(:microsecond))
-      |> Repo.update!()
+      {:ok, _} =
+        Repo.transact(fn _ ->
+          Ankole.Ash.update(event, :complete, %{completed_at: DateTime.utc_now(:microsecond)})
+        end)
 
       assert {:error, :turn_not_live} =
                Tools.execute(
@@ -712,23 +713,25 @@ defmodule Ankole.Brain.ToolsTest do
 
       now = DateTime.utc_now(:microsecond)
 
-      Repo.insert!(
-        Ankole.Schedule.Schemas.ScheduledEvent.changeset(
-          %Ankole.Schedule.Schemas.ScheduledEvent{},
-          %{
-            kind: "cron_fire",
-            status: "fired",
-            agent_uid: event.agent_uid,
-            session_id: event.session_id,
-            signal_id: event.id,
-            due_at: now,
-            fired_at: now,
-            requested_at: now,
-            timezone: "UTC",
-            idempotency_key: "disclosure:#{event.id}"
-          }
-        )
-      )
+      assert {:ok, _proof} =
+               Repo.transact(fn ->
+                 with {:ok, proof} <-
+                        Ankole.Ash.create(
+                          Ankole.Schedule.Schemas.ScheduledEvent,
+                          :create_event,
+                          %{
+                            kind: "cron_fire",
+                            agent_uid: event.agent_uid,
+                            session_id: event.session_id,
+                            due_at: now,
+                            requested_at: now,
+                            timezone: "UTC",
+                            idempotency_key: "disclosure:#{event.id}"
+                          }
+                        ) do
+                   Ankole.Ash.update(proof, :fire, %{signal_id: event.id, fired_at: now})
+                 end
+               end)
 
       refute recalled?(context, turn_context!(context.agent.uid, event))
     end
@@ -820,7 +823,7 @@ defmodule Ankole.Brain.ToolsTest do
 
       assert [_job] =
                Repo.all(
-                 from job in Oban.Job, where: job.worker == "Ankole.Brain.Jobs.LearnSource"
+                 from(job in Oban.Job, where: job.worker == "Ankole.Brain.Jobs.LearnSource")
                )
 
       # The same url reuses the Source and re-runs learning.
@@ -829,8 +832,9 @@ defmodule Ankole.Brain.ToolsTest do
 
       assert [_only] =
                Repo.all(
-                 from source in Ankole.Brain.Schemas.Source,
+                 from(source in Ankole.Brain.Schemas.Source,
                    where: source.kind == "url" and source.upstream_id == ^url
+                 )
                )
     end
 
@@ -902,20 +906,17 @@ defmodule Ankole.Brain.ToolsTest do
   defp insert_channel!(kind, principal_group_id) do
     now = DateTime.utc_now(:microsecond)
 
-    Repo.insert!(
-      Ankole.Conversations.Conversation.changeset(%Ankole.Conversations.Conversation{}, %{
-        id: Ecto.UUID.generate(),
-        provider_conversation_id: "test:tools-#{System.unique_integer([:positive])}",
-        title: "Conversation",
-        kind: :external,
-        external_kind: kind,
-        reply_mode: :entry,
-        principal_group_id: principal_group_id,
-        last_activity_at: now,
-        first_seen_at: now,
-        last_seen_at: now
-      })
-    )
+    Ankole.ExternalConversationsFixtures.create_external_conversation!(%{
+      id: Ecto.UUID.generate(),
+      provider_conversation_id: "test:tools-#{System.unique_integer([:positive])}",
+      title: "Conversation",
+      external_kind: kind,
+      reply_mode: :entry,
+      principal_group_id: principal_group_id,
+      last_activity_at: now,
+      first_seen_at: now,
+      last_seen_at: now
+    })
   end
 
   # Recall touches a retrieved page; this is the state a page reaches after
@@ -968,6 +969,11 @@ defmodule Ankole.Brain.ToolsTest do
         Ankole.Principals.WorkAccess.from_sender(Repo, sender_uid)
       )
 
-    Repo.insert!(struct!(Ankole.Signals.Signal, attrs))
+    {:ok, signal} =
+      Repo.transact(fn _repo ->
+        Ankole.Ash.create(Ankole.Signals.Signal, :accept, attrs)
+      end)
+
+    signal
   end
 end

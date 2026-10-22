@@ -16,12 +16,14 @@ defmodule Ankole.AIGatewayCase do
   def ensure_conversation(subject_uid, conversation_key, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
 
-    Ankole.AIGateway.Conversations.ensure_conversation_in_tx(
-      repo,
-      subject_uid,
-      conversation_key,
-      Keyword.get(opts, :metadata, %{})
-    )
+    repo.transact(fn repo ->
+      Ankole.AIGateway.Conversations.ensure_conversation_in_tx(
+        repo,
+        subject_uid,
+        conversation_key,
+        Keyword.get(opts, :metadata, %{})
+      )
+    end)
   end
 
   using do
@@ -205,7 +207,7 @@ defmodule Ankole.AIGatewayCase do
         provider_options: %{"reasoningEffort" => "xhigh"}
       })
 
-    fixture
+    Map.put(fixture, :provider_id, provider_id)
   end
 
   @doc false
@@ -405,13 +407,13 @@ defmodule Ankole.AIGatewayCase do
       Repo.update_all(
         from(worker in AgentWorker, where: worker.agent_uid == ^agent_uid),
         set: [
-          state: "ready",
+          state: :ready,
           generation: "testgen001",
           token_digest: credential.token_digest,
           token_ciphertext: credential.token_ciphertext,
           instance_seen_at: DateTime.utc_now(:microsecond),
           image: "test",
-          protocol_version: Ankole.Kernel.RuntimeFabric.protocol_version(),
+          protocol_version: Ankole.RuntimeFabric.protocol_version(),
           settings_digest: "test",
           incarnation_id: Ecto.UUID.generate(),
           transport_route: route,
@@ -429,20 +431,18 @@ defmodule Ankole.AIGatewayCase do
     :ok = put_ready_worker!(agent_uid, route)
     source = Ankole.WorkFixtures.service_source(agent_uid)
 
-    conversation =
-      Repo.insert!(%Conversation{
-        id: Ecto.UUID.generate(),
+    {:ok, conversation} =
+      Ankole.Ash.create(Conversation, :open, %{
         subject_uid: agent_uid,
         conversation_key: session_id,
-        metadata: %{},
-        inserted_at: now,
-        updated_at: now
+        metadata: %{}
       })
 
-    signal =
-      Repo.insert!(
-        Signal.changeset(
-          %Signal{},
+    {:ok, signal} =
+      Repo.transact(fn _repo ->
+        Ankole.Ash.create(
+          Signal,
+          :accept,
           Map.merge(
             %{
               agent_uid: agent_uid,
@@ -454,37 +454,35 @@ defmodule Ankole.AIGatewayCase do
               type: "test.turn",
               available_at: now,
               queue_sequence: 1,
-              input_state: "open",
               data: %{}
             },
             Ankole.Principals.WorkAccess.fields(source)
           )
         )
-      )
+      end)
 
-    Repo.insert!(%Message{
-      subject_uid: agent_uid,
-      conversation_id: conversation.id,
-      type: "message",
-      status: "generating",
-      content: [],
-      metadata: %{
-        "request_metadata" => %{"signal_id" => signal.id},
-        "profile" => "primary",
-        "provider" => "test-provider",
-        "model" => "z-ai/glm-5.2",
-        "request_context" => %{},
-        "request_refs" => [],
-        "request_patches" => [],
-        "response" => %{},
-        "tool_results" => [],
-        "usage" => %{},
-        "provider_metadata" => %{},
-        "started_at" => now
-      },
-      inserted_at: now,
-      updated_at: now
-    })
+    {:ok, _message} =
+      Repo.transact(fn _repo ->
+        Ankole.Ash.create(Message, :start, %{
+          subject_uid: agent_uid,
+          conversation_id: conversation.id,
+          content: [],
+          metadata: %{
+            "request_metadata" => %{"signal_id" => signal.id},
+            "profile" => "primary",
+            "provider" => "test-provider",
+            "model" => "z-ai/glm-5.2",
+            "request_context" => %{},
+            "request_refs" => [],
+            "request_patches" => [],
+            "response" => %{},
+            "tool_results" => [],
+            "usage" => %{},
+            "provider_metadata" => %{},
+            "started_at" => now
+          }
+        })
+      end)
 
     {route,
      %Ankole.RuntimeFabric.V1.RunRef{

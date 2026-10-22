@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Objects do
   @moduledoc """
-  Object write path and chunk projection of the Brain knowledge space.
+  Object writes and body history in the Brain knowledge space.
 
   Instance writes validate the object type against the installed instance
   ontology, parse the Markdoc body for audience scopes, and validate the
@@ -10,19 +10,17 @@ defmodule Ankole.Brain.Objects do
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
-  alias Ankole.Brain.Chunker
-  alias Ankole.Brain.Config
+  alias Ankole.Brain.Chunks
   alias Ankole.Brain.Markdoc
   alias Ankole.Brain.LazySkillVisibility
   alias Ankole.Brain.Links
-  alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.ObjectVersion
   alias Ankole.Brain.Schemas.SchemaType
   alias Ankole.Brain.Schemas.SlugAlias
   alias Ankole.Brain.Schemas.Source
-  alias Ankole.Brain.Schemas.Timeline
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Sources
   alias Ankole.Brain.Vocabulary
@@ -42,14 +40,13 @@ defmodule Ankole.Brain.Objects do
   """
   @spec get_by_slug(String.t(), keyword()) :: {:ok, Object.t()} | {:error, :not_found}
   def get_by_slug(slug, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
     visibility = Keyword.get(opts, :lazy_skill_visibility, %LazySkillVisibility{})
 
     object =
       Object
-      |> where([object], object.slug == ^slug)
+      |> Ash.Query.filter(slug == ^slug)
       |> LazySkillVisibility.filter_objects(visibility)
-      |> repo.one()
+      |> Ankole.Ash.read_one!()
 
     case object do
       %Object{} = object -> {:ok, object}
@@ -66,9 +63,9 @@ defmodule Ankole.Brain.Objects do
     |> maybe_console_prefix(Keyword.get(opts, :prefix))
     |> maybe_console_search(Keyword.get(opts, :search))
     |> filter_console_deleted(Keyword.get(opts, :deleted, false))
-    |> order_by([object], asc: object.slug)
-    |> limit(^limit)
-    |> Repo.all()
+    |> Ash.Query.sort(slug: :asc)
+    |> Ash.Query.limit(limit)
+    |> Ankole.Ash.read!()
   end
 
   @doc "Lists one Object's stored versions for the Console read model."
@@ -80,10 +77,10 @@ defmodule Ankole.Brain.Objects do
     with {:ok, object} <- resolve_slug(slug) do
       versions =
         ObjectVersion
-        |> where([version], version.object_id == ^object.id)
-        |> order_by([version], desc: version.snapshot_at)
-        |> limit(^limit)
-        |> Repo.all()
+        |> Ash.Query.filter(object_id == ^object.id)
+        |> Ash.Query.sort(snapshot_at: :desc)
+        |> Ash.Query.limit(limit)
+        |> Ankole.Ash.read!()
 
       {:ok, versions}
     end
@@ -94,14 +91,12 @@ defmodule Ankole.Brain.Objects do
   """
   @spec resolve_slug(String.t(), keyword()) :: {:ok, Object.t()} | {:error, :not_found}
   def resolve_slug(slug, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
     case get_by_slug(slug, opts) do
       {:ok, object} ->
         {:ok, object}
 
       {:error, :not_found} ->
-        case repo.get_by(SlugAlias, alias_slug: slug) do
+        case SlugAlias |> Ash.Query.filter(alias_slug == ^slug) |> Ankole.Ash.read_one!() do
           %SlugAlias{canonical_slug: canonical} -> get_by_slug(canonical, opts)
           nil -> {:error, :not_found}
         end
@@ -122,7 +117,6 @@ defmodule Ankole.Brain.Objects do
   @spec resolve_reference(String.t(), keyword()) ::
           {:ok, Object.t()} | {:ambiguous, [map()]} | {:error, :not_found}
   def resolve_reference(reference, opts \\ []) when is_binary(reference) do
-    repo = Keyword.get(opts, :repo, Repo)
     reference = String.trim(reference)
 
     case resolve_slug(reference, opts) do
@@ -130,24 +124,23 @@ defmodule Ankole.Brain.Objects do
         {:ok, object}
 
       {:error, :not_found} ->
-        with :alias_miss <- natural_alias(repo, reference, opts) do
-          exact_title(repo, reference, opts)
+        with :alias_miss <- natural_alias(reference, opts) do
+          exact_title(reference, opts)
         end
     end
   end
 
-  defp natural_alias(repo, reference, opts) do
-    slugs = Ankole.Brain.Links.lookup_alias(reference, repo: repo)
+  defp natural_alias(reference, opts) do
+    slugs = Ankole.Brain.Links.lookup_alias(reference)
 
     objects =
       Object
-      |> where([object], is_nil(object.deleted_at))
-      |> where([object], object.slug in ^slugs)
+      |> Ash.Query.filter(is_nil(deleted_at) and slug in ^slugs)
       |> LazySkillVisibility.filter_objects(
         Keyword.get(opts, :lazy_skill_visibility, %LazySkillVisibility{})
       )
-      |> order_by([object], asc: object.slug)
-      |> repo.all()
+      |> Ash.Query.sort(slug: :asc)
+      |> Ankole.Ash.read!()
 
     case objects do
       [] ->
@@ -161,17 +154,17 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
-  defp exact_title(repo, reference, opts) do
+  defp exact_title(reference, opts) do
     matches =
       Object
-      |> where([object], is_nil(object.deleted_at))
+      |> Ash.Query.filter(is_nil(deleted_at))
       |> LazySkillVisibility.filter_objects(
         Keyword.get(opts, :lazy_skill_visibility, %LazySkillVisibility{})
       )
-      |> where([object], object.title == ^reference)
-      |> order_by([object], asc: object.slug)
-      |> limit(@candidate_limit)
-      |> repo.all()
+      |> Ash.Query.filter(title == ^reference)
+      |> Ash.Query.sort(slug: :asc)
+      |> Ash.Query.limit(@candidate_limit)
+      |> Ankole.Ash.read!()
 
     case matches do
       [] -> {:error, :not_found}
@@ -204,22 +197,20 @@ defmodule Ankole.Brain.Objects do
   scopes deterministically. The new object's chunks are reconciled in the
   same transaction; embeddings follow asynchronously.
   """
-  @spec create_object(map(), writer(), keyword()) :: {:ok, Object.t()} | {:error, term()}
-  def create_object(attrs, writer, opts \\ []) when is_map(attrs) do
-    repo = Keyword.get(opts, :repo, Repo)
-
+  @spec create_object(map(), writer()) :: {:ok, Object.t()} | {:error, term()}
+  def create_object(attrs, writer) when is_map(attrs) do
     slug = attrs[:slug]
     body = attrs[:body] || ""
     meta = attrs[:meta] || %{}
 
     with :ok <- validate_slug(slug),
          {:ok, tags} <- Links.normalize_tags(Map.get(attrs, :tags, [])),
-         {:ok, type} <- validate_type(attrs[:type], repo),
+         {:ok, type} <- validate_type(attrs[:type]),
          :ok <- validate_body_scopes(body, writer),
-         :ok <- validate_slug_available(slug, repo) do
-      repo.transact(fn repo ->
+         :ok <- validate_slug_available(slug) do
+      Repo.transact(fn repo ->
         object =
-          %Object{
+          %{
             id: UUIDv7.autogenerate(),
             slug: slug,
             type: type.name,
@@ -232,9 +223,9 @@ defmodule Ankole.Brain.Objects do
           }
           |> content_changes(%{}, tags)
 
-        with {:ok, object} <- repo.insert(Object.changeset(object, %{})),
+        with {:ok, object} <- Ankole.Ash.create(Object, :create, object),
              :ok <- Links.replace_tags_in_tx(repo, object.slug, tags) do
-          reconcile_chunks(object, repo: repo)
+          Chunks.reconcile(object)
         end
       end)
     end
@@ -251,21 +242,20 @@ defmodule Ankole.Brain.Objects do
   @spec update_object(String.t(), map(), writer(), keyword()) ::
           {:ok, Object.t()} | {:error, term()}
   def update_object(slug, attrs, writer, opts \\ []) when is_map(attrs) do
-    repo = Keyword.get(opts, :repo, Repo)
     author = Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts)
     expected_hash = attrs[:expected_content_hash]
 
-    repo.transact(fn repo ->
+    Repo.transact(fn repo ->
       with {:ok, object} <- lock_object_in_tx(repo, slug),
-           :ok <- guard_editable(object, repo),
-           :ok <- verify_content_hash(object, expected_hash),
-           {:ok, tags} <- updated_tags(attrs, object, repo),
+           :ok <- guard_editable(object),
+           :ok <- Object.verify_content_hash(object, expected_hash),
+           {:ok, tags} <- updated_tags(attrs, object),
            new_title = Map.get(attrs, :title, object.title),
            new_body = Map.get(attrs, :body, object.body),
            new_meta = Map.get(attrs, :meta, object.meta),
            :ok <- validate_body_scopes(new_body, writer),
            {:ok, subtype} <- updated_subtype(attrs, object),
-           {:ok, _version} <- snapshot_version(repo, object, author) do
+           {:ok, _version} <- snapshot_version(object, author) do
         changes =
           %{
             title: new_title,
@@ -277,42 +267,48 @@ defmodule Ankole.Brain.Objects do
           }
           |> content_changes(object, tags)
 
-        with {:ok, object} <- repo.update(Object.changeset(object, changes)),
+        with {:ok, object} <-
+               Ankole.Ash.update(
+                 object,
+                 :edit,
+                 Map.put(changes, :expected_content_hash, expected_hash)
+               ),
              :ok <- Links.replace_tags_in_tx(repo, object.slug, tags) do
-          reconcile_chunks(object, repo: repo)
+          Chunks.reconcile(object)
         end
       end
     end)
   end
 
   @doc false
-  @spec upsert_source_projection(Source.t(), map(), keyword()) ::
+  @spec upsert_source_projection(Source.t(), map()) ::
           {:ok, Object.t()} | {:error, term()}
-  def upsert_source_projection(source, attrs, opts \\ [])
-
-  def upsert_source_projection(%Source{kind: kind} = source, attrs, opts)
+  def upsert_source_projection(%Source{kind: kind} = source, attrs)
       when kind in ["file", "url", "oidc_client"] and is_map(attrs) do
-    repo = Keyword.get(opts, :repo, Repo)
     slug = attrs[:slug]
     body = attrs[:body] || ""
 
     with :ok <- validate_slug(slug),
-         {:ok, type} <- validate_type("media", repo),
+         {:ok, type} <- validate_type("media"),
          :ok <- validate_body_scopes(body, :system) do
-      case repo.get_by(Object, slug: slug) do
-        nil ->
-          insert_source_projection(repo, source, attrs, type.name, body)
+      Repo.transact(fn repo ->
+        with {:ok, source} <- Sources.lock_active(repo, source) do
+          case lock_object_in_tx(repo, slug) do
+            {:error, :not_found} ->
+              insert_source_projection(source, attrs, type.name, body)
 
-        %Object{managed_by_source_id: owner} = object when owner == source.id ->
-          update_source_projection(repo, object, attrs, type.name, body)
+            {:ok, %Object{managed_by_source_id: owner} = object} when owner == source.id ->
+              update_source_projection(object, attrs, type.name, body)
 
-        %Object{} ->
-          {:error, {:source_object_conflict, slug}}
-      end
+            {:ok, %Object{}} ->
+              {:error, {:source_object_conflict, slug}}
+          end
+        end
+      end)
     end
   end
 
-  def upsert_source_projection(%Source{}, _attrs, _opts),
+  def upsert_source_projection(%Source{}, _attrs),
     do: {:error, :unsupported_source_projection}
 
   @doc """
@@ -322,18 +318,16 @@ defmodule Ankole.Brain.Objects do
   LibraryKnowledge validates the inventory. Published Skills own their
   history, so this projection does not create instance version snapshots.
   """
-  @spec upsert_library_projection(Source.t(), map(), keyword()) ::
+  @spec upsert_library_projection(Source.t(), map()) ::
           {:ok, :projected | :unchanged | :shadowed | :conflicted} | {:error, term()}
-  def upsert_library_projection(%Source{kind: "library"} = source, page, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    repo.transact(fn repo ->
+  def upsert_library_projection(%Source{kind: "library"} = source, page) do
+    Repo.transact(fn repo ->
       with {:ok, source} <- Sources.lock_active(repo, source) do
         case lock_object_in_tx(repo, page.slug) do
           {:error, :not_found} ->
             with {:ok, _object} <-
-                   insert_source_projection(repo, source, page, page.type, page.body) do
-              add_library_aliases(repo, page)
+                   insert_source_projection(source, page, page.type, page.body) do
+              add_library_aliases(page)
               {:ok, :projected}
             end
 
@@ -341,7 +335,7 @@ defmodule Ankole.Brain.Objects do
             {:ok, :shadowed}
 
           {:ok, %Object{managed_by_source_id: owner} = object} when owner == source.id ->
-            update_library_projection(repo, object, page)
+            update_library_projection(object, page)
 
           {:ok, %Object{}} ->
             {:ok, :conflicted}
@@ -351,28 +345,36 @@ defmodule Ankole.Brain.Objects do
   end
 
   @doc "Withdraws managed Library pages absent from the current set."
-  @spec withdraw_library_projection(Source.t(), [String.t()], keyword()) :: non_neg_integer()
-  def withdraw_library_projection(%Source{kind: "library", id: source_id}, live_slugs, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
+  @spec withdraw_library_projection(Source.t(), [String.t()]) :: non_neg_integer()
+  def withdraw_library_projection(%Source{kind: "library", id: source_id}, live_slugs) do
+    {:ok, withdrawn} =
+      Repo.transact(fn _ ->
+        result =
+          Object
+          |> Ash.Query.filter(
+            managed_by_source_id == ^source_id and is_nil(deleted_at) and slug not in ^live_slugs
+          )
+          |> Ankole.Ash.bulk_update(:withdraw_projection, %{source_id: source_id},
+            strategy: [:atomic],
+            return_records?: true,
+            return_errors?: true
+          )
 
-    {withdrawn, _rows} =
-      Object
-      |> where([object], object.managed_by_source_id == ^source_id)
-      |> where([object], is_nil(object.deleted_at))
-      |> where([object], object.slug not in ^live_slugs)
-      |> repo.update_all(set: [deleted_at: DateTime.utc_now(:microsecond)])
+        case result do
+          %Ash.BulkResult{status: :success, records: records} -> {:ok, length(records)}
+          %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+        end
+      end)
 
     withdrawn
   end
 
   @doc "Returns the server-owned edit state for one Object."
-  @spec editability(Object.t(), keyword()) :: %{
+  @spec editability(Object.t()) :: %{
           editable: boolean(),
           edit_block_reason: String.t() | nil
         }
-  def editability(%Object{} = object, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
+  def editability(%Object{} = object) do
     cond do
       object.deleted_at != nil ->
         %{editable: false, edit_block_reason: "deleted"}
@@ -383,7 +385,7 @@ defmodule Ankole.Brain.Objects do
       object.type == @library_projection_type ->
         %{editable: false, edit_block_reason: "agent_skills_managed"}
 
-      source_kind(repo, object.managed_by_source_id) == "library" ->
+      source_kind(object.managed_by_source_id) == "library" ->
         %{editable: false, edit_block_reason: "library_managed"}
 
       true ->
@@ -399,12 +401,11 @@ defmodule Ankole.Brain.Objects do
   """
   @spec soft_delete(String.t(), keyword()) :: {:ok, Object.t()} | {:error, term()}
   def soft_delete(slug, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
     reason = Keyword.get(opts, :reason)
 
-    repo.transact(fn repo ->
+    Repo.transact(fn repo ->
       with {:ok, object} <- lock_object_in_tx(repo, slug),
-           :ok <- guard_unmanaged(object, repo) do
+           :ok <- guard_unmanaged(object) do
         meta =
           case reason do
             nil ->
@@ -418,11 +419,9 @@ defmodule Ankole.Brain.Objects do
 
         changes =
           %{deleted_at: DateTime.utc_now(:microsecond), meta: meta}
-          |> content_changes(object, Links.tags_for_object(object.slug, repo: repo))
+          |> content_changes(object, Links.tags_for_object(object.slug))
 
-        object
-        |> Ecto.Changeset.change(changes)
-        |> repo.update()
+        Ankole.Ash.update(object, :forget, Map.delete(changes, :deleted_at))
       end
     end)
   end
@@ -434,25 +433,30 @@ defmodule Ankole.Brain.Objects do
   @spec rollback(String.t(), Ecto.UUID.t(), writer(), keyword()) ::
           {:ok, Object.t()} | {:error, term()}
   def rollback(slug, version_id, writer, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
     author = Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts)
 
-    repo.transact(fn repo ->
+    Repo.transact(fn repo ->
       with {:ok, object} <- lock_object_in_tx(repo, slug),
-           :ok <- guard_editable(object, repo),
-           %ObjectVersion{} = version <- repo.get(ObjectVersion, version_id),
+           :ok <- guard_editable(object),
+           %ObjectVersion{} = version <-
+             Ankole.Ash.read_one!(Ash.Query.filter(ObjectVersion, id == ^version_id)),
            true <- version.object_id == object.id or {:error, :version_object_mismatch},
-           {:ok, _snapshot} <- snapshot_version(repo, object, author) do
+           {:ok, _snapshot} <- snapshot_version(object, author) do
         changes =
           %{
             body: version.body,
             meta: version.meta,
             updated_at: DateTime.utc_now(:microsecond)
           }
-          |> content_changes(object, Links.tags_for_object(object.slug, repo: repo))
+          |> content_changes(object, Links.tags_for_object(object.slug))
 
-        with {:ok, object} <- repo.update(Object.changeset(object, changes)) do
-          reconcile_chunks(object, repo: repo)
+        with {:ok, object} <-
+               Ankole.Ash.update(
+                 object,
+                 :edit,
+                 Map.put(changes, :expected_content_hash, object.content_hash)
+               ) do
+          Chunks.reconcile(object)
         end
       else
         nil -> {:error, :version_not_found}
@@ -467,11 +471,9 @@ defmodule Ankole.Brain.Objects do
   apply from then on. The library sync's shadowing keeps the slug with the
   instance afterwards.
   """
-  @spec fork_library_page(String.t(), keyword()) :: {:ok, Object.t()} | {:error, term()}
-  def fork_library_page(slug, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    repo.transact(fn repo ->
+  @spec fork_library_page(String.t()) :: {:ok, Object.t()} | {:error, term()}
+  def fork_library_page(slug) do
+    Repo.transact(fn repo ->
       with {:ok, object} <- lock_object_in_tx(repo, slug) do
         case object do
           %Object{managed_by_source_id: nil} ->
@@ -481,10 +483,8 @@ defmodule Ankole.Brain.Objects do
             {:error, {:reserved_object_type, @library_projection_type}}
 
           %Object{managed_by_source_id: source_id} ->
-            if source_kind(repo, source_id) == "library" do
-              object
-              |> Ecto.Changeset.change(managed_by_source_id: nil)
-              |> repo.update()
+            if source_kind(source_id) == "library" do
+              Ankole.Ash.update(object, :fork, %{})
             else
               {:error, :not_library_managed}
             end
@@ -496,22 +496,18 @@ defmodule Ankole.Brain.Objects do
   @doc """
   Restores a soft-deleted object and removes the forget bookkeeping.
   """
-  @spec restore(String.t(), keyword()) :: {:ok, Object.t()} | {:error, term()}
-  def restore(slug, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    repo.transact(fn repo ->
+  @spec restore(String.t()) :: {:ok, Object.t()} | {:error, term()}
+  def restore(slug) do
+    Repo.transact(fn repo ->
       with {:ok, object} <- lock_object_in_tx(repo, slug),
-           :ok <- guard_unmanaged(object, repo) do
+           :ok <- guard_unmanaged(object) do
         meta = Map.drop(object.meta, ["forgotten_reason", "forgotten_by"])
 
         changes =
           %{deleted_at: nil, meta: meta}
-          |> content_changes(object, Links.tags_for_object(object.slug, repo: repo))
+          |> content_changes(object, Links.tags_for_object(object.slug))
 
-        object
-        |> Ecto.Changeset.change(changes)
-        |> repo.update()
+        Ankole.Ash.update(object, :restore, Map.delete(changes, :deleted_at))
       end
     end)
   end
@@ -523,7 +519,9 @@ defmodule Ankole.Brain.Objects do
   @spec ensure_canonical_object_in_tx(module(), String.t(), :human | :agent, String.t() | nil) ::
           :ok | {:error, term()}
   def ensure_canonical_object_in_tx(repo, principal_uid, principal_type, display_name) do
-    case repo.get(Ankole.Principals.Principal, principal_uid) do
+    case Ankole.Principals.Principal
+         |> Ash.Query.filter(uid == ^principal_uid)
+         |> Ankole.Ash.read_one!() do
       %Ankole.Principals.Principal{type: ^principal_type}
       when principal_type in [:human, :agent] ->
         insert_canonical_object(repo, principal_uid, principal_type, display_name)
@@ -533,7 +531,7 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
-  defp insert_canonical_object(repo, principal_uid, principal_type, display_name) do
+  defp insert_canonical_object(_repo, principal_uid, principal_type, display_name) do
     slug = Scope.principal_page_slug(principal_type, principal_uid)
     type = if principal_type == :human, do: "person", else: "agent"
 
@@ -551,14 +549,11 @@ defmodule Ankole.Brain.Objects do
       }
       |> content_changes(%{}, [])
 
-    repo.insert_all(Object, [Map.put(row, :tenant_id, Repo.tenant_id!())],
-      on_conflict: :nothing,
-      conflict_target: [:tenant_id, :slug]
-    )
-
-    case repo.get_by(Object, slug: slug) do
-      %Object{type: ^type, subtype: "internal", deleted_at: nil} -> :ok
-      _object -> {:error, :canonical_object_conflict}
+    with {:ok, object} <- Ankole.Ash.create(Object, :ensure_canonical, row) do
+      case object do
+        %Object{type: ^type, subtype: "internal", deleted_at: nil} -> :ok
+        _object -> {:error, :canonical_object_conflict}
+      end
     end
   end
 
@@ -620,202 +615,11 @@ defmodule Ankole.Brain.Objects do
   @doc false
   def refresh_content_hash_in_tx(repo, object) do
     with :ok <- Repo.require_transaction(repo) do
-      object
-      |> Object.changeset(
-        content_changes(%{}, object, Links.tags_for_object(object.slug, repo: repo))
+      Ankole.Ash.update(
+        object,
+        :refresh_hash,
+        content_changes(%{}, object, Links.tags_for_object(object.slug))
       )
-      |> repo.update()
-    end
-  end
-
-  @doc """
-  Rebuilds the chunk projection of one object from its current body and
-  visible timeline rows.
-
-  Reconciliation is by `(object_id, chunk_index)`: an unchanged position
-  keeps its row and embedding, a changed position clears its vector state,
-  new positions insert, and vanished positions delete. Embeddings never move
-  across positions.
-  """
-  @spec reconcile_chunks(Object.t(), keyword()) :: {:ok, Object.t()} | {:error, term()}
-  def reconcile_chunks(%Object{} = object, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-    chunking = Keyword.get(opts, :chunking, Config.chunking())
-
-    repo.transact(fn repo ->
-      current = repo.one(from(o in Object, where: o.id == ^object.id, lock: "FOR UPDATE"))
-
-      case current do
-        %Object{} = current -> reconcile_current_chunks(repo, current, chunking)
-        nil -> {:error, :not_found}
-      end
-    end)
-  end
-
-  @doc "Records a chunk embedding only if its text and embedding state still match the input."
-  @spec record_chunk_embedding(
-          Chunk.t(),
-          {:ok, Pgvector.t(), String.t()} | {:error, String.t(), String.t()},
-          keyword()
-        ) ::
-          {:ok, :updated | :stale}
-  def record_chunk_embedding(%Chunk{} = chunk, result, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-
-    attrs =
-      case result do
-        {:ok, vector, signature} ->
-          [
-            embedding: vector,
-            embedding_signature: signature,
-            embedding_error: nil,
-            embedded_at: now
-          ]
-
-        {:error, error, signature} ->
-          [
-            embedding: nil,
-            embedding_signature: signature,
-            embedding_error: error,
-            embedded_at: nil
-          ]
-      end
-
-    {count, _rows} =
-      Chunk
-      |> where([current], current.id == ^chunk.id and current.chunk_text == ^chunk.chunk_text)
-      |> where(
-        [current],
-        fragment("? IS NOT DISTINCT FROM ?", current.embedded_at, ^chunk.embedded_at)
-      )
-      |> where(
-        [current],
-        fragment(
-          "? IS NOT DISTINCT FROM ?",
-          current.embedding_signature,
-          ^chunk.embedding_signature
-        )
-      )
-      |> repo.update_all(set: attrs)
-
-    {:ok, if(count == 1, do: :updated, else: :stale)}
-  end
-
-  defp reconcile_current_chunks(repo, object, chunking) do
-    with {:ok, desired} <- desired_chunks(object, chunking, repo) do
-      existing =
-        Chunk
-        |> where([chunk], chunk.object_id == ^object.id)
-        |> repo.all()
-        |> Map.new(&{&1.chunk_index, &1})
-
-      now = DateTime.utc_now(:microsecond)
-
-      desired_by_index = Map.new(desired, &{&1.chunk_index, &1})
-
-      stale_indexes =
-        existing
-        |> Map.keys()
-        |> Enum.reject(&Map.has_key?(desired_by_index, &1))
-
-      if stale_indexes != [] do
-        Chunk
-        |> where([chunk], chunk.object_id == ^object.id and chunk.chunk_index in ^stale_indexes)
-        |> repo.delete_all()
-      end
-
-      Enum.each(desired, fn spec ->
-        case Map.get(existing, spec.chunk_index) do
-          nil ->
-            repo.insert!(%Chunk{
-              id: UUIDv7.autogenerate(),
-              object_id: object.id,
-              chunk_index: spec.chunk_index,
-              content_kind: spec.content_kind,
-              audience_scope: spec.audience_scope,
-              chunk_text: spec.text,
-              token_count: spec.token_count,
-              created_at: now
-            })
-
-          %Chunk{} = chunk ->
-            if chunk.chunk_text == spec.text and chunk.content_kind == spec.content_kind and
-                 chunk.audience_scope == spec.audience_scope do
-              :ok
-            else
-              chunk
-              |> Ecto.Changeset.change(
-                content_kind: spec.content_kind,
-                audience_scope: spec.audience_scope,
-                chunk_text: spec.text,
-                token_count: spec.token_count,
-                embedding: nil,
-                embedding_signature: nil,
-                embedding_error: nil,
-                embedded_at: nil
-              )
-              |> repo.update!()
-            end
-        end
-      end)
-
-      object
-      |> Ecto.Changeset.change(chunking_signature: Chunker.signature(chunking))
-      |> repo.update()
-    end
-  end
-
-  # Body chunks come first; timeline chunks continue the same index sequence
-  # in stable (date, id) order, each carrying the timeline row's own scope.
-  defp desired_chunks(object, chunking, repo) do
-    with {:ok, segments} <- Markdoc.segments(object.body) do
-      body_specs =
-        Enum.flat_map(segments, fn segment ->
-          segment.text
-          |> Chunker.chunk_text(chunking)
-          |> Enum.map(fn chunk ->
-            %{content_kind: "body", audience_scope: segment.scope, text: chunk.text}
-          end)
-        end)
-
-      timeline_specs =
-        Timeline
-        |> where([timeline], timeline.object_slug == ^object.slug)
-        |> order_by([timeline], asc: timeline.date, asc: timeline.id)
-        |> repo.all()
-        |> Enum.flat_map(fn timeline ->
-          timeline
-          |> timeline_text()
-          |> Chunker.chunk_text(chunking)
-          |> Enum.map(fn chunk ->
-            %{
-              content_kind: "timeline",
-              audience_scope: timeline.audience_scope,
-              text: chunk.text
-            }
-          end)
-        end)
-
-      specs =
-        (body_specs ++ timeline_specs)
-        |> Enum.with_index()
-        |> Enum.map(fn {spec, index} ->
-          spec
-          |> Map.put(:chunk_index, index)
-          |> Map.put(:token_count, Chunker.estimate_tokens(spec.text))
-        end)
-
-      {:ok, specs}
-    end
-  end
-
-  defp timeline_text(%Timeline{} = timeline) do
-    date = Date.to_iso8601(timeline.date)
-
-    case String.trim(timeline.detail || "") do
-      "" -> "[#{date}] #{timeline.summary}"
-      detail -> "[#{date}] #{timeline.summary} — #{detail}"
     end
   end
 
@@ -831,16 +635,16 @@ defmodule Ankole.Brain.Objects do
 
   defp validate_slug(_slug), do: {:error, :missing_slug}
 
-  defp validate_slug_available(slug, repo) do
+  defp validate_slug_available(slug) do
     exists =
-      repo.exists?(Object |> where([object], object.slug == ^slug)) or
-        repo.exists?(SlugAlias |> where([alias], alias.alias_slug == ^slug))
+      Repo.exists?(Object |> where([object], object.slug == ^slug)) or
+        Repo.exists?(SlugAlias |> where([alias], alias.alias_slug == ^slug))
 
     if exists, do: {:error, {:slug_taken, slug}}, else: :ok
   end
 
   defp maybe_console_prefix(query, prefix) when is_binary(prefix) and prefix != "" do
-    where(query, [object], like(object.slug, ^(prefix <> "%")))
+    Ash.Query.filter(query, fragment("? LIKE ?", slug, ^(prefix <> "%")))
   end
 
   defp maybe_console_prefix(query, _prefix), do: query
@@ -848,47 +652,43 @@ defmodule Ankole.Brain.Objects do
   defp maybe_console_search(query, term) when is_binary(term) and term != "" do
     pattern = "%" <> Repo.escape_like(term) <> "%"
 
-    where(
+    Ash.Query.filter(
       query,
-      [object],
-      ilike(object.title, ^pattern) or ilike(object.slug, ^pattern)
+      fragment("? ILIKE ?", title, ^pattern) or fragment("? ILIKE ?", slug, ^pattern)
     )
   end
 
   defp maybe_console_search(query, _term), do: query
 
   defp filter_console_deleted(query, true),
-    do: where(query, [object], not is_nil(object.deleted_at))
+    do: Ash.Query.filter(query, not is_nil(deleted_at))
 
   defp filter_console_deleted(query, _other),
-    do: where(query, [object], is_nil(object.deleted_at))
+    do: Ash.Query.filter(query, is_nil(deleted_at))
 
   @doc """
   Lists the installed object type names that writes accept, in name order.
   """
-  @spec installed_type_names(keyword()) :: [String.t()]
-  def installed_type_names(opts \\ []) do
-    Enum.map(writable_types(opts), & &1.name)
+  @spec installed_type_names() :: [String.t()]
+  def installed_type_names do
+    Enum.map(writable_types(), & &1.name)
   end
 
   @doc "Lists the installed types available to generic object creators."
-  @spec writable_types(keyword()) :: [SchemaType.t()]
-  def writable_types(opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    repo.all(
-      SchemaType
-      |> where([t], t.name not in @reserved_types)
-      |> order_by([t], asc: t.name)
-    )
+  @spec writable_types() :: [SchemaType.t()]
+  def writable_types do
+    SchemaType
+    |> Ash.Query.filter(name not in ^@reserved_types)
+    |> Ash.Query.sort(:name)
+    |> Ankole.Ash.read!()
   end
 
   # The error carries the installed types so the caller can select one.
-  defp validate_type(type, _repo) when type in @reserved_types,
+  defp validate_type(type) when type in @reserved_types,
     do: {:error, {:reserved_object_type, type}}
 
-  defp validate_type(type, repo) when is_binary(type) and type != "" do
-    case repo.get_by(SchemaType, name: type) do
+  defp validate_type(type) when is_binary(type) and type != "" do
+    case Ankole.Ash.read_one!(Ash.Query.filter(SchemaType, name == ^type)) do
       %SchemaType{} = schema_type ->
         {:ok, schema_type}
 
@@ -896,7 +696,7 @@ defmodule Ankole.Brain.Objects do
         {:error,
          {:unknown_object_type, type,
           %{
-            installed_types: installed_type_names(repo: repo),
+            installed_types: installed_type_names(),
             vocabulary_terms: Vocabulary.closest_terms(type),
             hint:
               "Use an installed type. For an unmodeled concept, use type \"note\" with a vocabulary term as tag; vocabulary_terms lists the canonical terms closest to the rejected type."
@@ -904,7 +704,7 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
-  defp validate_type(_type, _repo), do: {:error, :missing_object_type}
+  defp validate_type(_type), do: {:error, :missing_object_type}
 
   defp validate_body_scopes(body, writer) do
     with {:ok, scopes} <- Markdoc.scopes(body) do
@@ -925,9 +725,9 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
-  defp insert_source_projection(repo, source, attrs, type, body) do
+  defp insert_source_projection(source, attrs, type, body) do
     object =
-      %Object{
+      %{
         id: UUIDv7.autogenerate(),
         slug: attrs[:slug],
         type: type,
@@ -940,12 +740,12 @@ defmodule Ankole.Brain.Objects do
       }
       |> content_changes(%{}, [])
 
-    with {:ok, object} <- repo.insert(Object.changeset(object, %{})) do
-      reconcile_chunks(object, repo: repo)
+    with {:ok, object} <- Ankole.Ash.create(Object, :create_projection, object) do
+      Chunks.reconcile(object)
     end
   end
 
-  defp update_library_projection(repo, object, page) do
+  defp update_library_projection(object, page) do
     changes =
       %{
         type: page.type,
@@ -956,27 +756,32 @@ defmodule Ankole.Brain.Objects do
         deleted_at: nil,
         updated_at: DateTime.utc_now(:microsecond)
       }
-      |> content_changes(object, Links.tags_for_object(object.slug, repo: repo))
+      |> content_changes(object, Links.tags_for_object(object.slug))
 
     if object.content_hash == changes.content_hash and object.deleted_at == nil and
          object.type == page.type do
-      add_library_aliases(repo, page)
+      add_library_aliases(page)
       {:ok, :unchanged}
     else
-      with {:ok, object} <- repo.update(Ecto.Changeset.change(object, changes)),
-           {:ok, _object} <- reconcile_chunks(object, repo: repo) do
-        add_library_aliases(repo, page)
+      with {:ok, object} <-
+             Ankole.Ash.update(
+               object,
+               :project,
+               Map.put(changes, :source_id, object.managed_by_source_id)
+             ),
+           {:ok, _object} <- Chunks.reconcile(object) do
+        add_library_aliases(page)
         {:ok, :projected}
       end
     end
   end
 
   # Instance aliases remain when the shipped file changes its alias list.
-  defp add_library_aliases(repo, page) do
-    Enum.each(page.aliases, &Links.add_alias(page.slug, &1, repo: repo))
+  defp add_library_aliases(page) do
+    Enum.each(page.aliases, &Links.add_alias(page.slug, &1))
   end
 
-  defp update_source_projection(repo, object, attrs, type, body) do
+  defp update_source_projection(object, attrs, type, body) do
     meta = Map.get(attrs, :meta, object.meta)
 
     changes =
@@ -989,27 +794,32 @@ defmodule Ankole.Brain.Objects do
         deleted_at: nil,
         updated_at: DateTime.utc_now(:microsecond)
       }
-      |> content_changes(object, Links.tags_for_object(object.slug, repo: repo))
+      |> content_changes(object, Links.tags_for_object(object.slug))
 
-    with {:ok, object} <- repo.update(Object.changeset(object, changes)) do
-      reconcile_chunks(object, repo: repo)
+    with {:ok, object} <-
+           Ankole.Ash.update(
+             object,
+             :project,
+             Map.put(changes, :source_id, object.managed_by_source_id)
+           ) do
+      Chunks.reconcile(object)
     end
   end
 
   # This is the ordinary write gate, checked after taking the Object lock.
   # Restore and managed projections have their own lifecycle entry points.
-  defp guard_editable(%Object{deleted_at: deleted_at}, _repo) when not is_nil(deleted_at),
+  defp guard_editable(%Object{deleted_at: deleted_at}) when not is_nil(deleted_at),
     do: {:error, :object_deleted}
 
-  defp guard_editable(object, repo), do: guard_unmanaged(object, repo)
+  defp guard_editable(object), do: guard_unmanaged(object)
 
   # A Source-managed page takes its body from the Source, so every instance
   # edit path refuses it. Claims, links, and timelines stay open as
   # instance-owned periphery.
-  defp guard_unmanaged(%Object{managed_by_source_id: nil}, _repo), do: :ok
+  defp guard_unmanaged(%Object{managed_by_source_id: nil}), do: :ok
 
-  defp guard_unmanaged(%Object{slug: slug, managed_by_source_id: source_id}, repo) do
-    if source_kind(repo, source_id) == "library" do
+  defp guard_unmanaged(%Object{slug: slug, managed_by_source_id: source_id}) do
+    if source_kind(source_id) == "library" do
       library_managed_error(slug)
     else
       {:error,
@@ -1030,17 +840,11 @@ defmodule Ankole.Brain.Objects do
       }}}
   end
 
-  defp source_kind(repo, source_id) do
-    case repo.get(Source, source_id) do
+  defp source_kind(source_id) do
+    case Source |> Ash.Query.filter(id == ^source_id) |> Ankole.Ash.read_one!() do
       %Source{kind: kind} -> kind
       nil -> nil
     end
-  end
-
-  defp verify_content_hash(_object, nil), do: {:error, :missing_expected_content_hash}
-
-  defp verify_content_hash(%Object{content_hash: current}, expected) do
-    if current == expected, do: :ok, else: {:error, :content_hash_conflict}
   end
 
   defp updated_subtype(%{subtype: subtype}, %Object{type: "agent"})
@@ -1054,22 +858,20 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
-  defp updated_tags(attrs, object, repo) do
+  defp updated_tags(attrs, object) do
     case Map.fetch(attrs, :tags) do
       {:ok, tags} -> Links.normalize_tags(tags)
-      :error -> {:ok, Links.tags_for_object(object.slug, repo: repo)}
+      :error -> {:ok, Links.tags_for_object(object.slug)}
     end
   end
 
-  defp snapshot_version(repo, %Object{} = object, author) do
-    repo.insert(%ObjectVersion{
-      id: UUIDv7.autogenerate(),
+  defp snapshot_version(%Object{} = object, author) do
+    Ankole.Ash.create(ObjectVersion, :snapshot, %{
       object_id: object.id,
       author: author,
       body: object.body,
       meta: object.meta,
-      tags: Links.tags_for_object(object.slug, repo: repo),
-      snapshot_at: DateTime.utc_now(:microsecond)
+      tags: Links.tags_for_object(object.slug)
     })
   end
 

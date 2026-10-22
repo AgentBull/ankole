@@ -1,60 +1,79 @@
 defmodule Ankole.AppConfigure.SiteConfig do
-  @moduledoc """
-  Database row for one scoped AppConfigure value.
-  """
+  @moduledoc "One durable site configuration value under its natural scope and key."
 
-  use Ankole.Schema, tenancy: :site
+  use Ankole.Ash.Resource,
+    tenancy: :site,
+    domain: Ankole.AppConfigure.Domain
 
-  import Ecto.Changeset
+  postgres do
+    table("site_app_configurations")
+    repo(Ankole.Repo)
+    migrate?(false)
+    identity_index_names(scope_key: "site_app_configurations_scope_key_unique")
 
-  @primary_key false
-  schema "site_app_configurations" do
-    field :scope, :string
-    field :key, :string
-    field :value, :map
-
-    timestamps(type: :utc_datetime)
+    check_constraints do
+      check_constraint(:scope, "site_app_configurations_scope_check")
+      check_constraint(:value, "site_app_configurations_value_envelope_check")
+    end
   end
 
-  @type t :: %__MODULE__{
-          scope: String.t(),
-          key: String.t(),
-          value: map(),
-          inserted_at: DateTime.t() | nil,
-          updated_at: DateTime.t() | nil
-        }
+  attributes do
+    attribute(:scope, :string,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      constraints: [trim?: false]
+    )
 
-  @doc """
-  Validates the durable row shape before insert or upsert.
+    attribute(:key, :string,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      constraints: [trim?: false, match: ~r/\S/]
+    )
 
-  The application schema keeps the same constraints as the database so normal
-  callers get changeset errors, while the database still protects against direct
-  SQL writes.
-  """
-  @spec changeset(t(), map()) :: Ecto.Changeset.t()
-  def changeset(row, attrs) do
-    row
-    |> cast(attrs, [:scope, :key, :value])
-    |> validate_required([:scope, :key, :value])
-    |> validate_format(:scope, ~r/\Aglobal\z/)
-    |> validate_change(:value, &validate_envelope/2)
-    |> unique_constraint([:scope, :key], name: :site_app_configurations_scope_key_unique)
-    |> check_constraint(:scope, name: :site_app_configurations_scope_check)
-    |> check_constraint(:value, name: :site_app_configurations_value_envelope_check)
+    attribute(:value, Ankole.AppConfigure.Envelope,
+      allow_nil?: false,
+      public?: true,
+      sensitive?: true
+    )
+
+    create_timestamp(:inserted_at, type: :utc_datetime)
+    update_timestamp(:updated_at, type: :utc_datetime)
   end
 
-  # Tests and some Ecto paths may pass atom-key maps before JSONB round-trips
-  # through PostgreSQL. Accepting both shapes keeps validation close to the DB
-  # envelope without forcing callers to pre-normalize maps.
-  defp validate_envelope(:value, %{"type" => type, "value" => _value})
-       when type in ["plaintext", "cipher"] do
-    []
+  identities do
+    identity(:scope_key, [:scope, :key])
   end
 
-  defp validate_envelope(:value, %{type: type, value: _value})
-       when type in ["plaintext", "cipher"] do
-    []
+  actions do
+    defaults([:read])
+
+    create :put do
+      accept([:scope, :key])
+      argument(:input, :term)
+      transaction?(false)
+      upsert?(true)
+      upsert_identity(:scope_key)
+      upsert_fields([:value, :updated_at])
+      validate(present([:scope, :key]))
+      validate(Ankole.AppConfigure.Scope)
+      change(Ankole.AppConfigure.Changes.EncodeValue, only_when_valid?: true)
+    end
+
+    atomic_in_tx_update :record_platform_application do
+      accept([])
+      argument(:application, :string, constraints: [trim?: false])
+
+      change(Ankole.AppConfigure.Changes.RecordPlatformApplication)
+    end
+
+    destroy :remove do
+      transaction?(false)
+      require_atomic?(true)
+      change(Ankole.Ash.RequireTransaction.Atomic)
+    end
   end
 
-  defp validate_envelope(:value, _value), do: [value: "must be an AppConfigure envelope"]
+  @type t :: %__MODULE__{}
 end

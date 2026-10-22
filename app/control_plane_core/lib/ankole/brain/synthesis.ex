@@ -286,7 +286,7 @@ defmodule Ankole.Brain.Synthesis do
   defp claim_summary(claim) do
     %{
       id: claim.id,
-      claim_type: claim.claim_type,
+      claim_type: Atom.to_string(claim.claim_type),
       claim: claim.claim,
       kind: claim.kind,
       holder: claim.holder,

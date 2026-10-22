@@ -52,10 +52,10 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
-    assert {:ok, %Message{status: "error"} = failed_message} =
+    assert {:ok, %Message{status: :error} = failed_message} =
              wait_for_turn_status(container, input.id, "failed", deadline(45_000))
 
-    assert {:ok, %Signal{input_state: "dead_letter", dead_letter_at: %DateTime{}}} =
+    assert {:ok, %Signal{status: :dead_letter, dead_letter_at: %DateTime{}}} =
              wait_for_signal_dead_letter(container, input.id, deadline(5_000))
 
     expected_notice =
@@ -118,7 +118,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
                  DateTime.to_unix(DateTime.add(@base_time, 5_800, :millisecond), :millisecond)
              )
 
-    assert {:ok, %Message{status: "error"} = cancelled_message} =
+    assert {:ok, %Message{status: :error} = cancelled_message} =
              wait_for_turn_status(container, input.id, "cancelled", deadline(30_000))
 
     assert [] =
@@ -181,7 +181,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
 
     assert {:ok, _worker} = wait_for_worker(container, deadline(15_000))
 
-    assert {:ok, %Message{status: "error"} = cancelled_message} =
+    assert {:ok, %Message{status: :error} = cancelled_message} =
              wait_for_turn_status(container, input.id, "cancelled", deadline(30_000))
 
     assert [] =
@@ -249,7 +249,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
                DateTime.add(new_input.available_at, 1, :second)
              )
 
-    assert {:ok, %Message{status: "error"} = old_message} =
+    assert {:ok, %Message{status: :error} = old_message} =
              wait_for_turn_status(container, old_input.id, "cancelled", deadline(30_000))
 
     assert [] =

@@ -1,6 +1,56 @@
 defmodule Ankole.SignalsFixtures do
   @moduledoc false
 
+  def delivery_fixture!(attrs) do
+    alias Ankole.Conversations.Delivery.Intent
+
+    {status, attrs} = Map.pop(attrs, :status, :pending)
+    {attempts, attrs} = Map.pop(attrs, :attempt_count, 0)
+    {started_at, attrs} = Map.pop(attrs, :platform_send_started_at)
+    {timestamps, attrs} = Map.split(attrs, [:inserted_at, :updated_at])
+    {provider_id, attrs} = Map.pop(attrs, :created_provider_message_id)
+
+    {:ok, intent} =
+      Ankole.Repo.transact(fn _repo ->
+        with {:ok, intent} <- Ankole.Ash.create(Intent, :commit, attrs) do
+          intent =
+            if attempts == 1 or status in [:sent, :failed] or not is_nil(started_at) do
+              {:ok, sending} =
+                Ankole.Ash.update(intent, :start_attempt, %{
+                  platform_send_started_at: started_at || DateTime.utc_now(:microsecond)
+                })
+
+              sending
+            else
+              0 = attempts
+              intent
+            end
+
+          case status do
+            :pending ->
+              {:ok, intent}
+
+            :sent ->
+              Ankole.Ash.update(intent, :succeed, %{created_provider_message_id: provider_id})
+
+            :failed ->
+              Ankole.Ash.update(intent, :fail, %{})
+          end
+        end
+      end)
+
+    # Historical timing fixtures retain their explicit clock without exposing
+    # timestamp mutation in a production action.
+    if map_size(timestamps) == 0 do
+      intent
+    else
+      intent
+      |> AshPostgres.DataLayer.to_ecto()
+      |> Ecto.Changeset.change(timestamps)
+      |> Ankole.Repo.update!()
+    end
+  end
+
   # The default entries share Principal and provider identities. Their tests
   # must run serially: Sandbox retains row and advisory locks until test end.
 
@@ -158,7 +208,7 @@ defmodule Ankole.SignalsFixtures do
 
     Ankole.Repo.all(
       from(batch in Ankole.Conversations.InboundBatch,
-        where: batch.batch_state == "open" and batch.available_at <= ^now,
+        where: batch.batch_state == :open and batch.available_at <= ^now,
         order_by: [asc: batch.available_at, asc: batch.id],
         limit: ^limit
       )
@@ -176,13 +226,14 @@ defmodule Ankole.SignalsFixtures do
   # Seeds persisted state without configuration validation or post-save wakeups.
   # Use the production put/update operations for the behavior under test.
   def raw_binding_fixture(attrs) when is_map(attrs) do
-    %Ankole.Signals.Binding{}
-    |> Ankole.Signals.Binding.changeset(attrs)
-    |> Ankole.Repo.insert(
-      on_conflict: {:replace_all_except, [:inserted_at]},
-      conflict_target: [:agent_uid, :name],
-      returning: true
-    )
+    Ankole.Repo.transact(fn _repo ->
+      Ankole.Ash.create(Ankole.Signals.Binding, :put, attrs)
+    end)
+  end
+
+  def raw_binding_fixture(%Ankole.Signals.Binding{} = binding, attrs) do
+    fields = Ash.Resource.Info.action(Ankole.Signals.Binding, :put).accept
+    binding |> Map.take(fields) |> Map.merge(attrs) |> raw_binding_fixture()
   end
 
   # Tests that exercise message mechanics default to :create_standalone so an

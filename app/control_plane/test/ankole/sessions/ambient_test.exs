@@ -1,13 +1,13 @@
 defmodule Ankole.Sessions.AmbientTest do
   use Ankole.DataCase, async: true
   import Ankole.PrincipalsFixtures
-  alias Ankole.Sessions.Ambient
+  alias Ankole.Sessions.AmbientTriage.Observation
   alias Ankole.Signals.Signal
 
   @now ~U[2026-07-18 12:05:00Z]
 
   test "the observation uses execution time, standing orders, backdrop, and new-message ids (G4)" do
-    {input, schema, _delta, true} = Ambient.observation(run([row("msg-2", "Bob")]), @now)
+    {input, schema, _delta, true} = Observation.render(observation([row("msg-2", "Bob")]), @now)
     assert input =~ "current_time: 2026-07-18 12:05"
     assert input =~ "Only speak when CI turns red."
     assert input =~ "Yesterday the deploy went fine."
@@ -17,7 +17,7 @@ defmodule Ankole.Sessions.AmbientTest do
   end
 
   test "HANDOFF can name only an exact complete candidate (G4)" do
-    run = run([row("msg-1", "Alice")])
+    run = observation([row("msg-1", "Alice")])
 
     assert decide(run, %{"action" => "HANDOFF", "handoff_job_id" => "1001"})["action"] ==
              "HANDOFF"
@@ -25,8 +25,8 @@ defmodule Ankole.Sessions.AmbientTest do
     assert decide(run, %{"action" => "HANDOFF", "handoff_job_id" => "1002"})["action"] == "NOOP"
     assert decide(run, %{"action" => "NEW_WORK", "handoff_job_id" => "1001"})["action"] == "NOOP"
 
-    run = put_in(run.spec.request_context["ambient_work_candidates"]["complete"], false)
-    {input, schema, _, _} = Ambient.observation(run, @now)
+    run = put_in(run.request_context["ambient_work_candidates"]["complete"], false)
+    {input, schema, _, _} = Observation.render(run, @now)
     assert input =~ "The list is incomplete; HANDOFF is unavailable."
     assert input =~ "Investigate deploy failure"
     refute "HANDOFF" in schema["properties"]["action"]["enum"]
@@ -34,9 +34,9 @@ defmodule Ankole.Sessions.AmbientTest do
   end
 
   test "fallback context cannot grant HANDOFF even when a candidate list says complete (G4)" do
-    run = run([])
+    run = observation([])
     run = put_in(run.event.data["unreplied_messages"], [row("msg-1", "Alice")])
-    {input, schema, _, _} = Ambient.observation(run, @now)
+    {input, schema, _, _} = Observation.render(run, @now)
     assert input =~ "Investigate deploy failure"
     refute "HANDOFF" in schema["properties"]["action"]["enum"]
   end
@@ -45,22 +45,24 @@ defmodule Ankole.Sessions.AmbientTest do
     alice = row("msg-1", "Alice")
     bob = row("msg-2", "Bob")
     base = %{"action" => "NEW_WORK", "authority" => "EXPLICIT_REQUEST", "asked_by" => "msg-1"}
-    accepted = decide(run([alice]), base)
+    accepted = decide(observation([alice]), base)
     assert accepted["authority"] == "EXPLICIT_REQUEST"
     assert accepted["asked_by_state"] == "accepted"
-    assert decide(run([alice, row("msg-2", "Alice")]), base)["authority"] == "EXPLICIT_REQUEST"
 
-    stale = decide(run([alice, bob]), base)
+    assert decide(observation([alice, row("msg-2", "Alice")]), base)["authority"] ==
+             "EXPLICIT_REQUEST"
+
+    stale = decide(observation([alice, bob]), base)
     assert stale["authority"] == "NONE"
     assert stale["asked_by_state"] == "degraded"
     assert stale["reason"] =~ "not present in the current ambient observation"
 
-    assert decide(run([Map.put(alice, "role", "agent")]), base)["authority"] == "NONE"
-    assert decide(run([alice]), Map.put(base, "asked_by", "missing"))["action"] == "NOOP"
+    assert decide(observation([Map.put(alice, "role", "agent")]), base)["authority"] == "NONE"
+    assert decide(observation([alice]), Map.put(base, "asked_by", "missing"))["action"] == "NOOP"
 
     orders = %{"action" => "NEW_WORK", "authority" => "STANDING_ORDER"}
-    assert decide(run([alice]), orders)["authority"] == "STANDING_ORDER"
-    no_orders = run([alice])
+    assert decide(observation([alice]), orders)["authority"] == "STANDING_ORDER"
+    no_orders = observation([alice])
     room = Repo.get_by!(Ankole.Conversations.Conversation, id: no_orders.event.conversation_id)
     Repo.update!(Ecto.Changeset.change(room, ambient_standing_orders: ""))
     assert decide(no_orders, orders)["action"] == "NOOP"
@@ -68,7 +70,7 @@ defmodule Ankole.Sessions.AmbientTest do
 
   test "a bounded reply strips authority without changing its reason or anchor (G4)" do
     value =
-      decide(run([row("msg-1", "Alice")]), %{
+      decide(observation([row("msg-1", "Alice")]), %{
         "action" => "FOREGROUND_REPLY",
         "authority" => "EXPLICIT_REQUEST",
         "asked_by" => "msg-1"
@@ -87,14 +89,15 @@ defmodule Ankole.Sessions.AmbientTest do
           %{"extra" => true},
           %{"authority" => "operator"}
         ] do
-      assert decide(run([row("msg-1", "Alice")]), overrides)["action"] == "NOOP"
+      assert decide(observation([row("msg-1", "Alice")]), overrides)["action"] == "NOOP"
     end
 
-    assert decide(run([]), %{"reason" => "  Chosen route.  "})["reason"] == "Chosen route."
+    assert decide(observation([]), %{"reason" => "  Chosen route.  "})["reason"] ==
+             "Chosen route."
   end
 
   defp decide(run, overrides) do
-    {_input, schema, delta, orders?} = Ambient.observation(run, @now)
+    {_input, schema, delta, orders?} = Observation.render(run, @now)
 
     value =
       Map.merge(
@@ -108,7 +111,7 @@ defmodule Ankole.Sessions.AmbientTest do
         overrides
       )
 
-    Ambient.decision(Ankole.JSON.encode!(value), schema, delta, orders?)
+    Observation.decision(Ankole.JSON.encode!(value), schema, delta, orders?)
   end
 
   defp row(id, speaker),
@@ -120,7 +123,7 @@ defmodule Ankole.Sessions.AmbientTest do
       "text" => "Bot, can you check CI?"
     }
 
-  defp run(messages) do
+  defp observation(messages) do
     %{principal: agent} = agent_fixture()
     %{principal: human} = human_fixture()
 
@@ -168,7 +171,9 @@ defmodule Ankole.Sessions.AmbientTest do
                )
              )
 
-    %{
+    %Observation{
+      agent_uid: agent.uid,
+      model_ref: %{},
       event: %Signal{
         producer: :kernel,
         agent_uid: agent.uid,
@@ -186,18 +191,16 @@ defmodule Ankole.Sessions.AmbientTest do
       context: %{
         conversation: %{timezone: "UTC", origin_channel: %{adapter: "lark", label: "Ops"}}
       },
-      spec: %{
-        request_context: %{
-          "ambient_work_candidates" => %{
-            "complete" => true,
-            "jobs" => [
-              %{
-                "job_id" => "1001",
-                "status" => "running",
-                "title" => "Investigate deploy failure"
-              }
-            ]
-          }
+      request_context: %{
+        "ambient_work_candidates" => %{
+          "complete" => true,
+          "jobs" => [
+            %{
+              "job_id" => "1001",
+              "status" => "running",
+              "title" => "Investigate deploy failure"
+            }
+          ]
         }
       }
     }

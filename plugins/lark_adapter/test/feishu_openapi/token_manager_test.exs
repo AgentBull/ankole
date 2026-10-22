@@ -11,6 +11,68 @@ defmodule FeishuOpenAPI.TokenManagerTest do
     {:ok, app_id: app_id}
   end
 
+  test "marketplace bootstrap can retry private callback and provider failures without logging them",
+       %{
+         app_id: app_id
+       } do
+    owner = self()
+    secret = "private-marketplace-bootstrap-should-not-escape"
+
+    await_release = fn ->
+      send(owner, {:resend_started, self()})
+
+      receive do
+        :continue -> :ok
+      end
+    end
+
+    for mode <- [:raised, :returned] do
+      Req.Test.stub(__MODULE__, fn conn ->
+        assert conn.request_path == "/open-apis/auth/v3/app_ticket/resend"
+        await_release.()
+        Req.Test.json(conn, %{"code" => 999, "msg" => secret})
+      end)
+
+      client =
+        Client.new(
+          app_id <> Atom.to_string(mode),
+          fn ->
+            if mode == :raised do
+              await_release.()
+              raise secret
+            end
+
+            secret
+          end,
+          app_type: :marketplace,
+          req_options: [plug: {Req.Test, __MODULE__}]
+        )
+
+      log =
+        ExUnit.CaptureLog.capture_log([format: "$metadata$message\n", metadata: :all], fn ->
+          for _ <- 1..2 do
+            assert :ok = TokenManager.bootstrap(client)
+            assert_receive {:resend_started, task}, 1_000
+            ref = Process.monitor(task)
+            send(task, :continue)
+            assert_receive {:DOWN, ^ref, :process, ^task, :normal}, 1_000
+            assert TokenManager.get_app_ticket(client) == :miss
+          end
+        end)
+
+      if mode == :raised do
+        assert log =~ "feishu_openapi.app_ticket.resend_crashed"
+        assert log =~ "failure=Elixir.RuntimeError"
+        assert log =~ "token_manager_test.exs:"
+      else
+        assert log =~ "feishu_openapi.app_ticket.resend_failed"
+        assert log =~ "failure=Elixir.FeishuOpenAPI.Error"
+      end
+
+      refute log =~ secret
+    end
+  end
+
   test "concurrent cache-miss callers trigger exactly one upstream fetch", %{app_id: app_id} do
     {:ok, counter} = Agent.start_link(fn -> 0 end)
 
@@ -178,10 +240,16 @@ defmodule FeishuOpenAPI.TokenManagerTest do
     for _ <- 1..2 do
       task = Task.async(fn -> TokenManager.get_tenant_token(client) end)
 
-      assert {:error, %FeishuOpenAPI.Error{code: :token_fetch_crashed, msg: msg}} =
+      assert {:error,
+              %FeishuOpenAPI.Error{
+                code: :token_fetch_crashed,
+                msg: "token fetch crashed",
+                details: {:error, %RuntimeError{message: "secret fetch exploded"}}
+              } = error} =
                Task.await(task, :timer.seconds(1))
 
-      assert msg =~ "secret fetch exploded"
+      refute inspect(error) =~ "secret fetch exploded"
+      refute Exception.message(error) =~ "secret fetch exploded"
     end
   end
 

@@ -6,6 +6,7 @@ defmodule Ankole.Brain.LazySkillVisibility do
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.AIAgent.Library
   alias Ankole.Principals.Agent
@@ -21,9 +22,7 @@ defmodule Ankole.Brain.LazySkillVisibility do
 
   @spec for_querier(String.t(), keyword()) :: {:ok, t()} | {:error, term()}
   def for_querier(querier_uid, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    case repo.get(Agent, querier_uid) do
+    case Repo.get(Agent, querier_uid) do
       nil ->
         {:ok, %__MODULE__{}}
 
@@ -59,6 +58,10 @@ defmodule Ankole.Brain.LazySkillVisibility do
 
   @spec filter_objects(Ecto.Queryable.t(), t()) :: Ecto.Query.t()
   def filter_objects(query, %__MODULE__{slugs: :all}), do: query
+
+  def filter_objects(%Ash.Query{} = query, %__MODULE__{slugs: slugs}) do
+    Ash.Query.filter(query, type != @object_type or slug in ^slugs)
+  end
 
   def filter_objects(query, %__MODULE__{slugs: slugs}) do
     where(query, [object, ...], object.type != @object_type or object.slug in ^slugs)

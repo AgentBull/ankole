@@ -140,8 +140,22 @@ Tenant and Agent rows use the tenant-owned `app_configurations` table and
 the tenant on reads and writes.
 
 Both tables store `scope`, `key`, JSONB `value`, `inserted_at`, and `updated_at`.
-The database checks the scope and the value wrapper. AppConfigure selects the
-owning schema from the scope and retains the existing inheritance order.
+The database checks the scope and the value wrapper. `AppConfig` and `SiteConfig`
+are Ash resources with these natural primary keys. Their `put` action resolves
+the registered definition, validates the scope and input, and encrypts secrets
+before its upsert. Both the Console and boot-time owners use this action.
+`AppConfig.import_envelope` accepts already sealed tenant upgrade rows; it does
+not parse them as operator input. No second Changeset write path exists.
+AppConfigure selects the owning resource from the scope and retains the
+existing inheritance order.
+`Envelope` owns the stored wrapper's tags and shape. `Codec` consumes that
+contract for definition validation and encryption; the storage type does not
+depend on the runtime configuration owner.
+
+Signal Bindings record public platform identity through the resources'
+`record_platform_application` action. It merges only the outer JSONB metadata;
+the encrypted value keeps its exact ciphertext. Configuration deletion uses
+the same `remove` action for individual and bulk callers.
 
 WorkerEnv uses the same separation: global rows use `site_worker_envs`, and
 Tenant and Agent rows use `agent_computer_worker_envs`. The upgrade migration
@@ -213,14 +227,19 @@ Deleting a tenant row restores global or default inheritance. Deleting a global 
 ## Cache Behavior
 
 `Ankole.AppConfigure.Cache` keeps copies of database rows in ETS. It identifies
-each copy by `{scope, key}`.
+each copy by `{tenant_id, scope, key}`. Site entries use a `nil` tenant.
 
-At startup, the cache tries to load every row. A cache miss reads the requested
+At startup, the cache tries to load the site rows. A cache miss reads the requested
 row from PostgreSQL. The cache keeps that result only if no refresh started
 after the miss began, because the result can be older than the write that
 started the refresh.
 
-The cache has no TTL and no public refresh operation. AppConfigure writes and deletes refresh the affected key.
+Each entry expires after five seconds, including an absent row. AppConfigure
+writes and deletes refresh the affected key after commit. The cache checks
+refresh generations and read start times before it publishes a loaded row. Both
+cache misses and refreshes read in the caller's process with its current
+connection and tenant. The cache process only owns invalidation and publication;
+it does not borrow a writer's database connection.
 
 The cache remembers whether a row exists separately from whether it is valid.
 It never treats an invalid row as absent. PostgreSQL holds the original row.
@@ -244,6 +263,14 @@ WorkerEnv stores operator-managed environment variables separately from
 AppConfigure. Site values apply first, then tenant values, then Agent values.
 Binding variables and explicit command variables apply afterwards. A WorkerEnv
 value is a string; secret values use encrypted storage.
+
+`EnvVar` and `SiteEnvVar` are Ash resources. Their natural identities remain
+`tenant_id/scope/name` and `scope/name`. The `put` action owns name validation,
+secret-state changes, and encryption. A metadata-only write keeps the existing
+ciphertext. An inherited secret is sealed for the new scope before storage.
+The `remove` action owns individual and Agent-cleanup deletion. All list and
+execution reads use the same resources. Tier inheritance and response masking
+remain in WorkerEnv; ConsolePolicy owns reveal authorization.
 
 AppConfigure declarations do not export environment variables. RuntimeFabric
 carries per-turn runtime facts separately. Runtime names use the

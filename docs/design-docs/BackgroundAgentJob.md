@@ -405,6 +405,21 @@ uses `collaboration.agent_interaction`; it does not guess whether the original
 call was `send_message` or `followup_task`. A matched activity enriches the raw
 call pair and is not stored as a separate display item.
 
+The Turn resource owns checkpoint and interruption transitions through Ash
+state-machine actions. A checkpoint update matches the stored revision and
+status. It must advance the revision, and a terminal Turn can only retain its
+terminal status. The first observed checkpoint can already be terminal. Bulk
+interruption advances each active revision once and removes its active item in
+the same SQL update. Late Worker snapshots cannot overwrite this outcome.
+Checkpoint actions validate the canonical header, bounded progress, and official
+usage fields. Native constraints enforce the state and completion-time relation.
+
+The recorder keeps the Job and Turn locks while it validates an identical
+checkpoint retry and appends its items. TurnItem exposes only an append action;
+its position and semantic item key remain unique within the Turn. A conflict
+rolls back the checkpoint and its items together. Content truncation merges its
+marker into the stored header without replacing other metadata.
+
 Each Turn also identifies its Job, attempt, Codex thread, and Codex turn. The API
 rebuilds trajectory pages from the header and the messages that the stored
 items project.
@@ -763,7 +778,23 @@ queued
 
 The message tool stores input for any live Job. It cannot resume a terminal
 Job. Respawning a terminal Job creates a new queued Job and never changes the
-source Job.
+source Job. The Job resource declares each allowed transition with
+`AshStateMachine`. `JobState` reads that declaration for policy checks. Each
+lifecycle entry point runs the declared action directly. The action accepts
+only the fields that it owns. Status reports cannot change authorization,
+ownership, runtime configuration, or attempt counters. Unknown fields fail
+validation before the write. A terminal Job cannot return to `queued` or
+`running`.
+The Console query, list, and detail schemas share one status projection from
+this declaration. Turn schemas also read their enum from the Turn resource.
+
+The caller owns each lifecycle transaction. Action rejection runs before SQL
+and does not roll back that transaction. `CodexJob.abort` can therefore commit
+its Signal settlement and owner wakeup after a rejected transition. Worker
+authorization reads the input under the locked Job and attempt fence; the
+mutation locks its input after Turn and Session locks. A successful Turn
+reserves any steer successor identity before it locks Signals, so the new
+Job's Session lock joins the current and owner Session locks in sorted order.
 
 The `agent_computer.background_agent_job.max_running_per_agent` setting caps how
 many Jobs of one Agent run at once, with a default of three. One Job spends at
@@ -773,7 +804,26 @@ budget.
 
 The control plane increments `attempts` only when it claims a real Worker
 slot. Adoption of a running attempt does not claim or count again.
-A placement failure returns an unstarted attempt to `queued`.
+New attempts use the shared [Worker readiness rule](AgentWorkers.md#new-attempt-readiness).
+Admission supplies the locked Worker and the Agent's Job-capacity result. It
+persists the returned start in `worker_wait_started_at`. The Job resource uses
+atomic clock updates, including requests from an older snapshot. Repeated waits
+and repeated clears do not change the stored update time.
+
+A wait enqueues a durable wakeup 30 seconds later without consuming an attempt.
+The result supplies `retry_at` to the Driver timer. The Signal keeps its business
+deadline in `available_at`; admission checks that deadline and the queue head
+again under lock before it commits a wait or resolves a readiness timeout.
+An unavailable Worker keeps the Worker-readiness wake reason even when the
+Agent's Job capacity is full. When the Agent's Worker becomes ready,
+`JobDriver` wakes immediately on `{:worker_changed, uid}` and admits the oldest
+open Signal without waiting for that 30-second timer. If the shared rule returns
+`timed_out`, a `queued` Job fails with `agent_worker_unavailable`
+and dead-letters its dispatch Signal, while a `waiting_on_user` Job stays in
+`waiting_on_user`, clears `worker_wait_started_at`, dead-letters the steer
+Signal, and sends `background_agent_job.input_undeliverable` to the owner
+Session.
+
 The Worker stops local execution when acceptance or progress confirms that
 the attempt changed or the run closed. A connection failure alone does not
 stop it. After the control plane accepts a newer attempt, the Worker stops
@@ -1036,6 +1086,9 @@ and injects the steer at its next model boundary.
 After a Codex Turn starts or is adopted, the Driver immediately sends stored
 `command.steer` events. Later inbox wakes send new messages through the same
 mailbox owner. Worker deduplication uses each event ID.
+The mailbox locks Human authorizers before the Session and Signal rows. It
+checks the locked Signal's authorization against its snapshot before admission.
+Revoked fresh input becomes terminal without reaching the Worker.
 
 Codex must produce a lead runtime notification within 60 seconds after
 `turn/start` succeeds. Missing first progress is a retryable runtime failure;

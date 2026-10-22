@@ -1,8 +1,6 @@
 defmodule Ankole.Sessions.TurnRuntimeEnvTest do
   use Ankole.DataCase, async: true
 
-  alias Ankole.Principals.Principal
-  alias Ankole.Repo
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.TurnRuntimeEnv
   alias Ankole.AgentWorkers.WorkerAuthKey
@@ -54,7 +52,7 @@ defmodule Ankole.Sessions.TurnRuntimeEnvTest do
       | data: %{"entry" => %{"author" => %{"principal_uid" => last_author.uid}}}
     }
 
-    requester |> Principal.status_changeset(%{status: :disabled}) |> Repo.update!()
+    {:ok, _} = Ankole.PrincipalsFixtures.disable_principal_fixture(requester.uid)
     assert TurnRuntimeEnv.resolve(signal) == %{}
   end
 

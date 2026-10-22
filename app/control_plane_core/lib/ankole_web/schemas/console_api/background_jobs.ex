@@ -208,6 +208,20 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobTurnProgress do
   )
 end
 
+defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobStatus do
+  @moduledoc false
+  @behaviour OpenApiSpex.Schema
+
+  @impl OpenApiSpex.Schema
+  def schema do
+    %OpenApiSpex.Schema{
+      title: "BackgroundAgentJobStatus",
+      type: :string,
+      enum: Enum.map(Ankole.BackgroundAgentJobs.JobState.statuses(), &Atom.to_string/1)
+    }
+  end
+end
+
 defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobTurnItem do
   alias OpenApiSpex, as: OpenAPISpex
   alias OpenAPISpex.Schema
@@ -216,10 +230,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobTurnItem do
 
   @moduledoc false
 
-  require OpenAPISpex
-
-  @kinds Ankole.BackgroundAgentJobs.TurnState.kinds()
-  @statuses Ankole.BackgroundAgentJobs.TurnState.statuses()
+  @behaviour OpenAPISpex.Schema
 
   @content_part %Schema{
     type: :object,
@@ -295,67 +306,74 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobTurnItem do
     ]
   }
 
-  OpenAPISpex.schema(
-    %{
-      title: "BackgroundAgentJobTurnItem",
-      type: :object,
-      properties: %{
-        id: %Schema{type: :string},
-        attempt: %Schema{type: :integer},
-        runtime_thread_id: %Schema{type: :string},
-        runtime_turn_id: %Schema{type: :string},
-        kind: %Schema{type: :string, enum: @kinds},
-        status: %Schema{type: :string, enum: @statuses},
-        revision: %Schema{type: :integer},
-        trajectory: %Schema{
-          type: :object,
-          additionalProperties: false,
-          properties: %{
-            format: %Schema{type: :string, enum: ["ankole_chatml"]},
-            version: %Schema{type: :integer, enum: [1]},
-            messages: %Schema{
-              type: :array,
-              items: @message
-            },
-            metadata: %Schema{
-              type: :object,
-              properties: %{
-                redacted: %Schema{type: :boolean},
-                content_truncated: %Schema{type: :boolean}
-              },
-              additionalProperties: false
-            }
+  @impl OpenAPISpex.Schema
+  def schema do
+    OpenAPISpex.build_schema(
+      %{
+        title: "BackgroundAgentJobTurnItem",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          attempt: %Schema{type: :integer},
+          runtime_thread_id: %Schema{type: :string},
+          runtime_turn_id: %Schema{type: :string},
+          kind: %Schema{type: :string, enum: Ankole.BackgroundAgentJobs.TurnState.kinds()},
+          status: %Schema{
+            type: :string,
+            enum: Enum.map(Ankole.BackgroundAgentJobs.TurnState.statuses(), &Atom.to_string/1)
           },
-          required: [:format, :version, :messages]
+          revision: %Schema{type: :integer},
+          trajectory: %Schema{
+            type: :object,
+            additionalProperties: false,
+            properties: %{
+              format: %Schema{type: :string, enum: ["ankole_chatml"]},
+              version: %Schema{type: :integer, enum: [1]},
+              messages: %Schema{
+                type: :array,
+                items: @message
+              },
+              metadata: %Schema{
+                type: :object,
+                properties: %{
+                  redacted: %Schema{type: :boolean},
+                  content_truncated: %Schema{type: :boolean}
+                },
+                additionalProperties: false
+              }
+            },
+            required: [:format, :version, :messages]
+          },
+          progress: BackgroundAgentJobTurnProgress,
+          usage: %Schema{allOf: [BackgroundAgentJobTurnUsage], nullable: true},
+          error: %Schema{type: :object, additionalProperties: true},
+          started_at: %Schema{type: :string},
+          completed_at: %Schema{type: :string, nullable: true},
+          inserted_at: %Schema{type: :string},
+          updated_at: %Schema{type: :string}
         },
-        progress: BackgroundAgentJobTurnProgress,
-        usage: %Schema{allOf: [BackgroundAgentJobTurnUsage], nullable: true},
-        error: %Schema{type: :object, additionalProperties: true},
-        started_at: %Schema{type: :string},
-        completed_at: %Schema{type: :string, nullable: true},
-        inserted_at: %Schema{type: :string},
-        updated_at: %Schema{type: :string}
+        required: [
+          :id,
+          :attempt,
+          :runtime_thread_id,
+          :runtime_turn_id,
+          :kind,
+          :status,
+          :revision,
+          :trajectory,
+          :progress,
+          :usage,
+          :error,
+          :started_at,
+          :inserted_at,
+          :updated_at
+        ],
+        additionalProperties: false
       },
-      required: [
-        :id,
-        :attempt,
-        :runtime_thread_id,
-        :runtime_turn_id,
-        :kind,
-        :status,
-        :revision,
-        :trajectory,
-        :progress,
-        :usage,
-        :error,
-        :started_at,
-        :inserted_at,
-        :updated_at
-      ],
-      additionalProperties: false
-    },
-    struct?: false
-  )
+      module: __MODULE__,
+      struct?: false
+    )
+  end
 end
 
 defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobItem do
@@ -366,8 +384,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobItem do
   @moduledoc false
 
   require OpenAPISpex
-
-  @statuses Ankole.BackgroundAgentJobs.JobState.statuses()
 
   OpenAPISpex.schema(
     %{
@@ -400,10 +416,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobItem do
         runtime_thread_id: %Schema{type: :string, nullable: true},
         title: %Schema{type: :string},
         task: %Schema{type: :string},
-        status: %Schema{
-          type: :string,
-          enum: @statuses
-        },
+        status: AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobStatus,
         attempts: %Schema{type: :integer},
         execution_failures: %Schema{type: :integer},
         workspace_template_id: %Schema{type: :string, nullable: true},
@@ -466,8 +479,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobListItem do
 
   require OpenAPISpex
 
-  @statuses Ankole.BackgroundAgentJobs.JobState.statuses()
-
   # One board row. A list page carries up to 100 of these and reloads on a
   # timer, so it stays at what the board and the home panel draw. The queued
   # prompt, the result, the error, and the metadata grow with the work the job
@@ -484,10 +495,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobListItem do
         },
         agent_uid: %Schema{type: :string},
         title: %Schema{type: :string},
-        status: %Schema{
-          type: :string,
-          enum: @statuses
-        },
+        status: AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobStatus,
         attempts: %Schema{type: :integer},
         execution_failures: %Schema{type: :integer},
         workspace_template_id: %Schema{type: :string, nullable: true},

@@ -8,18 +8,20 @@ defmodule Ankole.Kernel.ProgramRunner do
   the top with memoized answers. The engine owns timeouts, heap limits, and
   deterministic `Math.random`/`Date.now` shims.
 
-  The call blocks a dirty CPU scheduler for up to the program timeout, so
-  stream owners run it from a task, never from their own process loop.
+  Native threads decode requests and execute V8. BEAM processes wait for an
+  outcome message without reserving a scheduler. A handle owns cancellation
+  before execution starts. Owner or executing process exit terminates the run.
   """
 
   alias Ankole.Kernel
 
-  @run_option_keys [:max_pending_calls, :max_pending_bytes, :max_memo_bytes]
+  @run_option_keys [:timeout_ms, :max_pending_calls, :max_pending_bytes, :max_memo_bytes]
 
-  @type run_id :: String.t()
+  @opaque handle :: reference()
 
   @type run_option ::
-          {:max_pending_calls, non_neg_integer()}
+          {:timeout_ms, non_neg_integer()}
+          | {:max_pending_calls, non_neg_integer()}
           | {:max_pending_bytes, non_neg_integer()}
           | {:max_memo_bytes, non_neg_integer()}
 
@@ -52,52 +54,80 @@ defmodule Ankole.Kernel.ProgramRunner do
           {:ok, outcome()} | {:error, String.t()}
   def run(program, tools, memo)
       when is_binary(program) and is_list(tools) and is_list(memo) do
-    run(new_run_id(), program, tools, memo)
+    run(new_handle(), program, tools, memo, [])
   end
 
-  @doc false
-  @spec run(run_id(), String.t(), [tool_binding()], [memo_entry()]) ::
-          {:ok, outcome()} | {:error, String.t()}
-  def run(run_id, program, tools, memo)
-      when is_binary(run_id) and is_binary(program) and is_list(tools) and is_list(memo) do
-    run(run_id, program, tools, memo, [])
-  end
+  @doc "Creates one execution handle whose lifetime belongs to the given process."
+  @spec new_handle(pid()) :: handle()
+  def new_handle(owner \\ self()) when is_pid(owner), do: Kernel.program_handle_nif(owner)
 
   @doc false
-  @spec run(run_id(), String.t(), [tool_binding()], [memo_entry()], [run_option()]) ::
+  @spec run(handle(), String.t(), [tool_binding()], [memo_entry()]) ::
           {:ok, outcome()} | {:error, String.t()}
-  def run(run_id, program, tools, memo, options)
-      when is_binary(run_id) and is_binary(program) and is_list(tools) and is_list(memo) and
-             is_list(options) do
+  def run(handle, program, tools, memo), do: run(handle, program, tools, memo, [])
+
+  @doc false
+  @spec run(handle(), String.t(), [tool_binding()], [memo_entry()], [run_option()]) ::
+          {:ok, outcome()} | {:error, String.t()}
+  def run(handle, program, tools, memo, options) do
+    case start(handle, program, tools, memo, options) do
+      {:ok, handle} -> await(handle)
+      {:error, {:program_runner_busy, outcome}} -> {:ok, outcome}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc "Starts one native execution and returns without waiting for V8."
+  @spec start(handle(), String.t(), [tool_binding()], [memo_entry()], [run_option()]) ::
+          {:ok, handle()} | {:error, {:program_runner_busy, outcome()} | String.t()}
+  def start(handle, program, tools, memo, options \\ [])
+      when is_reference(handle) and is_binary(program) and is_list(tools) and is_list(memo) do
     with {:ok, options} <- validate_run_options(options),
          request =
            Enum.reduce(options, %{"program" => program, "tools" => tools, "memo" => memo}, fn
              {key, value}, request -> Map.put(request, Atom.to_string(key), value)
            end),
-         {:ok, request_json} <- Torque.encode(request),
-         outcome_json when is_binary(outcome_json) <- Kernel.program_run_nif(run_id, request_json),
-         {:ok, outcome} <- Torque.decode(outcome_json) do
-      {:ok, decode_outcome(outcome)}
+         {:ok, request_json} <- Torque.encode(request) do
+      case Kernel.program_run_nif(handle, request_json) do
+        ^handle ->
+          {:ok, handle}
+
+        {:error, :program_runner_busy, json} ->
+          {:error, {:program_runner_busy, json |> Torque.decode!() |> decode_outcome()}}
+
+        {:error, reason} ->
+          {:error, format_error(reason)}
+      end
     else
-      {:error, reason} when is_binary(reason) -> {:error, reason}
-      {:error, reason} -> {:error, inspect(reason)}
+      {:error, reason} -> {:error, format_error(reason)}
     end
   end
 
-  @doc false
-  @spec new_run_id() :: run_id()
-  def new_run_id, do: Kernel.gen_uuid()
+  @doc "Waits for the outcome of an execution started by this process."
+  @spec await(handle()) :: {:ok, outcome()} | {:error, String.t()}
+  def await(handle) when is_reference(handle) do
+    receive do
+      {:program_runner, ^handle, {:ok, json}} ->
+        {:ok, json |> Torque.decode!() |> decode_outcome()}
 
-  @doc "Cancels the matching execution when it is currently running."
-  @spec cancel(run_id()) :: :ok | {:error, String.t()}
-  def cancel(run_id) when is_binary(run_id) do
-    case Kernel.program_cancel_nif(run_id) do
-      found when is_boolean(found) -> :ok
-      {:error, reason} when is_binary(reason) -> {:error, reason}
-      {:error, reason} -> {:error, inspect(reason)}
-      result -> {:error, "invalid program cancellation result: #{inspect(result)}"}
+      {:program_runner, ^handle, {:error, reason}} ->
+        {:error, format_error(reason)}
     end
   end
+
+  @doc "Cancels one execution, including one that has not started yet."
+  @spec cancel(handle()) :: :ok
+  def cancel(handle) when is_reference(handle) do
+    true = Kernel.program_cancel_nif(handle)
+    :ok
+  end
+
+  @doc "Returns the number of native executions that hold a program slot."
+  @spec active_runs() :: non_neg_integer()
+  def active_runs, do: Kernel.program_active_runs_nif()
+
+  defp format_error(reason) when is_binary(reason), do: reason
+  defp format_error(reason), do: inspect(reason)
 
   defp validate_run_options(options) do
     case Keyword.validate(options, @run_option_keys) do

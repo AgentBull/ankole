@@ -264,14 +264,10 @@ defmodule Ankole.IdentityProviders.LocalPassword do
 
         case repo.get(LocalCredential, principal_uid) do
           %LocalCredential{} = credential ->
-            credential
-            |> LocalCredential.changeset(attrs)
-            |> repo.update()
+            Ankole.Ash.update(credential, :set_password_in_tx, Map.delete(attrs, :principal_uid))
 
           nil ->
-            %LocalCredential{}
-            |> LocalCredential.changeset(attrs)
-            |> repo.insert()
+            Ankole.Ash.create(LocalCredential, :create_in_tx, attrs)
         end
 
       {:error, reason} ->

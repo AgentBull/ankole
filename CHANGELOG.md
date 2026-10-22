@@ -1,5 +1,85 @@
 # Changelog
 
+## Version 2.0.0-alpha.20 (2026-10-22)
+
+- Keep queued Background Agent Jobs waiting while the Agent's Job limit is full,
+  even when its Worker is unavailable. Preserve an existing Worker-wait deadline
+  until the Worker is observed ready, as Automation Jobs do.
+- Wake capacity waiters across an Agent's running Workflows when a task releases
+  a slot, including when a failed task queues a retry. Skip Workflows whose own
+  concurrency limit is still full.
+- Serialize new Workflow and Codex attempt admission with tenant suspension.
+  Already admitted attempts retain their completion contract.
+- Reject unknown Job status inputs and prevent Job transitions or checkback
+  rescheduling from changing ownership, authorization, or creation facts.
+- Reject cross-tenant references in identity, work, conversation, Pod, and Brain
+  storage. Keep OIDC credentials bound to their original client and login session.
+- Keep shared conversation history when an Agent is permanently deleted, and
+  clear references to that Agent's deleted Signals.
+- Reject malformed durable JSON before committing a tool effect or its receipt.
+  Keep private inputs, JSON object keys, and database details out of API and tool
+  error responses.
+- Show declared validation limits and allowed values in API and tool errors.
+  Keep invalid timezone and rule-parser input out of those messages.
+- Preserve ordinary Response terminal events through the shared stream loop.
+  Keep tool calls rejected by the public budget out of terminal output.
+- Reject stale Brain edits, review decisions, and embedding results. Repeated
+  review requests keep the first verdict, and late embedding failures cannot
+  discard a successfully rebuilt vector.
+- Preserve the upstream OIDC authentication time through login. Providers that
+  support fresh authentication can satisfy a relying application's forced-login
+  request; unsupported providers reject the request explicitly.
+- Fix source builds that fail when the dependency cache is empty.
+
+- Function Compute Workers now require the `china-market-ai-providers` Control
+  Plane Plugin. Vercel Workers require `vercel-worker-provider`. Select the
+  required Plugin IDs before upgrading, then restart the control plane. Saved
+  provider configuration, credentials, and Agent storage keep their values.
+- Reject Plugin disable while an Agent still uses its Worker providers,
+  including paused Workers and pending deletion. New Agent assignments also
+  reject a Plugin that is disabled for the next start.
+- Use the Control Plane Plugin controls to change Plugin selection. The
+  `plugins.enabled_ids` entry is read-only in general Console settings.
+- Return HTTP 503 `applet_busy` when all four Pod Applet runtime slots
+  are busy instead of panicking in the native isolate pool.
+- Validate Background Agent Job status transitions by action across control-plane
+  and Worker writes, bound Worker unavailability waits by `ready_timeout_ms`, and
+  wake a deferred Job immediately when its Worker becomes ready.
+- Reject unknown terminal reply presentation states instead of recording them as
+  completed, and keep dead-lettered Signals terminal when later completion paths
+  run.
+
+- Retry an OIDC refresh within ten seconds after a lost response with the same
+  successor token. Later replay revokes the token family and login session.
+- Keep quiet group observations outside conversation admission. Only a committed
+  intervention starts a conversation turn; repeated observations reuse the
+  durable triage result.
+- Give Automation Jobs an independent queue and per-Agent concurrency cap. Keep
+  the first Worker-wait deadline across infrastructure retries, and end queued
+  retries when their Human authorization is revoked.
+- Preserve channel card anchors through failed delivery recovery. Workflow task
+  activity now distinguishes sleep deadlines from capacity retries.
+- Run Workflow scripts asynchronously in the native runtime so slow scripts do
+  not occupy BEAM dirty CPU schedulers needed by authorization.
+- Stop a replaced Driver when a tool loses its write fence. Deliver authorized
+  Human messages to running Jobs under the same lock order as work admission.
+- Keep Worker wait retries separate from Signal deadlines. Job admission checks
+  the locked queue head and deadline before it can claim an attempt.
+- Recheck Agent and tenant availability before ambient classification and commit.
+  A model response cannot commit a judgment after its observation expires.
+- Cancel native program tasks when their owning process exits, including forced
+  exits. Cron edits, manual runs, fires, and final failure history lock their
+  Automation Job consumer before the rule.
+- Keep private action and request data out of unexpected Console, tool, and Job
+  Driver error logs.
+- Treat a killed Worker connection as a lost route without repeating its request.
+- Clear unfinished workspace acquisition when a recovered tool round commits,
+  so the next tool round can use the ready Worker after a control-plane restart.
+- Release a recovered workspace when the model finishes before workspace
+  preparation completes. Pure text turns still send no Worker messages.
+- Preserve the error stage in hosted image streams. Provider access rejections
+  no longer enter capacity retry; rate limits and timeouts stay retryable.
+
 ## Version 2.0.0-alpha.19 (2026-10-21)
 
 - Let Background Agent Job threads call the Brain `recall` and `get_page`

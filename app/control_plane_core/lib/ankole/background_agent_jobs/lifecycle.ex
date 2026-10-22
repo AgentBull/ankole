@@ -5,8 +5,6 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   import Ecto.Query
 
-  alias Ecto.Adapters.SQL
-
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.JobTurnRef
   alias Ankole.AgentWorkers.WorkerRouteAuth
@@ -21,23 +19,12 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Turns
-  alias Ankole.Text
+  alias Ankole.BackgroundAgentJobs.Wakeups
+  alias Ankole.BackgroundAgentJobs.WorkerWait
 
   @max_execution_attempts 5
   @max_claims 25
   @max_consecutive_turn_failures 5
-  @max_event_payload_bytes 16_384
-  @artifact_path_limit 32
-  @artifact_path_bytes 8_192
-  @internal_uuid_pattern ~r/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i
-  @path_handoff_keys [
-    {"files_changed", :files_changed},
-    {"artifacts", :artifacts},
-    {"artifact_roots", :artifact_roots}
-  ]
-  @truncation_suffix "...[truncated]"
-  @terminal_statuses JobState.terminal_statuses()
-  @running_statuses JobState.running_statuses()
 
   @doc false
   @spec upsert_turn_from_worker(pos_integer(), String.t(), map(), JobTurnRef.t(), String.t()) ::
@@ -143,15 +130,22 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   def requeue_credential_pool_exhausted_attempt_in_tx(repo, job_id, agent_uid)
       when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) do
     with :ok <- lock_agent_slots(repo, agent_uid),
-         %Job{status: "running", attempts: attempts} = job when attempts > 0 <-
-           Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
-      job
-      |> Job.changeset(%{status: "queued"})
-      |> repo.update()
+         %Job{attempts: attempts} = job when attempts > 0 <-
+           Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
+         {:ok, :queued} <- JobState.transition(:requeue, job.status, :queued) do
+      Ankole.Ash.update(job, :requeue, %{})
     else
-      nil -> {:error, :job_not_found}
-      %Job{} -> {:error, :background_agent_job_attempt_changed}
-      {:error, _reason} = error -> error
+      nil ->
+        {:error, :job_not_found}
+
+      %Job{} ->
+        {:error, :background_agent_job_attempt_changed}
+
+      {:error, {:invalid_status_transition, _current, _next}} ->
+        {:error, :background_agent_job_attempt_changed}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -164,17 +158,20 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
     with :ok <- lock_agent_slots(repo, agent_uid) do
       case Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
-        %Job{status: "running"} = job ->
-          job
-          |> Job.changeset(%{
-            status: "queued",
-            execution_failures: job.execution_failures + if(charge?, do: 1, else: 0)
-          })
-          |> repo.update()
+        %Job{} = job ->
+          case JobState.transition(:requeue, job.status, :queued) do
+            {:ok, :queued} ->
+              Ankole.Ash.update(job, :requeue, %{
+                execution_failures: job.execution_failures + if(charge?, do: 1, else: 0)
+              })
 
-        # A Job that already left `running` (stopped, completed, waiting, or
-        # already requeued) needs no compensation; the abort stays a no-op.
-        _job ->
+            # A Job that already left `running` (stopped, completed, waiting, or
+            # already requeued) needs no compensation; the abort stays a no-op.
+            {:error, {:invalid_status_transition, _current, _next}} ->
+              {:ok, nil}
+          end
+
+        nil ->
           {:ok, nil}
       end
     end
@@ -202,7 +199,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
             turn_ref,
             Keyword.get(opts, :worker_id),
             Keyword.get(opts, :turn_interruption),
-            Keyword.take(opts, [:external_completion, :applied_signal_ids])
+            Keyword.take(opts, [:external_completion, :applied_signal_ids, :transition_action])
           )
         end)
       end
@@ -246,7 +243,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       ) do
     # Every transition locks the Agent's Worker row before taking the agent/job
     # locks. Worker writes also validate the Job attempt and process identity.
-    with :ok <- lock_runtime_prefix_in_tx(repo, agent_uid, turn_ref, worker_id),
+    with :ok <- lock_successor_owner_prefix_in_tx(repo, job_id, agent_uid, attrs, opts),
+         :ok <- lock_runtime_prefix_in_tx(repo, agent_uid, turn_ref, worker_id),
          {:ok, result} <-
            commit_status_after_runtime_prefix_in_tx(
              repo,
@@ -270,7 +268,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           map(),
           DateTime.t(),
           Ankole.Sessions.JobTurnRef.t() | nil,
-          map() | nil
+          map() | nil,
+          keyword()
         ) ::
           {:ok, %{job: Job.t(), wakeup_event: Signal.t() | nil}}
           | {:error, term()}
@@ -284,14 +283,31 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
         turn_interruption \\ nil,
         opts \\ []
       ) do
+    normalized_attrs = attrs |> Attrs.normalize() |> normalize_status_attr()
+
     with :ok <- lock_agent_slots(repo, agent_uid),
-         %Job{} = job <- Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
-      if match?(%JobTurnRef{}, turn_ref) and job.status != "running" do
-        if job.attempts == turn_ref.attempt and job.status == Attrs.normalize(attrs)["status"],
-          do: {:ok, %{job: job, wakeup_event: nil}},
-          else: {:error, :background_agent_job_attempt_changed}
-      else
-        commit_running_status_in_tx(repo, job, attrs, now, turn_ref, turn_interruption, opts)
+         %Job{} = job <- Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
+         :ok <- authorize_successor_owner_in_tx(repo, job, normalized_attrs, turn_ref, opts) do
+      cond do
+        match?(%JobTurnRef{}, turn_ref) and job.status != :running ->
+          if job.attempts == turn_ref.attempt and job.status == normalized_attrs["status"],
+            do: {:ok, %{job: job, wakeup_event: nil}},
+            else: {:error, :background_agent_job_attempt_changed}
+
+        is_nil(turn_ref) and job.status in JobState.terminal_statuses() and
+            job.status == normalized_attrs["status"] ->
+          {:ok, %{job: job, wakeup_event: nil}}
+
+        true ->
+          commit_running_status_in_tx(
+            repo,
+            job,
+            normalized_attrs,
+            now,
+            turn_ref,
+            turn_interruption,
+            opts
+          )
       end
     else
       nil -> {:error, :job_not_found}
@@ -300,9 +316,15 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   defp commit_running_status_in_tx(repo, job, attrs, now, turn_ref, turn_interruption, opts) do
-    with attrs <- Attrs.normalize(attrs),
-         attrs <- bound_result_path_handoffs(attrs),
-         :ok <- enforce_status_transition(job, attrs),
+    transition_action =
+      Keyword.get_lazy(opts, :transition_action, fn ->
+        if Keyword.get(opts, :external_completion, false),
+          do: :external_complete,
+          else: :worker_report
+      end)
+
+    with attrs <- Wakeups.bound_result_path_handoffs(attrs),
+         :ok <- enforce_status_transition(job, attrs, transition_action),
          :ok <-
            maybe_interrupt_active_slots(
              repo,
@@ -312,17 +334,27 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
            ),
          :ok <- enforce_turn_trajectory_completion(repo, job, attrs, opts),
          {:ok, job} <-
-           job
-           |> Job.changeset(
+           Ankole.Ash.update(
+             job,
+             transition_action,
              attrs
+             |> WorkerWait.clear()
              |> preserve_metadata(job)
              |> lifecycle_timestamps(job, now)
-           )
-           |> repo.update(),
+             |> transition_input(transition_action)
+           ),
+         {:ok, successor_id} <- reserve_successor_in_tx(repo, job, turn_ref, opts),
+         :ok <- lock_job_sessions_in_tx(repo, job, successor_id),
          {:ok, job} <- complete_applied_in_tx(repo, job, turn_ref, opts, now),
          {:ok, steer_outcome} <-
-           resolve_open_steers_after_commit(repo, job, now, turn_ref, opts),
-         {:ok, wakeup_event} <- conclude_job_transition(repo, job, now, steer_outcome) do
+           resolve_open_steers_after_commit(
+             repo,
+             job,
+             now,
+             turn_ref,
+             Keyword.put(opts, :successor_id, successor_id)
+           ),
+         {:ok, wakeup_event} <- Wakeups.conclude_transition_in_tx(repo, job, now, steer_outcome) do
       {:ok,
        %{job: job, wakeup_event: wakeup_event, dispatch_event: steer_outcome[:dispatch_event]}}
     else
@@ -339,7 +371,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   # with the terminal notice itself.
   defp resolve_open_steers_after_commit(
          repo,
-         %Job{status: "succeeded"} = job,
+         %Job{status: :succeeded} = job,
          now,
          _turn_ref,
          opts
@@ -358,7 +390,13 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           end
         else
           with {:ok, %{job: successor, dispatch_event: dispatch_event}} <-
-                 Dispatch.seed_steer_successor_in_tx(repo, job, steers, now),
+                 Dispatch.seed_steer_successor_in_tx(
+                   repo,
+                   job,
+                   steers,
+                   now,
+                   Keyword.fetch!(opts, :successor_id)
+                 ),
                :ok <- complete_steer_events_in_tx(repo, steers, now) do
             {:ok, %{successor_job_id: successor.id, dispatch_event: dispatch_event}}
           end
@@ -367,7 +405,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   defp resolve_open_steers_after_commit(repo, %Job{status: status} = job, now, _turn_ref, _opts)
-       when status in ["failed", "stopped"] do
+       when status in [:failed, :stopped] do
     with :ok <-
            complete_steer_events_in_tx(
              repo,
@@ -381,7 +419,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   defp resolve_open_steers_after_commit(_repo, %Job{}, _now, _turn_ref, _opts), do: {:ok, nil}
 
   defp complete_applied_in_tx(repo, job, %JobTurnRef{} = ref, opts, now)
-       when job.status in ["waiting_on_user", "succeeded", "failed", "stopped"] do
+       when job.status in [:waiting_on_user, :succeeded, :failed, :stopped] do
     ids = Enum.uniq([ref.signal_id | Keyword.get(opts, :applied_signal_ids, [])])
 
     result =
@@ -413,10 +451,11 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
       events =
         repo.all(
-          from event in Signal,
+          from(event in Signal,
             where:
               event.id in ^ids and event.agent_uid == ^job.agent_uid and
                 event.session_id == ^Ankole.BackgroundAgentJobs.job_session_id(job.id)
+          )
         )
 
       record_applied_source_in_tx(repo, job, events)
@@ -425,15 +464,13 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     end
   end
 
-  defp record_applied_source_in_tx(repo, job, events) do
+  defp record_applied_source_in_tx(_repo, job, events) do
     case Ankole.Conversations.Route.applied_human_source(job, events) do
       nil ->
         {:ok, job}
 
       id ->
-        job
-        |> Ecto.Changeset.change(metadata: Map.put(job.metadata, "applied_source_signal_id", id))
-        |> repo.update()
+        Ankole.Ash.update(job, :record_applied_signal, %{signal_id: id})
     end
   end
 
@@ -448,46 +485,50 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     end)
   end
 
-  # An external completion is an accountable override of the worker deliverable
-  # contract: the caller has verified the outcome outside the runtime, so no
-  # completed lead Turn is required.
-  defp enforce_turn_trajectory_completion(_repo, %Job{}, _attrs, external_completion: true),
-    do: :ok
+  # An external completion or admission failure is an accountable override of
+  # the worker deliverable contract: the caller has verified the outcome outside
+  # the runtime, so no completed lead Turn is required.
+  defp enforce_turn_trajectory_completion(repo, %Job{} = job, attrs, opts) do
+    if Keyword.get(opts, :external_completion, false) or
+         Keyword.get(opts, :transition_action) == :fail_admission do
+      :ok
+    else
+      do_enforce_turn_trajectory_completion(repo, job, attrs)
+    end
+  end
 
-  defp enforce_turn_trajectory_completion(
+  defp do_enforce_turn_trajectory_completion(
          repo,
          %Job{} = job,
-         %{"status" => status},
-         _opts
+         %{"status" => status}
        )
-       when status in ["waiting_on_user", "succeeded"],
+       when status in [:waiting_on_user, :succeeded],
        do:
          Turns.ensure_lead_closed_for_current_attempt_in_tx(repo, job,
            require_turn: true,
-           latest_status: if(status == "waiting_on_user", do: "interrupted", else: "completed"),
-           latest_error_code: if(status == "waiting_on_user", do: "request_user_input"),
-           require_pending_tool_call: if(status == "waiting_on_user", do: "request_user_input")
+           latest_status: if(status == :waiting_on_user, do: :interrupted, else: :completed),
+           latest_error_code: if(status == :waiting_on_user, do: "request_user_input"),
+           require_pending_tool_call: if(status == :waiting_on_user, do: "request_user_input")
          )
 
-  defp enforce_turn_trajectory_completion(
+  defp do_enforce_turn_trajectory_completion(
          repo,
          %Job{attempts: attempts} = job,
-         %{"status" => status},
-         _opts
+         %{"status" => status}
        )
-       when attempts > 0 and status in ["failed", "stopped"],
+       when attempts > 0 and status in [:failed, :stopped],
        do: Turns.ensure_lead_closed_for_current_attempt_in_tx(repo, job)
 
-  defp enforce_turn_trajectory_completion(_repo, %Job{}, _attrs, _opts), do: :ok
+  defp do_enforce_turn_trajectory_completion(_repo, %Job{}, _attrs), do: :ok
 
-  defp terminal_turn_interruption(%{"status" => "succeeded"}) do
+  defp terminal_turn_interruption(%{"status" => :succeeded}) do
     %{
       "code" => "background_agent_job_succeeded",
       "summary" => "The Job completed before this runtime Turn reported completion."
     }
   end
 
-  defp terminal_turn_interruption(%{"status" => "failed"} = attrs) do
+  defp terminal_turn_interruption(%{"status" => :failed} = attrs) do
     case Map.get(attrs, "error") do
       %{} = error ->
         case {Attrs.text(error, "code"), Attrs.text(error, "summary")} do
@@ -503,7 +544,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     end
   end
 
-  defp terminal_turn_interruption(%{"status" => "stopped"}) do
+  defp terminal_turn_interruption(%{"status" => :stopped}) do
     %{
       "code" => "background_agent_job_stopped",
       "summary" => "The Job stopped before this runtime Turn reported completion."
@@ -545,376 +586,146 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     :ok
   end
 
-  defp claim_attempt(
-         _repo,
-         %Job{status: status} = job,
-         _expected_attempt,
-         _turn_start_spec,
-         _max_running
-       )
-       when status in @terminal_statuses,
-       do: {:error, {:background_agent_job_terminal, job}}
-
-  defp claim_attempt(
-         _repo,
-         %Job{execution_failures: failures},
-         _expected_attempt,
-         _turn_start_spec,
-         _max_running
-       )
-       when failures >= @max_execution_attempts,
-       do: {:error, :background_agent_job_attempts_exhausted}
-
-  defp claim_attempt(
-         _repo,
-         %Job{attempts: attempts},
-         _expected_attempt,
-         _turn_start_spec,
-         _max_running
-       )
-       when attempts >= @max_claims,
-       do: {:error, :background_agent_job_claims_exhausted}
-
-  defp claim_attempt(
-         _repo,
-         %Job{attempts: attempts},
-         expected_attempt,
-         _turn_start_spec,
-         _max_running
-       )
-       when attempts + 1 != expected_attempt,
-       do: {:error, :background_agent_job_attempt_changed}
-
   defp claim_attempt(repo, %Job{} = job, expected_attempt, turn_start_spec, max_running) do
-    start_attempt(repo, job, expected_attempt, turn_start_spec, max_running)
+    cond do
+      job.status in JobState.terminal_statuses() ->
+        {:error, {:background_agent_job_terminal, job}}
+
+      job.execution_failures >= @max_execution_attempts ->
+        {:error, :background_agent_job_attempts_exhausted}
+
+      job.attempts >= @max_claims ->
+        {:error, :background_agent_job_claims_exhausted}
+
+      job.attempts + 1 != expected_attempt ->
+        {:error, :background_agent_job_attempt_changed}
+
+      true ->
+        start_attempt(repo, job, expected_attempt, turn_start_spec, max_running, :claim_attempt)
+    end
   end
 
-  defp claim_continuation(
-         _repo,
-         %Job{status: "stopped"} = job,
-         _expected_attempt,
-         _turn_start_spec,
-         _max_running
-       ),
-       do: {:error, {:background_agent_job_terminal, job}}
-
-  defp claim_continuation(
-         _repo,
-         %Job{attempts: attempts},
-         _expected_attempt,
-         _turn_start_spec,
-         _max_running
-       )
-       when attempts >= @max_claims,
-       do: {:error, :background_agent_job_claims_exhausted}
-
-  defp claim_continuation(
-         _repo,
-         %Job{attempts: attempts},
-         expected_attempt,
-         _turn_start_spec,
-         _max_running
-       )
-       when attempts + 1 != expected_attempt,
-       do: {:error, :background_agent_job_attempt_changed}
-
-  # A continuation is deliberately not capped by @max_execution_attempts,
-  # because every steer of a live Job starts one. The cap that matters here is
-  # progress: when the lead thread only produces failures, each redelivered
-  # steer event starts another attempt against the same broken dependency, so
-  # the Job burns tokens for hours and the real cause never reaches the user.
+  # Continuations enforce @max_claims and consecutive Turn failure budgets so
+  # user steers can continue a live Job while repeated Turn failures stop.
   defp claim_continuation(repo, %Job{} = job, expected_attempt, turn_start_spec, max_running) do
-    case Turns.consecutive_lead_failures_in_tx(repo, job, @max_consecutive_turn_failures) do
-      {count, error} when count >= @max_consecutive_turn_failures ->
-        {:error, {:background_agent_job_turn_failures_exhausted, error}}
+    cond do
+      job.status in JobState.terminal_statuses() ->
+        {:error, {:background_agent_job_terminal, job}}
 
-      _below_limit ->
-        start_attempt(repo, job, expected_attempt, turn_start_spec, max_running)
+      job.attempts >= @max_claims ->
+        {:error, :background_agent_job_claims_exhausted}
+
+      job.attempts + 1 != expected_attempt ->
+        {:error, :background_agent_job_attempt_changed}
+
+      true ->
+        case Turns.consecutive_lead_failures_in_tx(repo, job, @max_consecutive_turn_failures) do
+          {count, error} when count >= @max_consecutive_turn_failures ->
+            {:error, {:background_agent_job_turn_failures_exhausted, error}}
+
+          _below_limit ->
+            start_attempt(
+              repo,
+              job,
+              expected_attempt,
+              turn_start_spec,
+              max_running,
+              :claim_continuation
+            )
+        end
     end
   end
 
-  defp start_attempt(repo, %Job{} = job, expected_attempt, turn_start_spec, max_running) do
-    if job.status not in @running_statuses and
-         running_count(repo, job.agent_uid, job.id) >= max_running do
-      {:error, :background_agent_job_agent_at_capacity}
-    else
-      now = now()
-
-      with :ok <- Turns.interrupt_before_attempt_in_tx(repo, job, expected_attempt, now),
-           {:ok, runtime_projection} <-
-             ensure_runtime_projection(repo, job, turn_start_spec) do
-        job
-        |> Job.changeset(%{
-          status: "running",
-          attempts: expected_attempt,
-          started_at: job.started_at || now,
-          completed_at: nil,
-          metadata: Map.delete(job.metadata || %{}, "pending_user_input"),
-          runtime_projection: runtime_projection
-        })
-        |> repo.update()
-      end
-    end
-  end
-
-  defp ensure_runtime_projection(_repo, %Job{runtime_projection: %{} = projection}, %{}),
-    do: {:ok, projection}
-
-  defp ensure_runtime_projection(repo, %Job{} = job, %{} = turn_start_spec),
-    do: RuntimeProjection.capture(repo, job.agent_uid, turn_start_spec)
-
-  # A skill-lesson reflection is a system job: its end must wake no session.
-  # A succeeded reflection instead enqueues the apply worker inside this
-  # transaction, so lessons land only after the terminal status is durable.
-  defp conclude_job_transition(
-         _repo,
-         %Job{metadata: %{"skill_lesson_reflection" => true}} = job,
-         _now,
-         _steer_outcome
+  defp start_attempt(
+         repo,
+         %Job{} = job,
+         expected_attempt,
+         turn_start_spec,
+         max_running,
+         transition_action
        ) do
-    if job.status == "succeeded" do
-      {:ok, _oban_job} =
-        %{"job_id" => job.id}
-        |> Ankole.Brain.Jobs.ApplySkillLessons.new()
-        |> Oban.insert()
-    end
+    case JobState.transition(transition_action, job.status, :running) do
+      {:error, {:invalid_status_transition, current, next}} ->
+        {:error, {:invalid_background_agent_job_status_transition, current, next}}
 
-    {:ok, nil}
-  end
-
-  defp conclude_job_transition(repo, %Job{} = job, now, steer_outcome),
-    do: append_wakeup_event(repo, job, now, steer_outcome)
-
-  defp append_wakeup_event(repo, %Job{} = job, now, steer_outcome) do
-    case wakeup_event_type(job.status) do
-      nil ->
-        {:ok, nil}
-
-      event_type ->
-        source_event_id = wakeup_source_event_id(job)
-        reply_route = job.reply_route || %{}
-
-        payload = wakeup_payload(job, source_event_id, event_type, now, steer_outcome)
-
-        with true <-
-               (is_binary(reply_route["binding_name"]) or
-                  match?({:ok, _}, Ecto.UUID.cast(reply_route["conversation_id"]))) ||
-                 {:error, :background_agent_job_reply_route_binding_missing} do
-          Ankole.Signals.accept_in_tx(repo, %{
-            producer: :kernel,
-            source: payload["source"],
-            id: source_event_id,
-            type: event_type,
-            subject: payload["subject"],
-            time: now,
-            data: payload["data"],
-            target: %{agent_uid: job.agent_uid, session_id: job.owner_session_id},
-            sender: nil,
-            authorization: Ankole.Principals.WorkAccess.fields(job),
-            reply_route: reply_route
-          })
-        end
-    end
-  end
-
-  defp wakeup_event_type("succeeded"), do: "background_agent_job.completed"
-  defp wakeup_event_type("failed"), do: "background_agent_job.failed"
-  defp wakeup_event_type("waiting_on_user"), do: "background_agent_job.waiting"
-  defp wakeup_event_type(_status), do: nil
-
-  defp wakeup_source_event_id(%Job{status: "waiting_on_user"} = job) do
-    "background_agent_job:#{job.id}:waiting:#{job.attempts}"
-  end
-
-  defp wakeup_source_event_id(%Job{} = job) do
-    "background_agent_job:#{job.id}:#{job.status}:#{job.attempts}"
-  end
-
-  defp wakeup_payload(job, source_event_id, event_type, now, steer_outcome) do
-    %{
-      "specversion" => "1.0",
-      "id" => source_event_id,
-      "source" => "control-plane://background-agent-job",
-      "subject" => "background-agent-job:#{job.id}",
-      "time" => DateTime.to_iso8601(now),
-      "type" => event_type,
-      "data" =>
-        Attrs.reject_nil_values(%{
-          "job_id" => job.id,
-          "title" => job.title,
-          "status" => job.status,
-          "workspace_template_id" => job.workspace_template_id,
-          "attempts" => job.attempts,
-          "result_summary" => result_summary(job),
-          "artifacts" => Map.get(job.result || %{}, "artifacts"),
-          "artifact_roots" => Map.get(job.result || %{}, "artifact_roots"),
-          "project_path" => Map.get(job.result || %{}, "project_path"),
-          "reply_route" => job.reply_route || %{},
-          "pending_user_input" => get_in(job.metadata || %{}, ["pending_user_input"]),
-          "successor_job_id" => steer_outcome[:successor_job_id]
-        })
-    }
-  end
-
-  defp result_summary(%Job{status: "succeeded", result: result}) do
-    result
-    |> map_summary([{"summary", :summary}, {"output_text", :output_text}])
-    |> truncate_summary()
-  end
-
-  defp result_summary(%Job{status: "failed", error: error}) do
-    error
-    |> map_summary([
-      {"summary", :summary},
-      {"reason", :reason},
-      {"message", :message},
-      {"code", :code}
-    ])
-    |> remove_internal_uuid_tokens()
-    |> truncate_summary()
-  end
-
-  defp result_summary(%Job{}), do: nil
-
-  defp bound_result_path_handoffs(%{"result" => result} = attrs) when is_map(result) do
-    result =
-      Enum.reduce(@path_handoff_keys, result, fn {key, atom_key}, bounded ->
-        case Map.fetch(bounded, key) do
-          {:ok, value} ->
-            bounded
-            |> Map.delete(atom_key)
-            |> Map.put(key, bounded_path_handoff(value))
-
-          :error ->
-            case Map.fetch(bounded, atom_key) do
-              {:ok, value} ->
-                bounded
-                |> Map.delete(atom_key)
-                |> Map.put(key, bounded_path_handoff(value))
-
-              :error ->
-                bounded
-            end
-        end
-      end)
-
-    Map.put(attrs, "result", result)
-  end
-
-  defp bound_result_path_handoffs(attrs), do: attrs
-
-  defp bounded_path_handoff(paths) when is_list(paths),
-    do: build_path_handoff(paths, nil, false)
-
-  defp bounded_path_handoff(%{} = handoff) do
-    build_path_handoff(
-      path_handoff_value(handoff, "paths", :paths, []),
-      path_handoff_value(handoff, "total_count", :total_count),
-      path_handoff_value(handoff, "truncated", :truncated) == true
-    )
-  end
-
-  defp bounded_path_handoff(_value), do: nil
-
-  defp build_path_handoff(paths, declared_total, declared_truncated) when is_list(paths) do
-    observed_count = length(paths)
-    paths = Enum.filter(paths, &(is_binary(&1) and &1 != ""))
-    invalid_paths = length(paths) != observed_count
-    total_count = max(observed_count, valid_total_count(declared_total))
-
-    {selected, _serialized_bytes} =
-      Enum.reduce_while(paths, {[], 2}, fn path, {selected, serialized_bytes} ->
-        if path in selected do
-          {:cont, {selected, serialized_bytes}}
+      {:ok, :running} ->
+        if not capacity_available_in_tx?(repo, job, max_running) do
+          {:error, :background_agent_job_agent_at_capacity}
         else
-          if length(selected) >= @artifact_path_limit do
-            {:halt, {selected, serialized_bytes}}
-          else
-            added_bytes =
-              byte_size(Ankole.JSON.encode!(path)) + if(selected == [], do: 0, else: 1)
+          now = now()
 
-            if serialized_bytes + added_bytes <= @artifact_path_bytes do
-              {:cont, {[path | selected], serialized_bytes + added_bytes}}
-            else
-              {:cont, {selected, serialized_bytes}}
-            end
+          with :ok <- Turns.interrupt_before_attempt_in_tx(repo, job, expected_attempt, now),
+               {:ok, runtime_projection} <-
+                 ensure_runtime_projection(job, turn_start_spec) do
+            Ankole.Ash.update(
+              job,
+              transition_action,
+              WorkerWait.clear(%{
+                attempts: expected_attempt,
+                started_at: job.started_at || now,
+                completed_at: nil,
+                metadata: Map.delete(job.metadata || %{}, "pending_user_input"),
+                runtime_projection: runtime_projection
+              })
+            )
           end
         end
-      end)
-
-    selected = Enum.reverse(selected)
-
-    %{
-      "total_count" => total_count,
-      "paths" => selected,
-      "truncated" => declared_truncated or invalid_paths or length(selected) < total_count
-    }
-  end
-
-  defp build_path_handoff(_paths, declared_total, _declared_truncated),
-    do: build_path_handoff([], declared_total, true)
-
-  defp valid_total_count(value) when is_integer(value) and value >= 0, do: value
-  defp valid_total_count(_value), do: 0
-
-  defp path_handoff_value(handoff, key, atom_key, default \\ nil) do
-    case Map.fetch(handoff, key) do
-      {:ok, value} -> value
-      :error -> Map.get(handoff, atom_key, default)
     end
   end
 
-  defp map_summary(value, preferred_keys) when is_map(value) do
-    preferred_keys
-    |> Enum.find_value(fn {string_key, atom_key} ->
-      case Map.get(value, string_key) || Map.get(value, atom_key) do
-        text when is_binary(text) and text != "" -> text
-        _value -> nil
-      end
-    end)
+  defp ensure_runtime_projection(%Job{runtime_projection: %{} = projection}, %{}),
+    do: {:ok, projection}
+
+  defp ensure_runtime_projection(%Job{} = job, %{} = turn_start_spec),
+    do: RuntimeProjection.capture(job.agent_uid, turn_start_spec)
+
+  defp transition_input(attrs, :worker_report) do
+    {status, attrs} = Map.pop!(attrs, "status")
+    Map.put(attrs, "next_status", status)
   end
 
-  defp map_summary(_value, _preferred_keys), do: nil
+  defp transition_input(attrs, _action), do: Map.delete(attrs, "status")
 
-  defp remove_internal_uuid_tokens(nil), do: nil
+  def lock_agent_slots(repo, agent_uid),
+    do: Ankole.AgentWorkers.SlotLock.lock(repo, :background_agent_jobs, agent_uid)
 
-  defp remove_internal_uuid_tokens(text) when is_binary(text),
-    do: Regex.replace(@internal_uuid_pattern, text, "[internal-id]")
+  @doc "Checks work capacity while the caller holds the Agent slot lock."
+  def capacity_available_in_tx?(repo, %Job{} = job, max_running) do
+    job.status in JobState.running_statuses() or
+      running_count(repo, job.agent_uid, job.id) < max_running
+  end
 
-  defp truncate_summary(nil), do: nil
-
-  defp truncate_summary(summary) when is_binary(summary) do
-    if byte_size(summary) <= @max_event_payload_bytes do
-      summary
-    else
-      Text.truncate_utf8(summary, @max_event_payload_bytes, @truncation_suffix)
+  defp normalize_status_attr(%{"status" => status} = attrs) do
+    case JobState.cast_status(status) do
+      {:ok, cast} -> Map.put(attrs, "status", cast)
+      :error -> attrs
     end
   end
 
-  def lock_agent_slots(repo, agent_uid) do
-    lock_key = "background_agent_jobs:running_slots:#{agent_uid}"
+  defp normalize_status_attr(attrs), do: attrs
 
-    case SQL.query(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [lock_key]) do
-      {:ok, _result} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
+  defp enforce_status_transition(%Job{status: current}, attrs, transition_action) do
+    next = Map.get(attrs, "status")
+    terminal_statuses = JobState.terminal_statuses()
 
-  defp enforce_status_transition(%Job{status: current}, attrs) do
-    case Map.get(attrs, "status") do
-      nil ->
+    cond do
+      is_nil(next) ->
         {:error, :background_agent_job_status_missing}
 
-      next
-      when next in @terminal_statuses and current in @terminal_statuses and next != current ->
+      next in terminal_statuses and current in terminal_statuses and next != current ->
         {:error, :background_agent_job_terminal}
 
-      next ->
-        if JobState.worker_transition_allowed?(current, next) do
-          :ok
-        else
-          {:error, {:invalid_background_agent_job_status_transition, current, next}}
+      is_atom(next) ->
+        case JobState.transition(transition_action, current, next) do
+          {:ok, ^next} ->
+            :ok
+
+          {:error, {:invalid_status_transition, ^current, ^next}} ->
+            {:error, {:invalid_background_agent_job_status_transition, current, next}}
         end
+
+      true ->
+        {:error, {:invalid_background_agent_job_status_transition, current, next}}
     end
   end
 
@@ -936,7 +747,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     repo.aggregate(
       from(job in Job,
         where:
-          job.agent_uid == ^agent_uid and job.status in ^@running_statuses and
+          job.agent_uid == ^agent_uid and job.status in ^JobState.running_statuses() and
             job.id != ^job_id
       ),
       :count
@@ -944,35 +755,123 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   defp lifecycle_timestamps(attrs, job, now) do
-    case Map.get(attrs, "status") do
-      status when status in @running_statuses ->
+    status = Map.get(attrs, "status")
+
+    cond do
+      status in JobState.running_statuses() ->
         Map.put_new(attrs, "started_at", job.started_at || now)
 
-      status when status in @terminal_statuses ->
+      status in JobState.terminal_statuses() ->
         attrs
         |> Map.put_new("started_at", job.started_at || now)
         |> Map.put_new("completed_at", now)
 
-      _status ->
+      true ->
         attrs
     end
   end
 
   defp now, do: DateTime.utc_now(:microsecond)
 
+  @doc false
+  def lock_job_sessions_in_tx(repo, job, successor_id \\ nil) do
+    sessions = [
+      {job.agent_uid, Ankole.BackgroundAgentJobs.job_session_id(job.id)},
+      {job.agent_uid, job.owner_session_id}
+    ]
+
+    sessions =
+      if successor_id,
+        do: [{job.agent_uid, Ankole.BackgroundAgentJobs.job_session_id(successor_id)} | sessions],
+        else: sessions
+
+    Ankole.Sessions.Queue.lock_sessions_in_tx(repo, sessions)
+  end
+
+  defp lock_successor_owner_prefix_in_tx(repo, job_id, agent_uid, attrs, opts) do
+    attrs = attrs |> Attrs.normalize() |> normalize_status_attr()
+
+    if needs_successor_owner?(attrs, opts) do
+      AgentWorkers.lock_in_tx(repo, agent_uid)
+      :ok = lock_agent_slots(repo, agent_uid)
+
+      case Queries.get_for_agent(repo, job_id, agent_uid, []) do
+        %Job{owner_session_id: session_id} ->
+          case Ankole.Workflow.Queries.parse_task_session_id(session_id) do
+            {:ok, _call_id} -> Ankole.Workflow.Slot.lock_agent_slots(repo, agent_uid)
+            :error -> :ok
+          end
+
+        nil ->
+          :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp authorize_successor_owner_in_tx(repo, job, attrs, turn_ref, opts) do
+    if needs_successor_owner?(attrs, opts) and job.status == :running do
+      applied = Keyword.get(opts, :applied_signal_ids, [])
+      applied = if turn_ref, do: [turn_ref.signal_id | applied], else: applied
+      Dispatch.authorize_steer_successor_in_tx(repo, job, Enum.uniq(applied))
+    else
+      :ok
+    end
+  end
+
+  defp needs_successor_owner?(%{"status" => :succeeded}, opts),
+    do: not Keyword.get(opts, :external_completion, false)
+
+  defp needs_successor_owner?(_attrs, _opts), do: false
+
+  defp reserve_successor_in_tx(repo, %Job{status: :succeeded} = job, turn_ref, opts) do
+    if Keyword.get(opts, :external_completion, false) do
+      {:ok, nil}
+    else
+      applied = Keyword.get(opts, :applied_signal_ids, [])
+      applied = if turn_ref, do: [turn_ref.signal_id | applied], else: applied
+      Dispatch.reserve_steer_successor_id_in_tx(repo, job, Enum.uniq(applied))
+    end
+  end
+
+  defp reserve_successor_in_tx(_repo, _job, _turn_ref, _opts), do: {:ok, nil}
+
   def stop_human_work_in_tx(repo, uid, version, now) do
-    repo.update_all(
-      from(j in Job,
+    allowed_from =
+      Enum.filter(
+        JobState.statuses(),
+        &JobState.transition_allowed?(:stop_human_work, &1, :stopped)
+      )
+
+    query =
+      from(job in Job,
         where:
-          j.human_uid == ^uid and j.human_access_version < ^version and
-            j.status in ["queued", "waiting_on_user"]
-      ),
-      set: [
-        status: "stopped",
-        completed_at: now,
-        updated_at: now,
-        error: %{"code" => "human_access_revoked"}
-      ]
-    )
+          job.human_uid == ^uid and job.human_access_version < ^version and
+            job.status in ^allowed_from
+      )
+
+    ids = repo.all(from(job in query, select: job.id))
+
+    jobs =
+      repo.all(from(job in query, where: job.id in ^ids, order_by: job.id, lock: "FOR UPDATE"),
+        lock_identity: {"background_agent_jobs", ids}
+      )
+
+    Enum.each(jobs, fn job ->
+      {:ok, _} =
+        Repo.with_tenant(job.tenant_id, fn ->
+          Ankole.Ash.update(
+            job,
+            :stop_human_work,
+            WorkerWait.clear(%{
+              completed_at: now,
+              error: %{"code" => "human_access_revoked"}
+            })
+          )
+        end)
+    end)
+
+    {length(jobs), nil}
   end
 end

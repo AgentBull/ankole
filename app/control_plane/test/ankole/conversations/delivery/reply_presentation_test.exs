@@ -122,7 +122,6 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentationTest do
   end
 
   test "semantic tool activity and confirmed receipts retain safe projections only" do
-    allow_cache_database_access()
     {:ok, _} = I18n.put_default_locale("zh-Hans-CN")
 
     presentation =
@@ -301,8 +300,6 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentationTest do
   end
 
   test "text fallback preserves a pending question and its numbered choices in the tenant locale" do
-    allow_cache_database_access()
-
     presentation =
       ReplyPresentation.new()
       |> ReplyPresentation.append_answer("Which shipping method?")
@@ -339,7 +336,6 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentationTest do
   end
 
   test "text fallback distinguishes free input from a numbered choice without offering disabled actions" do
-    allow_cache_database_access()
     assert {:ok, _} = I18n.put_default_locale("en-US")
 
     presentation =
@@ -535,5 +531,26 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentationTest do
     assert terminal["actions"] == original["actions"]
     assert terminal["interaction_status"] == "pending"
     assert ReplyPresentation.checkpoint(terminal)["prompt"] == "需要选择"
+  end
+
+  test "terminal rejects non-terminal states instead of coercing them to completed" do
+    presentation = ReplyPresentation.new(state: "working")
+
+    for invalid <- ["working", "debouncing", "bogus", :working, nil] do
+      assert {:error, {:invalid_terminal_state, ^invalid}} =
+               ReplyPresentation.fetch_terminal(presentation, invalid, "answer")
+
+      assert_raise ArgumentError, fn ->
+        ReplyPresentation.terminal(presentation, invalid, "answer")
+      end
+    end
+
+    stopped_empty = ReplyPresentation.terminal(presentation, "stopped", "")
+    assert stopped_empty["state"] == "stopped"
+    assert stopped_empty["answer"] == ""
+
+    stopped_nil = ReplyPresentation.terminal(presentation, "stopped", nil)
+    assert stopped_nil["state"] == "stopped"
+    assert stopped_nil["answer"] == ""
   end
 end

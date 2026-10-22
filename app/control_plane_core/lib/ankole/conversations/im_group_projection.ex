@@ -13,8 +13,6 @@ defmodule Ankole.Conversations.IMGroupProjection do
   alias Ankole.Conversations.External
   alias Ankole.Conversations.IMGroupMembers
 
-  alias Ecto.Adapters.SQL
-
   def ensure_group(namespace, external_id, attrs, %AdapterContext{} = context, opts) do
     Repo.transact(fn repo ->
       lock_group(repo, namespace, external_id)
@@ -29,18 +27,16 @@ defmodule Ankole.Conversations.IMGroupProjection do
                 do: Map.put(changes, :display_name, attrs["name"]),
                 else: changes
 
-            existing |> Group.changeset(changes) |> repo.update()
+            Ankole.Ash.update(existing, :profile_in_tx, changes)
 
           {:error, :not_found} ->
-            %Group{}
-            |> Group.changeset(%{
+            Ankole.Ash.create(Group, :create_in_tx, %{
               name: "#{namespace}:im_group:#{String.downcase(external_id)}",
               display_name: attrs["name"] || Keyword.fetch!(opts, :default_display_name),
               domain: :im_group,
               kind: :static,
               metadata: BindingMembership.project(%{}, context, :joined)
             })
-            |> repo.insert()
         end
 
       with {:ok, group} <- result,
@@ -99,7 +95,7 @@ defmodule Ankole.Conversations.IMGroupProjection do
 
       with {:ok, group} <- group(repo, namespace, external_id, true),
            {:ok, group} <-
-             group |> Group.changeset(%{metadata: update.(group.metadata)}) |> repo.update(),
+             Ankole.Ash.update(group, :profile_in_tx, %{metadata: update.(group.metadata)}),
            {:ok, result} <- clear_left_members(group) do
         {:ok, Map.put(result, :group_id, group.id)}
       else
@@ -121,20 +117,14 @@ defmodule Ankole.Conversations.IMGroupProjection do
     end
   end
 
-  defp upsert_binding(repo, namespace, external_id, group_id, metadata) do
-    %ExternalBinding{}
-    |> ExternalBinding.changeset(%{
+  defp upsert_binding(_repo, namespace, external_id, group_id, metadata) do
+    Ankole.Ash.create(ExternalBinding, :bind_in_tx, %{
       provider: namespace,
       external_kind: :im_group,
       external_id: external_id,
       group_id: group_id,
       metadata: metadata
     })
-    |> repo.insert(
-      conflict_target: [:tenant_id, :provider, :external_kind, :external_id],
-      on_conflict: {:replace, [:group_id, :metadata, :updated_at]},
-      returning: true
-    )
   end
 
   defp observe_room(repo, namespace, group_id, %{fact: fact, on_conflict: policy}, context) do
@@ -208,9 +198,7 @@ defmodule Ankole.Conversations.IMGroupProjection do
   end
 
   defp lock_group(repo, namespace, external_id) do
-    SQL.query!(repo, "SELECT pg_advisory_xact_lock(hashtext($1))", [
-      "im_group:#{namespace}:#{external_id}"
-    ])
+    Ankole.AdvisoryLock.lock!(repo, "im_group:#{namespace}:#{external_id}")
 
     :ok
   end

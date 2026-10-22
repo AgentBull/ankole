@@ -84,9 +84,12 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
 
     channel = Repo.get_by!(Conversation, provider_conversation_id: @channel_id)
 
-    channel
-    |> Conversation.changeset(%{metadata: Map.merge(channel.metadata, channel_metadata)})
-    |> Repo.update!()
+    assert {:ok, _} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.update(channel, :put_metadata, %{
+                 metadata: Map.merge(channel.metadata, channel_metadata)
+               })
+             end)
 
     key = Config.connection_key(config)
 

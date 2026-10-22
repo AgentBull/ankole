@@ -6,7 +6,6 @@ defmodule Ankole.AgentWorkers.LambdaImagesTest do
   alias Ankole.AgentWorkers.Lambda.ContainerImage
   alias Ankole.AgentWorkers.Lambda.Images
   alias Ankole.AgentWorkers.Providers.Configuration
-  alias Ankole.AgentWorkers.Providers.Provider
 
   @fixtures Path.expand("../../fixtures/worker_providers/lambda/responses.json", __DIR__)
 
@@ -25,7 +24,7 @@ defmodule Ankole.AgentWorkers.LambdaImagesTest do
     {:ok, runtime} = Config.fetch()
     {:ok, settings} = Configuration.parse(Lambda.definition().schema, Lambda.definition().example)
 
-    provider = %Provider{
+    provider = %{
       provider_id: "lambda-test",
       kind: "lambda",
       settings: settings,

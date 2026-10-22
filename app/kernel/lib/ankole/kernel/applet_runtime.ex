@@ -21,38 +21,53 @@ defmodule Ankole.Kernel.AppletRuntime do
          handle when is_reference(handle) <- Kernel.applet_start_nif(run_id, encoded) do
       {:ok, handle, run_id}
     else
-      {:error, _reason} = error -> error
-      other -> {:error, other}
+      {:error, :applet_busy, json} ->
+        case Torque.decode(json) do
+          {:ok, outcome} -> {:error, {:applet_busy, outcome}}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, _reason} = error ->
+        error
+
+      other ->
+        {:error, other}
     end
   end
 
   @spec inspect(String.t(), keyword()) :: {:ok, [String.t()]} | {:error, map() | term()}
   def inspect(source, options \\ []) do
-    with {:ok, handle, run_id} <- start(source, %{}, Keyword.put(options, :inspect, true)) do
-      receive do
-        {:applet_runtime, ^run_id, :done, json} ->
-          with {:ok, outcome} <- Torque.decode(json) do
-            case outcome do
-              %{"status" => 200, "routes" => routes} ->
-                {:ok, routes}
-
-              %{"status" => status, "body" => %{"error" => error}} ->
-                {:error, Map.put(error, "status", status)}
+    case start(source, %{}, Keyword.put(options, :inspect, true)) do
+      {:ok, handle, run_id} ->
+        receive do
+          {:applet_runtime, ^run_id, :done, json} ->
+            with {:ok, outcome} <- Torque.decode(json) do
+              inspect_outcome(outcome)
             end
-          end
-      after
-        Keyword.get(options, :timeout_ms, 60_000) + 5_000 ->
-          cancel(handle)
+        after
+          Keyword.get(options, :timeout_ms, 60_000) + 5_000 ->
+            cancel(handle)
 
-          {:error,
-           %{
-             "status" => 504,
-             "code" => "handler_timeout",
-             "message" => "Applet inspection timed out"
-           }}
-      end
+            {:error,
+             %{
+               "status" => 504,
+               "code" => "handler_timeout",
+               "message" => "Applet inspection timed out"
+             }}
+        end
+
+      {:error, {:applet_busy, outcome}} ->
+        inspect_outcome(outcome)
+
+      {:error, _reason} = error ->
+        error
     end
   end
+
+  defp inspect_outcome(%{"status" => 200, "routes" => routes}), do: {:ok, routes}
+
+  defp inspect_outcome(%{"status" => status, "body" => %{"error" => error}}),
+    do: {:error, Map.put(error, "status", status)}
 
   @spec reply(reference(), non_neg_integer(), {:ok, term()} | {:error, map()}) ::
           :ok | {:error, term()}

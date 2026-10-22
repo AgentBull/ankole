@@ -306,7 +306,8 @@ defmodule AnkoleWeb.SignalBindingController do
     }
   end
 
-  defp delivery_state(intent), do: intent.recovery_state["state"]
+  defp delivery_state(%{recovery_status: nil}), do: nil
+  defp delivery_state(intent), do: Atom.to_string(intent.recovery_status)
 
   defp signal_delivery_json(intent) do
     %{
@@ -317,7 +318,7 @@ defmodule AnkoleWeb.SignalBindingController do
       state: delivery_state(intent),
       attempt_count: intent.attempt_count,
       max_attempts: intent.max_attempts,
-      possible_duplicate: intent.recovery_state["possible_duplicate"] == true,
+      possible_duplicate: intent.possible_duplicate,
       can_retry: Ankole.Conversations.Delivery.requeueable?(intent),
       updated_at: DateTime.to_iso8601(intent.updated_at)
     }
@@ -416,6 +417,16 @@ defmodule AnkoleWeb.SignalBindingController do
   # field, which the fallback clause renders with its field path.
   defp error(conn, {:missing, key}) when is_atom(key) do
     ConsoleErrors.required_field(conn, key)
+  end
+
+  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid] do
+    ConsoleErrors.render(
+      conn,
+      422,
+      "invalid_value",
+      "signal binding configuration is invalid",
+      Ankole.Ash.validation_details(error)
+    )
   end
 
   defp error(conn, reason) do

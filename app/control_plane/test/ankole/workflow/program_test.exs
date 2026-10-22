@@ -34,9 +34,9 @@ defmodule Ankole.Workflow.ProgramTest do
 
   test "memo is only the longest terminal prefix" do
     calls = [
-      call(0, "succeeded", %{"prompt" => "first"}, %{"ok" => true, "value" => false}),
-      call(1, "queued", %{"prompt" => "second"}, nil),
-      call(2, "failed", %{"prompt" => "third"}, %{
+      call(0, :succeeded, %{"prompt" => "first"}, %{"ok" => true, "value" => false}),
+      call(1, :queued, %{"prompt" => "second"}, nil),
+      call(2, :failed, %{"prompt" => "third"}, %{
         "ok" => false,
         "code" => "failed",
         "summary" => "Failed."
@@ -57,9 +57,9 @@ defmodule Ankole.Workflow.ProgramTest do
 
   test "stall diff keeps matching stored calls and returns only the new suffix" do
     calls = [
-      call(0, "succeeded", %{"prompt" => "first"}, %{"ok" => true, "value" => "one"}),
-      call(1, "queued", %{"prompt" => "second"}, nil),
-      call(2, "succeeded", %{"prompt" => "third"}, %{"ok" => true, "value" => "three"})
+      call(0, :succeeded, %{"prompt" => "first"}, %{"ok" => true, "value" => "one"}),
+      call(1, :queued, %{"prompt" => "second"}, nil),
+      call(2, :succeeded, %{"prompt" => "third"}, %{"ok" => true, "value" => "three"})
     ]
 
     pending = [
@@ -76,9 +76,9 @@ defmodule Ankole.Workflow.ProgramTest do
 
   test "stall diff rejects changed identity and a missing stored tail" do
     calls = [
-      call(0, "succeeded", %{"prompt" => "first"}, %{"ok" => true, "value" => "one"}),
-      call(1, "queued", %{"prompt" => "second"}, nil),
-      call(2, "running", %{"prompt" => "third"}, nil)
+      call(0, :succeeded, %{"prompt" => "first"}, %{"ok" => true, "value" => "one"}),
+      call(1, :queued, %{"prompt" => "second"}, nil),
+      call(2, :running, %{"prompt" => "third"}, nil)
     ]
 
     assert {:error, {:workflow_replay_diverged, %{call_seq: 1}}} =

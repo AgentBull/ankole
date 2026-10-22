@@ -41,7 +41,7 @@ defmodule Ankole.AIGateway.MaxToolCalls do
 
   @doc "Observes one provider-owned built-in effect lifecycle event."
   @spec observe_provider_event(t() | nil, map(), term()) :: t() | nil
-  def observe_provider_event(policy, event, scope \\ :single_response)
+  def observe_provider_event(policy, event, scope \\ {:provider_round, 0})
   def observe_provider_event(nil, _event, _scope), do: nil
 
   def observe_provider_event(
@@ -64,6 +64,7 @@ defmodule Ankole.AIGateway.MaxToolCalls do
 
   @doc "Reconciles provider effects when a terminal omits item lifecycle events."
   @spec reconcile_provider_items(t() | nil, [map()], term()) :: t() | nil
+  def reconcile_provider_items(policy, items, scope \\ {:provider_round, 0})
   def reconcile_provider_items(nil, _items, _scope), do: nil
 
   def reconcile_provider_items(%__MODULE__{} = policy, items, scope) when is_list(items) do
@@ -80,6 +81,7 @@ defmodule Ankole.AIGateway.MaxToolCalls do
 
   @doc "Admits gateway effects after provider effects for the round are known."
   @spec admit_gateway_items(t() | nil, [map()], term()) :: t() | nil
+  def admit_gateway_items(policy, items, scope \\ {:provider_round, 0})
   def admit_gateway_items(nil, _items, _scope), do: nil
 
   def admit_gateway_items(%__MODULE__{} = policy, items, scope) when is_list(items) do
@@ -103,7 +105,7 @@ defmodule Ankole.AIGateway.MaxToolCalls do
 
   @doc "Returns whether one completed call item was admitted by the shared budget."
   @spec item_admitted?(t() | nil, map(), term()) :: boolean()
-  def item_admitted?(policy, item, scope \\ :single_response)
+  def item_admitted?(policy, item, scope \\ {:provider_round, 0})
   def item_admitted?(nil, _item, _scope), do: true
 
   def item_admitted?(%__MODULE__{} = policy, %{} = item, scope) do
@@ -121,7 +123,7 @@ defmodule Ankole.AIGateway.MaxToolCalls do
 
   @doc "Returns whether the call item in one lifecycle event was admitted."
   @spec event_item_admitted?(t() | nil, map(), term()) :: boolean()
-  def event_item_admitted?(policy, event, scope \\ :single_response)
+  def event_item_admitted?(policy, event, scope \\ {:provider_round, 0})
   def event_item_admitted?(nil, _event, _scope), do: true
 
   def event_item_admitted?(%__MODULE__{} = policy, %{"item" => %{} = item} = event, scope) do

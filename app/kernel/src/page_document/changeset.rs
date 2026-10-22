@@ -98,8 +98,9 @@ fn append_tokens(
                     && previous.kind == NodeKind::Text
                     && previous.marks == node.marks
                     && let Value::String(text) = &mut previous.param
+                    && let Some(suffix) = node.param.as_str()
                 {
-                    text.push_str(node.param.as_str().unwrap());
+                    text.push_str(suffix);
                     continue;
                 }
             }
@@ -140,7 +141,12 @@ fn slice_tokens(source: &[Token], from: usize, len: usize) -> Result<Vec<Token>>
                 out.push(token.clone());
             } else if let Token::Leaf(node) = token {
                 if node.kind == NodeKind::Text {
-                    let units: Vec<u16> = node.param.as_str().unwrap().encode_utf16().collect();
+                    let units: Vec<u16> = node
+                        .param
+                        .as_str()
+                        .expect("text node param is string")
+                        .encode_utf16()
+                        .collect();
                     let start = from.saturating_sub(offset);
                     let stop = (end - offset).min(units.len());
                     let text = String::from_utf16(&units[start..stop])
@@ -251,32 +257,37 @@ pub fn apply(doc: &DocNode, changes: &Value) -> Result<DocNode> {
                 if stack.len() == 1 {
                     return Err("surplus close token".into());
                 }
-                let node = stack.pop().unwrap();
+                let node = stack.pop().expect("stack has open container");
                 node.validate()?;
-                push_node(stack.last_mut().unwrap(), node);
+                push_node(stack.last_mut().expect("stack has parent container"), node);
             }
             Token::Leaf(node) => {
                 node.validate()?;
-                push_node(stack.last_mut().unwrap(), node);
+                push_node(stack.last_mut().expect("stack has parent container"), node);
             }
         }
     }
     if stack.len() != 1 {
         return Err("unclosed document plot".into());
     }
-    let result = stack.pop().unwrap();
+    let result = stack.pop().expect("stack has root document");
     result.validate()?;
     Ok(result)
 }
 fn push_node(parent: &mut DocNode, node: DocNode) {
-    let children = parent.content.as_mut().unwrap();
+    let children = parent
+        .content
+        .as_mut()
+        .expect("container node has children");
     if node.kind == NodeKind::Text
         && let Some(previous) = children.last_mut()
         && previous.kind == NodeKind::Text
         && previous.marks == node.marks
     {
-        if let Value::String(text) = &mut previous.param {
-            text.push_str(node.param.as_str().unwrap());
+        if let Value::String(text) = &mut previous.param
+            && let Some(suffix) = node.param.as_str()
+        {
+            text.push_str(suffix);
         }
         return;
     }

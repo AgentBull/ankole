@@ -10,13 +10,12 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   continuation pointer to one artifact.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Principals
-  alias Ankole.Repo
 
   alias Ankole.AIGateway.CompactionHistory
   alias Ankole.AIGateway.CompactionPolicy
@@ -70,22 +69,15 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
 
   @spec insert_artifact(artifact_attrs()) :: {:ok, CompactionArtifact.t()} | {:error, term()}
   def insert_artifact(attrs) when is_map(attrs) do
-    insert_artifact_in_tx(Repo, attrs)
-  end
-
-  @spec insert_artifact_in_tx(module(), artifact_attrs()) ::
-          {:ok, CompactionArtifact.t()} | {:error, term()}
-  def insert_artifact_in_tx(repo, attrs) when is_map(attrs) do
     with {:ok, subject_uid} <- Principals.normalize_uid(Map.fetch!(attrs, :subject_uid)),
          {:ok, id} <- artifact_id(attrs),
          {:ok, content} <- artifact_content(id, attrs) do
-      %CompactionArtifact{id: id}
-      |> CompactionArtifact.changeset(%{
+      Ankole.Ash.create(CompactionArtifact, :store, %{
+        id: id,
         subject_uid: subject_uid,
         conversation_id: Map.get(attrs, :conversation_id),
         content: content
       })
-      |> repo.insert()
     else
       {:error, :invalid_uid} -> {:error, :invalid_subject}
       {:error, _reason} = error -> error
@@ -98,11 +90,9 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, id} <- artifact_uuid(public_or_handle),
          %CompactionArtifact{} = artifact <-
-           Repo.one(
-             from(artifact in CompactionArtifact,
-               where: artifact.id == ^id and artifact.subject_uid == ^subject_uid
-             )
-           ) do
+           CompactionArtifact
+           |> Ash.Query.filter(id == ^id and subject_uid == ^subject_uid)
+           |> Ankole.Ash.read_one!() do
       {:ok, artifact}
     else
       _missing_or_invalid -> {:error, :invalid_compaction_handle}
@@ -157,7 +147,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   """
   @spec output_for_checkpoint(String.t(), Message.t()) ::
           {:ok, [term()]} | {:error, :invalid_compaction_handle}
-  def output_for_checkpoint(subject_uid, %Message{type: "checkpoint", content: [ref]}) do
+  def output_for_checkpoint(subject_uid, %Message{type: :checkpoint, content: [ref]}) do
     case ref do
       %{"type" => "compaction_artifact", "id" => public_id} ->
         with {:ok, artifact} <- get_for_subject(subject_uid, public_id) do
@@ -174,7 +164,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   @doc "Returns the stored artifact content for one checkpoint row."
   @spec content_for_checkpoint(String.t(), Message.t()) ::
           {:ok, map()} | {:error, :invalid_compaction_handle}
-  def content_for_checkpoint(subject_uid, %Message{type: "checkpoint", content: [ref]}) do
+  def content_for_checkpoint(subject_uid, %Message{type: :checkpoint, content: [ref]}) do
     case ref do
       %{"type" => "compaction_artifact", "id" => public_id} ->
         with {:ok, artifact} <- get_for_subject(subject_uid, public_id) do
@@ -190,7 +180,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
 
   @spec summary_for_checkpoint(String.t(), Message.t()) ::
           {:ok, String.t() | nil} | {:error, :invalid_compaction_handle}
-  def summary_for_checkpoint(subject_uid, %Message{type: "checkpoint", content: [ref]}) do
+  def summary_for_checkpoint(subject_uid, %Message{type: :checkpoint, content: [ref]}) do
     case ref do
       %{"type" => "compaction_artifact", "id" => public_id} ->
         with {:ok, artifact} <- get_for_subject(subject_uid, public_id) do
@@ -412,7 +402,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   # A checkpoint row is derived context. Its source chain keeps the user text
   # through consecutive compactions.
   defp source_chain(conversation_id, history, request) do
-    if Enum.any?(history, &(&1.type == "checkpoint")),
+    if Enum.any?(history, &(&1.type == :checkpoint)),
       do: CompactionHistory.raw_history(conversation_id, history, request),
       else: history
   end

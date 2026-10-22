@@ -3,6 +3,7 @@ defmodule Ankole.Brain.MarkdocIntegrationTest do
 
   import Ankole.PrincipalsFixtures
 
+  alias Ankole.Brain.Chunks
   alias Ankole.Brain.GetPage
   alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
@@ -49,8 +50,12 @@ defmodule Ankole.Brain.MarkdocIntegrationTest do
            ) == 0
 
     corrupt =
-      %Object{updated_at: DateTime.utc_now(:microsecond)}
-      |> Object.changeset(%{
+      %Object{}
+      |> AshPostgres.DataLayer.to_ecto()
+      |> Ecto.Changeset.change(%{
+        id: Ankole.Ecto.UUIDv7.autogenerate(),
+        created_at: DateTime.utc_now(:microsecond),
+        updated_at: DateTime.utc_now(:microsecond),
         slug: "notes/corrupt-markdoc",
         type: "note",
         title: "Corrupt",
@@ -60,7 +65,7 @@ defmodule Ankole.Brain.MarkdocIntegrationTest do
       })
       |> Repo.insert!()
 
-    assert {:error, :unclosed_audience_tag} = Objects.reconcile_chunks(corrupt)
+    assert {:error, :unclosed_audience_tag} = Chunks.reconcile(corrupt)
 
     assert Repo.aggregate(from(chunk in Chunk, where: chunk.object_id == ^corrupt.id), :count) ==
              0

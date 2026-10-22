@@ -23,7 +23,6 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
   setup do
     connections = LarkConnectionReconciler.registered_keys()
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
@@ -163,7 +162,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              )
 
     assert failed.last_error == %{"code" => "unsupported_operation"}
-    assert failed.recovery_state == %{"state" => "permanent", "reason" => "unsupported_operation"}
+    assert failed.recovery_status == :permanent
+    assert failed.recovery_reason == "unsupported_operation"
+    assert failed.recovery_state == %{}
 
     conn =
       conn
@@ -464,9 +465,10 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert {:ok, source_binding} =
              Ankole.Signals.Bindings.get_binding(source_agent.uid, "lark-main")
 
-    source_binding
-    |> Binding.changeset(%{filters: %{"cel" => "signal.channel.id == 'lark:chat:allowed'"}})
-    |> Repo.update!()
+    assert {:ok, _binding} =
+             Ankole.SignalsFixtures.raw_binding_fixture(source_binding, %{
+               filters: %{"cel" => "signal.channel.id == 'lark:chat:allowed'"}
+             })
 
     conn =
       conn
@@ -1241,8 +1243,23 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   end
 
   defp put_raw_global_config(key, envelope) do
-    %SiteConfig{}
-    |> SiteConfig.changeset(%{scope: "global", key: key, value: envelope})
-    |> Repo.insert!()
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    {1, [row]} =
+      Repo.insert_all(
+        SiteConfig,
+        [
+          %{
+            scope: "global",
+            key: key,
+            value: envelope,
+            inserted_at: now,
+            updated_at: now
+          }
+        ],
+        returning: true
+      )
+
+    row
   end
 end

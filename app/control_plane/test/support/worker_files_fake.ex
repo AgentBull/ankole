@@ -129,7 +129,7 @@ defmodule Ankole.WorkerFilesFake do
   defp operate("pull", payload, state) do
     {:ok, request} = FabricProto.WorkerFileTransferRequest.decode(payload)
     path = request.home_relative_path
-    conn = dispatch(build_conn(), @endpoint, :get, relay_path(state, request.url), nil)
+    conn = dispatch(build_conn(), @endpoint, :get, relay_url(state, request.url), nil)
 
     if conn.status == 200 do
       content = conn.resp_body
@@ -174,7 +174,7 @@ defmodule Ankole.WorkerFilesFake do
               build_conn()
               |> put_req_header("content-type", "application/octet-stream")
               |> put_req_header("content-length", Integer.to_string(byte_size(content)))
-              |> dispatch(@endpoint, :put, relay_path(state, request.url), content)
+              |> dispatch(@endpoint, :put, relay_url(state, request.url), content)
 
             conn.status
           end
@@ -234,10 +234,12 @@ defmodule Ankole.WorkerFilesFake do
     end
   end
 
-  defp relay_path(state, url) do
-    %URI{path: path, query: query} = URI.parse(url)
-    if state.tamper_token, do: path <> "?" <> query <> "x", else: path <> "?" <> query
+  defp relay_url(%{tamper_token: true}, url) do
+    uri = URI.parse(url)
+    URI.to_string(%{uri | query: uri.query <> "x"})
   end
+
+  defp relay_url(_state, url), do: url
 
   defp encode({:ok, response}, request) do
     {iodata, _size} = response.__struct__.encode!(response)
@@ -266,7 +268,7 @@ defmodule Ankole.WorkerFilesFake do
   end
 
   defp reply_envelope(_request, body) do
-    Ankole.Kernel.RuntimeFabric.encode_envelope(%FabricProto.Envelope{
+    Ankole.RuntimeFabric.encode_envelope(%FabricProto.Envelope{
       message_id: "worker-files-fake-#{System.unique_integer([:positive])}",
       body: body
     })

@@ -10,15 +10,14 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   alias Ankole.Principals
   alias Ankole.Repo
 
-  @statuses Ankole.BackgroundAgentJobs.JobState.statuses()
   @list_cursor_version "1"
   @list_page_size 32
   @list_query_limit @list_page_size + 1
   @ambient_candidate_limit 8
   @ambient_candidate_query_limit @ambient_candidate_limit + 1
   @list_statuses %{
-    "live" => ~w(queued running waiting_on_user),
-    "stop" => ~w(succeeded failed stopped)
+    "live" => [:queued, :running, :waiting_on_user],
+    "stop" => [:succeeded, :failed, :stopped]
   }
   @result_read_columns [
     :id,
@@ -90,7 +89,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       Job
       |> where([job], job.agent_uid == ^agent_uid)
       |> where([job], job.owner_session_id == ^owner_session_id)
-      |> where([job], job.status in ~w(queued running waiting_on_user))
+      |> where([job], job.status in [:queued, :running, :waiting_on_user])
       |> where(
         [job],
         fragment("?->>'conversation_id' = ?", job.reply_route, ^conversation_id)
@@ -189,6 +188,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
                  :started_at,
                  :updated_at
                ])
+               |> Map.put(:status, to_string(row.status))
                |> Map.put(:resource_kind, "background_job")
              end)
        }}
@@ -198,7 +198,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   defp maybe_filter_activity(query, false), do: query
 
   defp maybe_filter_activity(query, true),
-    do: where(query, [job], job.status in ["queued", "running", "waiting_on_user"])
+    do: where(query, [job], job.status in [:queued, :running, :waiting_on_user])
 
   defp maybe_select_activity(query, false), do: query
 
@@ -226,7 +226,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     |> where(
       [job],
       job.agent_uid == ^agent_uid and job.owner_session_id in ^session_ids and
-        job.status in ["queued", "running", "waiting_on_user"]
+        job.status in [:queued, :running, :waiting_on_user]
     )
     |> order_by([job], asc: job.id)
     |> select([job], job.id)
@@ -252,7 +252,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
 
     query
     |> maybe_lock(Keyword.get(opts, :lock))
-    |> repo.one()
+    |> repo.one(lock_identity: {"background_agent_jobs", job_id})
   end
 
   @doc """
@@ -343,7 +343,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       id: row.id,
       agent_uid: row.agent_uid,
       title: row.title,
-      status: row.status,
+      status: to_string(row.status),
       attempts: row.attempts,
       execution_failures: row.execution_failures,
       workspace_template_id: row.workspace_template_id,
@@ -366,7 +366,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       runtime_thread_id: job.runtime_thread_id,
       title: job.title,
       task: job.task,
-      status: job.status,
+      status: Atom.to_string(job.status),
       attempts: job.attempts,
       execution_failures: job.execution_failures,
       workspace_template_id: job.workspace_template_id,
@@ -425,7 +425,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     %{
       job_id: job.id,
       title: job.title,
-      status: job.status
+      status: Atom.to_string(job.status)
     }
   end
 
@@ -435,8 +435,13 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
 
   defp console_status(nil), do: {:ok, nil}
   defp console_status(""), do: {:ok, nil}
-  defp console_status(status) when status in @statuses, do: {:ok, status}
-  defp console_status(_status), do: {:error, :invalid_background_agent_job_status}
+
+  defp console_status(status) do
+    case Ankole.BackgroundAgentJobs.JobState.cast_status(status) do
+      {:ok, cast} -> {:ok, cast}
+      :error -> {:error, :invalid_background_agent_job_status}
+    end
+  end
 
   defp console_search(nil), do: {:ok, nil}
 

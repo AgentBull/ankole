@@ -29,7 +29,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
     brain_sources browser_pod_authentications browser_authentications browser_login_transactions session_tool_receipts session_round_states
     human_access_events human_access_restrictions human_user_local_credentials
     identity_directory_events identity_directory_states identity_mapping_requests
-    oidc_authorization_codes oidc_client_groups oidc_refresh_tokens oidc_logout_requests
+    oidc_authorization_codes oidc_client_groups oidc_refresh_tokens oidc_refresh_token_families oidc_logout_requests
     oidc_logout_deliveries permission_grants principal_external_identities
     principal_group_external_bindings principal_group_memberships deliveries
     conversation_inbound_batches conversation_input_tombstones signal_bindings
@@ -211,7 +211,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
           end
 
           repo.delete_all(Principal)
-          repo.delete!(locked)
+          {:ok, _} = Ankole.Ash.destroy(locked, :delete_in_tx)
           {:ok, _} = Ankole.Files.Jobs.CollectUnreferenced.new(%{}) |> Oban.insert()
           {:ok, :finished}
         end

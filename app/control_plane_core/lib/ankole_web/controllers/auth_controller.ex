@@ -454,7 +454,13 @@ defmodule AnkoleWeb.AuthController do
          redirect_uri <-
            Login.oidc_redirect_uri(AnkoleWeb.Plugs.RequestHost.origin(conn), provider_id),
          {:ok, authorization_url} <-
-           Login.authorization_url(provider_id, redirect_uri: redirect_uri, state: state),
+           Login.authorization_url(
+             provider_id,
+             Keyword.merge(LoginPolicy.upstream_options(%{transaction | upstream_state: state}),
+               redirect_uri: redirect_uri,
+               state: state
+             )
+           ),
          {:ok, _} <-
            BrowserSessions.bind_provider(
              WebSession.browser_reference(conn),
@@ -494,7 +500,15 @@ defmodule AnkoleWeb.AuthController do
          :ok <- Ankole.Repo.put_tenant_id(transaction.tenant_id),
          :ok <- LoginPolicy.authorize_login(transaction, provider_id),
          {:ok, login} <-
-           Login.complete_oidc_login(provider_id, code, redirect_uri: transaction.redirect_uri),
+           Login.complete_oidc_login(
+             provider_id,
+             code,
+             Keyword.put(
+               LoginPolicy.upstream_options(transaction),
+               :redirect_uri,
+               transaction.redirect_uri
+             )
+           ),
          auth <- %{
            "principal_uid" => login.principal_uid,
            "provider_id" => login.provider_id,
@@ -515,7 +529,10 @@ defmodule AnkoleWeb.AuthController do
 
     with {:ok, false} <- SetupConfig.completed?(),
          {:ok, login} <-
-           Login.complete_oidc_login(provider_id, code, redirect_uri: oidc_state["redirect_uri"]),
+           Login.complete_oidc_login(provider_id, code,
+             redirect_uri: oidc_state["redirect_uri"],
+             nonce: oidc_state["state"]
+           ),
          {:ok, _root} <-
            SetupCompletion.complete_with_first_site_admin(
              login.principal_uid,

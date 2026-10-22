@@ -133,8 +133,8 @@ defmodule Ankole.Brain.Access do
     where(
       query,
       [claim],
-      (claim.claim_type == "fact" and is_nil(claim.expired_at)) or
-        (claim.claim_type == "take" and claim.active == true)
+      (claim.claim_type == :fact and is_nil(claim.expired_at)) or
+        (claim.claim_type == :take and claim.active == true)
     )
   end
 

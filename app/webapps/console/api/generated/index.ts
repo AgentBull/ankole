@@ -1282,6 +1282,7 @@ export type {
   BackgroundAgentJobListItem,
   BackgroundAgentJobListResponse,
   BackgroundAgentJobResponse,
+  BackgroundAgentJobStatus,
   BackgroundAgentJobTurnActiveItem,
   BackgroundAgentJobTurnItem,
   BackgroundAgentJobTurnPlan,

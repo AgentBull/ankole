@@ -58,10 +58,10 @@ defmodule Ankole.Sessions.Prompt do
         ]
   def steer(run, event, _visible), do: user(run, event)
 
-  @spec ambient_system(map()) :: String.t()
-  def ambient_system(run) do
-    soul = String.trim(run.context.documents["soul"]["content"] || "")
-    mission = String.trim(run.context.documents["mission"]["content"] || "")
+  @spec ambient_system(Ankole.Sessions.AmbientTriage.Observation.t()) :: String.t()
+  def ambient_system(observation) do
+    soul = String.trim(observation.context.documents["soul"]["content"] || "")
+    mission = String.trim(observation.context.documents["mission"]["content"] || "")
 
     profile =
       [
@@ -75,7 +75,7 @@ defmodule Ankole.Sessions.Prompt do
         "## Agent",
         "",
         "<about>",
-        "<display_name>#{run.context.agent.display_name}</display_name>",
+        "<display_name>#{observation.context.agent.display_name}</display_name>",
         if(profile == [],
           do: "No additional profile or mission was provided.",
           else: Enum.join(profile, "\n\n")

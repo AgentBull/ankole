@@ -2,14 +2,14 @@ defmodule AnkoleWeb.DirectoryAccessController do
   @moduledoc "Console review of provider directory evidence."
   use AnkoleWeb, :controller
 
-  action_fallback :fallback
+  action_fallback(:fallback)
   use OpenApiSpex.ControllerSpecs
   alias Ankole.IdentityProviders.DirectoryAccess
   alias AnkoleWeb.{ConsoleErrors, ConsolePolicy}
   alias AnkoleWeb.Schemas.HumanAccessAPI
   tags(["Identity Providers"])
   security([%{"consoleSession" => []}])
-  plug OpenApiSpex.Plug.CastAndValidate, render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
+  plug(OpenApiSpex.Plug.CastAndValidate, render_error: AnkoleWeb.OpenAPIValidationErrorRenderer)
 
   operation(:show,
     summary: "Read directory evidence and unresolved events",
@@ -75,7 +75,7 @@ defmodule AnkoleWeb.DirectoryAccessController do
     action = if body.action == "retry", do: :retry, else: :dismiss
 
     with :ok <- ConsolePolicy.authorize(conn, "identity_provider:#{id}", "update"),
-         %{provider_id: ^id} <- Ankole.Repo.get(Ankole.IdentityProviders.DirectoryEvent, event_id),
+         %{provider_id: ^id} <- DirectoryAccess.get_event(event_id),
          result when result == :ok or elem(result, 0) == :ok <-
            DirectoryAccess.review_event(
              event_id,
@@ -152,6 +152,16 @@ defmodule AnkoleWeb.DirectoryAccessController do
 
   defp error(conn, :not_found),
     do: ConsoleErrors.not_found(conn, "Directory event was not found")
+
+  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid] do
+    ConsoleErrors.render(
+      conn,
+      422,
+      "validation_failed",
+      "request is invalid",
+      ConsoleErrors.changeset_details(error)
+    )
+  end
 
   defp error(conn, reason) when is_atom(reason),
     do:

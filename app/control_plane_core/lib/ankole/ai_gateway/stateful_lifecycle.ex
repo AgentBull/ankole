@@ -157,7 +157,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
           brain_context: brain_context
         }
       }) do
-    with %Message{status: "generating"} = message <- ResponseChain.get_message(message_id),
+    with %Message{status: :generating} = message <- ResponseChain.get_message(message_id),
          true <-
            message.subject_uid == subject_uid and message.conversation_id == conversation_id,
          previous_response_id when is_binary(previous_response_id) <-
@@ -763,7 +763,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          _metadata
        ) do
     case ResponseChain.get_message(previous_response_id) do
-      %{status: "complete", conversation_id: conversation_id} ->
+      %{status: :complete, conversation_id: conversation_id} ->
         case ResponseChain.get_conversation_for_subject(subject_uid, conversation_id) do
           {:ok, conversation} -> {:ok, conversation}
           {:error, :invalid_conversation} -> {:error, :invalid_anchor}
@@ -888,7 +888,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   defp strip_foreign_sealed_content(items, _issuer, _message), do: items
 
-  defp message_response_items(subject_uid, %Message{type: "checkpoint"} = message) do
+  defp message_response_items(subject_uid, %Message{type: :checkpoint} = message) do
     with {:ok, content} <- CompactionArtifacts.content_for_checkpoint(subject_uid, message),
          output when is_list(output) <- Map.get(content, "output") do
       projection =
@@ -1054,7 +1054,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     end
   end
 
-  defp response_content(%Message{type: "checkpoint"} = message) do
+  defp response_content(%Message{type: :checkpoint} = message) do
     case CompactionArtifacts.output_for_checkpoint(message.subject_uid, message) do
       {:ok, content} -> content
       {:error, _reason} -> []
@@ -1084,36 +1084,36 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp response_input_and_output(status, content, %{"request_item_count" => count})
        when is_list(content) and is_integer(count) and count >= 0 do
     input = Enum.take(content, count)
-    output = if status == "generating", do: [], else: Enum.drop(content, count)
+    output = if status == :generating, do: [], else: Enum.drop(content, count)
     {input, output}
   end
 
-  defp response_input_and_output("generating", content, _metadata),
+  defp response_input_and_output(:generating, content, _metadata),
     do: {Enum.filter(content, &input_item?/1), []}
 
   defp response_input_and_output(_status, content, _metadata),
     do: {Enum.filter(content, &input_item?/1), Enum.filter(content, &output_item?/1)}
 
   defp response_completed_at(%Message{status: status, updated_at: updated_at})
-       when status in ["complete", "error", "retracted"],
+       when status in [:complete, :error, :retracted],
        do: unix_timestamp(updated_at)
 
   defp response_completed_at(_message), do: nil
 
-  defp response_status("generating", _metadata), do: "in_progress"
+  defp response_status(:generating, _metadata), do: "in_progress"
 
-  defp response_status("complete", %{"response" => %{"status" => "incomplete"}}),
+  defp response_status(:complete, %{"response" => %{"status" => "incomplete"}}),
     do: "incomplete"
 
-  defp response_status("complete", %{"incomplete_details" => %{} = _details}),
+  defp response_status(:complete, %{"incomplete_details" => %{} = _details}),
     do: "incomplete"
 
-  defp response_status("complete", _metadata), do: "completed"
-  defp response_status("error", _metadata), do: "failed"
-  defp response_status("retracted", _metadata), do: "failed"
+  defp response_status(:complete, _metadata), do: "completed"
+  defp response_status(:error, _metadata), do: "failed"
+  defp response_status(:retracted, _metadata), do: "failed"
   defp response_status(_status, _metadata), do: "failed"
 
-  defp response_incomplete_details("complete", %{"incomplete_details" => details})
+  defp response_incomplete_details(:complete, %{"incomplete_details" => details})
        when not is_nil(details),
        do: details
 
@@ -1132,7 +1132,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   defp response_model(_metadata), do: "unknown"
 
-  defp response_error("error", %{"error" => %{} = error}) do
+  defp response_error(:error, %{"error" => %{} = error}) do
     classification = FailureDiagnostics.classify_stored(error)
 
     %{
@@ -1142,10 +1142,10 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     |> put_safe_failure_fields(classification)
   end
 
-  defp response_error("error", _metadata),
+  defp response_error(:error, _metadata),
     do: %{"code" => "error", "message" => "response failed"}
 
-  defp response_error("retracted", _metadata),
+  defp response_error(:retracted, _metadata),
     do: %{"code" => "retracted", "message" => "response was retracted"}
 
   defp response_error(_status, _metadata), do: nil

@@ -7,7 +7,7 @@ defmodule Ankole.KubernetesWorkerStorageIntegrationTest do
 
   alias Ankole.AgentWorkers.Providers.Configuration
   alias Ankole.AgentWorkers.Providers.Credentials
-  alias Ankole.AgentWorkers.Providers.Provider
+  alias Ankole.AgentWorkers.Providers.Runtime
 
   alias Ankole.AgentWorkers.WorkerBootstrap
 
@@ -222,10 +222,12 @@ defmodule Ankole.KubernetesWorkerStorageIntegrationTest do
     secrets = %{"kubeconfig" => ctx.kubeconfig}
     assert :ok = Credentials.validate(Kubernetes, Kubernetes.definition(), settings, secrets)
 
-    %Provider{
+    %Runtime{
+      id: Ankole.Ecto.UUIDv7.autogenerate(),
       provider_id: "kubernetes-test",
       kind: "kubernetes",
       settings: settings,
+      settings_digest: Configuration.digest(Kubernetes.definition().schema, settings),
       secrets: secrets,
       runtime: %{
         installation: "storage",

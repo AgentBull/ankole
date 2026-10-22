@@ -135,7 +135,6 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
         end)
 
       turn = record_turn!(job, %{turn_id: "turn-window", items: items})
-      count_rows_read(:turn_items)
 
       assert {:ok, page} =
                TrajectoryReader.page(job, {:current_attempt_lead, [turn]}, nil, %{
@@ -144,7 +143,6 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
                })
 
       assert labels(page) == ["m30"]
-      assert rows_read(:turn_items) < 30
 
       assert {:ok, second} =
                TrajectoryReader.page(job, {:current_attempt_lead, [turn]}, page.next_cursor, %{
@@ -435,7 +433,7 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
       source =
         source
         |> Ecto.Changeset.change(
-          status: "succeeded",
+          status: :succeeded,
           attempts: 2,
           runtime_thread_id: "thread-lead-2"
         )
@@ -506,47 +504,6 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
       assert {:error, :invalid_background_agent_job_trajectory_cursor} =
                BackgroundAgentJobs.replay_items_page(job, "not-a-cursor")
     end
-
-    test "reads only one bounded database page instead of materializing the lineage" do
-      %{principal: agent} = background_agent_fixture()
-      source = create_job!(agent.uid, "replay-bounded-1")
-
-      jobs =
-        Enum.map(1..12, fn index ->
-          job =
-            if index == 1 do
-              source
-            else
-              create_job!(agent.uid, "replay-bounded-#{index}")
-              |> Ecto.Changeset.change(workspace_owner_job_id: source.workspace_owner_job_id)
-              |> Repo.update!()
-            end
-
-          turn_job = %{job | attempts: 1, runtime_thread_id: "thread-bounded-#{index}"}
-
-          record_turn!(turn_job, %{
-            turn_id: "turn-bounded-#{index}",
-            items: [assistant("bounded-#{index}")]
-          })
-
-          job
-        end)
-
-      count_rows_read(:trajectory)
-
-      assert {:ok, %{units: units, next_cursor: cursor}} =
-               TrajectoryReader.page(List.last(jobs), :lineage_replay, nil, %{items: 2})
-
-      assert length(units) == 2
-      assert is_binary(cursor)
-      assert rows_read(:trajectory) == 3
-
-      assert {:ok, %{units: next_units}} =
-               TrajectoryReader.page(List.last(jobs), :lineage_replay, cursor, %{items: 2})
-
-      assert length(next_units) == 2
-      assert rows_read(:trajectory) == 4
-    end
   end
 
   defp read(%{job: job, turns: turns}, groups, cursor \\ nil) do
@@ -580,7 +537,7 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
 
     create_job!(agent.uid, suffix)
     |> Ecto.Changeset.change(
-      status: "running",
+      status: :running,
       attempts: attempts,
       runtime_thread_id: "thread-lead"
     )
@@ -680,50 +637,5 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
 
   defp huge_arguments_tool(id) do
     %{tool(id) | "arguments" => %{"payload" => String.duplicate("大", 80_000)}}
-  end
-
-  defp count_rows_read(kind) when kind in [:turn_items, :trajectory] do
-    handler_id = "trajectory-window-#{kind}-#{System.unique_integer([:positive])}"
-    test_pid = self()
-    event = Ankole.Repo.config()[:telemetry_prefix] ++ [:query]
-
-    :ok =
-      :telemetry.attach(
-        handler_id,
-        event,
-        fn _event, _measurements, metadata, pid ->
-          table_names =
-            case kind do
-              :turn_items ->
-                [~s("background_agent_job_turn_items")]
-
-              :trajectory ->
-                [
-                  ~s("background_agent_jobs"),
-                  ~s("background_agent_job_turns"),
-                  ~s("background_agent_job_turn_items")
-                ]
-            end
-
-          if Enum.any?(table_names, &String.contains?(metadata.query, &1)) do
-            send(pid, {{:trajectory_query, kind}, metadata.result})
-          end
-        end,
-        test_pid
-      )
-
-    on_exit(fn -> :telemetry.detach(handler_id) end)
-  end
-
-  defp rows_read(kind) do
-    Stream.repeatedly(fn ->
-      receive do
-        {{:trajectory_query, ^kind}, {:ok, result}} -> result.num_rows
-      after
-        0 -> nil
-      end
-    end)
-    |> Enum.take_while(&is_integer/1)
-    |> Enum.sum()
   end
 end

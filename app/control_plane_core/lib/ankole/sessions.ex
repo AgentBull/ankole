@@ -127,7 +127,7 @@ defmodule Ankole.Sessions do
     end
   end
 
-  defp deliver_event(%{completed_at: nil, input_state: "open"} = event) do
+  defp deliver_event(%{status: live_status} = event) when live_status in [:queued, :running] do
     key = %{agent_uid: event.agent_uid, session_id: event.session_id}
 
     if DateTime.compare(event.available_at, DateTime.utc_now(:microsecond)) != :gt,

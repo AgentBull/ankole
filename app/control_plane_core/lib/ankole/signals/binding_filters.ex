@@ -71,7 +71,10 @@ defmodule Ankole.Signals.BindingFilters do
     if String.trim(source) == "" do
       {:error, "cel must not be blank"}
     else
-      validate_kernel_filter(source)
+      case validate_kernel_filter(source) do
+        :ok -> :ok
+        {:error, _reason} -> {:error, "cel must be a valid filter"}
+      end
     end
   end
 

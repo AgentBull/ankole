@@ -21,6 +21,7 @@ defmodule Ankole.BackgroundAgentJobs.Health do
   @wakeup_event_types ~w(
     background_agent_job.completed
     background_agent_job.failed
+    background_agent_job.input_undeliverable
     background_agent_job.waiting
   )
   @window_seconds 24 * 3_600
@@ -33,8 +34,8 @@ defmodule Ankole.BackgroundAgentJobs.Health do
 
     %{
       oldest_queued_seconds: oldest_queued_seconds(now),
-      queued_count: count_by_status("queued"),
-      running_count: count_by_status("running"),
+      queued_count: count_by_status(:queued),
+      running_count: count_by_status(:running),
       max_running_per_agent: cap,
       agents_at_running_cap: agents_at_cap,
       queued_behind_running_cap: queued_behind_cap,
@@ -50,7 +51,7 @@ defmodule Ankole.BackgroundAgentJobs.Health do
 
   defp oldest_queued_seconds(now) do
     Job
-    |> where([job], job.status == "queued")
+    |> where([job], job.status == :queued)
     |> select([job], min(job.queued_at))
     |> Repo.one()
     |> case do
@@ -59,14 +60,10 @@ defmodule Ankole.BackgroundAgentJobs.Health do
     end
   end
 
-  # Queue waits have two different causes and one wrong reflex. When Workers
-  # still have free turn slots but an Agent already runs its maximum, the queue
-  # is held by the per-Agent cap, which is counted across all Workers: adding a
-  # Worker cannot move those Jobs. This reports how many Agents sit at the cap
-  # and how many of their Jobs wait behind it.
+  # Counts Agents at their per-Agent running cap and Jobs queued behind that cap.
   defp agent_cap_pressure(cap) do
     Job
-    |> where([job], job.status in ^(Job.running_statuses() ++ ["queued"]))
+    |> where([job], job.status in ^(Job.running_statuses() ++ [:queued]))
     |> group_by([job], job.agent_uid)
     |> select([job], %{
       running: count(fragment("CASE WHEN ? = 'queued' THEN NULL ELSE 1 END", job.status)),
@@ -95,7 +92,7 @@ defmodule Ankole.BackgroundAgentJobs.Health do
 
   defp succeeded_in_window(window_start) do
     Job
-    |> where([job], job.status == "succeeded")
+    |> where([job], job.status == :succeeded)
     |> where([job], job.completed_at >= ^window_start)
     |> Repo.aggregate(:count)
   end

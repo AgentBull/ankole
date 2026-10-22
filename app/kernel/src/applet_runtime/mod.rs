@@ -126,9 +126,15 @@ impl Handle {
     }
 }
 
+#[derive(Debug)]
+pub enum StartError {
+    Spawn(String),
+    Busy(Value),
+}
+
 /// Uses the same invocation owner and validation as retained transport requests.
 /// The handle exists before execution, so cancellation cannot miss registration.
-pub fn start(request: Request, sink: Sink) -> Result<Handle, String> {
+pub fn start(request: Request, sink: Sink) -> Result<Handle, StartError> {
     start_with(move || Ok(request), sink)
 }
 
@@ -146,7 +152,7 @@ fn validate_limits(request: &Request) -> Result<(), String> {
 pub fn start_with(
     decode: impl FnOnce() -> Result<Request, String> + Send + 'static,
     sink: Sink,
-) -> Result<Handle, String> {
+) -> Result<Handle, StartError> {
     let invocation = Arc::new(Invocation {
         control: Arc::new(RunControl::new()),
         replies: Mutex::new(HashMap::new()),
@@ -164,12 +170,11 @@ pub fn start_with(
             .control
             .execution_phase
             .store(EXECUTION_DONE, Ordering::SeqCst);
-        (invocation.sink)(Event::Done(failure(
+        return Err(StartError::Busy(failure(
             503,
             "applet_busy",
             "Applet runtime is at capacity",
         )));
-        return Ok(handle);
     };
     std::thread::Builder::new()
         .name("ankole-applet".into())
@@ -203,7 +208,7 @@ pub fn start_with(
             drop(permit);
             (invocation.sink)(Event::Done(outcome));
         })
-        .map_err(|error| format!("cannot start applet runtime: {error}"))?;
+        .map_err(|error| StartError::Spawn(format!("cannot start applet runtime: {error}")))?;
     Ok(handle)
 }
 

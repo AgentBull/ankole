@@ -84,7 +84,16 @@ defmodule Ankole.Brain.SynthesisTest do
           }
         end)
 
-      Repo.insert_all(Timeline, unreachable_rows)
+      assert %Ash.BulkResult{status: :success, records: inserted} =
+               Ankole.Ash.bulk_create(
+                 Enum.map(unreachable_rows, &Map.delete(&1, :tenant_id)),
+                 Timeline,
+                 :record,
+                 return_errors?: true,
+                 return_records?: true
+               )
+
+      assert length(inserted) == 51
 
       since = DateTime.add(now, -60, :second)
       assert {:ok, delta} = Synthesis.delta(context.querier.uid, %{since: since})

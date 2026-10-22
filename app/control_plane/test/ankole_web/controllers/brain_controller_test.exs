@@ -11,6 +11,7 @@ defmodule AnkoleWeb.BrainControllerTest do
   alias Ankole.AppConfigure.Registry
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.Brain.Chunks
   alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Chunk
@@ -23,7 +24,6 @@ defmodule AnkoleWeb.BrainControllerTest do
   alias Ankole.Setup.Config, as: SetupConfig
 
   setup do
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
@@ -35,17 +35,37 @@ defmodule AnkoleWeb.BrainControllerTest do
     :ok
   end
 
+  test "review list filters reject invalid states without exposing resource internals", %{
+    conn: conn
+  } do
+    {conn, _} = console_conn_with_principal(conn)
+
+    for path <- [
+          "/api/v1/brain/suggestions",
+          "/api/v1/brain/merge-suggestions",
+          "/api/v1/brain/contradictions"
+        ] do
+      response =
+        conn |> recycle_api() |> get(path <> "?status=unknown-state") |> json_response(422)
+
+      assert response["error"]["code"] == "validation_failed"
+      encoded = Torque.encode!(response)
+      refute encoded =~ "Ash."
+      refute encoded =~ "Ankole."
+      refute encoded =~ "SELECT"
+    end
+  end
+
   test "Console promotion decisions preserve the review record and its actor", %{conn: conn} do
     {conn, admin_uid} = console_conn_with_principal(conn)
 
-    suggestion =
-      Repo.insert!(%Ankole.Brain.Schemas.SchemaSuggestion{
+    {:ok, suggestion} =
+      Ankole.Ash.create(Ankole.Brain.Schemas.SchemaSuggestion, :suggest, %{
         id: UUIDv7.autogenerate(),
-        kind: "new_type",
+        kind: :new_type,
         term: "review-test",
         evidence_count: 100,
         rationale: "Persisted evidence",
-        status: "pending",
         created_at: DateTime.utc_now(:microsecond)
       })
 
@@ -161,7 +181,7 @@ defmodule AnkoleWeb.BrainControllerTest do
 
     Repo.with_tenant(other.id, fn ->
       object = Repo.get_by!(Object, slug: "notes/admin-edit")
-      version = Repo.one!(from version in ObjectVersion, where: version.object_id == ^object.id)
+      version = Repo.one!(from(version in ObjectVersion, where: version.object_id == ^object.id))
 
       assert version.author ==
                Ankole.ActorRef.from_principal(%{tenant_id: tenant.id, uid: admin_uid})
@@ -172,18 +192,19 @@ defmodule AnkoleWeb.BrainControllerTest do
     {conn, principal_uid} = console_conn_with_principal(conn)
     now = DateTime.utc_now(:microsecond)
 
-    object =
-      Repo.insert!(%Object{
-        id: UUIDv7.autogenerate(),
-        tenant_id: Repo.tenant_id!(),
-        slug: "notes/claim-search",
-        type: "note",
-        title: "Claim search",
-        body: "",
-        meta: %{},
-        created_at: now,
-        updated_at: now
-      })
+    {:ok, object} =
+      Repo.transact(fn ->
+        Ankole.Ash.create(Object, :create, %{
+          id: UUIDv7.autogenerate(),
+          slug: "notes/claim-search",
+          type: "note",
+          title: "Claim search",
+          body: "",
+          meta: %{},
+          created_at: now,
+          updated_at: now
+        })
+      end)
 
     row = fn claim, created_at ->
       %{
@@ -191,7 +212,7 @@ defmodule AnkoleWeb.BrainControllerTest do
         tenant_id: Repo.tenant_id!(),
         author:
           Ankole.ActorRef.from_principal(Repo.get!(Ankole.Principals.Principal, principal_uid)),
-        claim_type: "fact",
+        claim_type: :fact,
         object_slug: object.slug,
         claim: claim,
         kind: "fact",
@@ -282,7 +303,6 @@ defmodule AnkoleWeb.BrainControllerTest do
       Ankole.Brain.Sources.create(%{
         kind: "oidc_client",
         upstream_id: UUIDv7.autogenerate(),
-        tenant_id: Repo.tenant_id!(),
         name: "OIDC Client"
       })
 
@@ -319,30 +339,30 @@ defmodule AnkoleWeb.BrainControllerTest do
     {conn, _principal_uid} = console_conn_with_principal(conn)
     now = DateTime.utc_now(:microsecond)
 
-    source =
-      Repo.insert!(%Source{
+    {:ok, source} =
+      Ankole.Ash.create(Source, :register, %{
         upstream_id: "controller-archive-library",
         kind: "library",
         name: "Controller archive library",
         default_audience_scope: "world",
         config: %{},
-        created_at: now,
-        updated_at: now
+        created_at: now
       })
 
-    object =
-      Repo.insert!(%Object{
-        id: UUIDv7.autogenerate(),
-        tenant_id: Repo.tenant_id!(),
-        slug: "concepts/controller-archive-library",
-        type: "concept",
-        title: "Controller archive library",
-        body: "Managed body",
-        meta: %{},
-        managed_by_source_id: source.id,
-        created_at: now,
-        updated_at: now
-      })
+    {:ok, object} =
+      Repo.transact(fn ->
+        Ankole.Ash.create(Object, :create_projection, %{
+          id: UUIDv7.autogenerate(),
+          slug: "concepts/controller-archive-library",
+          type: "concept",
+          title: "Controller archive library",
+          body: "Managed body",
+          meta: %{},
+          managed_by_source_id: source.id,
+          created_at: now,
+          updated_at: now
+        })
+      end)
 
     assert %{"source" => %{"id" => source_id, "archived_at" => archived_at}} =
              conn
@@ -364,7 +384,7 @@ defmodule AnkoleWeb.BrainControllerTest do
     assert %{"result" => %{"status" => "enqueued"}} =
              conn |> post(~p"/api/v1/brain/dream") |> json_response(200)
 
-    job = Repo.one!(from job in Oban.Job, where: job.worker == ^worker_name)
+    job = Repo.one!(from(job in Oban.Job, where: job.worker == ^worker_name))
     assert job.state == "available"
     assert job.args == %{"tenant_id" => Repo.tenant_id!()}
 
@@ -384,7 +404,7 @@ defmodule AnkoleWeb.BrainControllerTest do
 
   test "manual Dreaming requires Brain update permission", %{conn: conn} do
     {conn, principal_uid} = console_conn_with_principal(conn)
-    Repo.delete_all(from grant in Ankole.AuthZ.Grant, where: grant.resource_pattern == "**")
+    Repo.delete_all(from(grant in Ankole.AuthZ.Grant, where: grant.resource_pattern == "**"))
 
     assert {:ok, _grant} =
              Ankole.AuthZ.create_permission_grant(%{
@@ -521,30 +541,34 @@ defmodule AnkoleWeb.BrainControllerTest do
     internal_reason =
       "{:provider_unavailable, credential_id: cred-secret-123, env: OPEN_ROUTER_API_KEY}"
 
-    object =
-      Repo.insert!(%Object{
-        id: UUIDv7.autogenerate(),
-        tenant_id: Repo.tenant_id!(),
-        slug: "notes/health-internal-error",
-        type: "note",
-        title: "Health internal error",
-        body: "Projection source",
-        meta: %{},
-        created_at: now,
-        updated_at: now
-      })
+    {:ok, object} =
+      Repo.transact(fn ->
+        Ankole.Ash.create(Object, :create, %{
+          id: UUIDv7.autogenerate(),
+          slug: "notes/health-internal-error",
+          type: "note",
+          title: "Health internal error",
+          body: "Projection source",
+          meta: %{},
+          created_at: now,
+          updated_at: now
+        })
+      end)
 
-    Repo.insert!(%Chunk{
-      object_id: object.id,
-      chunk_index: 0,
-      content_kind: "body",
-      audience_scope: "world",
-      chunk_text: object.body,
-      token_count: 2,
-      embedding_signature: "failed-signature",
-      embedding_error: internal_reason,
-      created_at: now
-    })
+    assert {:ok, chunk} =
+             Repo.transact(fn ->
+               Ankole.Ash.create(Chunk, :project, %{
+                 object_id: object.id,
+                 chunk_index: 0,
+                 content_kind: :body,
+                 audience_scope: "world",
+                 chunk_text: object.body,
+                 token_count: 2
+               })
+             end)
+
+    assert {:ok, :updated} =
+             Chunks.record_embedding(chunk, {:error, internal_reason, "failed-signature"})
 
     assert {:ok, _value} =
              AppConfigure.put_global_by_key("brain.embedding_model", %{

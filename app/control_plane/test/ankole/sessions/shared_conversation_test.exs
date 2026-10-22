@@ -111,8 +111,7 @@ defmodule Ankole.Sessions.SharedConversationTest do
              AmbientCuration.record_judgment(
                key,
                signal.id,
-               %{action: "NOOP", authority: "NONE", handoff_job_id: nil, reason: "No request"},
-               now: @now
+               %{action: "NOOP", authority: "NONE", handoff_job_id: nil, reason: "No request"}
              )
 
     assert AmbientCuration.judged_until(c.first.uid, c.conversation.id) == @now
@@ -139,10 +138,10 @@ defmodule Ankole.Sessions.SharedConversationTest do
        c do
     input = signal(c, c.first, "conversation.message.addressed")
     # The manual model rows below represent an admitted input.
-    input =
-      input
-      |> Ankole.Signals.Signal.changeset(%{last_attempt_at: @now, attempt_count: 1})
-      |> Repo.update!()
+    {:ok, input} =
+      Repo.transact(fn _ ->
+        Ankole.Ash.update(input, :admit, %{last_attempt_at: @now})
+      end)
 
     background = observe(c.conversation.id, "background", c.second.uid, "Original background")
     model_run = run(c, c.first, input)
@@ -187,7 +186,7 @@ defmodule Ankole.Sessions.SharedConversationTest do
     changed = observe(c.conversation.id, "background", c.second.uid, "Updated background")
     assert changed.id == background.id
     assert changed.seq == background.seq
-    refute Repo.exists?(from s in Ankole.Signals.Signal, where: s.type == "input.revised")
+    refute Repo.exists?(from(s in Ankole.Signals.Signal, where: s.type == "input.revised"))
 
     assert Ankole.Principals.WorkAccess.fields(active.event) ==
              Ankole.Principals.WorkAccess.fields(input)
@@ -228,7 +227,7 @@ defmodule Ankole.Sessions.SharedConversationTest do
       })
 
     observe(c.conversation.id, "omitted", c.second.uid, "Updated omitted background")
-    refute Repo.exists?(from s in Ankole.Signals.Signal, where: s.type == "input.revised")
+    refute Repo.exists?(from(s in Ankole.Signals.Signal, where: s.type == "input.revised"))
   end
 
   test "permanently deleting one Agent keeps the shared room and the other Agent's history", c do
@@ -261,6 +260,15 @@ defmodule Ankole.Sessions.SharedConversationTest do
     assert room_id == c.conversation.id
     assert Repo.get_by(Ankole.Conversations.Message, id: first_reply.id).text == first_reply.text
     assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(c.first.uid)
+    Repo.query!("SET CONSTRAINTS ALL IMMEDIATE")
+
+    retained = Repo.get_by!(Ankole.Conversations.Message, id: first_reply.id)
+    assert retained.tenant_id == Repo.tenant_id!()
+    assert retained.author_uid == nil
+    assert retained.signal_id == nil
+
+    assert Repo.get_by!(Ankole.Conversations.Message, id: second_reply.id).signal_id ==
+             second_signal.id
 
     assert {:ok, room} = External.fetch_conversation(c.conversation.id)
     assert room.id == c.conversation.id
@@ -274,13 +282,13 @@ defmodule Ankole.Sessions.SharedConversationTest do
     assert id == first_reply.id
 
     assert [%{principal_uid: uid}] =
-             Repo.all(from p in Participant, where: p.conversation_id == ^room.id)
+             Repo.all(from(p in Participant, where: p.conversation_id == ^room.id))
 
     assert uid == c.second.uid
     refute Repo.get_by(Ankole.Sessions.SessionWorkspace, agent_uid: c.first.uid)
 
     refute Repo.exists?(
-             from signal in Ankole.Signals.Signal, where: signal.agent_uid == ^c.first.uid
+             from(signal in Ankole.Signals.Signal, where: signal.agent_uid == ^c.first.uid)
            )
 
     assert Repo.get!(Ankole.Sessions.SessionWorkspace, second_workspace.id)
@@ -368,7 +376,8 @@ defmodule Ankole.Sessions.SharedConversationTest do
       "entries" => [%{"message_id" => c.human_message.id, "time" => DateTime.to_iso8601(@now)}],
       "ambient_batch" => %{
         "scene_fingerprint" => Context.ambient_scene_fingerprint(Repo, c.conversation.id),
-        "expires_at" => DateTime.to_iso8601(DateTime.add(@now, 60, :second)),
+        "expires_at" =>
+          DateTime.to_iso8601(DateTime.add(DateTime.utc_now(:microsecond), 60, :second)),
         "as_of" => DateTime.to_iso8601(@now)
       }
     }

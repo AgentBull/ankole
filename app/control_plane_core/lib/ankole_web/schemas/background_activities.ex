@@ -158,7 +158,12 @@ defmodule AnkoleWeb.Schemas.BackgroundActivities do
           label: %Schema{type: :string, nullable: true},
           status: %Schema{type: :string, enum: ["queued", "running", "sleeping"]},
           sleep_note: %Schema{type: :string, nullable: true},
-          sleeping_until: %Schema{type: :string, format: :"date-time", nullable: true},
+          wake_kind: %Schema{
+            type: :string,
+            enum: ["sleep", "agent_capacity", nil],
+            nullable: true
+          },
+          wake_at: %Schema{type: :string, format: :"date-time", nullable: true},
           attention: %Schema{type: :boolean},
           attempts: %Schema{type: :integer, minimum: 0},
           error_code: %Schema{type: :string, nullable: true},
@@ -180,7 +185,8 @@ defmodule AnkoleWeb.Schemas.BackgroundActivities do
           :label,
           :status,
           :sleep_note,
-          :sleeping_until,
+          :wake_kind,
+          :wake_at,
           :attention,
           :attempts,
           :error_code,

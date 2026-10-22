@@ -41,7 +41,7 @@ defmodule AnkoleWeb.SiteAdminConsoleTest do
               "/operator/secret-entry-extra",
               "/no-such-route"
             ] do
-          conn = build_conn() |> put_req_header("accept", accept) |> get(path)
+          conn = AnkoleWeb.ConnCase.build_conn() |> put_req_header("accept", accept) |> get(path)
           body = response(conn, 404)
           headers = Enum.reject(conn.resp_headers, fn {key, _} -> key == "x-request-id" end)
           {headers, body}

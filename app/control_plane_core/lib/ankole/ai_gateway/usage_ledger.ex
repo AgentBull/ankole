@@ -12,13 +12,12 @@ defmodule Ankole.AIGateway.UsageLedger do
   protect a soft limit.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.AIGateway.ChatGPTProtocol
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.Schemas.UsageRecord
   alias Ankole.Logging
-  alias Ankole.Repo
 
   @doc """
   Records one provider round of an Agent request.
@@ -47,12 +46,15 @@ defmodule Ankole.AIGateway.UsageLedger do
   """
   @spec window_tokens(String.t(), DateTime.t()) :: non_neg_integer()
   def window_tokens(subject_uid, %DateTime{} = window_started_at) when is_binary(subject_uid) do
-    UsageRecord
-    |> where([record], record.subject_uid == ^subject_uid)
-    |> where([record], record.inserted_at >= ^window_started_at)
-    |> select([record], sum(record.input_tokens + record.output_tokens))
-    |> Repo.one()
-    |> total_tokens()
+    totals =
+      UsageRecord
+      |> Ash.Query.filter(subject_uid == ^subject_uid and inserted_at >= ^window_started_at)
+      |> Ankole.Ash.aggregate!([
+        {:input, :sum, field: :input_tokens, default: 0},
+        {:output, :sum, field: :output_tokens, default: 0}
+      ])
+
+    totals.input + totals.output
   end
 
   defp counted_round(%{"type" => type, "response" => %{} = response})
@@ -101,9 +103,9 @@ defmodule Ankole.AIGateway.UsageLedger do
   defp non_negative_integer(_value), do: nil
 
   defp write(attrs) do
-    case %UsageRecord{} |> UsageRecord.changeset(attrs) |> Repo.insert() do
+    case Ankole.Ash.create(UsageRecord, :record_round, attrs) do
       {:ok, _record} -> :ok
-      {:error, changeset} -> write_failed(attrs, inspect(changeset.errors))
+      {:error, error} -> write_failed(attrs, Exception.message(error))
     end
   rescue
     error -> write_failed(attrs, Exception.message(error))
@@ -123,8 +125,8 @@ defmodule Ankole.AIGateway.UsageLedger do
   # declares its own client identity headers. The conversation loop declares none.
   defp origin(runtime) do
     if ChatGPTProtocol.codex_client?(Map.get(runtime, "request_context", %{})),
-      do: "codex",
-      else: "agent"
+      do: :codex,
+      else: :agent
   end
 
   defp tokens(usage, key) do
@@ -133,8 +135,4 @@ defmodule Ankole.AIGateway.UsageLedger do
       _absent -> 0
     end
   end
-
-  defp total_tokens(nil), do: 0
-  defp total_tokens(%Decimal{} = total), do: Decimal.to_integer(total)
-  defp total_tokens(total) when is_integer(total), do: total
 end

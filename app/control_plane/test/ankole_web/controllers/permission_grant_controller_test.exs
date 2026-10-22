@@ -9,7 +9,6 @@ defmodule AnkoleWeb.PermissionGrantControllerTest do
   alias Ankole.Setup.Config, as: SetupConfig
 
   setup do
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
@@ -294,7 +293,8 @@ defmodule AnkoleWeb.PermissionGrantControllerTest do
 
       response = conn |> recycle_api() |> delete(~p"/api/v1/permission-grants/#{grant.id}")
       assert %{"error" => %{"code" => "validation_failed"}} = json_response(response, 422)
-      assert {:ok, ^grant} = AuthZ.get_permission_grant(grant.id)
+      assert {:ok, stored} = AuthZ.get_permission_grant(grant.id)
+      Ankole.DataCase.assert_persisted_equal(stored, grant)
     end
   end
 

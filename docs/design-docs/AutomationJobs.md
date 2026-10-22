@@ -8,6 +8,13 @@ Automation Jobs does not own trigger time, webhook admission, or Agent turns.
 Schedule and Signals keep those rules. They call Automation Jobs only
 when they must create a durable run.
 
+The Job and Run resources use AshStateMachine actions in the existing owner
+transaction. A Job moves from `active` to `cancelled`. A Run starts as `queued`
+or as a failed trigger receipt. Only queued work can start an attempt. A running
+attempt can retry or finish, and cancellation only stops queued work. The attempt
+fence and both Worker-wait and execution deadlines keep their existing meaning.
+PostgreSQL also rejects incompatible lifecycle timestamps and attempt fences.
+
 ## Human Work Authorization
 
 Each definition stores `authorization_kind`, `human_uid`, and
@@ -35,8 +42,7 @@ Human work. Independent service definitions keep their own authorization.
 - the original CloudEvents 1.0 envelope
 - `queued`, `running`, `succeeded`, `failed`, or `cancelled`
 - the attempt count and current attempt UUID
-- the Oban job ID
-- start and finish times
+- start and finish times, and the persisted Worker-wait start
 - exit code and error
 - bounded stdout and stderr tails
 
@@ -70,7 +76,15 @@ does not change the event.
 
 ## Run the Script
 
-`Ankole.AutomationJobs.Jobs.ExecuteRun` is the Oban wake edge. A run waits
+`Ankole.AutomationJobs.Jobs.ExecuteRun` uses the independent `automation_jobs`
+Oban queue with ten consumers. The per-Agent cap is
+`automation_jobs.max_running_per_agent` (default ten). Admission locks the
+authorizing Human, Agent slot scope, definition, and run in that order. Admission
+uses the shared [Worker readiness rule](AgentWorkers.md#new-attempt-readiness)
+and persists its returned start in `worker_wait_started_at` in the same
+transaction as the capacity check and attempt claim.
+
+A run waits
 while the Agent's Worker is not ready: the job requests the Worker
 ([Agent Workers](AgentWorkers.md)) and snoozes for 10 seconds, which does not
 use an attempt. A run that finished or was cancelled meanwhile ends the job
@@ -139,14 +153,18 @@ terminal script result. A folder without `main.ts` or an
 invalid Skill MCP declaration are terminal too. Oban does not retry these
 results.
 
-A Worker that is still not ready `agent_computer.worker.ready_timeout` after
-the run became `queued`, a lost route, an RPC error, or an invalid worker
-response is an infrastructure failure. So is a failure of the Worker before
-the script starts: a failed copy of the script folder from the drive, or a
-failed WorkerEnv resolution. The run returns to `queued`, clears its
+A `timed_out` readiness result, a lost route, an RPC error, or an invalid Worker
+response is an infrastructure failure. A readiness timeout claims one attempt
+under the admission locks before the failure is recorded. Each new attempt
+sets `started_at` to its own start time and gets the full
+script execution budget. A failure before the script starts is also an
+infrastructure failure, such as a failed copy from the drive or a failed
+WorkerEnv resolution. The run returns to `queued`, clears its
 attempt UUID, and lets Oban dispatch a new attempt. Oban permits five attempts.
 The last infrastructure failure makes the run `failed`, so a Worker that cannot
-start fails the run instead of keeping it queued.
+start fails the run instead of keeping it queued. If authorization is revoked
+between attempts, admission commits a failed run and its configured failure
+notice instead of leaving a queued run with no retry owner.
 
 WorkerAdmission owns worker liveness. When it makes a route unusable or replaces
 its worker incarnation, it also ends pending RPC waits for that route. The Oban

@@ -192,16 +192,17 @@ defmodule Ankole.E2E.PodContentEvidenceTest do
     body = "private tool result body"
 
     insert_message = fn content, previous ->
-      %Ankole.AIGateway.Schemas.Message{}
-      |> Ankole.AIGateway.Schemas.Message.changeset(%{
-        subject_uid: agent.uid,
-        conversation_id: conversation.id,
-        previous_message_id: previous,
-        type: "message",
-        status: "complete",
-        content: content
-      })
-      |> Repo.insert!()
+      {:ok, message} =
+        Repo.transact(fn ->
+          Ankole.Ash.create(Ankole.AIGateway.Schemas.Message, :journal, %{
+            subject_uid: agent.uid,
+            conversation_id: conversation.id,
+            previous_message_id: previous,
+            content: content
+          })
+        end)
+
+      message
     end
 
     call =
@@ -285,23 +286,25 @@ defmodule Ankole.E2E.PodContentEvidenceTest do
 
     now = DateTime.utc_now(:microsecond)
 
-    job =
-      %Job{id: job_id}
-      |> Job.creation_changeset(%{
-        agent_uid: agent.uid,
-        owner_session_id: "job-evidence",
-        source_tool_call_id: "job-evidence-#{job_id}",
-        workspace_owner_job_id: job_id,
-        runtime_thread_id: "lead-thread",
-        status: "succeeded",
-        title: "Review the report",
-        task: "Check the report against the evidence.",
-        result: %{},
-        metadata: %{},
-        error: %{},
-        completed_at: now
-      })
-      |> Repo.insert!()
+    assert {:ok, job} =
+             Repo.transact(fn _ ->
+               with {:ok, job} <-
+                      Ankole.Ash.create(Job, :create_job, %{
+                        id: job_id,
+                        agent_uid: agent.uid,
+                        owner_session_id: "job-evidence",
+                        source_tool_call_id: "job-evidence-#{job_id}",
+                        workspace_owner_job_id: job_id,
+                        runtime_thread_id: "lead-thread",
+                        title: "Review the report",
+                        task: "Check the report against the evidence.",
+                        result: %{},
+                        metadata: %{},
+                        error: %{}
+                      }) do
+                 Ankole.Ash.update(job, :external_complete, %{completed_at: now})
+               end
+             end)
 
     lead =
       insert_job_turn!(job, "lead-thread", [
@@ -402,32 +405,38 @@ defmodule Ankole.E2E.PodContentEvidenceTest do
     now = DateTime.utc_now(:microsecond)
 
     turn =
-      %Turn{}
-      |> Turn.changeset(%{
-        job_id: job.id,
-        attempt: 1,
-        runtime_thread_id: thread,
-        runtime_turn_id: "turn-#{thread}",
-        status: "completed",
-        revision: 1,
-        trajectory: %{"format" => "ankole_chatml", "version" => 1},
-        started_at: now,
-        completed_at: now
-      })
-      |> Repo.insert!()
+      case Repo.transact(fn _ ->
+             Ankole.Ash.create(Turn, :record, %{
+               job_id: job.id,
+               attempt: 1,
+               runtime_thread_id: thread,
+               runtime_turn_id: "turn-#{thread}",
+               status: "completed",
+               revision: 1,
+               trajectory: %{"format" => "ankole_chatml", "version" => 1},
+               started_at: now,
+               completed_at: now
+             })
+           end) do
+        {:ok, record} -> record
+        {:error, error} -> raise Ash.Error.to_error_class(error)
+      end
 
     items
     |> Enum.with_index()
     |> Enum.each(fn {item, position} ->
-      %TurnItem{}
-      |> TurnItem.changeset(%{
-        turn_id: turn.id,
-        position: position,
-        revision: 1,
-        item_key: item["id"],
-        item: item
-      })
-      |> Repo.insert!()
+      case Repo.transact(fn _ ->
+             Ankole.Ash.create(TurnItem, :append, %{
+               turn_id: turn.id,
+               position: position,
+               revision: 1,
+               item_key: item["id"],
+               item: item
+             })
+           end) do
+        {:ok, record} -> record
+        {:error, error} -> raise Ash.Error.to_error_class(error)
+      end
     end)
 
     turn

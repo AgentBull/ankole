@@ -8,7 +8,7 @@ defmodule Ankole.AgentWorkers.Config do
   time without a control plane does not count as a failed Worker start.
   """
 
-  alias Ankole.Kernel.RuntimeFabric
+  alias Ankole.RuntimeFabric
 
   @type t :: %{
           image: String.t(),

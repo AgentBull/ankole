@@ -27,7 +27,7 @@ defmodule Ankole.Sessions.CommandsTest do
     text = Ankole.JSON.encode!(prepared.input)
     assert text =~ "Change course"
     refute text =~ "/steer"
-    assert Repo.get!(AgentWorker, agent.uid).state == "absent"
+    assert Repo.get!(AgentWorker, agent.uid).state == :absent
   end
 
   test "a final reply leaves an unread steer open for the next run" do
@@ -108,10 +108,11 @@ defmodule Ankole.Sessions.CommandsTest do
 
     assert [card] =
              Repo.all(
-               from entry in Intent,
+               from(entry in Intent,
                  where:
                    entry.source_signal_id == ^input.id and
                      entry.target_provider_message_id == "provider-preview-card"
+               )
              )
 
     assert card.operation == :edit
@@ -303,8 +304,8 @@ defmodule Ankole.Sessions.CommandsTest do
       assert_receive {:gateway_request, request}
       assert request.path == "v1/responses"
 
-      assert compaction.type == "checkpoint"
-      assert compaction.status == "complete"
+      assert compaction.type == :checkpoint
+      assert compaction.status == :complete
       assert compaction.previous_message_id == tail.id
       assert compaction.metadata["manual"] == true
       assert compaction.metadata["auto"] == false
@@ -458,7 +459,7 @@ defmodule Ankole.Sessions.CommandsTest do
       assert request.path == "v1/responses"
       assert request.body["input"] =~ "phase code ANKOLE_REAL_E2E"
 
-      assert compaction.type == "checkpoint"
+      assert compaction.type == :checkpoint
       assert compaction.previous_message_id != nil
       assert compaction.content == [CompactionArtifacts.ref_item(compaction.id)]
 
@@ -559,7 +560,7 @@ defmodule Ankole.Sessions.CommandsTest do
     assert fresh_prompt =~ "Current workspace: /workspace/sessions/#{fresh.workspace_id}"
     assert Repo.get!(Conversation, old.conversation.id).ended_at
     assert fresh.event.data["command"]["argsText"] == "Fresh task\nwith context"
-    assert Repo.get!(AgentWorker, agent.uid).state == "absent"
+    assert Repo.get!(AgentWorker, agent.uid).state == :absent
     assert {:ok, adopted} = Admission.admit(key, Repo.reload!(event))
     assert adopted.conversation.id == fresh.conversation.id
   end

@@ -46,7 +46,7 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
           ObjectStore.delete(Files.object_key(digest))
         end
 
-        Repo.delete!(tenant)
+        cleanup_tenant!(tenant)
       end)
     end)
 

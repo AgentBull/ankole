@@ -134,7 +134,7 @@ defmodule Ankole.Upgrade202610 do
   end
 
   defp migrate_identity_provider_row(
-         repo,
+         _repo,
          %{value: %{"type" => "cipher", "value" => cipher}} = row,
          tenant,
          scope
@@ -143,17 +143,13 @@ defmodule Ankole.Upgrade202610 do
          {:ok, resealed} <- Crypto.seal(value, scope, row.key),
          {:ok, _} <-
            Repo.with_tenant(tenant.id, fn ->
-             repo.insert(
-               AppConfig.changeset(%AppConfig{tenant_id: tenant.id}, %{
-                 scope: scope,
-                 key: row.key,
-                 value: %{"type" => "cipher", "value" => resealed}
-               })
-             )
+             Ankole.Ash.create(AppConfig, :import_envelope, %{
+               scope: scope,
+               key: row.key,
+               value: %{"type" => "cipher", "value" => resealed}
+             })
            end) do
-      repo.delete_all(
-        from old in SiteConfig, where: old.scope == "global" and old.key == ^row.key
-      )
+      {:ok, _deleted} = Ankole.Ash.destroy(row, :remove)
 
       :ok
     end
@@ -224,9 +220,9 @@ defmodule Ankole.Upgrade202610 do
           with :ok <- ensure_destination(repo, new_key, config),
                {:ok, _write} <- AppConfigure.put_global_by_key_in_tx(repo, new_key, config),
                {:ok, _binding} <-
-                 binding
-                 |> Ecto.Changeset.change(config_ref: "app-config://#{new_key}")
-                 |> repo.update() do
+                 repo.update(
+                   Ecto.Changeset.change(binding, config_ref: "app-config://#{new_key}")
+                 ) do
             :ok
           end
         end)
@@ -510,11 +506,9 @@ defmodule Ankole.Upgrade202610 do
                  {:ok, _result} <-
                    Files.commit(repo, current.agent_uid, Enum.uniq_by(upserts, & &1.path), []),
                  {:ok, _row} <-
-                   current
-                   |> Intent.changeset(%{
+                   Ankole.Ash.update(current, :import_attachments, %{
                      payload: Map.put(current.payload, "attachments", attachments)
-                   })
-                   |> repo.update(),
+                   }),
                  {:ok, _intent} <-
                    Ankole.Conversations.Delivery.commit_in_tx(repo, %{
                      agent_uid: current.agent_uid,
@@ -624,7 +618,15 @@ defmodule Ankole.Upgrade202610 do
         new_skips = Enum.take(report.skipped, length(report.skipped) - skipped_before)
 
         if Enum.all?(new_skips, fn {_path, reason} -> final_skip?(reason) end) do
-          Repo.update_all(where(Job, id: ^job.id), set: [legacy_directory_path: nil])
+          {:ok, _} =
+            Repo.transact(fn repo ->
+              current =
+                repo.one!(from(row in Job, where: row.id == ^job.id, lock: "FOR UPDATE"),
+                  lock_identity: {"automation_jobs", job.id}
+                )
+
+              Ankole.Ash.update(current, :finish_script_import, %{})
+            end)
         end
 
         %{report | jobs: report.jobs + 1}

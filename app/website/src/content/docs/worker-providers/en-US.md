@@ -7,6 +7,8 @@ order: 317
 
 A WorkerProvider selects where an Agent's computer runs and how it stores Home and cache. Each Agent has one fixed provider and its own Worker. Providers belong to the site. Console stores credentials encrypted in separate fields; do not put credentials in configuration YAML. See [Workers](../worker-management/) for creation and daily operations.
 
+Vercel requires the `vercel-worker-provider` Control Plane Plugin. Alibaba Function Compute requires `china-market-ai-providers`, which also supplies model adapters. Enable the required Plugin and restart the control plane before use. Existing installations must select these Plugin IDs before upgrading. Ankole rejects Plugin disable while any Agent still uses its Worker providers, including paused Agents and pending deletion.
+
 ## Three storage roles
 
 | Storage | Contents | Persistence requirement |

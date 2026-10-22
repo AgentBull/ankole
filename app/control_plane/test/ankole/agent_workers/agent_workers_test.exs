@@ -4,10 +4,9 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AppConfigure
-  alias Ankole.Kernel.RuntimeFabric
+  alias Ankole.RuntimeFabric
   alias Ankole.Principals
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.AgentWorkers
   alias Ankole.AgentWorkers
   alias Ankole.AgentWorkers.ReconcileJob
   alias Ankole.AgentWorkers.AgentWorker
@@ -56,14 +55,15 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
     end
 
     test "a row that may not run a process refuses every connection", ctx do
-      for state <- ["paused", "draining"] do
+      for state <- [:paused, :draining] do
         set_row!(ctx.agent_uid, state: state)
 
         assert {:error, :stale_worker_generation} =
                  AgentWorkers.authenticate(ctx.agent_uid, ctx.token)
       end
 
-      :ok = AgentWorkers.mark_deleting_in_tx(Repo, ctx.agent_uid)
+      {:ok, :ok} =
+        Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, ctx.agent_uid)} end)
 
       assert {:error, :stale_worker_generation} =
                AgentWorkers.authenticate(ctx.agent_uid, ctx.token)
@@ -90,14 +90,14 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
   describe "admission" do
     test "a join on a starting, stale, or ready row records the route and incarnation", ctx do
       assert {:ok,
-              %AgentWorker{state: "ready", transport_route: "route-1", incarnation_id: "inc-1"}} =
+              %AgentWorker{state: :ready, transport_route: "route-1", incarnation_id: "inc-1"}} =
                join_worker(ctx.agent_uid, "route-1", "inc-1")
 
       refute Repo.get!(AgentWorker, ctx.agent_uid).initial_start_pending
 
-      set_row!(ctx.agent_uid, state: "stale", transport_route: nil)
+      set_row!(ctx.agent_uid, state: :stale, transport_route: nil)
 
-      assert {:ok, %AgentWorker{state: "ready", transport_route: "route-2"}} =
+      assert {:ok, %AgentWorker{state: :ready, transport_route: "route-2"}} =
                join_worker(ctx.agent_uid, "route-2", "inc-1")
 
       # The same process on a new connection only moves the route.
@@ -106,12 +106,14 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
     end
 
     test "a join on a paused, draining, or deleted Worker is refused", ctx do
-      for state <- ["paused", "draining"] do
+      for state <- [:paused, :draining] do
         set_row!(ctx.agent_uid, state: state)
         assert {:error, :stale_worker_generation} = join_worker(ctx.agent_uid, "route-x", "inc-x")
       end
 
-      :ok = AgentWorkers.mark_deleting_in_tx(Repo, ctx.agent_uid)
+      {:ok, :ok} =
+        Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, ctx.agent_uid)} end)
+
       assert {:error, :stale_worker_generation} = join_worker(ctx.agent_uid, "route-x", "inc-x")
     end
 
@@ -122,12 +124,12 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
 
     test "a disabled Agent's Worker can still connect", ctx do
       {:ok, _principal} = Ankole.PrincipalsFixtures.disable_principal_fixture(ctx.agent_uid)
-      assert {:ok, %AgentWorker{state: "ready"}} = join_worker(ctx.agent_uid, "route-1", "inc-1")
+      assert {:ok, %AgentWorker{state: :ready}} = join_worker(ctx.agent_uid, "route-1", "inc-1")
     end
 
     test "a heartbeat renews only the admitted connection and never restores a stale row", ctx do
       {:ok, _worker} = join_worker(ctx.agent_uid, "route-1", "inc-1")
-      assert {:ok, %AgentWorker{state: "ready"}} = heartbeat(ctx.agent_uid, "route-1", "inc-1")
+      assert {:ok, %AgentWorker{state: :ready}} = heartbeat(ctx.agent_uid, "route-1", "inc-1")
 
       assert {:error, :stale_transport_route} = heartbeat(ctx.agent_uid, "route-other", "inc-1")
       assert {:error, :stale_transport_route} = heartbeat(ctx.agent_uid, "route-1", "inc-other")
@@ -138,11 +140,11 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
                  :socket_closed
                )
 
-      assert %AgentWorker{state: "stale", transport_route: nil} =
+      assert %AgentWorker{state: :stale, transport_route: nil} =
                Repo.get!(AgentWorker, ctx.agent_uid)
 
       assert {:error, :stale_transport_route} = heartbeat(ctx.agent_uid, "route-1", "inc-1")
-      assert %AgentWorker{state: "stale"} = Repo.get!(AgentWorker, ctx.agent_uid)
+      assert %AgentWorker{state: :stale} = Repo.get!(AgentWorker, ctx.agent_uid)
     end
   end
 
@@ -152,7 +154,11 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
 
       {:ok, _worker} = join_worker(ctx.agent_uid, "route-1", "inc-1", available_slots: 1)
 
-      assert {:ok, %AgentWorker{capacity: %{"available_slots" => 0}}} =
+      assert {:ok,
+              %AgentWorker{
+                capacity: %{"available_slots" => 0, "max_slots" => 1},
+                load: %{"active_slots" => 1}
+              }} =
                reserve(ctx.agent_uid)
 
       assert {:error, :no_worker_capacity} = reserve(ctx.agent_uid)
@@ -174,7 +180,9 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
     end
 
     test "do not wake a deleted Agent's Worker", ctx do
-      :ok = AgentWorkers.mark_deleting_in_tx(Repo, ctx.agent_uid)
+      {:ok, :ok} =
+        Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, ctx.agent_uid)} end)
+
       assert :ok = AgentWorkers.request(ctx.agent_uid)
       assert %AgentWorker{wanted_until: nil} = Repo.get!(AgentWorker, ctx.agent_uid)
     end
@@ -186,7 +194,7 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
     Repo.delete_all(Oban.Job)
 
     {:ok, _principal} = Principals.delete_agent(ctx.agent_uid)
-    assert %AgentWorker{state: "deleting"} = Repo.get!(AgentWorker, ctx.agent_uid)
+    assert %AgentWorker{state: :deleting} = Repo.get!(AgentWorker, ctx.agent_uid)
     assert_enqueued(worker: ReconcileJob, args: %{agent_uid: ctx.agent_uid})
   end
 

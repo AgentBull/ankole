@@ -326,7 +326,9 @@ function CallRow({ row }: { row: BackgroundActivityWorkflowCall }) {
       <Ownership agent={row.agent_uid} owner={row.owner_session_id} task={row.task_session_id} />
       {row.attention ? <p className="text-warning">{t(`${key}attention`)}</p> : null}
       {row.sleep_note ? <p className="break-words">{row.sleep_note}</p> : null}
-      {row.sleeping_until ? <p>{t(`${key}sleeping_until`, { time: formatConsoleDate(row.sleeping_until) })}</p> : null}
+      {row.wake_kind === 'sleep' && row.wake_at ? (
+        <p>{t(`${key}sleep_deadline`, { time: formatConsoleDate(row.wake_at) })}</p>
+      ) : null}
       <p>{t(`${key}attempts`, { count: row.attempts })}</p>
       <Failure code={row.error_code} summary={row.error_summary} />
       <Failure code={row.run_error_code} summary={row.run_error_summary} />

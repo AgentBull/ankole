@@ -5,10 +5,8 @@ defmodule Ankole.AppConfigure.Codec do
 
   alias Ankole.AppConfigure.Crypto
   alias Ankole.AppConfigure.Definition
+  alias Ankole.AppConfigure.Envelope
   alias Ankole.AppConfigure.PatternDefinition
-
-  @plaintext "plaintext"
-  @cipher "cipher"
 
   @type definition :: Definition.t() | PatternDefinition.t()
 
@@ -36,10 +34,9 @@ defmodule Ankole.AppConfigure.Codec do
   """
   @spec load(definition(), String.t(), String.t(), map()) :: {:ok, term()} | {:error, term()}
   def load(definition, scope, key, envelope) do
-    case envelope_parts(envelope) do
-      {:ok, @plaintext, value} -> load_plaintext(definition, value)
-      {:ok, @cipher, value} -> load_cipher(definition, scope, key, value)
-      {:ok, type, _value} -> {:error, {:unknown_envelope_type, type}}
+    case Envelope.parts(envelope) do
+      {:ok, :plaintext, value} -> load_plaintext(definition, value)
+      {:ok, :cipher, value} -> load_cipher(definition, scope, key, value)
       {:error, reason} -> {:error, reason}
     end
   end
@@ -54,12 +51,12 @@ defmodule Ankole.AppConfigure.Codec do
     do: PatternDefinition.validate(definition, value)
 
   defp encode_envelope(%{encrypted: false}, _scope, _key, value) do
-    {:ok, %{"type" => @plaintext, "value" => value}}
+    {:ok, Envelope.plaintext(value)}
   end
 
   defp encode_envelope(%{encrypted: true}, scope, key, value) do
     with {:ok, ciphertext} <- Crypto.seal(value, scope, key) do
-      {:ok, %{"type" => @cipher, "value" => ciphertext}}
+      {:ok, Envelope.cipher(ciphertext)}
     end
   end
 
@@ -78,14 +75,4 @@ defmodule Ankole.AppConfigure.Codec do
 
   defp load_cipher(%{encrypted: true}, _scope, _key, _value),
     do: {:error, :expected_cipher_string}
-
-  defp envelope_parts(%{"type" => type, "value" => value}) when is_binary(type) do
-    {:ok, type, value}
-  end
-
-  defp envelope_parts(%{type: type, value: value}) when is_binary(type) do
-    {:ok, type, value}
-  end
-
-  defp envelope_parts(_envelope), do: {:error, :invalid_envelope}
 end

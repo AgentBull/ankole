@@ -8,6 +8,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
   """
 
   use Ankole.DataCase, async: false
+  @moduletag sandbox: false
 
   import Ecto.Query
   import Ankole.E2E.Harness
@@ -32,8 +33,12 @@ defmodule Ankole.E2E.ChaosE2ETest do
   alias Ankole.Workflow.Schemas.AgentCall
   alias Ankole.Workflow.Schemas.Run, as: WorkflowRun
 
+  setup do
+    cleanup_committed_fixtures_on_exit!()
+    :ok
+  end
+
   @tag timeout: 900_000
-  @tag ownership_timeout: 900_000
   @tag :real_llm
   @tag :real_llm_chaos
   test "real DeepSeek recovers an admitted command after Driver death while the tenant is suspended",
@@ -116,7 +121,6 @@ defmodule Ankole.E2E.ChaosE2ETest do
   end
 
   @tag timeout: 900_000
-  @tag ownership_timeout: 900_000
   @tag :real_llm
   @tag :real_llm_chaos
   test "real DeepSeek checks a persisted file after Worker death without repeating the interrupted write" do
@@ -130,7 +134,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
     messages = assert_real_command_recovered!(ctx, command)
 
-    assert %AgentWorker{state: "ready", generation: next_generation} =
+    assert %AgentWorker{state: :ready, generation: next_generation} =
              Repo.get!(AgentWorker, ctx.agent.uid)
 
     assert is_binary(next_generation)
@@ -144,22 +148,17 @@ defmodule Ankole.E2E.ChaosE2ETest do
   end
 
   @tag timeout: 900_000
-  @tag ownership_timeout: 900_000
   @tag :real_llm
   @tag :real_llm_chaos
   @tag :deepseek_tenant_isolation
-  @tag sandbox: false
   test "real DeepSeek keeps identical platform identities and private files separate across tenants",
        %{tenant: tenant_a} do
-    assert :ok = Ankole.Tenants.ensure_scaffold(tenant_a)
-    cleanup_committed_fixtures_on_exit!()
     fake_feishu = start_fake_feishu!()
     domain_a = setup_lark_real_llm_domain!(openrouter_api_key!(), fake_feishu)
-    tenant_b = Ankole.DataCase.create_tenant()
+    tenant_b = Ankole.DataCase.create_committed_tenant()
 
     agent_b =
       Repo.with_tenant(tenant_b.id, fn ->
-        assert :ok = Ankole.Tenants.ensure_scaffold(tenant_b)
         cleanup_committed_fixtures_on_exit!()
 
         %{principal: agent} =
@@ -311,7 +310,6 @@ defmodule Ankole.E2E.ChaosE2ETest do
   end
 
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
   @tag :conversation_recovery
   test "Worker shutdown leaves the control-plane model turn running without replay" do
     ctx = start_worker_e2e_stack!(replaces_workers: true)
@@ -336,10 +334,15 @@ defmodule Ankole.E2E.ChaosE2ETest do
     signalled_at = DateTime.add(DateTime.utc_now(), -1, :second)
     assert :ok = DockerWorker.signal_docker_worker!(ctx.container, "TERM")
 
-    assert {:ok, %Signal{completed_at: %DateTime{}, final_response_id: "resp_" <> _}} =
+    assert {:ok,
+            %Signal{
+              status: :completed,
+              completed_at: %DateTime{},
+              final_response_id: "resp_" <> _
+            }} =
              wait_until(deadline(120_000), fn ->
                case Repo.get(Signal, input.id) do
-                 %Signal{completed_at: %DateTime{}} = event -> event
+                 %Signal{status: :completed, completed_at: %DateTime{}} = event -> event
                  _event -> nil
                end
              end)
@@ -374,7 +377,6 @@ defmodule Ankole.E2E.ChaosE2ETest do
   end
 
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
   @tag :conversation_recovery
   test "a suspended tenant recovers accepted input after Driver death and resumes new work", %{
     tenant: tenant
@@ -464,7 +466,6 @@ defmodule Ankole.E2E.ChaosE2ETest do
   end
 
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
   test "a crashed Worker process starts again in its container and ends the processes it left" do
     ctx = start_worker_e2e_stack!(replaces_workers: true)
 
@@ -500,7 +501,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
     assert {:ok, %AgentWorker{generation: ^generation}} =
              wait_until(deadline(60_000), fn ->
                case Repo.get(AgentWorker, ctx.agent.uid) do
-                 %AgentWorker{state: "ready", incarnation_id: id} = worker
+                 %AgentWorker{state: :ready, incarnation_id: id} = worker
                  when is_binary(id) and id != incarnation ->
                    worker
 
@@ -514,15 +515,11 @@ defmodule Ankole.E2E.ChaosE2ETest do
   end
 
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
   @tag :worker_storage_lifecycle
-  @tag sandbox: false
   test "idle release deletes the instance, wake restores Home and cache, and tenant deletion removes both",
        %{tenant: tenant} do
     assert {:ok, privileged} = Ankole.Tenants.privileged()
     refute tenant.id == privileged.id
-    assert :ok = Ankole.Tenants.ensure_scaffold(tenant)
-    cleanup_committed_fixtures_on_exit!()
     ctx = start_worker_e2e_stack!(replaces_workers: true)
     agent_uid = ctx.agent.uid
     generation = Repo.get!(AgentWorker, agent_uid).generation
@@ -546,19 +543,19 @@ defmodule Ankole.E2E.ChaosE2ETest do
     input = send_file_message!(ctx, "om_chaos_absent_file_1", "oc_chaos_absent_file")
     [%{"path" => path}] = get_in(input.data, ["entry", "attachments"])
     assert {:ok, _file, "CHAOS_INBOUND_FILE_BYTES deck"} = Ankole.Files.read(agent_uid, path)
-    assert %AgentWorker{state: "absent"} = Repo.get!(AgentWorker, agent_uid)
+    assert %AgentWorker{state: :absent} = Repo.get!(AgentWorker, agent_uid)
     retry_until_sent!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(ctx.container, input.id, deadline(120_000))
 
     assert reply.message.text =~ "CHAOS_GENERIC_OK"
-    assert %AgentWorker{state: "absent"} = Repo.get!(AgentWorker, agent_uid)
+    assert %AgentWorker{state: :absent} = Repo.get!(AgentWorker, agent_uid)
 
     # This reply needs no computer. A separate execution demand wakes it.
     request_worker!(agent_uid)
 
-    assert %AgentWorker{state: "ready", generation: next_generation} =
+    assert %AgentWorker{state: :ready, generation: next_generation} =
              Repo.get!(AgentWorker, agent_uid)
 
     assert is_binary(next_generation)
@@ -594,8 +591,6 @@ defmodule Ankole.E2E.ChaosE2ETest do
   end
 
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
-  @tag sandbox: false
   @tag :worker_job_recovery
   test "a waiting Codex Job resumes its thread and files after idle instance deletion" do
     Ankole.E2E.Scenarios.WorkerJobRecovery.run()
@@ -603,8 +598,6 @@ defmodule Ankole.E2E.ChaosE2ETest do
 
   for max_slots <- [1, 9] do
     @tag timeout: 180_000
-    @tag ownership_timeout: 180_000
-    @tag sandbox: false
     @tag :worker_job_reconnect
     test "a running Codex Job resumes after a disconnect with #{max_slots} Worker slots" do
       Ankole.E2E.Scenarios.WorkerJobRecovery.reconnect(unquote(max_slots))
@@ -612,11 +605,8 @@ defmodule Ankole.E2E.ChaosE2ETest do
   end
 
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
-  @tag sandbox: false
   @tag :worker_image_replacement
   test "an image change waits for an active Turn, preserves storage, and applies on the next wake" do
-    cleanup_committed_fixtures_on_exit!()
     ctx = start_worker_e2e_stack!(replaces_workers: true)
     agent_uid = ctx.agent.uid
     old = Repo.get!(AgentWorker, agent_uid)
@@ -664,7 +654,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
                args: %{"agent_uid" => agent_uid, "tenant_id" => Repo.tenant_id!()}
              })
 
-    assert %AgentWorker{state: "ready", generation: generation, image: image} =
+    assert %AgentWorker{state: :ready, generation: generation, image: image} =
              Repo.get!(AgentWorker, agent_uid)
 
     assert {generation, image} == {old.generation, old.image}
@@ -678,7 +668,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
     assert {:ok, %AgentWorker{generation: new_generation}} =
              wait_until(deadline(120_000), fn ->
                case Repo.get!(AgentWorker, agent_uid) do
-                 %AgentWorker{state: "ready", image: ^new_image} = worker -> worker
+                 %AgentWorker{state: :ready, image: ^new_image} = worker -> worker
                  _worker -> nil
                end
              end)
@@ -720,7 +710,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
     assert {:ok, _worker} =
              wait_until(deadline(60_000), fn ->
                case Repo.get!(AgentWorker, agent_uid) do
-                 %AgentWorker{state: "absent", generation: nil} = worker -> worker
+                 %AgentWorker{state: :absent, generation: nil} = worker -> worker
                  _worker -> nil
                end
              end)
@@ -737,7 +727,6 @@ defmodule Ankole.E2E.ChaosE2ETest do
   end
 
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
   @tag :conversation_recovery
   @tag :workflow_kill_recovery
   test "Worker death does not replay a Workflow model task or consume its call budget" do
@@ -813,14 +802,14 @@ defmodule Ankole.E2E.ChaosE2ETest do
         reraise error, __STACKTRACE__
     end
 
-    assert Repo.reload!(call).status == "running"
+    assert Repo.reload!(call).status == :running
     assert Repo.reload!(dispatch_event).completed_at == nil
     assert FakeOpenAIState.counters()[:workflow_kill_task] == 1
 
     assert Repo.exists?(
              from response in Ankole.AIGateway.Schemas.Message,
                where:
-                 response.subject_uid == ^ctx.agent.uid and response.status == "generating" and
+                 response.subject_uid == ^ctx.agent.uid and response.status == :generating and
                    fragment("? #>> '{request_metadata,signal_id}'", response.metadata) ==
                      ^dispatch_event.id
            )
@@ -831,13 +820,13 @@ defmodule Ankole.E2E.ChaosE2ETest do
     assert {:ok, %AgentCall{} = call} =
              wait_until(deadline(120_000), fn ->
                case Repo.get!(AgentCall, call.id) do
-                 %AgentCall{status: "succeeded"} = done -> {:ok, done}
-                 %AgentCall{status: status} when status in ["failed", "cancelled"] -> {:ok, call}
+                 %AgentCall{status: :succeeded} = done -> {:ok, done}
+                 %AgentCall{status: status} when status in [:failed, :cancelled] -> {:ok, call}
                  _pending -> nil
                end
              end)
 
-    assert call.status == "succeeded"
+    assert call.status == :succeeded
     assert call.result == %{"ok" => true, "value" => "killed-and-recovered"}
     assert call.attempts == 1
     assert FakeOpenAIState.counters()[:workflow_kill_task] == 1
@@ -855,7 +844,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
                end
              end)
 
-    assert Repo.get!(WorkflowRun, run.id).status == "completed"
+    assert Repo.get!(WorkflowRun, run.id).status == :completed
 
     assert {:ok, %{status: :driving}} = ensure_input_driver!(completion, completion.available_at)
 
@@ -874,7 +863,6 @@ defmodule Ankole.E2E.ChaosE2ETest do
   end
 
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
   test "control-plane server restart re-routes the reconnected worker and it completes turns" do
     ctx = start_worker_e2e_stack!()
     before = Repo.get!(AgentWorker, ctx.agent.uid)
@@ -885,7 +873,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
     assert {:ok, %AgentWorker{} = rejoined} =
              wait_until(deadline(60_000), fn ->
                case Repo.get!(AgentWorker, ctx.agent.uid) do
-                 %AgentWorker{state: "ready", transport_route: route} = worker
+                 %AgentWorker{state: :ready, transport_route: route} = worker
                  when route != before.transport_route ->
                    worker
 
@@ -925,7 +913,6 @@ defmodule Ankole.E2E.ChaosE2ETest do
   end
 
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
   test "an attachment whose local file is removed after the turn still delivers the pinned bytes" do
     ctx = start_worker_e2e_stack!()
     %{intent: intent} = run_reply_attachment_tool_loop(ctx)
@@ -941,7 +928,6 @@ defmodule Ankole.E2E.ChaosE2ETest do
   end
 
   @tag timeout: 120_000
-  @tag ownership_timeout: 120_000
   test "event redelivery after a WS reconnect stays deduplicated" do
     ctx = start_worker_e2e_stack!(worker: false)
 
@@ -993,7 +979,6 @@ defmodule Ankole.E2E.ChaosE2ETest do
   end
 
   @tag timeout: 600_000
-  @tag ownership_timeout: 600_000
   test "a rejected provider send leaves no platform message and stops for good" do
     ctx = start_worker_e2e_stack!(worker: false)
 
@@ -1043,7 +1028,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
     # automatic retry may fire, and the row must carry the recovery state
     # that records the stop instead of failing silently.
     assert failed_row.status == :failed
-    assert failed_row.recovery_state["state"] == "permanent"
+    assert failed_row.recovery_status == :permanent
     assert failed_row.next_attempt_at == nil
 
     assert {:error, :intent_manual_requeue_required} =
@@ -1163,7 +1148,7 @@ defmodule Ankole.E2E.ChaosE2ETest do
   defp stop_idle_worker!(agent_uid) do
     case wait_until(deadline(360_000), fn ->
            case Repo.get!(AgentWorker, agent_uid) do
-             %AgentWorker{state: "absent"} = worker -> worker
+             %AgentWorker{state: :absent} = worker -> worker
              _worker -> nil
            end
          end) do
@@ -1180,8 +1165,8 @@ defmodule Ankole.E2E.ChaosE2ETest do
   defp open_signals(agent_uid) do
     Repo.all(
       from(event in Signal,
-        where: event.agent_uid == ^agent_uid and is_nil(event.completed_at),
-        select: map(event, [:id, :type, :session_id, :input_state, :available_at])
+        where: event.agent_uid == ^agent_uid and event.status in [:queued, :running],
+        select: map(event, [:id, :type, :session_id, :status, :available_at])
       )
     )
   end

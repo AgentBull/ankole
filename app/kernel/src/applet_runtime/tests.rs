@@ -27,18 +27,16 @@ fn launch_with(
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let (sender, receiver) = mpsc::channel();
-        let busy = Arc::new(AtomicBool::new(false));
-        let observer = Arc::clone(&busy);
         let decode = Arc::clone(&decode);
-        let handle = start_with(move || decode.lock().unwrap().take().unwrap()(),
+        match start_with(
+            move || decode.lock().unwrap().take().unwrap()(),
             Arc::new(move |event| {
-                if matches!(&event, Event::Done(value) if value["body"]["error"]["code"] == "applet_busy") {
-                    observer.store(true, Ordering::SeqCst);
-                }
                 let _ = sender.send(event);
-            })).unwrap();
-        if !busy.load(Ordering::SeqCst) {
-            return (handle, receiver);
+            }),
+        ) {
+            Ok(handle) => return (handle, receiver),
+            Err(StartError::Busy(_)) => {}
+            Err(StartError::Spawn(error)) => panic!("{error}"),
         }
         assert!(
             Instant::now() < deadline,
@@ -626,8 +624,7 @@ fn native_admission_rejects_overload_and_releases_slots_after_cancel() {
         active.recv_timeout(Duration::from_secs(5)).unwrap(),
         Event::Call { .. }
     ));
-    let (sender, receiver) = mpsc::channel();
-    start(
+    let Err(StartError::Busy(busy)) = start(
         Request {
             source: String::new(),
             inspect: true,
@@ -635,12 +632,11 @@ fn native_admission_rejects_overload_and_releases_slots_after_cancel() {
             timeout_ms: 100,
             heap_mb: 32,
         },
-        Arc::new(move |event| {
-            sender.send(event).unwrap();
-        }),
-    )
-    .unwrap();
-    assert_eq!(finish(&receiver)["status"], 503);
+        Arc::new(|_event| {}),
+    ) else {
+        panic!("expected StartError::Busy");
+    };
+    assert_eq!(busy["status"], 503);
     handle.cancel();
     assert_eq!(
         finish(&active)["body"]["error"]["code"],

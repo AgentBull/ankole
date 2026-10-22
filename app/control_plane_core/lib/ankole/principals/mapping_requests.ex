@@ -26,11 +26,12 @@ defmodule Ankole.Principals.MappingRequests do
   @spec record_observation(map()) ::
           {:ok, MappingRequest.t() | :already_mapped} | {:error, term()}
   def record_observation(attrs) when is_map(attrs) do
-    changeset = MappingRequest.changeset(%MappingRequest{}, attrs)
-
-    with {:ok, incoming} <- Ecto.Changeset.apply_action(changeset, :validate) do
-      Repo.transact(fn repo -> record_observation_in_repo(repo, incoming) end)
-    end
+    Repo.transact(fn repo ->
+      with changeset <- Ankole.Ash.for_create(MappingRequest, :observe_in_tx, attrs),
+           {:ok, incoming} <- Ash.Changeset.apply_attributes(changeset) do
+        record_observation_in_repo(repo, incoming)
+      end
+    end)
   end
 
   @doc """
@@ -124,10 +125,10 @@ defmodule Ankole.Principals.MappingRequests do
   """
   @spec delete_request(String.t()) :: {:ok, MappingRequest.t()} | {:error, :not_found}
   def delete_request(id) when is_binary(id) do
-    with {:ok, request} <- get_request(id),
-         {:ok, deleted} <- Repo.delete(request) do
-      {:ok, deleted}
-    end
+    Repo.transact(fn repo ->
+      with {:ok, request} <- get_request(repo, id),
+           do: Ankole.Ash.destroy(request, :delete_in_tx)
+    end)
   end
 
   defp record_observation_in_repo(repo, incoming) do
@@ -156,13 +157,7 @@ defmodule Ankole.Principals.MappingRequests do
               nil -> incoming_attrs(incoming)
             end
 
-          %MappingRequest{}
-          |> MappingRequest.changeset(merged)
-          |> repo.insert(
-            conflict_target: [:tenant_id, :provider, :external_id],
-            on_conflict: {:replace, [:display_name, :email, :mobile, :metadata, :updated_at]},
-            returning: true
-          )
+          Ankole.Ash.create(MappingRequest, :observe_in_tx, merged)
       end
     end
   end

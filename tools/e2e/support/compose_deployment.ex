@@ -394,7 +394,12 @@ defmodule Ankole.E2E.ComposeDeployment do
   end
 
   def wait_http!(deployment) do
-    origin = "http://" <> String.trim(compose!(deployment, ["port", "control-plane", "4000"]))
+    %URI{port: port} =
+      URI.parse("http://" <> String.trim(compose!(deployment, ["port", "control-plane", "4000"])))
+
+    # Literal IP browser entries redirect to localhost. Keep one browser
+    # origin for setup, login, cookies, and CSRF before and after an upgrade.
+    origin = URI.to_string(%URI{scheme: "http", host: "localhost", port: port})
     deployment = %{deployment | origin: origin}
 
     assert {:ok, true} =

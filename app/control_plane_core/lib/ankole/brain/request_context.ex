@@ -84,8 +84,7 @@ defmodule Ankole.Brain.RequestContext do
       Repo.exists?(
         from e in Signal,
           where:
-            e.id == ^signal_id and e.agent_uid == ^agent_uid and e.input_state == "open" and
-              is_nil(e.completed_at)
+            e.id == ^signal_id and e.agent_uid == ^agent_uid and e.status in [:queued, :running]
       )
 
     if live?, do: :ok, else: {:error, :turn_not_live}

@@ -40,7 +40,7 @@ failure event to the owner Session.
 `result_offset`, it returns the concrete status, task counts, at most 32 live
 tasks, and at most ten task failure summaries. A live task row carries
 `call_seq`, `label`, `status`, the task's sleep `note`, its `attention` flag,
-`sleeping_until`, and `wake_count`, with attention rows first. A sleeping task
+`wake_at`, and `wake_count`, with attention rows first. A sleeping task
 is executing, not finished: it hibernates until an event wakes it. For a
 completed run, set `result_offset` to a stable UTF-8 byte offset to read one
 bounded result segment. A segment contains at most 8,000 bytes. Use its next
@@ -87,7 +87,7 @@ so every wake can rebuild `submit_result`.
 
 Each sleep resets the call attempt budget to zero and consumes one unit of the
 hard wake budget of 16 sleeps per call. A crashed wake turn returns the call to
-`sleeping` — its open wake event owns redelivery — and the three-attempt budget
+`queued`. Its open wake event owns redelivery, and the three-attempt budget
 still bounds repeated wake failures. The hourly watchdog treats a sleeping call
 whose deadline passed more than an hour ago as overdue: with an open mailbox
 event it re-notifies the session, and with none it fails the call as
@@ -291,17 +291,25 @@ queued -> failed
 ```
 
 `running -> queued` and `queued -> failed` cover task retry and a
-dispatch-time configuration failure. A call that has ever slept retries back to
-`sleeping` instead of `queued`, because its open wake event owns redelivery
-while the completed dispatch event cannot re-dispatch a queued row. A terminal
-state cannot return to a live state.
+dispatch-time configuration failure. A failed wake attempt returns to `queued`.
+The same open wake Signal owns redelivery, even when the original dispatch
+Signal has completed. A terminal state cannot return to a live state.
+
+`wake_kind` and `wake_at` store the wait contract. A sleeping call requires
+`wake_kind = sleep` and a deadline. A queued call can have an `agent_capacity`
+wait and its retry time, or no wait. Running and terminal calls have neither
+field. PostgreSQL checks these combinations. Claim clears both fields and
+sets `progress_at`; a new committed tool-result round advances `progress_at`.
+The watchdog uses this timestamp, not unrelated metadata updates.
 
 One temporary `RunServer` serializes replay for one run. PostgreSQL remains the
 source of truth. The conversation Reconciler asks the Workflow owner for runs
 without a `RunServer` and terminal runs that need cleanup, then inserts the
 existing `PokeRun` job. This also covers a crash before the first task event.
 A new replay reads the script and memo from PostgreSQL, so completed tasks do
-not run again.
+not run again. Each native replay handle monitors its `RunServer` owner and
+execution task. Exit of either process cancels the isolate without another
+guardian process.
 
 An unexpected replay-isolate cancellation failure emits a warning with the
 failure class and stack locations. It omits exception messages and function
@@ -319,7 +327,7 @@ even when the tenant is suspended. Without a committed ending result, recovery
 uses the existing retry or adoption path.
 
 If a task turn exits before it submits a result or sleeps, the control plane
-returns the same call to `queued`, or to `sleeping` after its first sleep. The
+returns the same call to `queued`. The
 third failed attempt inside one wake segment makes the call `failed`. The same
 triggering event stays open through these attempts, and a Workflow task event
 follows the Job rule for dead-letter accounting: recoverable Worker errors keep
@@ -338,11 +346,14 @@ the Job-wakeup guarantee: the notice renders the run counts and result preview
 from the durable payload, so the outcome reaches the user without the Agent
 runtime that failed to relay it.
 
-When a running call succeeds or reaches a terminal failure, the same
-transaction advances the earliest call in that run that was deferred for Agent
-capacity. It wakes one task because one task released one slot. Deferrals for a
-Worker shortage, delivery failure, or an active retry keep their own retry
-time.
+After a running call sleeps, succeeds, or reaches a terminal failure, the
+post-commit hook starts a separate `Mail.release_capacity/1` transaction. It
+advances the oldest queued call across the Agent's running workflows that waits
+for capacity. A workflow at its own concurrency limit is not eligible. The
+wake transaction locks the Agent slot scope, run, call, Session, and Signal in
+that order. A task that failed before admission did not release a slot.
+Deferrals for a Worker shortage, delivery failure, or an active retry keep
+their own retry time.
 
 A completed or failed run changes every remaining queued or running call to
 `cancelled` in the same transaction as the run terminal state. This releases
@@ -404,9 +415,27 @@ parent. The projection also includes running runs with no live calls and termina
 runs whose `cleanup_completed_at` is still unset. Calls and runs have independent
 cursors; native status counts, sleep notes, deadlines, attention and bounded error
 summaries explain persisted facts without inferring that an old update is stuck.
+The call projection includes `wake_kind` and `wake_at`. The Console shows a sleep
+deadline only for `wake_kind: "sleep"`. Capacity retries retain queued status.
 
 This endpoint reads no scripts, full results or memo bodies and performs no
 cancellation, wakeup or cleanup. A delegated Background Job retains its Workflow
 task Session as `owner_session_id`; these related rows are not added into a
 single busy count. See [Background Agent Job](BackgroundAgentJob.md) and
 [Automation Jobs](AutomationJobs.md) for the other independently authorized groups.
+
+## Module Owners
+
+`Ankole.Workflow` delegates the public contract. `Queries` reads projections;
+`Lifecycle` creates and ends runs; `TaskLifecycle` owns task transitions;
+`Replay` commits the durable memo; `Mail` appends events and releases capacity;
+`Slot` owns the slot, run, and call lock order; `Recovery` restores lost wakeups.
+`RunServer` coordinates replay and keeps its waiting-period watchdog. The
+domain modules call these owners directly. Projection helpers stay in `Queries`.
+The public module exposes the operations used by other domains. The
+resource actions own legal transitions through `AshStateMachine`; each action
+uses the caller's tenant and existing transaction. `TaskLifecycle` uses one
+compensation function when a stopped run still has a running call. It cancels
+the call and notifies its Session in the same transaction. A retry that queues a
+running call releases its slot and wakes capacity waiters after commit, just as
+a terminal result does.

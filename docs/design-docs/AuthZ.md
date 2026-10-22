@@ -70,6 +70,24 @@ Bun code calls the control plane for permission decisions.
 
 ## Stored Groups and Grants
 
+`Ankole.AuthZ.Domain` declares the four stored resource types. Their typed
+actions own field validation, native constraint errors, and persistence.
+Group conditions and grant rules use the existing Kernel syntax validators.
+Metadata uses the durable JSON object type.
+
+`AuthZ`, `Root`, `Store`, and `Grants` keep the aggregate transaction and lock
+contracts. They protect the last administrator and distinguish operator groups
+from groups owned by directory and conversation synchronization. Grant writes
+retain the Pod tree lock. These owners call the resource actions inside their
+existing PostgreSQL transactions. Ash policies do not make permission decisions.
+
+Membership admission preserves its first timestamp. External bindings retain
+their tenant-scoped composite key. Grant upserts use the existing partial
+natural indexes for a Principal or a group and update only descriptive fields.
+An ensure operation returns the stored group identity without replacing its
+shape or metadata. Built-in group identity and computation are immutable in
+the update action.
+
 ### `principal_groups`
 
 The table stores these fields:
@@ -89,6 +107,7 @@ The `domain` field accepts these values:
 - `operator`
 - `directory`
 - `im_group`
+- `signal_source`
 
 The `kind` field accepts `static` or `computed`.
 A static group cannot contain `computed_condition`.
@@ -113,7 +132,7 @@ The table maps an external group identity to one AuthZ group.
 Its composite primary key is:
 
 ```text
-provider + external_kind + external_id
+tenant_id + provider + external_kind + external_id
 ```
 
 The `external_kind` field accepts these values:

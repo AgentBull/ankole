@@ -18,7 +18,6 @@ defmodule Ankole.IdentityProviders.ObservationTest do
     on_exit(fn -> :sys.replace_state(Ankole.Plugins.Registry, fn _ -> original_registry end) end)
     previous = Req.default_options()
     on_exit(fn -> Req.default_options(previous) end)
-    allow_cache_database_access()
     assert {:ok, _} = Ankole.Plugins.put_configured_enabled("wecom-adapter", true)
     Ankole.AppConfigure.Registry.clear_for_test()
     Ankole.AppConfigure.Cache.clear_for_test()
@@ -99,7 +98,7 @@ defmodule Ankole.IdentityProviders.ObservationTest do
 
       stub_login(adapter, :error)
       assert {:ok, %{principal_uid: ^uid}} = Login.complete_oidc_login(provider, "code", [])
-      assert Repo.get!(HumanUser, uid) == profile
+      Ankole.DataCase.assert_persisted_equal(Repo.get!(HumanUser, uid), profile)
       assert Repo.get!(Principal, uid).display_name == principal.display_name
       assert Repo.get!(Principal, uid).avatar_url == principal.avatar_url
 
@@ -150,7 +149,7 @@ defmodule Ankole.IdentityProviders.ObservationTest do
         assert {:ok, %{principal_uid: ^uid}} =
                  Login.complete_oidc_login(no_secret_provider, "no-secret", [])
 
-        assert Repo.get!(HumanUser, uid) == profile
+        Ankole.DataCase.assert_persisted_equal(Repo.get!(HumanUser, uid), profile)
         assert member?(uid, no_secret_group.id)
         assert member?(uid, child.id)
       end
@@ -158,7 +157,7 @@ defmodule Ankole.IdentityProviders.ObservationTest do
       if adapter == "lark" do
         stub_login(adapter, :empty_body)
         assert {:ok, %{principal_uid: ^uid}} = Login.complete_oidc_login(provider, "no-body", [])
-        assert Repo.get!(HumanUser, uid) == profile
+        Ankole.DataCase.assert_persisted_equal(Repo.get!(HumanUser, uid), profile)
         assert member?(uid, child.id)
       end
 
@@ -166,7 +165,7 @@ defmodule Ankole.IdentityProviders.ObservationTest do
                module.upsert_user(provider, Map.put(subject(adapter), "name", "New Name"))
 
       assert Repo.get!(Principal, uid).display_name == "New Name"
-      assert Repo.get!(HumanUser, uid) == profile
+      Ankole.DataCase.assert_persisted_equal(Repo.get!(HumanUser, uid), profile)
 
       blank =
         subject(adapter)

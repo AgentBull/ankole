@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.PodAttachmentControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  @moduletag host: :pod
   import Ecto.Query
   alias Ankole.{BrowserSessions, Files, Repo}
   alias Ankole.Conversations.Message
@@ -8,7 +9,6 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
   alias AnkoleWeb.SessionCookies
 
   setup do
-    allow_cache_database_access()
     Ankole.AppConfigure.Cache.clear_for_test()
     :ok
   end

@@ -34,11 +34,13 @@ export function WorkerProviderSelect({
         <SelectValue placeholder={t('console.worker_providers.select')} />
       </SelectTrigger>
       <SelectContent>
-        {providers.map(provider => (
-          <SelectItem key={provider.provider_id} value={provider.provider_id}>
-            {provider.display_name} ({provider.provider_id})
-          </SelectItem>
-        ))}
+        {providers
+          .filter(provider => provider.selectable)
+          .map(provider => (
+            <SelectItem key={provider.provider_id} value={provider.provider_id}>
+              {provider.display_name} ({provider.provider_id})
+            </SelectItem>
+          ))}
       </SelectContent>
     </Select>
   )

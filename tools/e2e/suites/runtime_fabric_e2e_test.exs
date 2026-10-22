@@ -78,7 +78,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
              wait_until(deadline(60_000), fn ->
                current = Repo.get!(AgentWorker, uid)
 
-               (current.state == "ready" and current.transport_route != worker.transport_route) &&
+               (current.state == :ready and current.transport_route != worker.transport_route) &&
                  current
              end)
 
@@ -207,7 +207,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     :erlang.trace(channel, true, [:receive, {:tracer, self()}])
     on_exit(fn -> if Process.alive?(channel), do: :erlang.trace(channel, false, [:receive]) end)
 
-    assert {:ok, %{job: %{status: "stopped"} = stopped, turn: turn}} =
+    assert {:ok, %{job: %{status: :stopped} = stopped, turn: turn}} =
              BackgroundAgentJobs.request_stop(job.id, %{
                agent_uid: uid,
                cancel_requested_by: "agent:#{uid}",
@@ -273,7 +273,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
       job = Repo.get!(Job, turn.job_id)
       assert job.agent_uid == uid
       assert job.attempts == turn.attempt
-      assert job.status == "running"
+      assert job.status == :running
       fault_at = System.monotonic_time(:millisecond)
       monitor = Process.monitor(channel)
       Process.exit(channel, :kill)
@@ -283,7 +283,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                wait_until(deadline(30_000), fn ->
                  current = Repo.get!(AgentWorker, uid)
 
-                 (current.state == "ready" and current.transport_route != worker.transport_route) &&
+                 (current.state == :ready and current.transport_route != worker.transport_route) &&
                    current
                end)
 
@@ -328,7 +328,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
       assert {:ok, completed} =
                wait_until(deadline(90_000), fn ->
                  case Repo.get!(Job, job.id) do
-                   %Job{status: "succeeded"} = completed -> completed
+                   %Job{status: :succeeded} = completed -> completed
                    _ -> nil
                  end
                end)
@@ -372,7 +372,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                request_id: "b02-stop"
              })
 
-    assert stopped.status == "stopped"
+    assert stopped.status == :stopped
     send(channel, {:resume_worker_boundary, ref})
 
     assert {:ok, true} =
@@ -450,7 +450,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
          {:in, %Phoenix.Socket.Message{event: "durable", payload: {:binary, bytes}}},
          boundary
        ) do
-    case Ankole.Kernel.RuntimeFabric.decode_and_validate(bytes) do
+    case Ankole.RuntimeFabric.decode_and_validate(bytes) do
       {:ok, %Proto.Envelope{body: {:turn_accepted, accepted}, transport_seq: seq}} ->
         {%{state | turn: accepted.turn, seq: seq}, boundary == :stop}
 
@@ -503,14 +503,14 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                "limit_tokens" => 1
              })
 
-    Repo.insert!(%Ankole.AIGateway.Schemas.UsageRecord{
-      subject_uid: uid,
-      origin: "agent",
-      model: "quota-e2e/fixture",
-      input_tokens: 1,
-      output_tokens: 0,
-      inserted_at: now
-    })
+    assert {:ok, _record} =
+             Ankole.Ash.create(Ankole.AIGateway.Schemas.UsageRecord, :record_round, %{
+               subject_uid: uid,
+               origin: :agent,
+               model: "quota-e2e/fixture",
+               input_tokens: 1,
+               output_tokens: 0
+             })
 
     assert {:ok, %{job: job, dispatch_event: dispatch}} =
              Repo.transact(fn _repo ->
@@ -533,7 +533,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     assert {:ok, failed} =
              wait_until(deadline(90_000), fn ->
                case Repo.get!(Job, job.id) do
-                 %Job{status: "failed"} = failed -> failed
+                 %Job{status: :failed} = failed -> failed
                  _ -> nil
                end
              end)
@@ -543,7 +543,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     assert failed.error["code"] == "agent_token_quota_exceeded"
     assert failed.error["summary"] == "The Agent has used its token quota for the current period."
     assert failed.error["details"]["error_code"] == "agent_token_quota_exceeded"
-    assert Repo.get!(Ankole.Signals.Signal, dispatch.id).input_state == "dead_letter"
+    assert Repo.get!(Ankole.Signals.Signal, dispatch.id).status == :dead_letter
 
     assert Repo.get_by!(Ankole.Signals.Signal,
              agent_uid: uid,
@@ -585,7 +585,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                now: batch.available_at
              )
 
-    assert batch.batch_state == "finalized"
+    assert batch.batch_state == :finalized
     assert [stored] = batch.entries
     assert stored["text"] == "This unaddressed group line must not wake the agent."
     assert Ankole.JSON.encode!(stored["raw_payload"]) =~ stored["text"]
@@ -681,7 +681,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
       assert endpoint.binding_name == input.reply_binding_name
       assert endpoint.expires_at == hd(endpoints).expires_at
       assert endpoint.mode == "one_shot"
-      assert endpoint.status == "fired"
+      assert endpoint.status == :fired
       assert endpoint.fired_at
       assert is_binary(endpoint.source_provenance["rpc_request_id"])
       assert endpoint.source_provenance["transport_route"] == worker.transport_route
@@ -715,8 +715,11 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
              }
     end
 
-    other_tenant = create_tenant()
-    on_exit(fn -> Repo.delete!(other_tenant) end)
+    other_tenant = create_committed_tenant()
+
+    on_exit(fn ->
+      Repo.with_tenant(other_tenant.id, fn -> cleanup_tenant!(other_tenant) end)
+    end)
 
     Repo.with_tenant(other_tenant.id, fn ->
       for endpoint <- endpoints, do: assert(is_nil(Repo.get(WebhookEndpoint, endpoint.id)))
@@ -757,7 +760,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     assert {:ok, completed} =
              wait_until(deadline(90_000), fn ->
                current = Repo.get!(Job, job.id)
-               current.status == "succeeded" && current
+               current.status == :succeeded && current
              end)
 
     assert completed.result["summary"] == "B07_JOB_DONE" or
@@ -766,14 +769,14 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     endpoint =
       Repo.one!(
         from(e in WebhookEndpoint,
-          where: e.agent_uid == ^uid and e.label == "B07 callback" and e.status == "armed"
+          where: e.agent_uid == ^uid and e.label == "B07 callback" and e.status == :armed
         )
       )
 
     automation =
       Repo.one!(
         from(j in Ankole.AutomationJobs.Schemas.Job,
-          where: j.agent_uid == ^uid and j.label == "B07 automation" and j.status == "active"
+          where: j.agent_uid == ^uid and j.label == "B07 automation" and j.status == :active
         )
       )
 
@@ -789,15 +792,14 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
 
     assert Repo.one!(
              from(e in WebhookEndpoint,
-               where:
-                 e.agent_uid == ^uid and e.label == "B07 callback" and e.status == "cancelled"
+               where: e.agent_uid == ^uid and e.label == "B07 callback" and e.status == :cancelled
              )
            )
 
     assert Repo.one!(
              from(j in Ankole.AutomationJobs.Schemas.Job,
                where:
-                 j.agent_uid == ^uid and j.label == "B07 automation" and j.status == "cancelled"
+                 j.agent_uid == ^uid and j.label == "B07 automation" and j.status == :cancelled
              )
            )
 
@@ -875,7 +877,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                %{"automation_job_run_id" => queued.id}
              )
 
-    assert %Ankole.AutomationJobs.Schemas.Run{status: "succeeded", exit_code: 0} =
+    assert %Ankole.AutomationJobs.Schemas.Run{status: :succeeded, exit_code: 0} =
              Repo.reload!(queued)
 
     emitted =
@@ -892,7 +894,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
              wait_for_completed_final_reply(ctx.container, emitted.id, deadline(90_000))
 
     assert script_reply.message.text =~ "B07_OWNER_RECEIVED"
-    assert Repo.reload!(job).status == "succeeded"
+    assert Repo.reload!(job).status == :succeeded
     assert_signal_completed!(receipt.id)
     assert_signal_completed!(emitted.id)
   end

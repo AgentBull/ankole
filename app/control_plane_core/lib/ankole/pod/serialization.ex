@@ -21,6 +21,10 @@ defmodule Ankole.Pod.Serialization do
       :purge_started_at
     ])
     |> enum_json(:type)
+    |> Map.update!(:role, fn
+      %Ash.NotLoaded{} -> nil
+      role -> role
+    end)
     |> Ankole.JSON.plain()
   end
 
@@ -45,10 +49,9 @@ defmodule Ankole.Pod.Serialization do
   def content_json(nil), do: nil
   def content_json(content), do: %{xml: content.content, plain_text: content.plain_text}
 
-  def item(%_{} = struct) do
+  def item(%schema{} = struct) do
     struct
-    |> Map.from_struct()
-    |> Map.drop([:__meta__, :tenant_id])
+    |> Map.take(schema.__schema__(:fields) -- [:tenant_id])
     |> then(fn item ->
       if Map.has_key?(item, :type), do: Map.update!(item, :type, &to_string/1), else: item
     end)
@@ -75,7 +78,6 @@ defmodule Ankole.Pod.Serialization do
   def error({:revision_conflict, revision}),
     do: error_details("revision_conflict", %{revision: revision})
 
-  def error(%Ecto.Changeset{}), do: error(:validation_failed)
   def error(reason) when is_atom(reason), do: error_details(Atom.to_string(reason), nil)
 
   def error({reason, details}) when is_atom(reason),
@@ -93,8 +95,8 @@ defmodule Ankole.Pod.Serialization do
   def json_value(%Ankole.ActorRef{} = value), do: to_string(value)
   def json_value(%Ecto.Association.NotLoaded{}), do: nil
 
-  def json_value(%_{} = value),
-    do: value |> Map.from_struct() |> Map.drop([:__meta__, :tenant_id]) |> json_value()
+  def json_value(%schema{} = value),
+    do: value |> Map.take(schema.__schema__(:fields) -- [:tenant_id]) |> json_value()
 
   def json_value(value) when is_map(value),
     do: Map.new(value, fn {key, item} -> {to_string(key), json_value(item)} end)
@@ -112,6 +114,7 @@ defmodule Ankole.Pod.Serialization do
       "not_found" -> 404
       "route_not_found" -> 404
       "method_not_allowed" -> 405
+      "applet_busy" -> 503
       "handler_timeout" -> 504
       "ai_unavailable" -> 502
       code when code in ~w(handler_error handler_out_of_memory read_only_route) -> 500

@@ -2,6 +2,7 @@ defmodule Ankole.AuthZ.Store do
   @moduledoc false
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.AuthZ.ExternalBinding
   alias Ankole.AuthZ.Grant
@@ -20,7 +21,7 @@ defmodule Ankole.AuthZ.Store do
          :ok <- ensure_operator_group(group),
          :ok <- ensure_operator_domain(group),
          :ok <- ensure_group_has_no_grants(repo, group.id) do
-      repo.delete(group)
+      Ankole.Ash.destroy(group, :delete_in_tx)
     end
   end
 
@@ -65,13 +66,7 @@ defmodule Ankole.AuthZ.Store do
 
   def upsert_external_binding(repo, attrs) do
     with {:ok, attrs} <- binding_attrs(repo, attrs) do
-      %ExternalBinding{}
-      |> ExternalBinding.changeset(attrs)
-      |> repo.insert(
-        conflict_target: [:tenant_id, :provider, :external_kind, :external_id],
-        on_conflict: {:replace, [:group_id, :metadata, :updated_at]},
-        returning: true
-      )
+      Ankole.Ash.create(ExternalBinding, :bind_in_tx, attrs)
     end
   end
 
@@ -203,36 +198,15 @@ defmodule Ankole.AuthZ.Store do
     end
   end
 
-  def insert_membership(repo, group_id, principal_uid) do
-    %Membership{}
-    |> Membership.changeset(%{group_id: group_id, principal_uid: principal_uid})
-    |> repo.insert(on_conflict: :nothing, conflict_target: [:principal_uid, :group_id])
+  def insert_membership(_repo, group_id, principal_uid) do
+    Ankole.Ash.create(Membership, :add_in_tx, %{
+      group_id: group_id,
+      principal_uid: principal_uid
+    })
   end
 
-  # Fetch-or-create for convention-named synced groups. The re-read after an
-  # insert conflict is deliberate: the app-side UUIDv7 in the conflicting
-  # changeset never matches the winning row.
-  def ensure_synced_group(repo, attrs) when is_map(attrs) do
-    name = attrs |> Map.fetch!(:name) |> String.downcase()
-
-    case repo.get_by(Group, name: name) do
-      %Group{} = group ->
-        {:ok, group}
-
-      nil ->
-        changeset = Group.changeset(%Group{}, Map.put(attrs, :name, name))
-
-        case repo.insert(changeset, on_conflict: :nothing, conflict_target: [:tenant_id, :name]) do
-          {:ok, _maybe_stale} ->
-            case repo.get_by(Group, name: name) do
-              %Group{} = group -> {:ok, group}
-              nil -> {:error, :group_not_found}
-            end
-
-          {:error, _reason} = error ->
-            error
-        end
-    end
+  def ensure_synced_group(_repo, attrs) when is_map(attrs) do
+    Ankole.Ash.create(Group, :ensure_in_tx, attrs)
   end
 
   def fetch_principal(repo, principal_uid) do
@@ -245,9 +219,11 @@ defmodule Ankole.AuthZ.Store do
   def fetch_principal_for_update(repo, principal_uid) do
     with {:ok, normalized_uid} <- Principals.normalize_uid(principal_uid) do
       case repo.one(
-             from principal in Principal,
+             from(principal in Principal,
                where: principal.uid == ^normalized_uid,
                lock: "FOR UPDATE"
+             ),
+             lock_identity: {"principals", normalized_uid}
            ) do
         %Principal{} = principal -> {:ok, principal}
         nil -> {:error, :not_found}
@@ -513,13 +489,10 @@ defmodule Ankole.AuthZ.Store do
   defp delete_group_memberships(_repo, _group_id, []), do: 0
 
   defp delete_group_memberships(repo, group_id, principal_uids) do
-    {count, _rows} =
-      repo.delete_all(
-        from membership in Membership,
-          where: membership.group_id == ^group_id and membership.principal_uid in ^principal_uids
-      )
-
-    count
+    delete_memberships_matching(
+      repo,
+      Ash.Query.filter(Membership, group_id == ^group_id and principal_uid in ^principal_uids)
+    )
   end
 
   defp expand_external_directory_ids(external_id, bindings_by_external_id) do
@@ -571,13 +544,10 @@ defmodule Ankole.AuthZ.Store do
   defp delete_memberships(_repo, _principal_uid, []), do: 0
 
   defp delete_memberships(repo, principal_uid, group_ids) do
-    {count, _rows} =
-      repo.delete_all(
-        from membership in Membership,
-          where: membership.principal_uid == ^principal_uid and membership.group_id in ^group_ids
-      )
-
-    count
+    delete_memberships_matching(
+      repo,
+      Ash.Query.filter(Membership, principal_uid == ^principal_uid and group_id in ^group_ids)
+    )
   end
 
   defp remove_membership(
@@ -675,15 +645,26 @@ defmodule Ankole.AuthZ.Store do
   end
 
   defp delete_membership(repo, principal_uid, group_id) do
-    {count, _rows} =
-      repo.delete_all(
-        from membership in Membership,
-          where: membership.group_id == ^group_id and membership.principal_uid == ^principal_uid
+    count =
+      delete_memberships_matching(
+        repo,
+        Ash.Query.filter(Membership, group_id == ^group_id and principal_uid == ^principal_uid)
       )
 
     case count do
       0 -> {:error, :not_found}
       _count -> {:ok, :deleted}
+    end
+  end
+
+  defp delete_memberships_matching(repo, query) do
+    case Ankole.Ash.bulk_destroy(query, :remove_in_tx, %{},
+           strategy: [:atomic],
+           return_records?: true,
+           return_errors?: true
+         ) do
+      %Ash.BulkResult{status: :success, records: records} -> length(records)
+      %Ash.BulkResult{errors: errors} -> repo.rollback(errors)
     end
   end
 

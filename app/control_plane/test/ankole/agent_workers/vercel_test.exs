@@ -4,7 +4,7 @@ defmodule Ankole.AgentWorkers.VercelTest do
   alias Ankole.AgentWorkers.Config
   alias Ankole.AgentWorkers.ProviderKind
   alias Ankole.AgentWorkers.Providers
-  alias Ankole.AgentWorkers.Vercel
+  alias Ankole.Plugins.VercelWorkerProvider.Provider, as: Vercel
   alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.AgentWorkers.WorkerBootstrap
   alias Ankole.AgentWorkers.Providers.Configuration
@@ -15,6 +15,7 @@ defmodule Ankole.AgentWorkers.VercelTest do
   @ref "sbx_selected"
 
   setup do
+    {:ok, _} = Ankole.Plugins.put_configured_enabled("vercel-worker-provider", true)
     {:ok, runtime} = Config.fetch()
     previous = Application.get_env(:ankole, :vercel_api_req_options)
     Application.put_env(:ankole, :vercel_api_req_options, plug: {Req.Test, __MODULE__})
@@ -157,7 +158,7 @@ defmodule Ankole.AgentWorkers.VercelTest do
 
     Repo.update_all(from(w in AgentWorker, where: w.agent_uid == ^agent.uid),
       set: [
-        state: "ready",
+        state: :ready,
         transport_route: "vercel-sweep-route",
         incarnation_id: "vercel-sweep-incarnation",
         last_worker_heartbeat_at: now,
@@ -598,7 +599,7 @@ defmodule Ankole.AgentWorkers.VercelTest do
   defp save_ref!(provider, uid) do
     Repo.update_all(from(w in AgentWorker, where: w.agent_uid == ^uid),
       set: [
-        state: "starting",
+        state: :starting,
         generation: "gen0000001",
         instance_ref: @ref,
         instance_seen_at: DateTime.utc_now(),

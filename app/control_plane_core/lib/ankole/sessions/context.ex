@@ -41,6 +41,30 @@ defmodule Ankole.Sessions.Context do
     end
   end
 
+  @doc "Reads only the facts needed to classify a room message."
+  def ambient_observation(event) do
+    with {:ok, agent} <- agent_profile(event.agent_uid),
+         {:ok, documents} <- Library.list_agent_documents(event.agent_uid),
+         %Ankole.Conversations.Conversation{} = room <-
+           Repo.get_by(Ankole.Conversations.Conversation, id: event.conversation_id) do
+      {:ok,
+       %{
+         agent: agent,
+         documents: documents,
+         conversation: %{
+           timezone: installation_timezone(),
+           origin_channel: %{
+             adapter: List.first(String.split(room.provider_conversation_id || "", ":")),
+             label: room.title
+           }
+         }
+       }}
+    else
+      nil -> {:error, :ambient_room_not_found}
+      error -> error
+    end
+  end
+
   @doc "Selects the Job's Skills from its claimed execution projection."
   def job(context, %Job{} = job) do
     with %{} = projection <- job.runtime_projection do

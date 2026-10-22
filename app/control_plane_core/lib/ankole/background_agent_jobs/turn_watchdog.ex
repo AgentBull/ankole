@@ -27,7 +27,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
     plan =
       Repo.transact(fn repo ->
         case Queries.get(job_id) do
-          %Job{status: "running"} = job ->
+          %Job{status: :running} = job ->
             _worker = AgentWorkers.lock_in_tx(repo, job.agent_uid)
             :ok = Lifecycle.lock_agent_slots(repo, job.agent_uid)
             job = Queries.get_for_agent(repo, job.id, job.agent_uid, lock: "FOR UPDATE")
@@ -42,7 +42,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
                 BackgroundAgentJobs.job_session_id(job.id)
               )
 
-            if (job.status == "running" and activity) && event && stalled?(activity, now) do
+            if (job.status == :running and activity) && event && stalled?(activity, now) do
               ref = %JobTurnRef{
                 agent_uid: job.agent_uid,
                 session_id: event.session_id,
@@ -94,10 +94,11 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
           {:ok, map() | nil} | {:error, term()}
   def compensate_in_tx(
         repo,
-        %Signal{agent_uid: agent_uid, session_id: session_id, input_state: "open"},
+        %Signal{agent_uid: agent_uid, session_id: session_id, status: live_status},
         %{"code" => @stall_code, "message" => message},
         %DateTime{} = now
-      ) do
+      )
+      when live_status in [:queued, :running] do
     with {:ok, job_id} <- BackgroundAgentJobs.parse_job_session_id(session_id),
          %Job{} = job <- Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
          :ok <-
@@ -140,7 +141,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
 
   defp active_turn_activity_query do
     Turn
-    |> where([turn], turn.status == "in_progress")
+    |> where([turn], turn.status == :in_progress)
     |> group_by([turn], turn.job_id)
     |> select([turn], {turn.job_id, max(turn.updated_at)})
   end

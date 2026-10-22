@@ -26,8 +26,7 @@ defmodule FeishuOpenAPI.CardAction.Handler do
       `{:handler_crashed, Exception.t()}` if the user handler raised
   """
 
-  require Logger
-
+  alias Ankole.Logging
   alias FeishuOpenAPI.CardAction
 
   @type callback_handler :: (CardAction.t() -> term())
@@ -102,9 +101,14 @@ defmodule FeishuOpenAPI.CardAction.Handler do
           %{type: action.type, reason: exception, kind: :error, stacktrace: stacktrace}
         )
 
-        Logger.error(
-          "feishu_openapi card action handler raised: " <>
-            Exception.format(:error, exception, stacktrace)
+        Logging.error(
+          "feishu_openapi.card_action.handler_crashed",
+          "Feishu card action handler failed",
+          Map.put(
+            Logging.failure_fields(:error, exception, stacktrace),
+            :callback_type,
+            action.type
+          )
         )
 
         {:error, {:handler_crashed, exception}}
@@ -118,9 +122,10 @@ defmodule FeishuOpenAPI.CardAction.Handler do
           %{type: action.type, reason: reason, kind: kind, stacktrace: stacktrace}
         )
 
-        Logger.error(
-          "feishu_openapi card action handler threw: " <>
-            Exception.format(kind, reason, stacktrace)
+        Logging.error(
+          "feishu_openapi.card_action.handler_crashed",
+          "Feishu card action handler failed",
+          Map.put(Logging.failure_fields(kind, reason, stacktrace), :callback_type, action.type)
         )
 
         {:error, {:handler_crashed, {kind, reason}}}

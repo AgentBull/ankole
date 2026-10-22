@@ -18,7 +18,7 @@ defmodule Ankole.Sessions.LLMCommandTest do
     assert text =~ "Usage: /llm <custom-model-profile> [message]"
     assert text =~ "No custom model profiles are configured"
     assert Repo.reload!(input).completed_at
-    assert Repo.get!(AgentWorker, agent.uid).state == "absent"
+    assert Repo.get!(AgentWorker, agent.uid).state == :absent
   end
 
   test "help lists custom profiles without changing the current run" do
@@ -77,7 +77,7 @@ defmodule Ankole.Sessions.LLMCommandTest do
     assert notice.fallback_visible_text =~ "missing"
     assert Repo.reload!(input).completed_at
     assert Repo.aggregate(Message, :count) == 0
-    assert Repo.get!(AgentWorker, agent.uid).state == "absent"
+    assert Repo.get!(AgentWorker, agent.uid).state == :absent
   end
 
   test "retry retains the logical profile and resolves its current model" do

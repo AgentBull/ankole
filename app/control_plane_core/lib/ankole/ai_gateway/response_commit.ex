@@ -1,6 +1,7 @@
 defmodule Ankole.AIGateway.ResponseCommit do
   @moduledoc "Response liveness and terminal commits; PostgreSQL owns the final status."
   import Ecto.Query
+  require Ash.Query
   import Ankole.AIGateway.ResponseChain, only: [decode_response_id: 1]
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.Schemas.Message
@@ -34,8 +35,8 @@ defmodule Ankole.AIGateway.ResponseCommit do
 
   defp generating_messages_query do
     Message
-    |> where([message], message.type == "message")
-    |> where([message], message.status == "generating")
+    |> where([message], message.type == :message)
+    |> where([message], message.status == :generating)
   end
 
   def lock_generating_message_by_id(repo, message_id) do
@@ -56,32 +57,29 @@ defmodule Ankole.AIGateway.ResponseCommit do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, message_id} <- decode_response_id(response_id) do
       Repo.transact(fn repo ->
-        query =
-          from(message in generating_message_query(subject_uid, message_id),
-            select: message,
-            update: [set: [updated_at: ^now]]
-          )
+        metadata =
+          if is_map(upstream_progress), do: %{"upstream_progress" => upstream_progress}, else: %{}
 
-        query =
-          if is_map(upstream_progress) do
-            merge_upstream_progress(query, upstream_progress)
-          else
-            query
-          end
-
-        case repo.update_all(
-               query,
-               [],
-               returning: true
+        case Message
+             |> Ash.Query.filter(id == ^message_id and subject_uid == ^subject_uid)
+             |> Ankole.Ash.bulk_update(:heartbeat, %{now: now, metadata: metadata},
+               strategy: [:atomic],
+               return_records?: true,
+               return_errors?: true
              ) do
-          {1, [%Message{} = message]} ->
+          %Ash.BulkResult{status: :success, records: [message]} ->
             with :ok <- notify_ai_message_deadline(repo, message), do: {:ok, message}
 
-          {0, []} ->
-            case repo.get_by(Message, id: message_id, subject_uid: subject_uid) do
+          %Ash.BulkResult{status: :success, records: []} ->
+            case Message
+                 |> Ash.Query.filter(id == ^message_id and subject_uid == ^subject_uid)
+                 |> Ankole.Ash.read_one!() do
               %Message{} -> {:ok, :already_terminal}
               nil -> {:error, :not_found}
             end
+
+          %Ash.BulkResult{errors: errors} ->
+            {:error, Ash.Error.to_error_class(errors)}
         end
       end)
     else
@@ -97,45 +95,29 @@ defmodule Ankole.AIGateway.ResponseCommit do
   def record_upstream_progress(subject_uid, response_id, progress) when is_map(progress) do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, message_id} <- decode_response_id(response_id) do
-      case Repo.transact(fn repo ->
-             query =
-               generating_message_query(subject_uid, message_id)
-               |> merge_upstream_progress(progress)
-
-             case repo.update_all(query, []) do
-               {1, _rows} -> {:ok, :ok}
-               {0, _rows} -> {:error, :not_found}
-             end
-           end) do
+      Repo.transact(fn ->
+        case Message
+             |> Ash.Query.filter(id == ^message_id and subject_uid == ^subject_uid)
+             |> Ankole.Ash.bulk_update(
+               :record_progress,
+               %{metadata: %{"upstream_progress" => progress}},
+               strategy: [:atomic],
+               return_records?: true,
+               select: [:id],
+               return_errors?: true
+             ) do
+          %Ash.BulkResult{status: :success, records: [_message]} -> {:ok, :ok}
+          %Ash.BulkResult{status: :success, records: []} -> {:error, :not_found}
+          %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+        end
+      end)
+      |> case do
         {:ok, :ok} -> :ok
-        {:error, :not_found} = error -> error
+        error -> error
       end
     else
       _invalid -> {:error, :not_found}
     end
-  end
-
-  defp generating_message_query(subject_uid, message_id) do
-    from(message in Message,
-      where:
-        message.id == ^message_id and message.subject_uid == ^subject_uid and
-          message.status == "generating"
-    )
-  end
-
-  defp merge_upstream_progress(query, progress) do
-    from(message in query,
-      update: [
-        set: [
-          metadata:
-            fragment(
-              "COALESCE(?, '{}'::jsonb) || jsonb_build_object('upstream_progress', ?::jsonb)",
-              message.metadata,
-              ^progress
-            )
-        ]
-      ]
-    )
   end
 
   @doc """
@@ -178,7 +160,7 @@ defmodule Ankole.AIGateway.ResponseCommit do
       subject_uid,
       response_id,
       now,
-      "error",
+      :fail,
       {"error", error_details}
     )
   end
@@ -203,29 +185,17 @@ defmodule Ankole.AIGateway.ResponseCommit do
       subject_uid,
       response_id,
       now,
-      "retracted",
+      :retract,
       {"retraction", %{"reason" => reason, "retracted_at" => DateTime.to_iso8601(now)}}
     )
   end
 
-  defp transition_generating_response(repo, subject_uid, response_id, now, status, {key, value}) do
+  defp transition_generating_response(repo, subject_uid, response_id, now, action, {key, value}) do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, message_id} <- decode_response_id(response_id) do
       case lock_response_for_subject(repo, subject_uid, message_id) do
-        %Message{status: "generating"} = message ->
-          metadata = Map.put(message.metadata || %{}, key, value)
-
-          case repo.update_all(
-                 from(candidate in Message,
-                   where: candidate.id == ^message.id and candidate.status == "generating",
-                   select: candidate
-                 ),
-                 [set: [status: status, metadata: metadata, updated_at: now]],
-                 returning: true
-               ) do
-            {1, [%Message{} = updated]} -> {:ok, updated}
-            {0, []} -> {:ok, :already_terminal}
-          end
+        %Message{status: :generating} = message ->
+          Ankole.Ash.update(message, action, %{now: now, metadata: %{key => value}})
 
         %Message{} ->
           {:ok, :already_terminal}
@@ -306,139 +276,44 @@ defmodule Ankole.AIGateway.ResponseCommit do
   """
   @spec commit_complete(Message.t() | binary(), [map()], map()) ::
           {:ok, Message.t()} | {:error, term()} | {:ok, :already_terminal}
-  def commit_complete(message, content_items, extra_metadata \\ %{}) do
-    case ensure_loaded(message) do
-      nil ->
-        {:error, :message_not_found}
+  def commit_complete(message, content_items, extra_metadata \\ %{}),
+    do: commit_terminal(message, :complete, content_items, extra_metadata)
 
-      %Message{} = message ->
-        commit_complete_loaded(message, content_items, extra_metadata)
-    end
-  end
-
-  defp commit_complete_loaded(%Message{status: status}, _content_items, _extra_metadata)
-       when status != "generating",
-       do: {:ok, :already_terminal}
-
-  defp commit_complete_loaded(%Message{} = message, content_items, extra_metadata) do
-    final_content = durable_terminal_content(message, content_items)
-    now = DateTime.utc_now(:microsecond)
-
-    case Repo.transact(fn repo ->
-           case lock_generating_message_by_id(repo, message.id) do
-             %Message{} = current_message ->
-               merged_metadata = Map.merge(current_message.metadata || %{}, extra_metadata)
-
-               case repo.update_all(
-                      from(m in Message,
-                        where: m.id == ^message.id and m.status == "generating",
-                        select: m
-                      ),
-                      [
-                        set: [
-                          status: "complete",
-                          content: final_content,
-                          metadata: merged_metadata,
-                          updated_at: now
-                        ]
-                      ],
-                      returning: true
-                    ) do
-                 {count, [updated]} when count > 0 ->
-                   {:ok, updated}
-
-                 {0, []} ->
-                   {:ok, :already_terminal}
-               end
-
-             nil ->
-               {:ok, :already_terminal}
-           end
-         end) do
-      {:ok, %Message{} = updated} ->
-        Events.publish(updated, complete_event_type(updated), %{content: final_content})
-
-        {:ok, updated}
-
-      {:ok, :already_terminal} ->
-        {:ok, :already_terminal}
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  @doc """
-  Commits a response run as `error` with failure details.
-
-  Same optimistic transition guard as `commit_complete`: only the first
-  terminal commit wins.
-  """
+  @doc "Commits partial output and failure details when the response is still generating."
   @spec commit_error(Message.t() | binary(), [map()], map(), keyword()) ::
-          {:ok, Message.t()} | {:error, term()} | {:ok, :already_terminal}
+          {:ok, Message.t() | :already_terminal} | {:error, term()}
   def commit_error(message, partial_content, error_details, opts \\ []) do
+    metadata = opts |> Keyword.get(:metadata, %{}) |> Map.put("error", error_details)
+    commit_terminal(message, :fail, partial_content, metadata)
+  end
+
+  defp commit_terminal(message, action, output, metadata) do
     case ensure_loaded(message) do
       nil ->
         {:error, :message_not_found}
 
-      %Message{} = message ->
-        commit_error_loaded(message, partial_content, error_details, opts)
-    end
-  end
-
-  defp commit_error_loaded(%Message{status: status}, _partial_content, _error_details, _opts)
-       when status != "generating",
-       do: {:ok, :already_terminal}
-
-  defp commit_error_loaded(%Message{} = message, partial_content, error_details, opts) do
-    final_content = durable_terminal_content(message, partial_content)
-    now = DateTime.utc_now(:microsecond)
-    extra_metadata = Keyword.get(opts, :metadata, %{})
-
-    case Repo.transact(fn repo ->
-           case lock_generating_message_by_id(repo, message.id) do
-             %Message{} = current_message ->
-               merged_metadata =
-                 (current_message.metadata || %{})
-                 |> Map.merge(extra_metadata)
-                 |> Map.merge(%{"error" => error_details})
-
-               case repo.update_all(
-                      from(m in Message,
-                        where: m.id == ^message.id and m.status == "generating",
-                        select: m
-                      ),
-                      [
-                        set: [
-                          status: "error",
-                          content: final_content,
-                          metadata: merged_metadata,
-                          updated_at: now
-                        ]
-                      ],
-                      returning: true
-                    ) do
-                 {count, [updated]} when count > 0 ->
-                   {:ok, updated}
-
-                 {0, []} ->
-                   {:ok, :already_terminal}
-               end
-
-             nil ->
-               {:ok, :already_terminal}
-           end
-         end) do
-      {:ok, %Message{} = updated} ->
-        Events.publish(updated, :response_failed, %{error: error_details})
-
-        {:ok, updated}
-
-      {:ok, :already_terminal} ->
+      %Message{status: status} when status != :generating ->
         {:ok, :already_terminal}
 
-      {:error, _reason} = error ->
-        error
+      %Message{} = message ->
+        Repo.transact(fn repo ->
+          case lock_generating_message_by_id(repo, message.id) do
+            nil -> {:ok, :already_terminal}
+            current -> Ankole.Ash.update(current, action, %{output: output, metadata: metadata})
+          end
+        end)
+        |> case do
+          {:ok, %Message{} = updated} = result ->
+            if action == :complete,
+              do:
+                Events.publish(updated, complete_event_type(updated), %{content: updated.content}),
+              else: Events.publish(updated, :response_failed, %{error: metadata["error"]})
+
+            result
+
+          other ->
+            other
+        end
     end
   end
 
@@ -465,16 +340,6 @@ defmodule Ankole.AIGateway.ResponseCommit do
 
   defp complete_event_type(_message), do: :response_completed
 
-  # Terminal provider items append to the request-side items saved when the
-  # generating row was created. Replacing content would erase user input and
-  # client tool output from the durable Responses history.
-  defp durable_terminal_content(%Message{content: existing_content}, terminal_items)
-       when is_list(existing_content) and is_list(terminal_items),
-       do: existing_content ++ terminal_items
-
-  defp durable_terminal_content(_message, terminal_items) when is_list(terminal_items),
-    do: terminal_items
-
   def notify_ai_message_deadline(repo, %Message{} = message) do
     Ankole.AIGateway.Jobs.ReconcileOrphanedResponse.schedule_in_tx(
       repo,
@@ -490,5 +355,7 @@ defmodule Ankole.AIGateway.ResponseCommit do
 
   # Ensures the message is loaded from the DB if only an id was given.
   defp ensure_loaded(%Message{} = message), do: message
-  defp ensure_loaded(id) when is_binary(id), do: Repo.get(Message, id)
+
+  defp ensure_loaded(id) when is_binary(id),
+    do: Message |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!()
 end

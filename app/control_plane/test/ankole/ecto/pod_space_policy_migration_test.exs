@@ -59,7 +59,11 @@ defmodule Ankole.Ecto.PodSpacePolicyMigrationTest do
              end)
 
     assert Repo.all(Grant) == []
-    assert Repo.with_tenant(policy.id, fn -> Repo.all(Grant) end) == [existing]
+
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.with_tenant(policy.id, fn -> Repo.all(Grant) end),
+      [existing]
+    )
 
     assert Repo.with_tenant(empty.id, fn ->
              Repo.all(from g in Grant, order_by: g.action, select: {g.action, g.condition})

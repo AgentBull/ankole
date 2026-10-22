@@ -6,6 +6,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
   """
 
   use Ankole.DataCase, async: false
+  @moduletag sandbox: false
 
   import Ankole.E2E.DockerWorker
   import Ankole.E2E.Harness
@@ -29,6 +30,11 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
   alias Ankole.E2E.FakeOpenAIState
   alias Ankole.Repo
 
+  setup do
+    cleanup_committed_fixtures_on_exit!()
+    :ok
+  end
+
   @tag timeout: 180_000
   @tag :worker_bootstrap_contract
   test "the control plane creates an Agent's Worker in Docker and admits it" do
@@ -37,7 +43,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
 
     %{container: container} = start_worker!([agent.uid])
 
-    assert %AgentWorker{state: "ready", generation: generation, transport_route: route} =
+    assert %AgentWorker{state: :ready, generation: generation, transport_route: route} =
              Repo.get!(AgentWorker, agent.uid)
 
     assert is_binary(generation) and is_binary(route)
@@ -83,7 +89,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
              wait_until(deadline(30_000), fn ->
                worker = Repo.get!(AgentWorker, agent.uid)
 
-               (worker.state == "ready" and worker.transport_route != admitted.transport_route) &&
+               (worker.state == :ready and worker.transport_route != admitted.transport_route) &&
                  worker
              end)
 
@@ -147,7 +153,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
                String.contains?(logs, "worker.fabric_socket_error") && logs
              end)
 
-    assert %AgentWorker{state: "ready", transport_route: route, generation: generation} =
+    assert %AgentWorker{state: :ready, transport_route: route, generation: generation} =
              Repo.get!(AgentWorker, agent.uid)
 
     assert route == admitted.transport_route
@@ -233,11 +239,10 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
 
   @tag :worker_computer_path
   @tag timeout: 900_000
-  @tag ownership_timeout: 900_000
   test "computer tools, skills, attachments, and workspace persistence" do
     ctx = start_worker_e2e_stack!()
 
-    %AgentWorker{state: "ready", generation: generation, incarnation_id: incarnation_id} =
+    %AgentWorker{state: :ready, generation: generation, incarnation_id: incarnation_id} =
       Repo.get!(AgentWorker, ctx.agent.uid)
 
     attachment = run_file_attachment_roundtrip(ctx)
@@ -291,7 +296,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     )
 
     assert %AgentWorker{
-             state: "ready",
+             state: :ready,
              generation: ^generation,
              incarnation_id: ^incarnation_id
            } = Repo.get!(AgentWorker, ctx.agent.uid)
@@ -304,7 +309,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
       "om_reply_attachment_1"
     )
 
-    assert Repo.get!(AgentWorker, ctx.agent.uid).state == "ready"
+    assert Repo.get!(AgentWorker, ctx.agent.uid).state == :ready
 
     read_file = run_read_file_tool_loop(ctx)
 
@@ -411,7 +416,6 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
 
   @tag :installed_skill_registry
   @tag timeout: 240_000
-  @tag ownership_timeout: 240_000
   test "installed Skill catalog follows the drive used by the real Docker Worker" do
     ctx = start_worker_e2e_stack!()
 

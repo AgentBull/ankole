@@ -9,7 +9,6 @@ defmodule AnkoleWeb.AgentWorkerControllerTest do
   alias Ankole.SessionsCase
 
   setup do
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 

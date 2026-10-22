@@ -2,11 +2,13 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
   use AnkoleWeb.ConnCase, async: false
   import Ankole.PrincipalsFixtures
   alias Ankole.{BrowserSessions, Repo}
+  alias AnkoleWeb.PodURL
   alias AnkoleWeb.SessionCookies
   alias AnkoleWeb.Session, as: WebSession
 
-  setup %{tenant: tenant} do
-    allow_cache_database_access()
+  @host_policy Application.compile_env(:ankole, :host_policy)
+
+  setup %{tenant: tenant, conn: base_conn} do
     Ankole.AppConfigure.Cache.clear_for_test()
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
@@ -22,17 +24,29 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
 
     a = human_fixture(%{display_name: "First account"}).principal
     b = human_fixture(%{display_name: "Second account"}).principal
-    host = tenant.slug <> ".ankole.localhost"
+    base_conn = %{base_conn | scheme: :http, port: 4002}
+    origin = PodURL.origin(base_conn, tenant)
+    domain = if @host_policy, do: apply(@host_policy, :domain, []), else: "ankole.localhost"
 
     conn =
-      build_conn(:get, "http://#{host}:4002/")
+      build_conn(:get, origin <> "/")
       |> Map.put(:secret_key_base, AnkoleWeb.Endpoint.config(:secret_key_base))
       |> SessionCookies.call([])
       |> fetch_session()
 
     {first, a_ref} = login(conn, a)
     {signed, b_ref} = login(first, b)
-    %{signed: signed, a: a, b: b, a_ref: a_ref, b_ref: b_ref, host: host}
+
+    %{
+      signed: signed,
+      a: a,
+      b: b,
+      a_ref: a_ref,
+      b_ref: b_ref,
+      origin: origin,
+      site_origin: PodURL.site_origin(conn),
+      domain: domain
+    }
   end
 
   test "ordinary Pod logins keep both proofs with one shared cookie scope", ctx do
@@ -43,43 +57,51 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
 
     response = send_resp(ctx.signed, 200, "")
     cookies = response.resp_cookies
-    assert cookies["_ankole_key"].domain == "ankole.localhost"
+    assert cookies["_ankole_key"].domain == ctx.domain
 
     for ref <- [ctx.a_ref, ctx.b_ref] do
       cookie = cookies[SessionCookies.authentication_prefix() <> ref["id"]]
-      assert cookie.domain == "ankole.localhost"
+      assert cookie.domain == ctx.domain
       assert cookie.path == "/"
       assert cookie.same_site == "Lax"
       assert cookie.http_only
     end
   end
 
-  test "literal IP deployments do not emit an invalid cookie Domain" do
+  test "cookie scope uses the canonical domain policy instead of a literal Endpoint IP" do
     original = Application.fetch_env!(:ankole, AnkoleWeb.Endpoint)
 
     for host <- ["127.0.0.1", "192.168.1.42", "::1", "2001:db8::42"] do
       configured = Keyword.put(original, :url, host: host)
       Application.put_env(:ankole, AnkoleWeb.Endpoint, configured)
       AnkoleWeb.Endpoint.config_change([{AnkoleWeb.Endpoint, configured}], [])
-      assert is_nil(SessionCookies.domain())
-      refute Keyword.has_key?(SessionCookies.options(), :domain)
+
+      if @host_policy do
+        domain = apply(@host_policy, :domain, [])
+        assert SessionCookies.domain() == domain
+        assert SessionCookies.options()[:domain] == domain
+      else
+        assert is_nil(SessionCookies.domain())
+        refute Keyword.has_key?(SessionCookies.options(), :domain)
+      end
     end
   end
 
   test "the existing Pod chooser switches a proven account and keeps an open tab pinned", ctx do
-    {shell, flow} = chooser(ctx.signed, ctx.host)
+    {shell, flow} = chooser(ctx.signed, ctx.tenant)
 
     choices =
       shell
       |> recycle()
-      |> get(pod_url(ctx.host, "/.internal-apis/identity-providers?flow=#{flow}"))
+      |> put_req_header("accept", "application/json")
+      |> get(auth_origin(shell, ctx.tenant) <> "/.internal-apis/identity-providers?flow=#{flow}")
 
     assert %{"identities" => identities} = json_response(choices, 200)
 
     assert Enum.sort(Enum.map(identities, & &1["principalUID"])) ==
              Enum.sort([ctx.a.uid, ctx.b.uid])
 
-    selected = select(shell, ctx.host, flow, ctx.a_ref)
+    selected = select(shell, ctx.tenant, flow, ctx.a_ref)
     assert %{"returnTo" => "/content/space"} = json_response(selected, 200)
     assert BrowserSessions.current_reference(WebSession.browser_reference(selected)) == ctx.a_ref
     assert {:error, :login_expired} = WebSession.login_transaction(selected, flow)
@@ -87,8 +109,9 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     pinned =
       selected
       |> recycle()
+      |> put_req_header("accept", "application/json")
       |> put_req_header("x-ankole-authentication", BrowserSessions.encode_reference(ctx.b_ref))
-      |> get(pod_url(ctx.host, "/.internal-apis/session"))
+      |> get(ctx.origin <> "/.internal-apis/session")
 
     assert json_response(pinned, 200)["principalUID"] == ctx.b.uid
 
@@ -96,7 +119,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       selected
       |> recycle()
       |> put_req_header("accept", "text/html")
-      |> get(pod_url(ctx.host, "/"))
+      |> get(ctx.origin <> "/")
 
     [_, csrf] = Regex.run(~r/name="csrf-token" content="([^"]+)"/, current.resp_body)
 
@@ -105,13 +128,13 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       |> recycle()
       |> put_req_header("x-ankole-authentication", BrowserSessions.encode_reference(ctx.a_ref))
       |> put_req_header("x-csrf-token", csrf)
-      |> put_req_header("origin", "http://#{ctx.host}:4002")
+      |> put_req_header("origin", ctx.origin)
       |> put_req_header("accept", "application/json")
-      |> delete(pod_url(ctx.host, "/.internal-apis/authentications/current"))
+      |> delete(ctx.origin <> "/.internal-apis/authentications/current")
 
     assert json_response(revoked, 200) == %{"ok" => true}
     deleted = revoked.resp_cookies[SessionCookies.authentication_prefix() <> ctx.a_ref["id"]]
-    assert deleted.domain == "ankole.localhost"
+    assert deleted.domain == ctx.domain
     assert deleted.path == "/"
     assert deleted.max_age == 0
     assert {:ok, _} = BrowserSessions.get_authentication(ctx.b_ref)
@@ -133,7 +156,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       signed
       |> put_req_header("accept", "text/html")
       |> put_req_header("x-ankole-authentication", pinned)
-      |> get(pod_url(ctx.host, "/"))
+      |> get(ctx.origin <> "/")
 
     [_, csrf] = Regex.run(~r/name="csrf-token" content="([^"]+)"/, shell.resp_body)
 
@@ -142,7 +165,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       |> recycle()
       |> put_req_header("accept", "application/json")
       |> put_req_header("x-ankole-authentication", pinned)
-      |> get(pod_url(ctx.host, "/.internal-apis/session"))
+      |> get(ctx.origin <> "/.internal-apis/session")
       |> AnkoleWeb.InternalAPIContract.json_response(200)
 
     assert session["displayName"] == "First account"
@@ -157,7 +180,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
              ])
 
     foreign_account = Enum.find(session["accounts"], &(&1["principalUID"] == c.uid))
-    assert foreign_account["podURL"] == "http://#{foreign.slug}.ankole.localhost:4002/"
+    assert foreign_account["podURL"] == PodURL.origin(shell, foreign) <> "/"
     assert foreign_account["authenticationRef"] == BrowserSessions.encode_reference(c_ref)
 
     activate = fn ref ->
@@ -167,8 +190,8 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       |> put_req_header("content-type", "application/json")
       |> put_req_header("x-ankole-authentication", pinned)
       |> put_req_header("x-csrf-token", csrf)
-      |> put_req_header("origin", "http://#{ctx.host}:4002")
-      |> put(pod_url(ctx.host, "/.internal-apis/sessions/active"), %{authenticationRef: ref})
+      |> put_req_header("origin", ctx.site_origin)
+      |> put(ctx.site_origin <> "/.internal-apis/sessions/active", %{authenticationRef: ref})
     end
 
     activated = activate.(foreign_account["authenticationRef"])
@@ -190,46 +213,52 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     session =
       ctx.signed
       |> put_req_header("x-ankole-authentication", BrowserSessions.encode_reference(ctx.a_ref))
-      |> get(pod_url(ctx.host, "/.internal-apis/session"))
+      |> get(ctx.origin <> "/.internal-apis/session")
       |> AnkoleWeb.InternalAPIContract.json_response(200)
 
-    assert session["consoleURL"] == "http://ankole.localhost:4002/site-admin-console"
+    assert session["consoleURL"] == ctx.site_origin <> "/site-admin-console"
   end
 
   test "a chooser cannot use another tenant's proof or a revoked account", ctx do
-    {shell, flow} = chooser(ctx.signed, ctx.host)
+    {shell, flow} = chooser(ctx.signed, ctx.tenant)
     foreign = Ankole.DataCase.create_tenant()
-    denied = select(shell, foreign.slug <> ".ankole.localhost", flow, ctx.a_ref)
+    {foreign_shell, foreign_flow} = chooser(ctx.signed, foreign)
+    denied = select(foreign_shell, foreign, foreign_flow, ctx.a_ref)
     assert denied.status == 401
+
+    unless @host_policy do
+      assert select(shell, foreign, flow, ctx.a_ref).status == 401
+    end
+
     Repo.put_tenant_id(ctx.a.tenant_id)
     assert {:ok, _} = BrowserSessions.revoke(WebSession.browser_reference(ctx.signed), ctx.a_ref)
-    assert select(shell, ctx.host, flow, ctx.a_ref).status == 401
+    assert select(shell, ctx.tenant, flow, ctx.a_ref).status == 401
   end
 
   test "legacy HTTPS proof cookies migrate every verified account without changing the selection",
        ctx do
     old = send_resp(ctx.signed, 200, "")
-    request = legacy_request(old, ctx.host)
-    migrated = get(request, pod_url(ctx.host, "/"))
+    request = legacy_request(old, ctx.origin)
+    migrated = get(request, ctx.origin <> "/")
     assert html_response(migrated, 200) =~ BrowserSessions.encode_reference(ctx.b_ref)
     assert WebSession.browser_reference(migrated) == WebSession.browser_reference(old)
     assert BrowserSessions.current_reference(WebSession.browser_reference(migrated)) == ctx.b_ref
 
     for ref <- [ctx.a_ref, ctx.b_ref] do
       assert migrated.resp_cookies[SessionCookies.authentication_prefix() <> ref["id"]].domain ==
-               "ankole.localhost"
+               ctx.domain
 
       assert migrated.resp_cookies["__Host-ankole-auth-" <> ref["id"]].max_age == 0
     end
 
-    assert migrated.resp_cookies["_ankole_key"].domain == "ankole.localhost"
+    assert migrated.resp_cookies["_ankole_key"].domain == ctx.domain
     assert migrated.resp_cookies["__Host-ankole"].max_age == 0
   end
 
   test "legacy migration cannot restore an account revoked before the request", ctx do
     old = send_resp(ctx.signed, 200, "")
     assert {:ok, _} = BrowserSessions.revoke(WebSession.browser_reference(old), ctx.a_ref)
-    migrated = old |> legacy_request(ctx.host) |> get(pod_url(ctx.host, "/"))
+    migrated = old |> legacy_request(ctx.origin) |> get(ctx.origin <> "/")
     assert html_response(migrated, 200) =~ BrowserSessions.encode_reference(ctx.b_ref)
 
     refute Map.has_key?(
@@ -240,9 +269,8 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     assert migrated.resp_cookies["__Host-ankole-auth-" <> ctx.a_ref["id"]].max_age == 0
   end
 
-  defp legacy_request(response, host) do
-    Enum.reduce(response.resp_cookies, build_conn(:get, pod_url(host, "/")), fn {name, cookie},
-                                                                                conn ->
+  defp legacy_request(response, origin) do
+    Enum.reduce(response.resp_cookies, build_conn(:get, origin <> "/"), fn {name, cookie}, conn ->
       legacy =
         if name == "_ankole_key",
           do: "__Host-ankole",
@@ -273,27 +301,67 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     {conn, WebSession.authentication_reference(conn)}
   end
 
-  defp chooser(conn, host) do
-    start = get(conn, pod_url(host, "/sessions/new?switch=1&return_to=%2Fcontent%2Fspace"))
-    location = redirected_to(start)
+  defp chooser(conn, tenant) do
+    {start, location} = begin_choice(conn, tenant)
     flow = URI.decode_query(URI.parse(location).query)["flow"]
-    {start |> recycle() |> get(pod_url(host, location)), flow}
+
+    shell =
+      start
+      |> recycle()
+      |> put_req_header("accept", "text/html")
+      |> get(auth_origin(conn, tenant) <> location)
+
+    assert html_response(shell, 200) =~ "csrf-token"
+    {shell, flow}
   end
 
-  defp select(shell, host, flow, ref) do
+  defp begin_choice(conn, tenant) do
+    if @host_policy do
+      site = PodURL.site_origin(conn)
+      account = conn |> put_req_header("accept", "text/html") |> get(site <> "/account")
+      [_, csrf] = Regex.run(~r/name="csrf-token" content="([^"]+)"/, html_response(account, 200))
+
+      start =
+        account
+        |> recycle()
+        |> put_req_header("accept", "application/json")
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("x-csrf-token", csrf)
+        |> put_req_header("origin", site)
+        |> post(site <> "/.internal-apis/saas/pod-login", %{
+          slug: tenant.slug,
+          return_to: "/content/space"
+        })
+
+      %{"returnTo" => location} = json_response(start, 200)
+      {start, location}
+    else
+      start =
+        get(
+          conn,
+          PodURL.origin(conn, tenant) <> "/sessions/new?switch=1&return_to=%2Fcontent%2Fspace"
+        )
+
+      {start, redirected_to(start)}
+    end
+  end
+
+  defp select(shell, tenant, flow, ref) do
     [_, csrf] = Regex.run(~r/name="csrf-token" content="([^"]+)"/, shell.resp_body)
+    origin = auth_origin(shell, tenant)
 
     shell
     |> recycle()
     |> put_req_header("accept", "application/json")
     |> put_req_header("content-type", "application/json")
     |> put_req_header("x-csrf-token", csrf)
-    |> put_req_header("origin", "http://#{host}:4002")
-    |> post(pod_url(host, "/.internal-apis/sessions/identity-selection"), %{
+    |> put_req_header("origin", origin)
+    |> post(origin <> "/.internal-apis/sessions/identity-selection", %{
       flow: flow,
       authenticationRef: BrowserSessions.encode_reference(ref)
     })
   end
 
-  defp pod_url(host, path), do: "http://#{host}:4002" <> path
+  defp auth_origin(conn, tenant),
+    do: if(@host_policy, do: PodURL.site_origin(conn), else: PodURL.origin(conn, tenant))
 end

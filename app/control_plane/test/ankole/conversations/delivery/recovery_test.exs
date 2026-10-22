@@ -20,6 +20,74 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
   describe "intent recovery retry and cleanup" do
+    test "recovery and explicit retry retain provider card anchors" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, _} =
+               Observe.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+                 now: @base_time
+               )
+
+      anchors = %{
+        "card_id" => "card-1",
+        "message_id" => "message-1",
+        "streaming_state" => "open",
+        "active_card_index" => 0,
+        "cards" => [%{"card_id" => "card-1"}]
+      }
+
+      assert {:ok, intent} =
+               Ankole.SignalsFixtures.commit_delivery(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "keep-card-anchor",
+                 operation: :post,
+                 delivery_class: :durable_ai_reply,
+                 conversation_id: conversation_id!("lark:chat:group-a"),
+                 fallback_visible_text: "Retain this card.",
+                 recovery_state: anchors
+               })
+
+      assert {:ok, unknown} =
+               Repo.transact(fn repo ->
+                 Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(
+                   repo,
+                   intent,
+                   %{"reason" => "uncertain"},
+                   @base_time
+                 )
+               end)
+
+      assert unknown.recovery_state == anchors
+      assert unknown.recovery_status == :blocked
+      assert unknown.possible_duplicate
+
+      assert {:ok, requeued} =
+               Delivery.requeue(agent.uid, "bot", intent.outbound_key, now: @base_time)
+
+      assert requeued.recovery_state == anchors
+      assert requeued.recovery_status == nil
+      assert requeued.recovery_reason == nil
+      assert requeued.possible_duplicate
+      assert is_binary(requeued.possible_duplicate_notice)
+
+      assert {:ok, failed} =
+               Repo.transact(fn repo ->
+                 Ankole.Conversations.Delivery.Recovery.mark_intent_failed(
+                   repo,
+                   requeued,
+                   {:reply_delivery, :permanent, %{"code" => "provider_rejected"}},
+                   @base_time
+                 )
+               end)
+
+      assert failed.recovery_state == anchors
+      assert failed.recovery_status == :permanent
+      assert failed.recovery_reason == "permanent_failure"
+      assert failed.possible_duplicate_notice == requeued.possible_duplicate_notice
+    end
+
     test "in-flight intent recovers by reconciliation or marks unknown when unprovable" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
@@ -40,12 +108,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                })
 
       {:ok, _sending} =
-        unknown_seed
-        |> Intent.changeset(%{
-          status: :pending,
-          platform_send_started_at: @base_time
-        })
-        |> Repo.update()
+        Repo.transact(fn _repo ->
+          Ankole.Ash.update(unknown_seed, :start_attempt, %{platform_send_started_at: @base_time})
+        end)
 
       assert {:ok, still_sending} =
                Ankole.Conversations.Delivery.dispatch(
@@ -94,12 +159,11 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                })
 
       {:ok, _sending} =
-        reconcile_seed
-        |> Intent.changeset(%{
-          status: :pending,
-          platform_send_started_at: @base_time
-        })
-        |> Repo.update()
+        Repo.transact(fn _repo ->
+          Ankole.Ash.update(reconcile_seed, :start_attempt, %{
+            platform_send_started_at: @base_time
+          })
+        end)
 
       assert {:ok, recovered} =
                Ankole.Conversations.Delivery.dispatch(
@@ -144,9 +208,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                })
 
       {:ok, _sending} =
-        seed
-        |> Intent.changeset(%{status: :pending, platform_send_started_at: @base_time})
-        |> Repo.update()
+        Repo.transact(fn _repo ->
+          Ankole.Ash.update(seed, :start_attempt, %{platform_send_started_at: @base_time})
+        end)
 
       adapter =
         delivery_adapter(
@@ -193,12 +257,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                })
 
       {:ok, _sending} =
-        seed
-        |> Intent.changeset(%{
-          status: :pending,
-          platform_send_started_at: @base_time
-        })
-        |> Repo.update()
+        Repo.transact(fn _repo ->
+          Ankole.Ash.update(seed, :start_attempt, %{platform_send_started_at: @base_time})
+        end)
 
       assert {:ok, unknown} =
                Ankole.Conversations.Delivery.dispatch(
@@ -324,12 +385,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                })
 
       {:ok, _sending} =
-        seed
-        |> Intent.changeset(%{
-          status: :pending,
-          platform_send_started_at: @base_time
-        })
-        |> Repo.update()
+        Repo.transact(fn _repo ->
+          Ankole.Ash.update(seed, :start_attempt, %{platform_send_started_at: @base_time})
+        end)
 
       recovery_at = DateTime.add(@base_time, 61, :second)
 
@@ -381,7 +439,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
 
       assert committed.status == :sent
       assert committed.next_attempt_at == nil
-      refute committed.recovery_state["possible_duplicate"]
+      refute committed.possible_duplicate
 
       refute Enum.any?(
                due_intent_events(DateTime.add(@base_time, 1, :day)),
@@ -429,12 +487,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       due_now = DateTime.add(@base_time, 61, :second)
 
       {:ok, sending} =
-        stale_seed
-        |> Intent.changeset(%{
-          status: :pending,
-          platform_send_started_at: @base_time
-        })
-        |> Repo.update()
+        Repo.transact(fn _repo ->
+          Ankole.Ash.update(stale_seed, :start_attempt, %{platform_send_started_at: @base_time})
+        end)
 
       schedule_recovery(sending)
 
@@ -454,12 +509,11 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                })
 
       {:ok, fresh} =
-        fresh_seed
-        |> Intent.changeset(%{
-          status: :pending,
-          platform_send_started_at: DateTime.add(due_now, -30, :second)
-        })
-        |> Repo.update()
+        Repo.transact(fn _repo ->
+          Ankole.Ash.update(fresh_seed, :start_attempt, %{
+            platform_send_started_at: DateTime.add(due_now, -30, :second)
+          })
+        end)
 
       schedule_recovery(fresh)
 
@@ -576,12 +630,11 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       assert failed.attempt_count == failed.max_attempts
       assert failed.next_attempt_at == nil
       assert failed.fallback_visible_text == "must eventually arrive"
-      refute failed.recovery_state["possible_duplicate"]
+      refute failed.possible_duplicate
 
-      assert failed.recovery_state == %{
-               "state" => "exhausted",
-               "reason" => "max_attempts_reached"
-             }
+      assert failed.recovery_status == :exhausted
+      assert failed.recovery_reason == "max_attempts_reached"
+      assert failed.recovery_state == %{}
 
       refute Enum.any?(
                due_intent_events(DateTime.add(@base_time, 1, :day)),
@@ -778,7 +831,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       marked_text = notice <> "\n\npossibly delivered"
 
       assert unknown.next_attempt_at == nil
-      assert unknown.recovery_state["state"] == "blocked"
+      assert unknown.recovery_status == :blocked
 
       requeue_at = DateTime.add(@base_time, 1, :hour)
 
@@ -791,8 +844,8 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       assert requeued.max_attempts == 2
-      assert requeued.recovery_state["state"] == nil
-      assert requeued.recovery_state["possible_duplicate"] == true
+      assert requeued.recovery_status == nil
+      assert requeued.possible_duplicate == true
       assert requeued.fallback_visible_text == marked_text
       assert get_in(requeued.payload, ["reply_presentation", "answer"]) == notice
 
@@ -842,9 +895,9 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       assert unknown.status == :unknown
       assert unknown.next_attempt_at == nil
       assert unknown.payload["text"] == ""
-      assert unknown.recovery_state["state"] == "blocked"
+      assert unknown.recovery_status == :blocked
 
-      assert unknown.recovery_state["reason"] ==
+      assert unknown.recovery_reason ==
                "ambiguous_delivery_not_retried"
 
       refute Ankole.Conversations.Delivery.requeueable?(unknown)
@@ -892,8 +945,8 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       assert failed.status == :failed
       assert failed.attempt_count == 1
       assert failed.next_attempt_at == nil
-      assert failed.recovery_state["state"] == "permanent"
-      assert failed.recovery_state["reason"] == "permanent_failure"
+      assert failed.recovery_status == :permanent
+      assert failed.recovery_reason == "permanent_failure"
 
       refute Enum.any?(
                due_intent_events(DateTime.add(@base_time, 1, :day)),
@@ -942,7 +995,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
         )
 
       assert blocked.next_attempt_at == nil
-      assert blocked.recovery_state["state"] == "blocked"
+      assert blocked.recovery_status == :blocked
       assert blocked.last_error["reason"]["code"] == "attachment_file_missing"
     end
 
@@ -992,7 +1045,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
 
       assert blocked.status == :failed
       assert blocked.next_attempt_at == nil
-      assert blocked.recovery_state["state"] == "blocked"
+      assert blocked.recovery_status == :blocked
 
       assert {:error, :intent_operator_action_required} =
                Ankole.Conversations.Delivery.dispatch(

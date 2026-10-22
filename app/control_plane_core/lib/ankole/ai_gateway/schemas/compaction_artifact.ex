@@ -7,46 +7,60 @@ defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
   live here.
   """
 
-  use Ankole.Schema, tenancy: :tenant
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIGateway.Domain
 
-  import Ecto.Changeset
+  postgres do
+    table("ai_gateway_compaction_artifacts")
+    repo(Ankole.Repo)
+    migrate?(false)
 
-  alias Ankole.AIGateway.Schemas.Conversation
-  alias Ankole.Ecto.JSONPayload
-  alias Ankole.Principals.Principal
-
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
-
-  schema "ai_gateway_compaction_artifacts" do
-    belongs_to(:subject, Principal,
-      foreign_key: :subject_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
+    foreign_key_names(
+      subject_uid: "ai_gateway_compaction_artifacts_subject_uid_fkey",
+      conversation_id: "ai_gateway_compaction_artifacts_conversation_id_fkey"
     )
 
-    belongs_to(:conversation, Conversation, type: :binary_id)
-
-    field(:content, Ankole.Types.JSONValue, default: %{})
-
-    timestamps()
+    check_constraints do
+      check_constraint(:content, "ai_gateway_compaction_artifacts_content_object")
+    end
   end
 
-  @doc """
-  Builds a changeset for compaction artifacts.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(artifact, attrs) do
-    artifact
-    |> cast(attrs, [:subject_uid, :conversation_id, :content])
-    |> validate_required([:subject_uid, :content])
-    |> JSONPayload.validate_map(:content, allow_datetime: true)
-    |> validate_content_contract()
-    |> foreign_key_constraint(:subject_uid)
-    |> foreign_key_constraint(:conversation_id)
-    |> check_constraint(:content, name: :ai_gateway_compaction_artifacts_content_object)
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+    )
+
+    attribute(:subject_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+    attribute(:conversation_id, Ankole.Ash.Types.UUIDv7)
+
+    attribute(:content, Ankole.Ash.Types.JSONMap,
+      allow_nil?: false,
+      default: %{},
+      constraints: [allow_datetime?: true]
+    )
+
+    create_timestamp(:inserted_at, type: :utc_datetime_usec)
+    update_timestamp(:updated_at, type: :utc_datetime_usec)
   end
+
+  actions do
+    defaults([:read])
+
+    create :store do
+      transaction?(false)
+      accept([:id, :subject_uid, :conversation_id, :content])
+
+      validate(
+        fn changeset, _context ->
+          validate_content(Ash.Changeset.get_attribute(changeset, :content))
+        end,
+        only_when_valid?: true
+      )
+    end
+  end
+
+  @type t :: %__MODULE__{}
 
   @doc """
   Tells whether `binding` can tie a version 3 upstream artifact to its
@@ -66,64 +80,53 @@ defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
 
   def valid_upstream_binding?(_binding), do: false
 
-  defp validate_content_contract(changeset) do
-    content = get_field(changeset, :content)
-
-    cond do
-      not is_map(content) ->
-        add_error(changeset, :content, "must be a JSON object")
-
-      true ->
-        validate_versioned_content(changeset, content)
-    end
-  end
-
-  defp validate_versioned_content(changeset, %{"version" => 2} = content) do
+  defp validate_content(%{"version" => 2} = content) do
     cond do
       not is_map(Map.get(content, "summary")) ->
-        add_error(changeset, :content, "version 2 must include a summary object")
+        invalid("version 2 must include a summary object")
 
       not is_list(Map.get(content, "output")) ->
-        add_error(changeset, :content, "version 2 must include output items")
+        invalid("version 2 must include output items")
 
       true ->
-        validate_brain_context_pack(changeset, content)
+        validate_brain_context_pack(content)
     end
   end
 
-  defp validate_versioned_content(changeset, %{"version" => 3} = content) do
+  defp validate_content(%{"version" => 3} = content) do
     cond do
       Map.get(content, "source") != "upstream" ->
-        add_error(changeset, :content, "version 3 source must be upstream")
+        invalid("version 3 source must be upstream")
 
       not valid_upstream_binding?(Map.get(content, "binding")) ->
-        add_error(changeset, :content, "version 3 must include a binding object")
+        invalid("version 3 must include a binding object")
 
       not is_list(Map.get(content, "output")) or Map.get(content, "output") == [] ->
-        add_error(changeset, :content, "version 3 must include output items")
+        invalid("version 3 must include output items")
 
       true ->
-        validate_brain_context_pack(changeset, content)
+        validate_brain_context_pack(content)
     end
   end
 
-  defp validate_versioned_content(changeset, _content),
-    do: add_error(changeset, :content, "must use version 2 or 3")
+  defp validate_content(_content), do: invalid("must use version 2 or 3")
 
-  defp validate_brain_context_pack(changeset, content) do
+  defp validate_brain_context_pack(content) do
     case Map.fetch(content, "brain_context_pack") do
       :error ->
-        changeset
+        :ok
 
       {:ok, pack} when is_list(pack) ->
         if Enum.all?(pack, &brain_context_pack_message?/1),
-          do: changeset,
-          else: add_error(changeset, :content, "brain_context_pack must contain message items")
+          do: :ok,
+          else: invalid("brain_context_pack must contain message items")
 
       {:ok, _invalid} ->
-        add_error(changeset, :content, "brain_context_pack must contain message items")
+        invalid("brain_context_pack must contain message items")
     end
   end
+
+  defp invalid(message), do: {:error, field: :content, message: message}
 
   defp brain_context_pack_message?(%{"type" => "message", "role" => "user", "content" => parts})
        when is_list(parts) do

@@ -5,12 +5,10 @@ defmodule Ankole.Brain.Timelines do
   chunks in the same transaction.
   """
 
-  import Ecto.Query, warn: false
-
+  alias Ankole.Brain.Chunks
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Timeline
   alias Ankole.Brain.Scope
-  alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
 
   @type writer :: String.t() | :system
@@ -21,17 +19,14 @@ defmodule Ankole.Brain.Timelines do
   """
   @spec write_timeline(map(), writer(), keyword()) :: {:ok, Timeline.t()} | {:error, term()}
   def write_timeline(attrs, writer, opts \\ []) when is_map(attrs) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    with {:ok, object} <- Objects.get_by_slug(attrs[:object_slug], repo: repo),
+    with {:ok, object} <- Objects.get_by_slug(attrs[:object_slug]),
          :ok <- validate_scope(attrs[:audience_scope], writer),
          :ok <- validate_text(attrs[:summary], :summary),
          :ok <- validate_text(attrs[:provenance], :provenance),
          :ok <- validate_date(attrs[:date]) do
-      repo.transact(fn repo ->
+      Repo.transact(fn repo ->
         with {:ok, object} <- Objects.lock_object_in_tx(repo, object.slug) do
-          row = %Timeline{
-            id: UUIDv7.autogenerate(),
+          row = %{
             object_slug: object.slug,
             author: Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts),
             date: attrs[:date],
@@ -43,39 +38,20 @@ defmodule Ankole.Brain.Timelines do
             created_at: DateTime.utc_now(:microsecond)
           }
 
-          insert_timeline(repo, object, attrs, row)
+          insert_timeline(object, row)
         end
       end)
     end
   end
 
-  defp insert_timeline(repo, object, attrs, row) do
-    case repo.insert_all(
-           Timeline,
-           [
-             row
-             |> Map.take(Timeline.__schema__(:fields))
-             |> Map.put(:tenant_id, Repo.tenant_id!())
-           ],
-           on_conflict: :nothing,
-           conflict_target: [:tenant_id, :object_slug, :date, :summary, :provenance],
-           returning: true
-         ) do
-      {0, []} ->
-        existing =
-          repo.get_by!(Timeline,
-            object_slug: object.slug,
-            date: attrs[:date],
-            summary: attrs[:summary],
-            provenance: attrs[:provenance]
-          )
-
-        {:ok, existing}
-
-      {1, [timeline]} ->
-        with {:ok, _object} <- Objects.reconcile_chunks(object, repo: repo) do
-          {:ok, timeline}
-        end
+  defp insert_timeline(object, row) do
+    with {:ok, timeline} <- Ankole.Ash.create(Timeline, :record, row) do
+      if Map.get(timeline.__metadata__, :upsert_skipped, false) do
+        {:ok, timeline}
+      else
+        with {:ok, _object} <- Chunks.reconcile(object),
+             do: {:ok, timeline}
+      end
     end
   end
 

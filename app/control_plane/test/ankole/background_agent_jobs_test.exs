@@ -7,138 +7,11 @@ defmodule Ankole.BackgroundAgentJobsTest do
   alias Ankole.AgentHomePaths
   alias Ankole.Signals.Signal
   alias Ankole.BackgroundAgentJobs
-  alias Ankole.BackgroundAgentJobs.RuntimeProjection
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.Repo
-  alias Ankole.Sessions.TurnErrorClassifier
-
-  describe "job session identity" do
-    test "job_session_id/1 pins the persisted wire format" do
-      job_id = 1000
-
-      assert BackgroundAgentJobs.job_session_id(job_id) == "job:1000"
-      assert BackgroundAgentJobs.job_session_prefix() == "job:"
-    end
-
-    test "parse_job_session_id/1 round-trips built ids and rejects everything else" do
-      job_id = 1000
-      session_id = BackgroundAgentJobs.job_session_id(job_id)
-
-      assert BackgroundAgentJobs.parse_job_session_id(session_id) == {:ok, job_id}
-
-      for other <- ["job:", "job", "", job_id, "signal-channel:lark:oc_1", nil, :job] do
-        assert BackgroundAgentJobs.parse_job_session_id(other) == :error
-      end
-    end
-
-    test "Session key parsing agrees with numeric Job identity validation" do
-      values = [
-        BackgroundAgentJobs.job_session_id(1000),
-        "job:",
-        "job",
-        "",
-        Ecto.UUID.generate(),
-        "signal-channel:lark:oc_1",
-        nil
-      ]
-
-      for value <- values do
-        assert match?({:job, _}, Ankole.Sessions.Key.parse(value)) ==
-                 match?({:ok, _job_id}, BackgroundAgentJobs.parse_job_session_id(value))
-      end
-    end
-  end
-
-  test "Turn changesets validate concrete progress and official usage snapshots" do
-    now = DateTime.utc_now(:microsecond)
-
-    attrs = %{
-      job_id: 1000,
-      attempt: 1,
-      runtime_thread_id: "thread-schema",
-      runtime_turn_id: "turn-schema",
-      kind: "agent",
-      status: "completed",
-      revision: 1,
-      trajectory: trajectory_header(),
-      progress: %{
-        "completed_items" => 2,
-        "tool_calls" => 1,
-        "tools_used" => [%{"name" => "web_search", "calls" => 1}],
-        "tool_execution_mechanisms" => [
-          %{
-            "name" => "web_search",
-            "execution_mechanism" => "provider_hosted",
-            "calls" => 1
-          }
-        ],
-        "files_changed" => ["a.ts"],
-        "plan" => %{
-          "steps" => [%{"step" => "Run tests", "status" => "completed"}]
-        }
-      },
-      usage: usage_snapshot(21),
-      error: %{},
-      started_at: now,
-      completed_at: now
-    }
-
-    assert Turn.changeset(%Turn{}, attrs).valid?
-    assert Turn.changeset(%Turn{}, %{attrs | usage: nil}).valid?
-
-    refute Turn.changeset(%Turn{}, %{attrs | usage: %{}}).valid?
-
-    invalid_progress =
-      put_in(attrs, [:progress], %{
-        "completed_items" => -1,
-        "tool_calls" => 2,
-        "tools_used" => [%{"name" => "shell", "calls" => 1}],
-        "files_changed" => ["b.ts", "a.ts"],
-        "plan" => %{"steps" => [%{"step" => "Run tests", "status" => "started"}]}
-      })
-
-    refute Turn.changeset(%Turn{}, invalid_progress).valid?
-
-    invalid_execution_mechanism =
-      put_in(
-        attrs,
-        [:progress, "tool_execution_mechanisms"],
-        [%{"name" => "web_search", "execution_mechanism" => "guessed", "calls" => 1}]
-      )
-
-    refute Turn.changeset(%Turn{}, invalid_execution_mechanism).valid?
-  end
-
-  test "forward migration installs the runtime snapshot columns and removes activity timestamps" do
-    columns =
-      Repo.query!("""
-      SELECT column_name, is_nullable, column_default
-      FROM information_schema.columns
-      WHERE table_schema = current_schema()
-        AND table_name = 'background_agent_job_turns'
-        AND column_name IN ('progress', 'usage', 'last_activity_at')
-      ORDER BY column_name
-      """).rows
-
-    assert [
-             ["progress", "NO", progress_default],
-             ["usage", "YES", nil]
-           ] = columns
-
-    assert progress_default =~ "completed_items"
-
-    assert [["background_agent_job_turns_progress_object"]] =
-             Repo.query!("""
-             SELECT constraint_name
-             FROM information_schema.table_constraints
-             WHERE table_schema = current_schema()
-               AND table_name = 'background_agent_job_turns'
-               AND constraint_name = 'background_agent_job_turns_progress_object'
-             """).rows
-  end
 
   test "create_with_dispatch durably creates one queued work item and one isolated dispatch event" do
     %{principal: agent} = background_agent_fixture()
@@ -162,7 +35,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert {:ok, %{job: %Job{} = job, dispatch_event: %Signal{} = event}} =
              BackgroundAgentJobs.create_with_dispatch(attrs)
 
-    assert job.status == "queued"
+    assert job.status == :queued
     assert job.attempts == 0
     assert job.title == attrs["title"]
     assert job.task == attrs["task"]
@@ -228,7 +101,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     drain_driver_wakeup!(wakeup)
 
-    assert externally_completed.status == "succeeded"
+    assert externally_completed.status == :succeeded
 
     # A slow Worker reports its own completion for the same Job. The Job already
     # has an authoritative result, so the late write must not replace it.
@@ -240,7 +113,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     final = BackgroundAgentJobs.get_job(job.id)
 
-    assert final.status == "succeeded"
+    assert final.status == :succeeded
     assert get_in(final.result, ["summary"]) == "EXTERNALLY-VERIFIED"
   end
 
@@ -268,7 +141,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                {:error, :fixture_rollback}
              end)
 
-    assert Repo.reload!(job).status == "queued"
+    assert Repo.reload!(job).status == :queued
 
     refute Repo.get_by(Signal,
              session_id: job.owner_session_id,
@@ -303,13 +176,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
                }
              })
 
+    Repo.update!(Ecto.Changeset.change(reflection, status: :running, attempts: 1))
+
     assert {:ok, %{job: running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(reflection.id, agent.uid, %{
                "status" => "running",
                "runtime_thread_id" => "thread-reflection"
              })
 
-    running = running |> Ecto.Changeset.change(attempts: 1) |> Repo.update!()
     insert_turn!(running, 1, "thread-reflection", "turn-reflection", "completed")
 
     assert {:ok, %{job: succeeded, wakeup_event: nil}} =
@@ -318,7 +192,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "result" => %{"output_text" => ~s({"adds": []})}
              })
 
-    assert succeeded.status == "succeeded"
+    assert succeeded.status == :succeeded
 
     # No wakeup event reached the synthetic owner session.
     refute Repo.exists?(
@@ -345,13 +219,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "reply_route" => %{"binding_name" => "lark"}
              })
 
+    Repo.update!(Ecto.Changeset.change(plain, status: :running, attempts: 1))
+
     assert {:ok, %{job: plain_running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(plain.id, agent.uid, %{
                "status" => "running",
                "runtime_thread_id" => "thread-plain"
              })
 
-    plain_running = plain_running |> Ecto.Changeset.change(attempts: 1) |> Repo.update!()
     insert_turn!(plain_running, 1, "thread-plain", "turn-plain", "completed")
 
     assert {:ok, %{job: _plain_done, wakeup_event: %Signal{} = wakeup}} =
@@ -491,12 +366,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
              BackgroundAgentJobs.create_with_dispatch(attrs)
 
     for {status, attempts} <- [
-          {"queued", 3},
-          {"running", 4},
-          {"waiting_on_user", 5},
-          {"succeeded", 6},
-          {"failed", 7},
-          {"stopped", 8}
+          {:queued, 3},
+          {:running, 4},
+          {:waiting_on_user, 5},
+          {:succeeded, 6},
+          {:failed, 7},
+          {:stopped, 8}
         ] do
       from(row in Job, where: row.id == ^original.id)
       |> Repo.update_all(set: [status: status, attempts: attempts])
@@ -589,13 +464,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "reply_route" => %{"binding_name" => "lark"}
              })
 
+    Repo.update!(Ecto.Changeset.change(research, status: :running, attempts: 1))
+
     assert {:ok, %{job: running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(research.id, agent.uid, %{
                "status" => "running",
                "runtime_thread_id" => "thread-trajectory"
              })
-
-    running = running |> Ecto.Changeset.change(attempts: 1) |> Repo.update!()
 
     assert {:error, :background_agent_job_turn_trajectory_incomplete} =
              BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, %{
@@ -614,12 +489,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "result" => %{"summary" => "Lead Turn verified"}
              })
 
-    assert succeeded.status == "succeeded"
-    assert turn.status == "completed"
+    assert succeeded.status == :succeeded
+    assert turn.status == :completed
     assert turn.trajectory["format"] == "ankole_chatml"
 
     active_child = Repo.reload!(active_child)
-    assert active_child.status == "interrupted"
+    assert active_child.status == :interrupted
     assert active_child.error["code"] == "background_agent_job_succeeded"
     assert %DateTime{} = active_child.completed_at
   end
@@ -639,16 +514,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "reply_route" => %{"binding_name" => "lark"}
              })
 
-    assert {:ok, %{job: running}} =
-             BackgroundAgentJobs.commit_status_with_wakeup(source.id, agent.uid, %{
-               "status" => "running",
-               "runtime_thread_id" => "thread-respawn-inherit"
-             })
-
-    running = set_attempts!(running, 1)
+    running = start_job!(source, "thread-respawn-inherit")
     insert_turn!(running, 1, "thread-respawn-inherit", "turn-respawn-inherit", "completed")
 
-    assert {:ok, %{job: %Job{status: "succeeded"} = source}} =
+    assert {:ok, %{job: %Job{status: :succeeded} = source}} =
              BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, %{
                "status" => "succeeded",
                "result" => %{"summary" => "Done"}
@@ -681,7 +550,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert successor.workspace_owner_job_id == source.id
     assert successor.continued_from_job_id == source.id
     assert successor.task == "Continue the report."
-    assert successor.status == "queued"
+    assert successor.status == :queued
     assert successor.attempts == 0
     assert successor.metadata["managed_background_agent_job_root"] == false
     assert get_in(dispatch.data, ["workspace_template_id"]) == "deep-research"
@@ -725,6 +594,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   test "a steer carried into the successor of a succeeded Job is reported as forwarded" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "steer-forwarded")
+    Repo.update!(Ecto.Changeset.change(job, status: :running, attempts: 1))
 
     assert {:ok, %{job: running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
@@ -732,7 +602,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "runtime_thread_id" => "thread-steer-forwarded"
              })
 
-    running = set_attempts!(running, 1)
     insert_turn!(running, 1, "thread-steer-forwarded", "turn-steer-forwarded", "completed")
 
     assert {:ok, %{command_event: steer}} =
@@ -772,84 +641,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
              )
   end
 
-  test "success rolls back when an existing successor cannot carry an open steer" do
-    %{principal: agent} = background_agent_fixture()
-    job = create_job!(agent.uid, "steer-successor-conflict")
-
-    assert {:ok, %{job: running}} =
-             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
-               "status" => "running",
-               "runtime_thread_id" => "thread-steer-successor-conflict"
-             })
-
-    running = set_attempts!(running, 1)
-
-    _turn =
-      insert_turn!(
-        running,
-        1,
-        "thread-steer-successor-conflict",
-        "turn-steer-successor-conflict",
-        "completed"
-      )
-
-    # Public lifecycle locks prevent this order. Build the durable conflict
-    # directly to prove that its defensive branch does not complete the steer.
-    failed_at = DateTime.utc_now(:microsecond)
-
-    running
-    |> Ecto.Changeset.change(status: "failed", completed_at: failed_at)
-    |> Repo.update!()
-
-    assert {:ok, %{job: manual_successor}} =
-             BackgroundAgentJobs.respawn_with_dispatch(job.id, %{
-               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
-               "agent_uid" => agent.uid,
-               "owner_session_id" => job.owner_session_id,
-               "source_tool_call_id" => "manual-steer-successor-conflict",
-               "message" => "Continue with the manual follow-up.",
-               "reply_route" => job.reply_route
-             })
-
-    job
-    |> Repo.reload!()
-    |> Ecto.Changeset.change(status: "running", completed_at: nil)
-    |> Repo.update!()
-
-    assert {:ok, %{command_event: steer}} =
-             BackgroundAgentJobs.send_message(job.id, %{
-               "agent_uid" => agent.uid,
-               "message" => "Preserve this late instruction.",
-               "request_id" => "late-steer-successor-conflict"
-             })
-
-    Ankole.SessionsCase.stub_driver(%{
-      agent_uid: agent.uid,
-      session_id: job.owner_session_id
-    })
-
-    assert {:error, {:background_agent_job_already_respawned, successor_id}} =
-             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
-               "status" => "succeeded",
-               "result" => %{"summary" => "Done"}
-             })
-
-    assert successor_id == manual_successor.id
-    assert Repo.reload!(job).status == "running"
-    assert Repo.reload!(steer).completed_at == nil
-    assert Repo.reload!(steer).input_state == "open"
-    assert Repo.reload!(manual_successor).task == "Continue with the manual follow-up."
-    refute_receive :reconcile_inbox, 20
-
-    refute Repo.get_by(Signal,
-             session_id: job.owner_session_id,
-             type: "background_agent_job.completed"
-           )
-  end
-
   test "success cannot bypass the current-attempt trajectory by omitting the runtime thread anchor" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "trajectory-gate-without-anchor")
+    Repo.update!(Ecto.Changeset.change(job, status: :running))
 
     assert {:ok, %{job: running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
@@ -874,6 +669,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   test "waiting requires the interrupted Turn that contains the pending user-input request" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "waiting-trajectory-gate")
+    Repo.update!(Ecto.Changeset.change(job, status: :running))
 
     assert {:ok, %{job: running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
@@ -953,7 +749,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       items: [{2, "request-user-input-pending", request_user_input_item()}]
     })
 
-    assert {:ok, %{job: %{status: "waiting_on_user"}}} =
+    assert {:ok, %{job: %{status: :waiting_on_user}}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                "status" => "waiting_on_user",
                "metadata" => %{"pending_user_input" => %{"questions" => []}}
@@ -963,14 +759,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
   test "waiting cannot close an attempt while one of its runtime Turns is active" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "waiting-turn-gate")
+    Repo.update!(Ecto.Changeset.change(job, status: :running, attempts: 1))
 
     assert {:ok, %{job: running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                "status" => "running",
                "runtime_thread_id" => "thread-waiting-gate"
              })
-
-    running = running |> Ecto.Changeset.change(attempts: 1) |> Repo.update!()
 
     active =
       insert_turn!(
@@ -994,7 +789,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       items: [{1, "request-user-input", request_user_input_item()}]
     })
 
-    assert {:ok, %{job: %{status: "waiting_on_user"}}} =
+    assert {:ok, %{job: %{status: :waiting_on_user}}} =
              BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, %{
                "status" => "waiting_on_user",
                "metadata" => %{"pending_user_input" => %{"questions" => []}}
@@ -1037,14 +832,15 @@ defmodule Ankole.BackgroundAgentJobsTest do
       })
     end
 
+    Repo.update!(Ecto.Changeset.change(waiting, status: :running, attempts: 1))
+
     assert {:ok, %{job: running, wakeup_event: nil}} =
              BackgroundAgentJobs.commit_status_with_wakeup(waiting.id, agent.uid, %{
                "status" => "running",
                "runtime_thread_id" => "thread-waiting"
              })
 
-    assert running.status == "running"
-    running = set_attempts!(running, 1)
+    assert running.status == :running
 
     _waiting_turn =
       insert_waiting_turn!(running, 1, "thread-waiting", "turn-waiting")
@@ -1067,19 +863,21 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "metadata" => %{"pending_user_input" => pending_user_input}
              })
 
-    assert paused.status == "waiting_on_user"
+    assert paused.status == :waiting_on_user
     drain_driver_wakeup!(waiting_event)
     assert waiting_event.session_id == "parent-session-waiting"
     assert waiting_event.type == "background_agent_job.waiting"
     assert waiting_event.source_event_id == "background_agent_job:#{waiting.id}:waiting:1"
     assert get_in(waiting_event.data, ["pending_user_input"]) == pending_user_input
 
+    Repo.update!(Ecto.Changeset.change(paused, status: :running))
+
     assert {:ok, %{job: resumed, wakeup_event: nil}} =
              BackgroundAgentJobs.commit_status_with_wakeup(waiting.id, agent.uid, %{
                "status" => "running"
              })
 
-    assert resumed.status == "running"
+    assert resumed.status == :running
 
     _completed_turn =
       insert_turn!(resumed, 1, "thread-waiting", "turn-resumed", "completed")
@@ -1103,7 +901,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                }
              })
 
-    assert succeeded.status == "succeeded"
+    assert succeeded.status == :succeeded
     drain_driver_wakeup!(completed_event)
     assert completed_event.type == "background_agent_job.completed"
     assert completed_event.source_event_id == "background_agent_job:#{waiting.id}:succeeded:1"
@@ -1123,6 +921,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
            }
 
     failed = create_job!(agent.uid, "failed")
+    Repo.update!(Ecto.Changeset.change(failed, status: :running))
 
     assert {:ok, %{job: _running_failed}} =
              BackgroundAgentJobs.commit_status_with_wakeup(failed.id, agent.uid, %{
@@ -1140,7 +939,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                }
              })
 
-    assert failed.status == "failed"
+    assert failed.status == :failed
     drain_driver_wakeup!(failed_event)
     assert failed_event.type == "background_agent_job.failed"
     assert get_in(failed_event.data, ["job_id"]) == failed.id
@@ -1152,6 +951,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     refute Map.has_key?(failed_event.data, "workdir")
 
     stopped = create_job!(agent.uid, "stopped")
+    Repo.update!(Ecto.Changeset.change(stopped, status: :running))
 
     assert {:ok, %{job: stopped, wakeup_event: nil}} =
              BackgroundAgentJobs.commit_status_with_wakeup(stopped.id, agent.uid, %{
@@ -1159,7 +959,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "metadata" => %{"cancel_requested_by" => "operator:ding"}
              })
 
-    assert stopped.status == "stopped"
+    assert stopped.status == :stopped
     refute_receive :reconcile_inbox, 20
 
     parent_wakeups =
@@ -1216,13 +1016,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert dispatch.source == "control-plane://background-agent-job"
     assert dispatch.human_uid == human.uid
 
+    Repo.update!(Ecto.Changeset.change(job, status: :running, attempts: 1))
+
     assert {:ok, %{job: running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                "status" => "running",
                "runtime_thread_id" => "native-job-thread"
              })
 
-    running = set_attempts!(running, 1)
     _turn = insert_turn!(running, 1, "native-job-thread", "native-job-turn", "completed")
 
     assert {:ok, %{wakeup_event: result}} =
@@ -1269,13 +1070,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
                }
              })
 
+    Repo.update!(Ecto.Changeset.change(job, status: :running, attempts: 1))
+
     assert {:ok, %{job: running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                "status" => "running",
                "runtime_thread_id" => "thread-scheduled-delivery"
              })
-
-    running = set_attempts!(running, 1)
 
     _turn =
       insert_turn!(
@@ -1298,6 +1099,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   test "failure wakeups omit unrecognized diagnostic maps" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "opaque-failure")
+    Repo.update!(Ecto.Changeset.change(job, status: :running))
 
     assert {:ok, %{job: _running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
@@ -1322,6 +1124,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   test "status and parent wakeup roll back together when the frozen reply route is invalid" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "invalid-route")
+    Repo.update!(Ecto.Changeset.change(job, status: :running, attempts: 1))
 
     assert {:ok, %{job: running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
@@ -1329,7 +1132,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "runtime_thread_id" => "thread-invalid-route"
              })
 
-    running = set_attempts!(running, 1)
     _turn = insert_turn!(running, 1, "thread-invalid-route", "turn-invalid-route", "completed")
 
     from(row in Job, where: row.id == ^job.id)
@@ -1371,7 +1173,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "reason" => "No longer needed"
              })
 
-    assert stopped.status == "stopped"
+    assert stopped.status == :stopped
     assert stopped.metadata["cancel_requested_by"] == "operator:ding"
 
     dispatch =
@@ -1394,14 +1196,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert same_stopped.id == stopped.id
 
     running = create_job!(agent.uid, "running-stop")
+    Repo.update!(Ecto.Changeset.change(running, status: :running, attempts: 1))
 
     assert {:ok, %{job: running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, %{
                "status" => "running",
                "runtime_thread_id" => "thread-running-stop"
              })
-
-    running = set_attempts!(running, 1)
 
     active_running_turn =
       insert_turn!(running, 1, "thread-running-stop", "turn-running-stop", "in_progress")
@@ -1419,7 +1220,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "request_id" => "stop-running-once"
              })
 
-    assert running_stopped.status == "stopped"
+    assert running_stopped.status == :stopped
     assert %DateTime{} = running_stopped.completed_at
     assert running_stopped.metadata["cancel_requested_by"] == "agent:#{agent.uid}"
     assert running_stopped.metadata["cancel_reason"] == "Changed priorities"
@@ -1430,11 +1231,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
            )
 
     active_running_turn = Repo.reload!(active_running_turn)
-    assert active_running_turn.status == "interrupted"
+    assert active_running_turn.status == :interrupted
     assert active_running_turn.error["code"] == "background_agent_job_stopped"
     assert %DateTime{} = active_running_turn.completed_at
 
     waiting = create_job!(agent.uid, "waiting-stop")
+    Repo.update!(Ecto.Changeset.change(waiting, status: :running, attempts: 1))
 
     assert {:ok, %{job: running_before_wait}} =
              BackgroundAgentJobs.commit_status_with_wakeup(waiting.id, agent.uid, %{
@@ -1442,8 +1244,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "runtime_thread_id" => "thread-waiting-stop"
              })
 
-    assert running_before_wait.status == "running"
-    running_before_wait = set_attempts!(running_before_wait, 1)
+    assert running_before_wait.status == :running
 
     _waiting_turn =
       insert_waiting_turn!(
@@ -1465,7 +1266,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "cancel_requested_by" => "operator:ding"
              })
 
-    assert waiting_stopped.status == "stopped"
+    assert waiting_stopped.status == :stopped
     refute Map.has_key?(waiting_stopped.metadata, "pending_user_input")
 
     refute Repo.exists?(
@@ -1481,14 +1282,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
     test "#{action} returns the admitted trigger of a running Job" do
       %{principal: agent} = background_agent_fixture()
       job = create_job!(agent.uid, Atom.to_string(@control_action))
+      Repo.update!(Ecto.Changeset.change(job, status: :running, attempts: 1))
 
       {:ok, %{job: running}} =
         BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
           "status" => "running",
           "runtime_thread_id" => "live-control-thread"
         })
-
-      running = set_attempts!(running, 1)
 
       event =
         Repo.get_by!(Signal,
@@ -1510,7 +1310,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       assert turn.session_id == event.session_id
       assert turn.job_id == running.id
       assert turn.attempt == running.attempts
-      assert terminal.status in ["stopped", "succeeded"]
+      assert terminal.status in [:stopped, :succeeded]
       refute Repo.get_by(Signal, session_id: event.session_id, type: "command.stop")
     end
   end
@@ -1523,10 +1323,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     third = create_job!(agent.uid, "third")
     other_agent_job = create_job!(other_agent.uid, "other-agent")
 
-    first =
-      first
-      |> Job.changeset(%{status: "running", runtime_thread_id: "thread-first"})
-      |> Repo.update!()
+    first = start_job!(first, "thread-first")
 
     assert {:ok, %{job: %Job{id: first_id}, command_event: %Signal{} = message_event}} =
              BackgroundAgentJobs.send_message(first.id, %{
@@ -1595,7 +1392,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       end
 
     stop_jobs =
-      for {status, index} <- Enum.with_index(~w(succeeded failed stopped), 33) do
+      for {status, index} <- Enum.with_index([:succeeded, :failed, :stopped], 33) do
         job = create_job!(agent.uid, "list-stop-#{status}")
         completed_at = DateTime.add(base, index, :second)
 
@@ -1608,7 +1405,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
           ]
         )
 
-        {job, status}
+        {job, Atom.to_string(status)}
       end
 
     assert {:ok, %{jobs: first_page, next_cursor: cursor}} =
@@ -1646,6 +1443,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   test "message send rejects a settled job and does not create a command" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "settled-continuation")
+    Repo.update!(Ecto.Changeset.change(job, status: :running, attempts: 1))
 
     assert {:ok, %{job: running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
@@ -1653,7 +1451,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "runtime_thread_id" => "thread-settled-continuation"
              })
 
-    running = set_attempts!(running, 1)
     _turn = insert_turn!(running, 1, "thread-settled-continuation", "turn-settled", "completed")
 
     assert {:ok, %{job: succeeded}} =
@@ -1662,14 +1459,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "result" => %{"summary" => "Candidate result"}
              })
 
-    assert {:error, {:background_agent_job_message_status_invalid, "succeeded"}} =
+    assert {:error, {:background_agent_job_message_status_invalid, :succeeded}} =
              BackgroundAgentJobs.send_message(succeeded.id, %{
                "agent_uid" => agent.uid,
                "message" => "Complete the missing artifacts.",
                "request_id" => "continue-settled"
              })
 
-    assert BackgroundAgentJobs.get_job_for_agent(succeeded.id, agent.uid).status == "succeeded"
+    assert BackgroundAgentJobs.get_job_for_agent(succeeded.id, agent.uid).status == :succeeded
 
     refute Repo.exists?(
              from(event in Signal,
@@ -1679,192 +1476,16 @@ defmodule Ankole.BackgroundAgentJobsTest do
            )
   end
 
-  test "claiming a continuation clears the answered parent input" do
-    %{principal: agent} = background_agent_fixture()
-
-    waiting =
-      agent.uid
-      |> create_job!("answered-parent-input")
-      |> Job.changeset(%{
-        status: "waiting_on_user",
-        metadata: %{
-          "pending_user_input" => %{"questions" => [%{"id" => "answer"}]},
-          "owner_conversation_id" => "conversation-a"
-        }
-      })
-      |> Repo.update!()
-
-    assert {:ok, resumed} =
-             Ankole.BackgroundAgentJobs.Lifecycle.claim_continuation_in_tx(
-               Repo,
-               waiting.id,
-               agent.uid,
-               1,
-               runtime_turn_start_spec(),
-               agent_slot_cap()
-             )
-
-    assert resumed.status == "running"
-    assert resumed.metadata == %{"owner_conversation_id" => "conversation-a"}
-  end
-
-  test "the first attempt captures one immutable runtime projection" do
-    %{principal: agent} = background_agent_fixture()
-    job = create_job!(agent.uid, "stable-runtime-projection")
-    first_spec = runtime_turn_start_spec("openai/gpt-5.6-sol")
-
-    assert {:ok, first_attempt} =
-             Ankole.BackgroundAgentJobs.Lifecycle.claim_attempt_in_tx(
-               Repo,
-               job.id,
-               agent.uid,
-               1,
-               first_spec,
-               agent_slot_cap()
-             )
-
-    assert first_attempt.runtime_projection["version"] == 1
-    assert first_attempt.runtime_projection["model_ref"] == first_spec.model_ref
-
-    assert first_attempt.runtime_projection["runtime_policy"] ==
-             first_spec.request_context["ai_agent"]
-
-    assert first_attempt.runtime_projection["browser"] == %{"mode" => "persistent"}
-    refute Map.has_key?(first_attempt.runtime_projection, "api_key")
-
-    assert %{
-             "id" => "brain:idea-lineage",
-             "name" => "idea-lineage",
-             "agent_plugin_id" => "brain"
-           } =
-             Enum.find(
-               first_attempt.runtime_projection["skills"],
-               &(&1["name"] == "idea-lineage")
-             )
-
-    assert %{"skills" => brain_skills} =
-             Enum.find(first_attempt.runtime_projection["agent_plugins"], &(&1["id"] == "brain"))
-
-    assert "idea-lineage" in brain_skills
-
-    changed_spec = runtime_turn_start_spec("openai/gpt-5.6-terra")
-
-    assert {:ok, second_attempt} =
-             Ankole.BackgroundAgentJobs.Lifecycle.claim_continuation_in_tx(
-               Repo,
-               job.id,
-               agent.uid,
-               2,
-               changed_spec,
-               agent_slot_cap()
-             )
-
-    assert second_attempt.attempts == 2
-    assert second_attempt.runtime_projection == first_attempt.runtime_projection
-    assert second_attempt.runtime_projection["model_ref"]["model"] == "openai/gpt-5.6-sol"
-  end
-
-  test "runtime projections carry the frozen hosted tool declarations" do
-    %{principal: agent} = background_agent_fixture()
-    job = create_job!(agent.uid, "hosted-tool-projection")
-
-    spec =
-      runtime_turn_start_spec()
-      |> Map.put(:hosted_tools, [%{"type" => "image_generation"}, %{"type" => "web_search"}])
-
-    assert {:ok, attempt} =
-             Ankole.BackgroundAgentJobs.Lifecycle.claim_attempt_in_tx(
-               Repo,
-               job.id,
-               agent.uid,
-               1,
-               spec,
-               agent_slot_cap()
-             )
-
-    assert attempt.runtime_projection["hosted_tools"] == [
-             %{"type" => "image_generation"},
-             %{"type" => "web_search"}
-           ]
-
-    assert {:ok, overrides} = RuntimeProjection.turn_start_overrides(attempt.runtime_projection)
-
-    assert overrides.hosted_tools == [
-             %{"type" => "image_generation"},
-             %{"type" => "web_search"}
-           ]
-
-    assert {:error, :background_agent_job_runtime_projection_invalid} =
-             RuntimeProjection.turn_start_overrides(
-               Map.put(attempt.runtime_projection, "hosted_tools", ["web_search"])
-             )
-  end
-
-  test "claiming a continuation counts compaction-labeled lead failures" do
-    %{principal: agent} = background_agent_fixture()
-
-    running =
-      agent.uid
-      |> create_job!("repeated-turn-failures")
-      |> Job.changeset(%{status: "running", runtime_thread_id: "thread-lead"})
-      |> Repo.update!()
-
-    for index <- 1..5 do
-      insert_custom_turn!(running, %{
-        attempt: 1,
-        runtime_thread_id: "thread-lead",
-        runtime_turn_id: "turn-failed-#{index}",
-        kind: "compaction",
-        status: "failed",
-        trajectory_items: [assistant_item("turn-failure", "upstream returned HTTP status 502")],
-        error: %{"summary" => "upstream returned HTTP status 502"}
-      })
-    end
-
-    assert {:error, {:background_agent_job_turn_failures_exhausted, error}} =
-             Ankole.BackgroundAgentJobs.Lifecycle.claim_continuation_in_tx(
-               Repo,
-               running.id,
-               agent.uid,
-               1,
-               runtime_turn_start_spec(),
-               agent_slot_cap()
-             )
-
-    assert error["summary"] == "upstream returned HTTP status 502"
-  end
-
-  test "a completed lead turn clears earlier continuation failures" do
-    %{principal: agent} = background_agent_fixture()
-
-    running =
-      agent.uid
-      |> create_job!("recovered-turn-failures")
-      |> Job.changeset(%{status: "running", runtime_thread_id: "thread-lead"})
-      |> Repo.update!()
-
-    for index <- 1..5 do
-      insert_turn!(running, 1, "thread-lead", "turn-failed-#{index}", "failed", "upstream failed")
-    end
-
-    insert_turn!(running, 1, "thread-lead", "turn-recovered", "completed")
-
-    assert {:ok, resumed} =
-             Ankole.BackgroundAgentJobs.Lifecycle.claim_continuation_in_tx(
-               Repo,
-               running.id,
-               agent.uid,
-               1,
-               runtime_turn_start_spec(),
-               agent_slot_cap()
-             )
-
-    assert resumed.status == "running"
-  end
-
   test "status commits reject missing status and lifecycle regression" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "status-transition")
+
+    assert {:error, {:invalid_background_agent_job_status_transition, :queued, :running}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+               "status" => "running"
+             })
+
+    Repo.update!(Ecto.Changeset.change(job, status: :running))
 
     assert {:ok, %{job: running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
@@ -1876,7 +1497,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "metadata" => %{"ignored" => true}
              })
 
-    assert {:error, {:invalid_background_agent_job_status_transition, "running", "queued"}} =
+    assert {:error, {:invalid_background_agent_job_status_transition, :running, :queued}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                "status" => "queued"
              })
@@ -1887,6 +1508,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   test "parent wakeup bounds artifacts and keeps their handoff after a long summary" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "bounded-wakeup")
+    Repo.update!(Ecto.Changeset.change(job, status: :running, attempts: 1))
 
     assert {:ok, %{job: running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
@@ -1894,7 +1516,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "runtime_thread_id" => "thread-bounded-wakeup"
              })
 
-    running = set_attempts!(running, 1)
     _turn = insert_turn!(running, 1, "thread-bounded-wakeup", "turn-bounded-wakeup", "completed")
 
     project_path = "/workspace/jobs/#{job.id}"
@@ -1970,78 +1591,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert byte_size(Ankole.JSON.encode!(Ankole.Signals.Signal.envelope(wakeup))) <= 32_768
   end
 
-  test "only normalized ankole_chatml headers can be stored as Turns" do
-    %{principal: agent} = background_agent_fixture()
-    job = create_job!(agent.uid, "trajectory-shape")
-    now = DateTime.utc_now(:microsecond)
-
-    changeset =
-      Turn.changeset(%Turn{}, %{
-        job_id: job.id,
-        attempt: 1,
-        runtime_thread_id: "thread-shape",
-        runtime_turn_id: "turn-shape",
-        kind: "agent",
-        status: "completed",
-        revision: 1,
-        trajectory: %{"method" => "item/agentMessage/delta", "delta" => "raw frame"},
-        error: %{},
-        started_at: now,
-        completed_at: now
-      })
-
-    refute changeset.valid?
-
-    assert %{trajectory: ["must be an ankole_chatml v1 header"]} =
-             errors_on(changeset)
-
-    header_with_messages =
-      Turn.changeset(%Turn{}, %{
-        job_id: job.id,
-        attempt: 1,
-        runtime_thread_id: "thread-wrapped-event",
-        runtime_turn_id: "turn-wrapped-event",
-        kind: "agent",
-        status: "completed",
-        revision: 1,
-        trajectory: %{
-          "format" => "ankole_chatml",
-          "version" => 1,
-          "messages" => []
-        },
-        error: %{},
-        started_at: now,
-        completed_at: now
-      })
-
-    refute header_with_messages.valid?
-    assert %{trajectory: [message]} = errors_on(header_with_messages)
-    assert message =~ "header metadata"
-
-    valid_header =
-      Turn.changeset(%Turn{}, %{
-        job_id: job.id,
-        attempt: 1,
-        runtime_thread_id: "thread-header",
-        runtime_turn_id: "turn-header",
-        kind: "agent",
-        status: "completed",
-        revision: 1,
-        trajectory: trajectory_header(),
-        error: %{},
-        started_at: now,
-        completed_at: now
-      })
-
-    assert valid_header.valid?
-  end
-
   test "execution projection paginates every lead semantic group regardless of turn kind" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "execution-projection")
 
     from(row in Job, where: row.id == ^job.id)
-    |> Repo.update_all(set: [attempts: 1, runtime_thread_id: "thread-lead", status: "running"])
+    |> Repo.update_all(set: [attempts: 1, runtime_thread_id: "thread-lead", status: :running])
 
     job = Repo.get!(Job, job.id)
     base = DateTime.add(DateTime.utc_now(:microsecond), -10, :second)
@@ -2207,7 +1762,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              )
 
     from(row in Job, where: row.id == ^job.id)
-    |> Repo.update_all(set: [status: "failed"])
+    |> Repo.update_all(set: [status: :failed])
 
     terminal = Repo.get!(Job, job.id)
     assert {:ok, terminal_execution} = Turns.execution_projection(terminal)
@@ -2227,14 +1782,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "causal-item-message")
 
-    job =
-      job
-      |> Job.changeset(%{
-        status: "running",
-        attempts: 1,
-        runtime_thread_id: "thread-causal-items"
-      })
-      |> Repo.update!()
+    job = start_job!(job, "thread-causal-items")
 
     assert {:ok, %{command_event: command_event}} =
              BackgroundAgentJobs.send_message(job.id, %{
@@ -2289,14 +1837,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
   test "waiting accepts the pending user-input request recorded in the item stream" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "waiting-item-gate")
+    Repo.update!(Ecto.Changeset.change(job, status: :running, attempts: 1))
 
     assert {:ok, %{job: running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                "status" => "running",
                "runtime_thread_id" => "thread-waiting-items"
              })
-
-    running = set_attempts!(running, 1)
 
     insert_custom_turn!(running, %{
       runtime_thread_id: "thread-waiting-items",
@@ -2338,7 +1885,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       ]
     })
 
-    assert {:ok, %{job: %{status: "waiting_on_user"}}} =
+    assert {:ok, %{job: %{status: :waiting_on_user}}} =
              BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, %{
                "status" => "waiting_on_user",
                "metadata" => %{"pending_user_input" => %{"questions" => []}}
@@ -2370,14 +1917,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "causal-message-continuation")
 
-    job =
-      job
-      |> Job.changeset(%{
-        status: "running",
-        attempts: 1,
-        runtime_thread_id: "thread-causal-message"
-      })
-      |> Repo.update!()
+    job = start_job!(job, "thread-causal-message")
 
     assert {:ok, %{command_event: command_event}} =
              BackgroundAgentJobs.send_message(job.id, %{
@@ -2407,7 +1947,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     causal_turn =
       causal_turn
-      |> Turn.changeset(%{
+      |> AshPostgres.DataLayer.to_ecto()
+      |> Ecto.Changeset.change(%{
         trajectory: %{
           "format" => "ankole_chatml",
           "version" => 1,
@@ -2416,7 +1957,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       })
       |> Repo.update!()
 
-    assert {:ok, %{ready: false, status: "running"}} =
+    assert {:ok, %{ready: false, status: :running}} =
              BackgroundAgentJobs.message_result(job, command_event.id, job.owner_session_id)
 
     _newer_turn =
@@ -2434,7 +1975,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              BackgroundAgentJobs.message_result(job, command_event.id, job.owner_session_id)
 
     assert result.ready
-    assert result.status == "running"
+    assert result.status == :running
     assert result.lifecycle_signal_id == nil
     assert result.last_turn_trajectory["format"] == "ankole_chatml"
 
@@ -2460,14 +2001,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "causal-message-waiting")
 
-    job =
-      job
-      |> Job.changeset(%{
-        status: "running",
-        attempts: 1,
-        runtime_thread_id: "thread-causal-waiting"
-      })
-      |> Repo.update!()
+    job = start_job!(job, "thread-causal-waiting")
 
     assert {:ok, %{command_event: command_event}} =
              BackgroundAgentJobs.send_message(job.id, %{
@@ -2505,7 +2039,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              )
 
     assert owner_result.ready
-    assert owner_result.status == "waiting_on_user"
+    assert owner_result.status == :waiting_on_user
     assert owner_result.lifecycle_signal_id == wakeup_event.id
 
     assert {:ok, other_session_result} =
@@ -2525,14 +2059,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     for {job_status, turn_status} <- [{"succeeded", "completed"}, {"failed", "failed"}] do
       job = create_job!(agent.uid, "causal-message-#{job_status}")
 
-      job =
-        job
-        |> Job.changeset(%{
-          status: "running",
-          attempts: 1,
-          runtime_thread_id: "thread-causal-#{job_status}"
-        })
-        |> Repo.update!()
+      job = start_job!(job, "thread-causal-#{job_status}")
 
       assert {:ok, %{command_event: command_event}} =
                BackgroundAgentJobs.send_message(job.id, %{
@@ -2586,7 +2113,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                )
 
       assert result.ready
-      assert result.status == job_status
+      assert result.status == String.to_existing_atom(job_status)
       assert result.lifecycle_signal_id == wakeup_event.id
 
       assert Enum.any?(
@@ -2600,10 +2127,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "undelivered-message")
 
-    job =
-      job
-      |> Job.changeset(%{status: "running", runtime_thread_id: "thread-undelivered"})
-      |> Repo.update!()
+    job = start_job!(job, "thread-undelivered")
 
     assert {:ok, %{command_event: command_event}} =
              BackgroundAgentJobs.send_message(job.id, %{
@@ -2633,9 +2157,17 @@ defmodule Ankole.BackgroundAgentJobsTest do
     job = create_job!(agent.uid, "turn-identity")
     first = insert_turn!(job, 1, "thread-1", "turn-1", "completed")
 
-    assert_raise Ecto.InvalidChangesetError, fn ->
-      insert_turn!(job, 1, "thread-1", "turn-1", "completed")
-    end
+    error =
+      assert_raise Ash.Error.Invalid, fn ->
+        insert_turn!(job, 1, "thread-1", "turn-1", "completed")
+      end
+
+    assert [
+             %Ash.Error.Changes.InvalidAttribute{
+               field: :job_id,
+               message: "has already been taken"
+             }
+           ] = error.errors
 
     assert [%{id: id}] = BackgroundAgentJobs.list_turns(job.id)
     assert id == first.id
@@ -2756,7 +2288,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       error: error
     })
 
-    assert {:ok, %{job: %{status: "queued", error: %{}}, execution: execution}} =
+    assert {:ok, %{job: %{status: :queued, error: %{}}, execution: execution}} =
              BackgroundAgentJobs.get_job_summary_for_agent(job.id, agent.uid)
 
     assert execution.current.status == "failed"
@@ -2836,24 +2368,33 @@ defmodule Ankole.BackgroundAgentJobsTest do
       usage: nil,
       error: %{},
       started_at: started_at,
-      completed_at: if(status in ~w(completed failed interrupted), do: started_at)
+      completed_at:
+        if(
+          status in ~w(completed failed interrupted) or
+            status in [:completed, :failed, :interrupted],
+          do: started_at
+        )
     }
 
     turn =
-      %Turn{}
-      |> Turn.changeset(Map.merge(defaults, attrs))
-      |> Repo.insert!()
+      case Repo.transact(fn _ -> Ankole.Ash.create(Turn, :record, Map.merge(defaults, attrs)) end) do
+        {:ok, record} -> record
+        {:error, error} -> raise Ash.Error.to_error_class(error)
+      end
 
     Enum.with_index(trajectory_items, fn item, position ->
-      %TurnItem{}
-      |> TurnItem.changeset(%{
-        turn_id: turn.id,
-        position: position,
-        revision: turn.revision,
-        item_key: Map.get(item, "id", "item:#{position}"),
-        item: item
-      })
-      |> Repo.insert!()
+      case Repo.transact(fn _ ->
+             Ankole.Ash.create(TurnItem, :append, %{
+               turn_id: turn.id,
+               position: position,
+               revision: turn.revision,
+               item_key: Map.get(item, "id", "item:#{position}"),
+               item: item
+             })
+           end) do
+        {:ok, record} -> record
+        {:error, error} -> raise Ash.Error.to_error_class(error)
+      end
     end)
 
     turn
@@ -2935,7 +2476,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   # Advances one recorded Turn through the Worker recorder, so the gate sees
   # the checkpoint shape a Worker upsert produces.
   defp checkpoint_turn!(job, %Turn{} = turn, attrs) do
-    status = Map.get(attrs, :status, turn.status)
+    status = Map.get(attrs, :status, turn.status) |> to_string()
     completed_at = Map.get(attrs, :completed_at, turn.completed_at)
 
     worker_attrs =
@@ -2984,29 +2525,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
     |> Repo.update!()
   end
 
-  defp runtime_turn_start_spec(model \\ "openai/gpt-5.6-sol") do
-    model_ref = %{
-      "profile" => "coding",
-      "provider_id" => "openrouter-main",
-      "provider_kind" => "openrouter",
-      "model" => model,
-      "input_modalities" => ["text"]
-    }
-
-    %{
-      model_ref: model_ref,
-      hosted_tools: [%{"type" => "image_generation"}],
-      request_context: %{
-        "model_ref" => model_ref,
-        "ai_agent" => %{
-          "runtime" => "codex",
-          "max_iterations" => 90,
-          "inactivity_timeout_ms" => 1_800_000
-        }
-      }
-    }
-  end
-
   describe "request_complete/2" do
     test "commits an externally verified completion with a succeeded wakeup and closed steers" do
       %{principal: agent} = background_agent_fixture()
@@ -3026,7 +2544,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                  "result_summary" => "PDF verified at /agents/jobs/manual.pdf"
                })
 
-      assert completed.status == "succeeded"
+      assert completed.status == :succeeded
       assert completed.result["summary"] == "PDF verified at /agents/jobs/manual.pdf"
       assert completed.result["completed_by"] == "operator:test"
 
@@ -3050,9 +2568,9 @@ defmodule Ankole.BackgroundAgentJobsTest do
       job = create_job!(agent.uid, "external-complete-terminal")
 
       assert {:ok, _job} =
-               job
-               |> Job.changeset(%{"status" => "failed", "error" => %{"code" => "boom"}})
-               |> Repo.update()
+               Repo.transact(fn _ ->
+                 Ankole.Ash.update(job, :fail_admission, %{error: %{"code" => "boom"}})
+               end)
 
       assert {:error, :background_agent_job_terminal} =
                BackgroundAgentJobs.request_complete(job.id, %{
@@ -3062,13 +2580,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
       succeeded_job = create_job!(agent.uid, "external-complete-idempotent")
 
-      assert {:ok, %{job: %{status: "succeeded"}, turn: nil}} =
+      assert {:ok, %{job: %{status: :succeeded}, turn: nil}} =
                BackgroundAgentJobs.request_complete(succeeded_job.id, %{
                  "agent_uid" => agent.uid,
                  "result_summary" => "verified"
                })
 
-      assert {:ok, %{job: %{status: "succeeded"}, turn: nil}} =
+      assert {:ok, %{job: %{status: :succeeded}, turn: nil}} =
                BackgroundAgentJobs.request_complete(succeeded_job.id, %{
                  "agent_uid" => agent.uid,
                  "result_summary" => "verified again"
@@ -3081,95 +2599,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
       assert {:error, :background_agent_job_result_summary_missing} =
                BackgroundAgentJobs.request_complete(job.id, %{"agent_uid" => agent.uid})
-    end
-  end
-
-  describe "turn error accounting" do
-    test "infrastructure failures use the short ladder and capacity failures the long one" do
-      now = DateTime.utc_now(:microsecond)
-
-      infrastructure = %{
-        "code" => "worker_turn_failed",
-        "message" => "runtime lost",
-        "details_json" => %{
-          "error_code" => "background_agent_job_runtime_exception",
-          "retryable" => true
-        }
-      }
-
-      capacity = %{
-        "code" => "worker_turn_failed",
-        "message" => "upstream shed the stream",
-        "details_json" => %{"error_code" => "server_error", "retryable" => true}
-      }
-
-      execution = %{
-        "code" => "worker_turn_failed",
-        "message" => "job turn persistence failed",
-        "details_json" => %{
-          "error_code" => "background_agent_job_turn_persistence_failed",
-          "retryable" => true
-        }
-      }
-
-      app_server_timeout = %{
-        "code" => "worker_turn_failed",
-        "message" => "app-server request timed out",
-        "details_json" => %{
-          "error_code" => "codex_app_server_request_timeout",
-          "retryable" => true
-        }
-      }
-
-      assert TurnErrorClassifier.classify(app_server_timeout) == :infrastructure
-      assert TurnErrorClassifier.classify(capacity) == :execution
-      assert TurnErrorClassifier.classify(execution) == :execution
-
-      assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(infrastructure, 1, now), now) ==
-               15
-
-      assert DateTime.diff(
-               BackgroundAgentJobs.turn_error_retry_at(app_server_timeout, 1, now),
-               now
-             ) == 15
-
-      assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(infrastructure, 5, now), now) ==
-               300
-
-      for code <- ["socket_closed", "runtime_fabric_timeout", "runtime_rpc_timeout"] do
-        transport = %{
-          "code" => "worker_turn_failed",
-          "message" => "control-plane connection interrupted",
-          "details_json" => %{"error_code" => code, "retryable" => true}
-        }
-
-        assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(transport, 1, now), now) ==
-                 15
-      end
-
-      for reason <- [capacity, execution] do
-        assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(reason, 1, now), now) == 60
-
-        assert DateTime.diff(BackgroundAgentJobs.turn_error_retry_at(reason, 5, now), now) ==
-                 7_200
-      end
-    end
-
-    test "a credential pool recovery time replaces the Job ladder" do
-      now = DateTime.utc_now(:microsecond)
-      pool_retry_at = DateTime.add(now, 3_600, :second)
-
-      reason = %{
-        "code" => "worker_turn_failed",
-        "message" => "pool exhausted",
-        "details_json" => %{
-          "error_code" => "credential_pool_exhausted",
-          "retryable" => true,
-          "retry_at" => DateTime.to_iso8601(pool_retry_at)
-        }
-      }
-
-      assert BackgroundAgentJobs.turn_error_retry_at(reason, 1, now) == pool_retry_at
     end
   end
 
@@ -3215,6 +2644,24 @@ defmodule Ankole.BackgroundAgentJobsTest do
     conversation.id
   end
 
+  defp start_job!(job, runtime_thread_id) do
+    assert {:ok, running} =
+             Repo.transact(fn _ ->
+               with {:ok, claimed} <-
+                      Ankole.Ash.update(job, :claim_attempt, %{
+                        attempts: job.attempts + 1,
+                        started_at: DateTime.utc_now(:microsecond)
+                      }) do
+                 Ankole.Ash.update(claimed, :worker_report, %{
+                   next_status: :running,
+                   runtime_thread_id: runtime_thread_id
+                 })
+               end
+             end)
+
+    running
+  end
+
   defp create_job!(agent_uid, suffix) do
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
@@ -3243,10 +2690,11 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     wakeup_jobs =
       Repo.all(
-        from j in Oban.Job,
+        from(j in Oban.Job,
           where: j.worker == "Ankole.Sessions.Jobs.EnsureDriver",
           where: j.state in ["available", "scheduled", "retryable"],
           where: fragment("?->>'tenant_id' = ?", j.args, ^Repo.tenant_id!())
+        )
       )
 
     for job <- wakeup_jobs do
@@ -3275,7 +2723,4 @@ defmodule Ankole.BackgroundAgentJobsTest do
       0 -> :ok
     end
   end
-
-  defp agent_slot_cap,
-    do: Ankole.Sessions.BackgroundAgentJobCap.max_running_per_agent()
 end

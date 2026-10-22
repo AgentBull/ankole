@@ -41,18 +41,15 @@ defmodule Ankole.Principals.MappingRequestsTest do
     # Both independent transactions need the same committed tenant parent.
     tenant =
       Sandbox.unboxed_run(Repo, fn ->
-        %Ankole.Tenants.Tenant{}
-        |> Ankole.Tenants.Tenant.changeset(%{
+        Ankole.DataCase.create_committed_tenant(%{
           slug: "mapping-#{Ankole.Ecto.UUIDv7.autogenerate()}",
           display_name: "Mapping race"
         })
-        |> Repo.insert!()
       end)
 
     on_exit(fn ->
       Sandbox.unboxed_run(Repo, fn ->
-        Repo.with_tenant(tenant.id, fn -> Repo.delete_all(MappingRequest) end)
-        Repo.delete!(tenant)
+        Ankole.DataCase.cleanup_tenant!(tenant)
       end)
     end)
 

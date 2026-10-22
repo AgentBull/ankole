@@ -142,6 +142,15 @@ review. Provider configuration changes and received events advance the revision.
 A sync uses the exact saved configuration and cannot commit removal evidence
 if that configuration or revision changed during collection.
 
+Both directory records use Ash resources and named transaction actions. The
+provider state row remains the serialization point for event admission,
+review, and snapshot commits. Only the owning actions advance its revision or
+change sync health. Configuration invalidation and a failed-ticket update use
+atomic database predicates. A failed or late collector cannot replace evidence
+from a newer revision. A completed or dismissed event cannot be processed
+again after a concurrent review. Reviewer attribution uses the Principal
+owner's tenant-qualified ActorRef codec.
+
 For Lark, `sync.admissionScope = "none"` permits profile sync without automatic
 missing-member removal. `"contact"` uses the provider contact scope only after
 operator approval. Collection covers explicit users, departments, child
@@ -304,6 +313,13 @@ requires an evidenced independent source; `review_required` cannot execute.
 `Ankole.Principals.WorkAccess` checks this fact in the owner's transaction and
 provides the explicit legacy classification operation. It does not schedule
 work or select an Agent. PostgreSQL checks the three-field shape.
+
+`Ankole.Work.Provenance` declares these fields and each owner's review states
+and revoke callback. `Ankole.Work.Owner` uses that metadata for the review
+registry and revocation dispatch. Execution owners call WorkAccess directly;
+Sessions owns wakeup delivery. WorkCleanup locks all
+candidate parent rows before a callback can lock child rows or Signals. Each
+callback runs in its row's tenant context in the same cleanup transaction.
 
 ## Check Once at Each Execution Start
 

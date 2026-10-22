@@ -6,12 +6,10 @@ defmodule Ankole.ExternalConversationsFixtures do
 
   def external_conversation_fixture(provider_id, attrs \\ %{}) do
     External.get_conversation(Repo, provider_id) ||
-      %Conversation{}
-      |> Conversation.changeset(
+      create_external_conversation!(
         Map.merge(
           %{
             id: Ankole.Ecto.UUIDv7.autogenerate(),
-            kind: :external,
             provider_conversation_id: provider_id,
             title: provider_id,
             external_kind: :im_group,
@@ -23,7 +21,15 @@ defmodule Ankole.ExternalConversationsFixtures do
           attrs
         )
       )
-      |> Repo.insert!()
+  end
+
+  def create_external_conversation!(attrs) do
+    {:ok, conversation} =
+      Repo.transact(fn _repo ->
+        Ankole.Ash.create(Conversation, :create_external, attrs)
+      end)
+
+    conversation
   end
 
   def external_conversation_id(id) when is_binary(id) do

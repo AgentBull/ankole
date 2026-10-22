@@ -313,7 +313,9 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
         }
       })
 
-    assert {:ok, %{created_provider_message_id: progress_id}} = LarkDelivery.deliver(progress_card)
+    assert {:ok, %{created_provider_message_id: progress_id}} =
+             LarkDelivery.deliver(progress_card)
+
     progress_message = platform_message!(fake_feishu, progress_id)
     assert progress_message.msg_type == "interactive"
     assert progress_message.chat_id == "oc_transport_out"
@@ -431,7 +433,9 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
   } do
     long_text = String.duplicate("你", 4_001)
     edit_target = transport_intent(agent.uid, binding.name, :post, "TRANSPORT_EDIT_TARGET")
-    assert {:ok, %{created_provider_message_id: edit_target_id}} = LarkDelivery.deliver(edit_target)
+
+    assert {:ok, %{created_provider_message_id: edit_target_id}} =
+             LarkDelivery.deliver(edit_target)
 
     edit =
       agent.uid

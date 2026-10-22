@@ -186,8 +186,14 @@ defmodule AnkoleWeb.PermissionGrantController do
     )
   end
 
-  defp error(conn, %Ecto.Changeset{} = changeset) do
-    ConsoleErrors.changeset(conn, changeset)
+  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid] do
+    ConsoleErrors.render(
+      conn,
+      422,
+      "validation_failed",
+      "request is invalid",
+      ConsoleErrors.changeset_details(error)
+    )
   end
 
   defp error(conn, reason) do

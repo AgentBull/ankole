@@ -398,12 +398,11 @@ defmodule Ankole.Sessions.RPCLane do
     Logging.error(
       "runtime_fabric.rpc_handler_failed",
       "runtime fabric rpc handler failed",
-      %{
+      Map.merge(Logging.failure_fields(kind, reason, stacktrace), %{
         failure_id: failure_id,
         method: method,
-        route: route,
-        reason: Exception.format(kind, reason, stacktrace)
-      }
+        route: route
+      })
     )
   end
 

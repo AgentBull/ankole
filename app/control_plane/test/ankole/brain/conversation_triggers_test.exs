@@ -4,7 +4,6 @@ defmodule Ankole.Brain.ConversationTriggersTest do
   alias Ankole.Brain.Jobs.ProcessConversationSlice
   alias Ankole.Brain.ConversationTriggers
   alias Ankole.Repo
-  alias Ankole.Conversations.Conversation
 
   test "an ended signal conversation enqueues slice processing for its channel" do
     channel = insert_channel!()
@@ -28,20 +27,17 @@ defmodule Ankole.Brain.ConversationTriggersTest do
   defp insert_channel! do
     now = DateTime.utc_now(:microsecond)
 
-    Repo.insert!(
-      Conversation.changeset(%Conversation{}, %{
-        id: Ecto.UUID.generate(),
-        kind: :external,
-        external_kind: :im_group,
-        provider_conversation_id: "lark:oc_trigger_#{System.unique_integer([:positive])}",
-        title: "Learning Team",
-        last_activity_at: now,
-        reply_mode: :entry,
-        metadata: %{},
-        raw_payload: %{},
-        first_seen_at: now,
-        last_seen_at: now
-      })
-    )
+    Ankole.ExternalConversationsFixtures.create_external_conversation!(%{
+      id: Ecto.UUID.generate(),
+      external_kind: :im_group,
+      provider_conversation_id: "lark:oc_trigger_#{System.unique_integer([:positive])}",
+      title: "Learning Team",
+      last_activity_at: now,
+      reply_mode: :entry,
+      metadata: %{},
+      raw_payload: %{},
+      first_seen_at: now,
+      last_seen_at: now
+    })
   end
 end

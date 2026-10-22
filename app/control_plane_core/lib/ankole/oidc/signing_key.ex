@@ -85,14 +85,12 @@ defmodule Ankole.OIDC.SigningKey do
           with {:ok, private_key_pem, public_jwk, kid} <- generate_key(),
                {:ok, ciphertext} <- Ankole.OIDC.seal(private_key_pem, "signing_key", @record_id),
                {:ok, _inserted} <-
-                 %SigningKeyRecord{}
-                 |> SigningKeyRecord.changeset(%{
+                 Ankole.Ash.create(SigningKeyRecord, :initialize_in_tx, %{
                    id: @record_id,
                    kid: kid,
                    public_jwk: public_jwk,
                    private_key_ciphertext: ciphertext
-                 })
-                 |> repo.insert(on_conflict: :nothing),
+                 }),
                %SigningKeyRecord{} = row <- repo.get(SigningKeyRecord, @record_id) do
             {:ok, row}
           else
@@ -108,45 +106,17 @@ defmodule Ankole.OIDC.SigningKey do
     private_entry = :public_key.pem_entry_encode(:RSAPrivateKey, private_key)
     private_key_pem = :public_key.pem_encode([private_entry])
 
-    with {:ok, public_jwk, kid} <- public_jwk_from_private_key(private_key) do
+    with {:ok, public_jwk, kid} <- public_jwk_from_private_pem(private_key_pem) do
       {:ok, private_key_pem, public_jwk, kid}
     end
   rescue
     error -> {:error, {:rsa_generation_failed, error.__struct__, Exception.message(error)}}
   end
 
-  defp public_jwk_from_private_pem(private_key_pem) do
-    with [entry] <- :public_key.pem_decode(private_key_pem),
-         private_key <- :public_key.pem_entry_decode(entry) do
-      public_jwk_from_private_key(private_key)
-    else
-      _invalid -> {:error, :invalid_private_key_pem}
-    end
+  defp public_jwk_from_private_pem(pem) do
+    %{"keys" => [jwk]} = Attesto.JWKS.from_pems([pem])
+    {:ok, jwk, Attesto.Key.kid(pem)}
   rescue
     _error -> {:error, :invalid_private_key_pem}
   end
-
-  defp public_jwk_from_private_key(
-         {:RSAPrivateKey, _version, modulus, public_exponent, _private_exponent, _prime1, _prime2,
-          _exponent1, _exponent2, _coefficient, _other_prime_infos}
-       ) do
-    n = integer_base64url(modulus)
-    e = integer_base64url(public_exponent)
-    kid = :crypto.hash(:sha256, ~s({"e":"#{e}","kty":"RSA","n":"#{n}"})) |> base64url()
-
-    {:ok,
-     %{
-       "alg" => "RS256",
-       "e" => e,
-       "kid" => kid,
-       "kty" => "RSA",
-       "n" => n,
-       "use" => "sig"
-     }, kid}
-  end
-
-  defp public_jwk_from_private_key(_key), do: {:error, :invalid_rsa_private_key}
-
-  defp integer_base64url(integer), do: integer |> :binary.encode_unsigned() |> base64url()
-  defp base64url(binary), do: Base.url_encode64(binary, padding: false)
 end

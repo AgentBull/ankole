@@ -4,12 +4,22 @@ end
 
 defmodule Ankole.E2E.ConversationsCLIRealLLMTest do
   use Ankole.DataCase, async: false
+  @moduletag sandbox: false
   import Ankole.E2E.Harness
   import Ankole.PrincipalsFixtures
   import Ankole.E2E.WaitHelpers
   alias Ankole.Conversations.{Delivery, External, Message, Participant}
   alias Ankole.Signals
   alias Ankole.Signals.Signal
+
+  setup_all do
+    start_committed_repo!()
+  end
+
+  setup do
+    cleanup_committed_fixtures_on_exit!()
+    :ok
+  end
 
   @tag :real_llm
   @tag :conversations_cli
@@ -177,7 +187,7 @@ defmodule Ankole.E2E.ConversationsCLIRealLLMTest do
     assert {:ok, _} =
              Ankole.Principals.WorkCleanup.cleanup(old.human_uid, disabled.access_version)
 
-    assert %Signal{input_state: "dead_letter"} = Repo.get!(Signal, old.id)
+    assert %Signal{status: :dead_letter} = Repo.get!(Signal, old.id)
     assert Repo.get_by!(Message, id: old.message_id).text =~ old_text
 
     current_id = send_cli!(url, chat, "Reply exactly CURRENT_#{token}. Do not call tools.", "Bob")
@@ -222,7 +232,8 @@ defmodule Ankole.E2E.ConversationsCLIRealLLMTest do
       )
 
     for binding <- [ctx.record_binding, ctx.ambient_binding] do
-      binding |> Ankole.Signals.Binding.changeset(%{enabled: false}) |> Repo.update!()
+      assert {:ok, _binding} =
+               Ankole.Signals.Bindings.disable_binding(binding.agent_uid, binding.name)
     end
 
     assert %{errors: []} = Ankole.Plugins.LarkAdapter.ConnectionReconciler.reconcile_once()

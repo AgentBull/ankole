@@ -25,20 +25,13 @@ defmodule Ankole.Conversations.Delivery do
   alias Ankole.Conversations.Conversation
 
   @doc """
-  Records a provider-visible intent intent inside a caller-owned transaction.
+  Records a provider-visible intent inside a caller-owned transaction.
   """
   @spec commit_in_tx(module(), map()) :: {:ok, Intent.t()} | {:error, term()}
   def commit_in_tx(repo, attrs) when is_map(attrs) do
     with :ok <- verify_attachment_destination(attrs),
          {:ok, %Intent{} = intent} <-
-           %Intent{}
-           |> Intent.changeset(default_intent_attrs(attrs))
-           |> repo.insert(
-             on_conflict: :nothing,
-             conflict_target: [:agent_uid, :binding_name, :outbound_key],
-             returning: true
-           )
-           |> intent_insert_result(repo, attrs),
+           Ankole.Ash.create(Intent, :commit, attrs),
          :ok <- reference_attachments(repo, intent),
          :ok <- Ankole.Conversations.Delivery.Recovery.notify_intent_deadline(repo, intent) do
       {:ok, intent}
@@ -368,35 +361,6 @@ defmodule Ankole.Conversations.Delivery do
 
   def effective_operation(operation, _capabilities), do: operation
 
-  defp default_intent_attrs(attrs) do
-    attrs
-    |> Map.put_new(:status, :pending)
-    |> Map.put_new(:delivery_class, :generic)
-    |> Map.put_new(:payload, %{})
-    |> Map.put_new(:attempt_count, 0)
-    |> Map.put_new(:max_attempts, 10)
-    |> Map.put_new(:last_error, %{})
-    |> Map.put_new(:recovery_state, %{})
-    |> normalize_agent_uid_attr()
-  end
-
-  # With explicit primary keys, a skipped insert may return the requested
-  # values. Read the committed intent so retries adopt its payload and status.
-  defp intent_insert_result({:ok, %Intent{}}, repo, attrs) do
-    attrs = default_intent_attrs(attrs)
-
-    case repo.get_by(Intent,
-           agent_uid: attrs.agent_uid,
-           binding_name: attrs.binding_name,
-           outbound_key: attrs.outbound_key
-         ) do
-      %Intent{} = entry -> {:ok, entry}
-      nil -> {:error, :intent_entry_not_found}
-    end
-  end
-
-  defp intent_insert_result({:error, _changeset} = error, _repo, _attrs), do: error
-
   defp commit_reply_attachment_intent_in_tx(
          repo,
          %Signal{} = signal,
@@ -563,7 +527,8 @@ defmodule Ankole.Conversations.Delivery do
       {:ok, operation,
        %{
          status: :failed,
-         recovery_state: %{"state" => "permanent", "reason" => "unroutable_reply_route"},
+         recovery_status: :permanent,
+         recovery_reason: "unroutable_reply_route",
          last_error: %{
            "code" => "unroutable_reply_route",
            "reason" => inspect(reason, limit: 20)
@@ -705,12 +670,6 @@ defmodule Ankole.Conversations.Delivery do
         {:error, {:signal_binding_not_found, signal.agent_uid, signal.reply_binding_name}}
     end
   end
-
-  defp normalize_agent_uid_attr(%{agent_uid: agent_uid} = attrs) when is_binary(agent_uid) do
-    %{attrs | agent_uid: Ankole.PrincipalKey.canonicalize(agent_uid)}
-  end
-
-  defp normalize_agent_uid_attr(attrs), do: attrs
 
   defdelegate reconcile_wakeups(arg1 \\ DateTime.utc_now(:microsecond)),
     to: Ankole.Conversations.Delivery.Dispatch

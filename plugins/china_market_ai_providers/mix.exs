@@ -28,7 +28,8 @@ defmodule AnkoleChinaMarketAiProviders.MixProject do
 
   defp deps do
     [
-      {:ankole_core, path: "../../app/control_plane_core", env: Mix.env()}
+      {:ankole_core, path: "../../app/control_plane_core", env: Mix.env()},
+      {:req, "~> 0.7"}
     ]
   end
 end

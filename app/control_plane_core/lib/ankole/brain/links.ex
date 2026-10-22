@@ -8,26 +8,22 @@ defmodule Ankole.Brain.Links do
   and volunteer matching agree on one text shape.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Markdoc
   alias Ankole.Brain.Schemas.Link
   alias Ankole.Brain.Schemas.ObjectAlias
   alias Ankole.Brain.Schemas.Tag
-  alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
 
   @doc "Returns the object's tags in canonical order."
-  def tags_for_object(slug, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
+  def tags_for_object(slug) do
     Tag
-    |> where([tag], tag.object_slug == ^slug)
-    |> order_by([tag], asc: tag.tag)
-    |> select([tag], tag.tag)
-    |> repo.all()
-    |> Enum.sort()
+    |> Ash.Query.filter(object_slug == ^slug)
+    |> Ash.Query.sort(tag: :asc)
+    |> Ankole.Ash.read!()
+    |> Enum.map(& &1.tag)
   end
 
   @doc false
@@ -42,33 +38,29 @@ defmodule Ankole.Brain.Links do
   @doc false
   def replace_tags_in_tx(repo, slug, tags) do
     with :ok <- Repo.require_transaction(repo) do
-      Tag
-      |> where([tag], tag.object_slug == ^slug and tag.tag not in ^tags)
-      |> repo.delete_all()
+      removed =
+        Tag
+        |> Ash.Query.filter(object_slug == ^slug and tag not in ^tags)
+        |> Ankole.Ash.bulk_destroy(:remove, %{}, strategy: [:atomic], return_errors?: true)
 
-      now = DateTime.utc_now(:microsecond)
-
-      rows =
-        Enum.map(tags, fn tag ->
-          %{
-            id: UUIDv7.autogenerate(),
-            tenant_id: Repo.tenant_id!(),
-            object_slug: slug,
-            tag: tag,
-            created_at: now
-          }
-        end)
-
-      repo.insert_all(Tag, rows, on_conflict: :nothing)
-      :ok
+      with %Ash.BulkResult{status: :success} <- removed,
+           %Ash.BulkResult{status: :success} <-
+             Ankole.Ash.bulk_create(
+               Enum.map(tags, &%{object_slug: slug, tag: &1}),
+               Tag,
+               :add,
+               return_errors?: true
+             ) do
+        :ok
+      else
+        %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+      end
     end
   end
 
   @doc "Reconciles body-owned Markdown and alias edges without a model."
-  def reconcile_object_links(slug, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    repo.transact(fn repo ->
+  def reconcile_object_links(slug) do
+    Repo.transact(fn repo ->
       with {:ok, object} <- Objects.lock_object_in_tx(repo, slug),
            true <- is_nil(object.deleted_at) do
         wikilinks =
@@ -76,14 +68,13 @@ defmodule Ankole.Brain.Links do
 
         mentions =
           object.body
-          |> match_aliases_in_text(repo: repo)
+          |> match_aliases_in_text()
           |> Enum.reject(&(&1 == slug))
           |> Enum.map(&{&1, "mentions", "mentions", "plain", "unqualified"})
 
-        with {:ok, keys} <- insert_body_links(repo, slug, wikilinks ++ mentions),
-             :ok <- remove_stale_body_links(repo, slug, keys),
-             {:ok, _} <-
-               repo.update(Ecto.Changeset.change(object, links_extracted_at: object.updated_at)) do
+        with {:ok, keys} <- insert_body_links(slug, wikilinks ++ mentions),
+             :ok <- remove_stale_body_links(slug, keys),
+             {:ok, _} <- Ankole.Ash.update(object, :stamp_links, %{}) do
           {:ok, object}
         end
       else
@@ -93,25 +84,22 @@ defmodule Ankole.Brain.Links do
     end)
   end
 
-  defp insert_body_links(repo, slug, links) do
+  defp insert_body_links(slug, links) do
     Enum.reduce_while(links, {:ok, MapSet.new()}, fn {target, type, source, kind, resolution},
                                                      {:ok, keys} ->
       result =
-        with {:ok, target} <- Objects.resolve_slug(target, repo: repo),
+        with {:ok, target} <- Objects.resolve_slug(target),
              {:ok, _} <-
-               upsert_link(
-                 %{
-                   from_object_slug: slug,
-                   to_object_slug: target.slug,
-                   link_type: type,
-                   link_source: source,
-                   link_kind: kind,
-                   origin_object_slug: slug,
-                   origin_field: "body",
-                   resolution_type: resolution
-                 },
-                 repo: repo
-               ) do
+               upsert_link(%{
+                 from_object_slug: slug,
+                 to_object_slug: target.slug,
+                 link_type: type,
+                 link_source: source,
+                 link_kind: kind,
+                 origin_object_slug: slug,
+                 origin_field: "body",
+                 resolution_type: resolution
+               }) do
           {:ok, {target.slug, type, source}}
         end
 
@@ -122,34 +110,34 @@ defmodule Ankole.Brain.Links do
     end)
   end
 
-  defp remove_stale_body_links(repo, slug, keys) do
+  defp remove_stale_body_links(slug, keys) do
     stale_ids =
       Link
-      |> where(
-        [link],
-        link.origin_object_slug == ^slug and link.origin_field == "body" and
-          link.link_source in ["markdown", "mentions"]
+      |> Ash.Query.filter(
+        origin_object_slug == ^slug and origin_field == "body" and
+          link_source in ["markdown", "mentions"]
       )
-      |> repo.all()
+      |> Ankole.Ash.read!()
       |> Enum.reject(&MapSet.member?(keys, {&1.to_object_slug, &1.link_type, &1.link_source}))
       |> Enum.map(& &1.id)
 
-    Link |> where([link], link.id in ^stale_ids) |> repo.delete_all()
-    :ok
+    case Link
+         |> Ash.Query.filter(id in ^stale_ids)
+         |> Ankole.Ash.bulk_destroy(:remove, %{}, strategy: [:atomic], return_errors?: true) do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+    end
   end
 
   @doc """
   Upserts one directed edge; the dedup key treats equal NULLs as equal, so
   one source form of one edge keeps one row.
   """
-  @spec upsert_link(map(), keyword()) :: {:ok, Link.t() | :duplicate} | {:error, term()}
-  def upsert_link(attrs, opts \\ []) when is_map(attrs) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    with {:ok, from_object} <- Objects.resolve_slug(attrs[:from_object_slug], repo: repo),
-         {:ok, to_object} <- Objects.resolve_slug(attrs[:to_object_slug], repo: repo) do
-      row = %Link{
-        id: UUIDv7.autogenerate(),
+  @spec upsert_link(map()) :: {:ok, Link.t() | :duplicate} | {:error, term()}
+  def upsert_link(attrs) when is_map(attrs) do
+    with {:ok, from_object} <- Objects.resolve_slug(attrs[:from_object_slug]),
+         {:ok, to_object} <- Objects.resolve_slug(attrs[:to_object_slug]) do
+      row = %{
         from_object_slug: from_object.slug,
         to_object_slug: to_object.slug,
         link_type: attrs[:link_type] || "",
@@ -162,38 +150,39 @@ defmodule Ankole.Brain.Links do
         created_at: DateTime.utc_now(:microsecond)
       }
 
-      insert_distinct(repo, row)
+      insert_distinct(Link, row)
     end
   end
 
   @doc """
   Adds one natural-language alias candidate for one object idempotently.
   """
-  @spec add_alias(String.t(), String.t(), keyword()) ::
+  @spec add_alias(String.t(), String.t()) ::
           {:ok, ObjectAlias.t() | :duplicate} | {:error, term()}
-  def add_alias(object_slug, alias_text, opts \\ []) when is_binary(alias_text) do
-    repo = Keyword.get(opts, :repo, Repo)
+  def add_alias(object_slug, alias_text) when is_binary(alias_text) do
     normalized = normalize_alias(alias_text)
 
     with :ok <- if(normalized == "", do: {:error, :blank_alias}, else: :ok),
-         {:ok, object} <- Objects.resolve_slug(object_slug, repo: repo) do
-      row = %ObjectAlias{
-        id: UUIDv7.autogenerate(),
+         {:ok, object} <- Objects.resolve_slug(object_slug) do
+      row = %{
         alias_norm: normalized,
         object_slug: object.slug,
         created_at: DateTime.utc_now(:microsecond)
       }
 
-      insert_distinct(repo, row)
+      insert_distinct(ObjectAlias, row)
     end
   end
 
-  defp insert_distinct(repo, %schema{} = row) do
-    attrs = row |> Map.take(schema.__schema__(:fields)) |> Map.put(:tenant_id, Repo.tenant_id!())
+  defp insert_distinct(schema, attrs) do
+    case Ankole.Ash.create(schema, :add, attrs) do
+      {:ok, inserted} ->
+        if Map.get(inserted.__metadata__, :upsert_skipped, false),
+          do: {:ok, :duplicate},
+          else: {:ok, inserted}
 
-    case repo.insert_all(schema, [attrs], on_conflict: :nothing, returning: true) do
-      {0, []} -> {:ok, :duplicate}
-      {1, [inserted]} -> {:ok, inserted}
+      error ->
+        error
     end
   end
 
@@ -201,16 +190,15 @@ defmodule Ankole.Brain.Links do
   Returns the candidate objects of one alias, deterministically ordered.
   Real-world names collide; readers must handle ambiguity explicitly.
   """
-  @spec lookup_alias(String.t(), keyword()) :: [String.t()]
-  def lookup_alias(alias_text, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
+  @spec lookup_alias(String.t()) :: [String.t()]
+  def lookup_alias(alias_text) do
     normalized = normalize_alias(alias_text)
 
     ObjectAlias
-    |> where([alias], alias.alias_norm == ^normalized)
-    |> order_by([alias], asc: alias.object_slug)
-    |> select([alias], alias.object_slug)
-    |> repo.all()
+    |> Ash.Query.filter(alias_norm == ^normalized)
+    |> Ash.Query.sort(object_slug: :asc)
+    |> Ankole.Ash.read!()
+    |> Enum.map(& &1.object_slug)
   end
 
   @doc """
@@ -222,20 +210,20 @@ defmodule Ankole.Brain.Links do
   with the same rule as stored aliases, so containment here and exact
   lookup agree on one text shape.
   """
-  @spec match_aliases_in_text(String.t(), keyword()) :: [String.t()]
-  def match_aliases_in_text(text, opts \\ []) when is_binary(text) do
-    repo = Keyword.get(opts, :repo, Repo)
+  @spec match_aliases_in_text(String.t()) :: [String.t()]
+  def match_aliases_in_text(text) when is_binary(text) do
     normalized = normalize_alias(text)
 
     if normalized == "" do
       []
     else
       ObjectAlias
-      |> where([alias], fragment("strpos(?, ?) > 0", ^normalized, alias.alias_norm))
-      |> select([alias], alias.object_slug)
-      |> distinct(true)
-      |> order_by([alias], asc: alias.object_slug)
-      |> repo.all()
+      |> Ash.Query.filter(fragment("strpos(?, ?) > 0", ^normalized, alias_norm))
+      |> Ash.Query.sort(object_slug: :asc)
+      |> Ash.Query.distinct([:object_slug])
+      |> Ash.Query.select([:object_slug])
+      |> Ankole.Ash.read!()
+      |> Enum.map(& &1.object_slug)
     end
   end
 

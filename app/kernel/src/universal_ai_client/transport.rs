@@ -1,6 +1,5 @@
-use std::collections::HashMap;
 use std::future::Future;
-use std::sync::{Mutex, OnceLock};
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
@@ -20,6 +19,7 @@ use tokio_tungstenite::{
 
 use super::error::StreamError;
 use super::spec::{StreamSpec, UpstreamSpec};
+use crate::common::bounded_cache::BoundedCache;
 
 mod proxy;
 use proxy::{parse_upstream_url, resolved_proxy, websocket_transport_stream};
@@ -61,7 +61,8 @@ pub(crate) type BoxedIO = Box<dyn AsyncIO>;
 
 pub type UpstreamWebSocket = WebSocketStream<MaybeTLSStream<BoxedIO>>;
 
-static HTTP_CLIENTS: OnceLock<Mutex<HashMap<ClientKey, reqwest::Client>>> = OnceLock::new();
+static HTTP_CLIENTS: LazyLock<BoundedCache<ClientKey, reqwest::Client>> =
+    LazyLock::new(|| BoundedCache::new(MAX_HTTP_CLIENT_CACHE_ENTRIES));
 
 const MAX_HTTP_CLIENT_CACHE_ENTRIES: usize = 64;
 
@@ -251,23 +252,13 @@ impl ClientKey {
 fn client_for(upstream: &UpstreamSpec) -> Result<reqwest::Client, StreamError> {
     let proxy = resolved_proxy(upstream)?;
     let key = ClientKey::from_upstream(upstream, proxy.as_ref());
-    let clients = HTTP_CLIENTS.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut clients = match clients.lock() {
-        Ok(clients) => clients,
-        Err(poisoned) => poisoned.into_inner(),
-    };
 
-    if let Some(client) = clients.get(&key).cloned() {
+    if let Some(client) = HTTP_CLIENTS.get_cloned(&key) {
         return Ok(client);
     }
 
     let client = build_client(upstream, proxy.as_ref())?;
-    if clients.len() >= MAX_HTTP_CLIENT_CACHE_ENTRIES
-        && let Some(old_key) = clients.keys().next().cloned()
-    {
-        clients.remove(&old_key);
-    }
-    clients.insert(key, client.clone());
+    HTTP_CLIENTS.insert(key, client.clone());
 
     Ok(client)
 }
@@ -415,7 +406,7 @@ mod tests {
             client_for(&upstream).unwrap();
         }
 
-        assert!(HTTP_CLIENTS.get().unwrap().lock().unwrap().len() <= MAX_HTTP_CLIENT_CACHE_ENTRIES);
+        assert!(HTTP_CLIENTS.len() <= MAX_HTTP_CLIENT_CACHE_ENTRIES);
     }
 
     #[test]

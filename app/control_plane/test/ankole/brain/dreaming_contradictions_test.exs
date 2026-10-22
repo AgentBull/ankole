@@ -50,14 +50,14 @@ defmodule Ankole.Brain.DreamingContradictionsTest do
                "severity" => "high"
              })
 
-    assert %Contradiction{status: "open", verdict: "contradiction", severity: "high"} =
+    assert %Contradiction{status: :open, verdict: "contradiction", severity: :high} =
              Repo.get_by(Contradiction, a_claim_id: a.id, b_claim_id: b.id)
   end
 
   test "negative and low-confidence verdicts are recorded as dismissed", %{a: a, b: b} do
     assert :ok = Dreaming.record_contradiction_verdict(a.id, b.id, "no_contradiction", 0.9, %{})
 
-    assert %Contradiction{status: "dismissed", verdict: "no_contradiction"} =
+    assert %Contradiction{status: :dismissed, verdict: "no_contradiction"} =
              Repo.get_by(Contradiction, a_claim_id: a.id, b_claim_id: b.id)
   end
 
@@ -79,7 +79,7 @@ defmodule Ankole.Brain.DreamingContradictionsTest do
     assert :ok = Dreaming.record_contradiction_verdict(a.id, b.id, "contradiction", 0.9, %{})
     contradiction = Repo.get_by!(Contradiction, a_claim_id: a.id, b_claim_id: b.id)
 
-    assert {:ok, %Contradiction{status: "resolved"} = decided} =
+    assert {:ok, %Contradiction{status: :resolved} = decided} =
              Dreaming.decide_contradiction(contradiction.id, "resolved", "kept claim A")
 
     assert decided.resolution_note == "kept claim A"

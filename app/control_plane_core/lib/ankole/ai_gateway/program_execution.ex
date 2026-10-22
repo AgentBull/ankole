@@ -4,8 +4,8 @@ defmodule Ankole.AIGateway.ProgramExecution do
 
   The task returns immutable outcomes only. `ResponseStream` remains the sole
   process that can advance the loop, emit events, or commit durable state.
-  Native cancellation addresses a run after it enters V8. If task or owner
-  death races before registration, the native watchdog bounds the lost slot.
+  Native execution handles exist before tasks start. Cancellation, owner exit,
+  and task exit terminate their isolates even when they race with admission.
   """
 
   alias Ankole.AIGateway.HostedTools.Brain
@@ -18,7 +18,7 @@ defmodule Ankole.AIGateway.ProgramExecution do
           required(:pid) => pid(),
           required(:ref) => reference(),
           required(:monitor) => reference(),
-          required(:run_id) => ProgramRunner.run_id()
+          required(:native_handles) => [ProgramRunner.handle()]
         }
 
   @spec start(pid(), [map()], keyword()) ::
@@ -34,29 +34,20 @@ defmodule Ankole.AIGateway.ProgramExecution do
       not Process.alive?(owner) ->
         {:error, :program_owner_unavailable}
 
-      # Brain jobs never enter V8, so a batch of only Brain jobs needs no
-      # native run id and no native cancellation.
-      Enum.all?(jobs, &brain_job?/1) ->
-        launch(owner, supervisor, nil, fn -> run_jobs(jobs, &no_program_runner/3) end)
-
       is_nil(runner) ->
-        run_id = ProgramRunner.new_run_id()
-
-        launch(owner, supervisor, run_id, fn ->
-          run_jobs(jobs, fn code, bindings, memo ->
-            ProgramRunner.run(run_id, code, bindings, memo)
-          end)
-        end)
+        jobs = Enum.map(jobs, &prepare_native_job(&1, owner))
+        handles = for %{native_handle: handle} <- jobs, do: handle
+        launch(owner, supervisor, handles, fn -> run_jobs(jobs) end)
 
       is_function(runner, 3) ->
-        launch(owner, supervisor, ProgramRunner.new_run_id(), fn -> run_jobs(jobs, runner) end)
+        launch(owner, supervisor, [], fn -> run_jobs(jobs, runner) end)
 
       true ->
         {:error, :invalid_program_runner}
     end
   end
 
-  defp launch(owner, supervisor, run_id, outcomes) do
+  defp launch(owner, supervisor, handles, outcomes) do
     ref = make_ref()
     task = fn -> send(owner, {:program_execution, ref, outcomes.()}) end
 
@@ -71,7 +62,7 @@ defmodule Ankole.AIGateway.ProgramExecution do
 
     case start_result do
       {:ok, pid} ->
-        {:ok, %{pid: pid, ref: ref, monitor: Process.monitor(pid), run_id: run_id}}
+        {:ok, %{pid: pid, ref: ref, monitor: Process.monitor(pid), native_handles: handles}}
 
       {:error, :max_children} ->
         {:error, :program_runtime_busy}
@@ -86,15 +77,8 @@ defmodule Ankole.AIGateway.ProgramExecution do
 
   @doc "Cancels one admitted program task without affecting sibling executions."
   @spec cancel(handle() | nil) :: :ok
-  def cancel(%{pid: pid, run_id: run_id}) when is_pid(pid) and is_binary(run_id) do
-    # The lookup can miss before the dirty NIF registers itself. Killing the
-    # task closes that queueing window; the watchdog bounds the remaining race.
-    _ = safe_cancel_run(run_id)
-    Process.exit(pid, :kill)
-    :ok
-  end
-
-  def cancel(%{pid: pid, run_id: nil}) when is_pid(pid) do
+  def cancel(%{pid: pid, native_handles: handles}) when is_pid(pid) do
+    Enum.each(handles, &safe_cancel_run/1)
     Process.exit(pid, :kill)
     :ok
   end
@@ -108,10 +92,8 @@ defmodule Ankole.AIGateway.ProgramExecution do
     if jobs != [] and Enum.all?(jobs, &brain_job?/1), do: @brain_supervisor, else: @supervisor
   end
 
-  defp no_program_runner(_code, _bindings, _memo), do: {:error, :program_runner_unavailable}
-
-  defp safe_cancel_run(run_id) do
-    ProgramRunner.cancel(run_id)
+  defp safe_cancel_run(handle) do
+    ProgramRunner.cancel(handle)
   catch
     kind, reason ->
       Ankole.Logging.warning(
@@ -122,6 +104,14 @@ defmodule Ankole.AIGateway.ProgramExecution do
 
       :error
   end
+
+  defp prepare_native_job(%{preflight_outcome: %{}} = job, _owner), do: job
+  defp prepare_native_job(%{kind: :brain} = job, _owner), do: job
+
+  defp prepare_native_job(%{code: _, runtime_bindings: _, memo: _} = job, owner),
+    do: Map.put(job, :native_handle, ProgramRunner.new_handle(owner))
+
+  defp prepare_native_job(job, _owner), do: job
 
   @doc false
   @spec run_jobs(
@@ -139,6 +129,12 @@ defmodule Ankole.AIGateway.ProgramExecution do
 
           %{kind: :brain} = job ->
             Brain.run_job(job)
+
+          %{code: code, runtime_bindings: bindings, memo: memo, native_handle: handle} ->
+            safe_run(
+              fn code, bindings, memo -> ProgramRunner.run(handle, code, bindings, memo) end,
+              [code, bindings, memo]
+            )
 
           %{code: code, runtime_bindings: bindings, memo: memo} ->
             safe_run(runner, [code, bindings, memo])

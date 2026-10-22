@@ -2,7 +2,6 @@ defmodule Ankole.AIGateway.ProviderMetadataToolLoopIntegrationTest do
   alias Ankole.AIGateway.ResponseChain
   use Ankole.AIGatewayCase
 
-  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.ResponseStream
   alias Ankole.Sessions.Model
   alias Ankole.Sessions.Run

@@ -90,7 +90,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
     dispatch_job!(agent.uid, reflection_id)
     reflection = wait_for_terminal_job!(reflection_id)
 
-    assert reflection.status == "succeeded",
+    assert reflection.status == :succeeded,
            "reflection job ended #{reflection.status}: #{inspect(reflection.error)}"
 
     # The apply worker was enqueued inside the terminal commit. Oban runs in
@@ -112,7 +112,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
     evidence_ids = MapSet.new([steering_job.id, failure_job.id])
 
     for lesson <- lessons do
-      assert lesson.author_kind == "dreaming"
+      assert lesson.author_kind == :dreaming
       assert lesson.evidence_job_ids != []
       assert Enum.all?(lesson.evidence_job_ids, &MapSet.member?(evidence_ids, &1))
       assert is_binary(lesson.checked_release)
@@ -184,7 +184,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
     dispatch_job!(agent.uid, job.id)
     finished = wait_for_terminal_job!(job.id)
 
-    assert finished.status == "succeeded",
+    assert finished.status == :succeeded,
            "recall job ended #{finished.status}: #{inspect(finished.error)}"
 
     assert finished.result["output_text"] =~ @codename,
@@ -231,7 +231,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
         assert DateTime.compare(lesson.review_after, past) == :gt,
                "a renewed lesson kept its expired lease"
       else
-        assert lesson.retire_reason in ~w(lapsed obsolete)
+        assert lesson.retire_reason in [:lapsed, :obsolete]
       end
     end
 
@@ -279,51 +279,65 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
     %{rows: [[id]]} =
       Repo.query!("SELECT nextval(pg_get_serial_sequence('background_agent_jobs', 'id'))")
 
-    %Job{id: id}
-    |> Job.creation_changeset(%{
-      "agent_uid" => agent.uid,
-      "owner_session_id" => "signal-channel:skill-lesson-evidence",
-      "source_tool_call_id" => "evidence-#{id}",
-      "workspace_owner_job_id" => id,
-      "status" => "succeeded",
-      "title" => "evidence job #{id}",
-      "task" => "Build the quarterly research workbook.",
-      "reply_route" => %{"binding_name" => binding_name},
-      "metadata" => %{},
-      "completed_at" => DateTime.utc_now()
-    })
-    |> Repo.insert!()
+    source = Ankole.WorkFixtures.service_source(agent.uid)
+
+    {:ok, job} =
+      Repo.transact(fn _ ->
+        with {:ok, job} <-
+               Ankole.Ash.create(Job, :create_job, %{
+                 "id" => id,
+                 "agent_uid" => agent.uid,
+                 "source_signal_id" => source.id,
+                 "authorization_kind" => "service",
+                 "owner_session_id" => "signal-channel:skill-lesson-evidence",
+                 "source_tool_call_id" => "evidence-#{id}",
+                 "workspace_owner_job_id" => id,
+                 "title" => "evidence job #{id}",
+                 "task" => "Build the quarterly research workbook.",
+                 "reply_route" => %{"binding_name" => binding_name}
+               }) do
+          Ankole.Ash.update(job, :external_complete, %{completed_at: DateTime.utc_now()})
+        end
+      end)
+
+    job
   end
 
   defp insert_turn!(job, items) do
     turn =
-      %Turn{}
-      |> Turn.changeset(%{
-        job_id: job.id,
-        attempt: 1,
-        runtime_thread_id: "thread-evidence-#{job.id}",
-        runtime_turn_id: "turn-evidence-#{job.id}",
-        kind: "agent",
-        status: "completed",
-        revision: 1,
-        trajectory: %{"format" => "ankole_chatml", "version" => 1},
-        started_at: DateTime.utc_now(),
-        completed_at: DateTime.utc_now()
-      })
-      |> Repo.insert!()
+      case Repo.transact(fn _ ->
+             Ankole.Ash.create(Turn, :record, %{
+               job_id: job.id,
+               attempt: 1,
+               runtime_thread_id: "thread-evidence-#{job.id}",
+               runtime_turn_id: "turn-evidence-#{job.id}",
+               kind: "agent",
+               status: "completed",
+               revision: 1,
+               trajectory: %{"format" => "ankole_chatml", "version" => 1},
+               started_at: DateTime.utc_now(),
+               completed_at: DateTime.utc_now()
+             })
+           end) do
+        {:ok, record} -> record
+        {:error, error} -> raise Ash.Error.to_error_class(error)
+      end
 
     items
     |> Enum.with_index()
     |> Enum.each(fn {item, position} ->
-      %TurnItem{}
-      |> TurnItem.changeset(%{
-        turn_id: turn.id,
-        position: position,
-        revision: 1,
-        item_key: "item-#{position}",
-        item: item
-      })
-      |> Repo.insert!()
+      case Repo.transact(fn _ ->
+             Ankole.Ash.create(TurnItem, :append, %{
+               turn_id: turn.id,
+               position: position,
+               revision: 1,
+               item_key: "item-#{position}",
+               item: item
+             })
+           end) do
+        {:ok, record} -> record
+        {:error, error} -> raise Ash.Error.to_error_class(error)
+      end
     end)
 
     turn
@@ -360,7 +374,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
     claimed =
       wait_until(deadline(@dispatch_deadline_ms), fn ->
         case Repo.get!(Job, job_id) do
-          %Job{status: "queued"} ->
+          %Job{status: :queued} ->
             ensure_input_driver!(event, DateTime.utc_now(:microsecond))
             Process.sleep(500)
             false
@@ -378,7 +392,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
     terminal =
       wait_until(deadline(@job_deadline_ms), fn ->
         case Repo.get(Job, job_id) do
-          %Job{status: status} = job when status in ~w(succeeded failed stopped) -> job
+          %Job{status: status} = job when status in [:succeeded, :failed, :stopped] -> job
           _job -> false
         end
       end)

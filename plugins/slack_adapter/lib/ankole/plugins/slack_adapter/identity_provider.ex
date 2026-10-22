@@ -16,12 +16,14 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(config, opts) do
     with {:ok, redirect_uri} <- MapHelpers.required_opt(opts, :redirect_uri),
-         {:ok, state} <- MapHelpers.required_opt(opts, :state) do
+         {:ok, state} <- MapHelpers.required_opt(opts, :state),
+         {:ok, nonce} <- MapHelpers.required_opt(opts, :nonce) do
       {:ok,
        OIDC.authorize_url(
          client_id: Map.fetch!(config, "clientID"),
          redirect_uri: redirect_uri,
          state: state,
+         nonce: nonce,
          scopes: get_in(config, ["oidc", "scopes"]) || ["openid", "profile", "email"],
          team: Map.get(config, "teamID")
        )}
@@ -39,14 +41,22 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
              code: code,
              redirect_uri: Keyword.get(opts, :redirect_uri)
            ),
+         {:ok, verified} <-
+           Ankole.IdentityProviders.OIDC.verify(
+             token,
+             "https://slack.com",
+             Map.fetch!(config, "clientID"),
+             opts
+           ),
          {:ok, claims} <-
            OIDC.user_info(token.access_token,
              base_url: client.base_url,
              req_options: client.req_options
            ),
+         :ok <- Ankole.IdentityProviders.OIDC.bind_subject(verified, claims),
          user <- normalize_claims(claims),
          {:ok, user} <- hydrate_user(config, user) do
-      {:ok, %{token: token, user: user}}
+      {:ok, %{token: token, user: user, auth_time: verified["auth_time"]}}
     end
   end
 
@@ -318,7 +328,7 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
 
   defp normalize_claims(claims) do
     %{
-      "user_id" => claims["https://slack.com/user_id"] || claims["sub"],
+      "user_id" => claims["sub"],
       "team_id" => claims["https://slack.com/team_id"],
       "email" => claims["email"],
       "name" => claims["name"],

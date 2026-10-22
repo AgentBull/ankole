@@ -43,7 +43,7 @@ defmodule Ankole.AIGateway.OIDCClientConversations do
 
     evidence =
       messages
-      |> Enum.reject(&(&1.status == "retracted"))
+      |> Enum.reject(&(&1.status == :retracted))
       |> Enum.map(&request_evidence/1)
       |> Enum.reject(&(&1.input == [] and &1.output == []))
 
@@ -54,7 +54,7 @@ defmodule Ankole.AIGateway.OIDCClientConversations do
     Message
     |> where(
       [message],
-      message.type == "message" and message.status in ["complete", "error", "retracted"]
+      message.type == :message and message.status in [:complete, :error, :retracted]
     )
     |> where([message], fragment("?->>'oidc_client_id' IS NOT NULL", message.metadata))
   end
@@ -82,9 +82,9 @@ defmodule Ankole.AIGateway.OIDCClientConversations do
         if(message.previous_message_id, do: "resp_#{message.previous_message_id}"),
       submitted_by: message.subject_uid,
       recorded_at: DateTime.to_iso8601(message.inserted_at),
-      status: message.status,
+      status: Atom.to_string(message.status),
       input: dialogue(input),
-      output: if(message.status == "complete", do: dialogue(output), else: [])
+      output: if(message.status == :complete, do: dialogue(output), else: [])
     }
   end
 

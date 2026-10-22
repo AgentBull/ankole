@@ -101,7 +101,7 @@ defmodule Ankole.Conversations.Envelope do
 
   defp refresh_ambient_batch_payload(payload, repo, attrs, entries, _channel, now) do
     judged_until =
-      Ankole.Sessions.AmbientCuration.judged_until(attrs.agent_uid, attrs.conversation_id, repo)
+      Ankole.Sessions.AmbientCuration.judged_until(attrs.agent_uid, attrs.conversation_id)
 
     observed_messages = Context.ambient_delta_messages(attrs, entries, judged_until)
     backdrop_messages = Context.ambient_backdrop_messages(attrs, judged_until)

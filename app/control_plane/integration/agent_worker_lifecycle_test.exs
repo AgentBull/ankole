@@ -75,12 +75,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
 
       Sandbox.unboxed_run(Repo, fn ->
         delete_agent_fixture_rows(agent.uid, provider.provider_id)
-
-        Repo.delete_all(
-          from job in Oban.Job, where: fragment("?->>'agent_uid' = ?", job.args, ^agent.uid)
-        )
-
-        Repo.delete!(tenant)
+        cleanup_tenant!(tenant)
       end)
 
       :ok = Config.put(Map.to_list(previous))
@@ -100,7 +95,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
 
     assert_paused(first)
     intent = Repo.get!(AgentWorker, uid)
-    assert intent.state == "starting"
+    assert intent.state == :starting
     assert intent.generation != nil
     assert intent.instance_seen_at == nil
     assert {:ok, []} = Docker.list_instances(provider, uid)
@@ -209,9 +204,17 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
       end)
 
     assert_paused(pulling)
-    deleting = start_unboxed(fn -> AgentWorkers.mark_deleting_in_tx(Repo, uid) end)
+
+    deleting =
+      start_unboxed(fn ->
+        assert {:ok, :ok} =
+                 Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+
+        :ok
+      end)
+
     assert :ok = finish(deleting)
-    assert Repo.get!(AgentWorker, uid).state == "deleting"
+    assert Repo.get!(AgentWorker, uid).state == :deleting
     release(pulling)
     assert :ok = finish(pulling)
     assert Repo.get(AgentWorker, uid) == nil
@@ -229,7 +232,15 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
       end)
 
     assert_paused(preparing)
-    deleting = start_unboxed(fn -> AgentWorkers.mark_deleting_in_tx(Repo, uid) end)
+
+    deleting =
+      start_unboxed(fn ->
+        assert {:ok, :ok} =
+                 Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+
+        :ok
+      end)
+
     assert :ok = finish(deleting)
     release(preparing)
     assert :ok = finish(preparing)
@@ -255,7 +266,12 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
     assert_paused(crashed)
     generation = Repo.get!(AgentWorker, uid).generation
     Task.shutdown(crashed.task, :brutal_kill)
-    Sandbox.unboxed_run(Repo, fn -> AgentWorkers.mark_deleting_in_tx(Repo, uid) end)
+
+    assert {:ok, :ok} =
+             Sandbox.unboxed_run(Repo, fn ->
+               Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+             end)
+
     assert Repo.get!(AgentWorker, uid).generation == generation
 
     assert {:ok, true} =
@@ -318,7 +334,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
     on_exit(fn ->
       Sandbox.unboxed_run(Repo, fn ->
         Repo.delete_all(
-          from c in Ankole.AppConfigure.SiteConfig, where: c.scope == "global" and c.key == ^key
+          from(c in Ankole.AppConfigure.SiteConfig, where: c.scope == "global" and c.key == ^key)
         )
 
         if previous, do: Repo.insert!(Ecto.put_meta(previous, state: :built))

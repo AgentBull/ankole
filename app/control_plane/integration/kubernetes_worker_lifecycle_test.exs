@@ -116,7 +116,7 @@ defmodule Ankole.KubernetesWorkerLifecycleIntegrationTest do
     %{uid: uid, provider: provider, namespace: namespace}
   end
 
-  for state <- ["starting", "deleting"] do
+  for state <- [:starting, :deleting] do
     @state state
     test "#{state} retries G after a crash between Secret and Pod creation", %{
       uid: uid,
@@ -132,8 +132,14 @@ defmodule Ankole.KubernetesWorkerLifecycleIntegrationTest do
 
       Task.shutdown(crashed, :brutal_kill)
 
-      if @state == "deleting",
-        do: Sandbox.unboxed_run(Repo, fn -> AgentWorkers.mark_deleting_in_tx(Repo, uid) end)
+      if @state == :deleting do
+        assert {:ok, :ok} =
+                 Sandbox.unboxed_run(Repo, fn ->
+                   Repo.transact(fn repo ->
+                     {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)}
+                   end)
+                 end)
+      end
 
       resumed = create_until(uid, "/api/v1/namespaces/#{namespace}/pods")
       assert Repo.get!(AgentWorker, uid).generation == generation
@@ -145,7 +151,7 @@ defmodule Ankole.KubernetesWorkerLifecycleIntegrationTest do
       send(resumed.pid, :continue)
       result = Task.await(resumed, 30_000)
 
-      if @state == "deleting" do
+      if @state == :deleting do
         assert_delete_progress(result, uid)
 
         assert {:ok, true} =
@@ -173,7 +179,7 @@ defmodule Ankole.KubernetesWorkerLifecycleIntegrationTest do
   defp assert_delete_progress({:error, {:kubernetes_claim_deleting, name}}, uid) do
     # PVC finalizers finish after the Pod disappears. The row must survive
     # this expected retry, with its generation already settled.
-    assert %AgentWorker{state: "deleting", generation: nil, last_error: reason} =
+    assert %AgentWorker{state: :deleting, generation: nil, last_error: reason} =
              Repo.get!(AgentWorker, uid)
 
     assert reason =~ name

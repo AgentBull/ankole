@@ -136,18 +136,11 @@ defmodule Ankole.Signals.Intake do
             )
           )
 
-        with {:ok, _} <-
-               %Signal{}
-               |> Signal.changeset(Map.put(attrs, :queue_sequence, sequence))
-               |> repo.insert(
-                 on_conflict: :nothing,
-                 conflict_target: [:tenant_id, :agent_uid, :source, :source_event_id]
-               ),
-             %Signal{} = signal <- repo.get_by(Signal, key) do
+        with {:ok, signal} <-
+               Ankole.Ash.create(Signal, :accept, Map.put(attrs, :queue_sequence, sequence),
+                 touch_update_defaults?: false
+               ) do
           same_producer(signal, attrs.producer)
-        else
-          {:error, _} = error -> error
-          _ -> {:error, :signal_not_found}
         end
     end
   end

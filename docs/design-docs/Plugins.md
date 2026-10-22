@@ -123,12 +123,24 @@ AppConfigure stores the defaults in these tenant-scoped keys:
 - `ai_agent.library.agent_plugin_defaults` stores Agent Plugin booleans.
 - `ai_agent.library.skill_defaults` stores Skill booleans.
 
+Ordinary capability reads use the AppConfigure cache. The first Job runtime
+projection and capability-change notifications read defaults directly through
+`AgentPlugins.Config.defaults_in_tx/0` and pass the result as
+`agent_library_defaults`. The projection read stays in the admission transaction;
+notifications read after the configuration update commits.
+
 A Plugin Skill ID uses `<agent-plugin-id>:<skill-name>`.
 A standalone Skill ID uses its Skill name.
 
 PostgreSQL stores Agent Plugin overrides in `agent_plugin_overrides`.
 It stores Skill overrides in `agent_skills.enabled_override`.
 A null Skill override means inheritance.
+
+The Agent Library resources own sparse Plugin overrides, Skill catalog sync,
+per-Agent enablement, and runtime document writes. Catalog sync preserves an
+existing enablement override. Active documents keep their partial unique path
+identity and exact content bytes. Public API projections keep string enum
+values; resource records use atoms.
 
 Plugin member rows use `source_kind = "builtin"`.
 The `agent_plugin_id` field records their parent.
@@ -360,6 +372,34 @@ Each response row includes these fields:
 The Console can still list an inactive Plugin, and its old settings can remain
 in PostgreSQL. It adds no definitions, adapters, or processes until activation.
 
+A Worker-provider Plugin cannot be disabled while any tenant has an assigned
+Worker row for one of its kinds. Paused Workers and Agents being deleted count
+as references. Remove those Agents and wait for their Worker cleanup before
+disabling the Plugin. New Agent assignments require both current activation
+and next-start selection. A pending disable therefore rejects new assignments.
+The Plugin controls and setup selection use this same check. The
+`plugins.enabled_ids` entry is read-only in general Console settings. Use the
+Control Plane Plugin controls to change it. These writes belong to
+`Ankole.Plugins.Config`; AppConfigure supplies validation, storage, and its
+existing key lock. Only changes that remove Worker kinds also take the Worker
+provider lock and check Worker references. Enabling Plugins and changes to other
+Plugins do not run that check.
+
+Function Compute requires `china-market-ai-providers`; Vercel requires
+`vercel-worker-provider`. Before upgrading an existing installation, use the
+existing configuration API to select each Plugin that the installation uses:
+
+```elixir
+Ankole.Plugins.put_configured_enabled("china-market-ai-providers", true)
+Ankole.Plugins.put_configured_enabled("vercel-worker-provider", true)
+```
+
+Run only the command for each required Plugin, then deploy and restart. These
+calls preserve the other selected IDs and permit a future compiled Plugin ID.
+The China-market Plugin enables both its model adapters and Function Compute.
+The upgrade does not enable either Plugin automatically or change stored Worker
+provider data.
+
 ### Recover the Boot Snapshot
 
 `Ankole.Plugins.Cohort` supervises the Registry before the Plugin runtime
@@ -390,6 +430,15 @@ Callback declarations use atom keys.
 
 Control Plane Plugins do not control Agent capabilities. A control-plane
 adapter and a related Agent Plugin can have different enabled states.
+
+### Declare a Worker Provider Kind
+
+A Plugin contributes `contract_id: "agent_workers.provider_kind"`, a unique
+`id`, and a `module`. The module implements `Ankole.AgentWorkers.ProviderKind`.
+Its `definition/0` owns the YAML schema, credential fields, example, pause
+support, and instance lifetime. The Worker subsystem validates this contract
+at Plugin startup. It keeps durable provider configuration and lifecycle
+decisions in the core. See [Agent Workers](AgentWorkers.md).
 
 ### Declare a Message Adapter
 
@@ -479,6 +528,14 @@ Console REST actions return failed domain results to Phoenix `action_fallback`.
 `AnkoleWeb.ConsoleErrors` owns the shared authorization response, resource and
 validation renderers, and error envelope. Controllers retain resource messages,
 special validation rules, and their existing handling of unlisted errors.
+`Ankole.Ash` projects field validation errors for Console and tool callers. It
+formats declared numeric limits and allowed values. It does not interpolate
+unknown templates or include rejected values. Validators use fixed public
+messages for parser failures; native diagnostics stay outside this response.
+The shared unexpected-error handler logs the failure class through
+`Ankole.Logging.failure_fields/3`. It does not log action data or exception messages.
+Connection reconciliation logs retain the failure class, stack locations, and
+error count. They do not log the returned error list or private exit causes.
 Manual identity mappings retain their error envelope without a `details` field.
 Their unlisted errors return a generic 500 message; the server log records the
 internal reason. A blank Worker provider selection is a field validation error.

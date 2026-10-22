@@ -52,7 +52,7 @@ defmodule Ankole.Conversations.InboundBatches do
         nil ->
           {:error, :inbound_batch_not_found}
 
-        %InboundBatch{batch_state: "open"} = batch ->
+        %InboundBatch{batch_state: :open} = batch ->
           if DateTime.after?(batch.available_at, now),
             do: {:ok, %{status: :not_due, available_at: batch.available_at}},
             else: finalize_inbound_batch_in_tx(repo, batch, now)
@@ -213,7 +213,7 @@ defmodule Ankole.Conversations.InboundBatches do
     |> where([batch], batch.agent_uid == ^fact.agent_uid)
     |> where([batch], batch.binding_name == ^fact.binding_name)
     |> where([batch], batch.conversation_id == ^fact.conversation_id)
-    |> where([batch], batch.batch_state == "finalized")
+    |> where([batch], batch.batch_state == :finalized)
     |> where(
       [batch],
       fragment(
@@ -511,12 +511,12 @@ defmodule Ankole.Conversations.InboundBatches do
 
   defp append_addressed_inbound_entry(nil, repo, _binding, _channel, fact, entry, policy, now)
        when is_map(entry) do
-    create_inbound_batch(repo, fact, policy, "addressed", [entry], now)
+    create_inbound_batch(repo, fact, policy, :addressed, [entry], now)
     |> inbound_result(:accepted)
   end
 
   defp append_addressed_inbound_entry(
-         %InboundBatch{mode: "addressed"} = batch,
+         %InboundBatch{mode: :addressed} = batch,
          repo,
          binding,
          channel,
@@ -550,7 +550,7 @@ defmodule Ankole.Conversations.InboundBatches do
   end
 
   defp append_addressed_inbound_entry(
-         %InboundBatch{mode: "neutral"} = batch,
+         %InboundBatch{mode: :neutral} = batch,
          repo,
          binding,
          channel,
@@ -598,17 +598,17 @@ defmodule Ankole.Conversations.InboundBatches do
          now
        )
        when is_list(entries) do
-    create_inbound_batch(repo, fact, policy, "addressed", entries, now)
+    create_inbound_batch(repo, fact, policy, :addressed, entries, now)
     |> inbound_result(:accepted)
   end
 
   defp append_neutral_inbound_entry(nil, repo, _binding, _channel, fact, entry, policy, now) do
-    create_inbound_batch(repo, fact, policy, "neutral", [entry], now)
+    create_inbound_batch(repo, fact, policy, :neutral, [entry], now)
     |> inbound_result(neutral_status(policy))
   end
 
   defp append_neutral_inbound_entry(
-         %InboundBatch{mode: "neutral"} = batch,
+         %InboundBatch{mode: :neutral} = batch,
          repo,
          _binding,
          _channel,
@@ -623,7 +623,7 @@ defmodule Ankole.Conversations.InboundBatches do
   end
 
   defp append_neutral_inbound_entry(
-         %InboundBatch{mode: "addressed"} = batch,
+         %InboundBatch{mode: :addressed} = batch,
          repo,
          binding,
          channel,
@@ -646,7 +646,7 @@ defmodule Ankole.Conversations.InboundBatches do
       same_sender? and addressable_neutral_entry?(entry) ->
         with {:ok, closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
              {:ok, result} <-
-               create_inbound_batch(repo, fact, policy, "addressed", [entry], now)
+               create_inbound_batch(repo, fact, policy, :addressed, [entry], now)
                |> inbound_result(:accepted) do
           {:ok, merge_finalized_signals(result, closed)}
         end
@@ -661,9 +661,7 @@ defmodule Ankole.Conversations.InboundBatches do
   end
 
   defp close_or_replace_neutral_prefix(repo, batch, prefix, [] = _tail, now) do
-    batch
-    |> InboundBatch.changeset(%{entries: prefix})
-    |> repo.update()
+    Ankole.Ash.update(batch, :replace_prefix, %{entries: prefix})
     |> case do
       {:ok, updated} ->
         with {:ok, result} <- finalize_inbound_batch_in_tx(repo, updated, now) do
@@ -676,9 +674,7 @@ defmodule Ankole.Conversations.InboundBatches do
   end
 
   defp close_or_replace_neutral_prefix(repo, batch, prefix, tail, now) do
-    batch
-    |> InboundBatch.changeset(%{entries: prefix})
-    |> repo.update()
+    Ankole.Ash.update(batch, :replace_prefix, %{entries: prefix})
     |> case do
       {:ok, updated} -> finalize_inbound_batch_in_tx(repo, updated, now)
       {:error, _reason} = error -> error
@@ -732,16 +728,16 @@ defmodule Ankole.Conversations.InboundBatches do
     cancel_inbound_batch(repo, batch)
   end
 
-  defp finalize_inbound_batch_in_tx(repo, %InboundBatch{mode: "addressed"} = batch, now) do
+  defp finalize_inbound_batch_in_tx(repo, %InboundBatch{mode: :addressed} = batch, now) do
     with {:ok, append_result} <-
            append_batch_signal(repo, batch, "conversation.message.addressed", now) do
       finalize_batch_signal_append(repo, batch, append_result)
     end
   end
 
-  defp finalize_inbound_batch_in_tx(repo, %InboundBatch{mode: "neutral"} = batch, now) do
+  defp finalize_inbound_batch_in_tx(repo, %InboundBatch{mode: :neutral} = batch, now) do
     case batch.policy do
-      "may_intervene" ->
+      :may_intervene ->
         with {:ok, append_result} <-
                append_batch_signal(repo, batch, "im.message.may_intervene", now) do
           finalize_batch_signal_append(repo, batch, append_result)
@@ -749,45 +745,25 @@ defmodule Ankole.Conversations.InboundBatches do
 
       _no_signal ->
         with {:ok, closed} <-
-               batch
-               |> InboundBatch.changeset(%{
-                 batch_state: "finalized",
-                 batch_revision: batch.batch_revision + 1
-               })
-               |> repo.update() do
+               Ankole.Ash.update(batch, :finalize, %{}) do
           {:ok, %{status: :ignored, inbound_batch: closed}}
         end
     end
   end
 
   defp finalize_batch_signal_append(
-         repo,
+         _repo,
          %InboundBatch{} = batch,
          %Signal{} = signal
        ) do
     with {:ok, closed} <-
-           batch
-           |> InboundBatch.changeset(%{
-             batch_state: "finalized",
-             batch_revision: batch.batch_revision + 1
-           })
-           |> repo.update() do
+           Ankole.Ash.update(batch, :finalize, %{}) do
       {:ok, %{status: :accepted, signal: signal, inbound_batch: closed}}
     end
   end
 
-  defp cancel_inbound_batch(repo, batch, extra_attrs \\ %{}) do
-    attrs =
-      %{
-        batch_state: "canceled",
-        batch_revision: batch.batch_revision + 1
-      }
-      |> Map.merge(extra_attrs)
-
-    with {:ok, closed} <-
-           batch
-           |> InboundBatch.changeset(attrs)
-           |> repo.update() do
+  defp cancel_inbound_batch(_repo, batch, extra_attrs \\ %{}) do
+    with {:ok, closed} <- Ankole.Ash.update(batch, :cancel, extra_attrs) do
       {:ok, %{status: :canceled, inbound_batch: closed}}
     end
   end
@@ -809,7 +785,7 @@ defmodule Ankole.Conversations.InboundBatches do
     |> where([batch], batch.binding_name == ^fact.binding_name)
     |> where([batch], batch.conversation_id == ^fact.conversation_id)
     |> maybe_where_thread(fact.provider_thread_id)
-    |> where([batch], batch.batch_state == "open")
+    |> where([batch], batch.batch_state == :open)
     |> order_by([batch], asc: batch.inserted_at)
     |> lock("FOR UPDATE")
     |> repo.all()
@@ -840,16 +816,13 @@ defmodule Ankole.Conversations.InboundBatches do
       true ->
         mode = recompute_batch_mode(entries)
 
-        batch
-        |> InboundBatch.changeset(%{
+        Ankole.Ash.update(batch, :revise, %{
           mode: mode,
           entries: entries,
           reply_to_provider_message_id: reply_target_from_entries(entries),
           requester_sender_key: requester_sender_key(mode, entries),
-          available_at: inbound_due_at(mode, batch.policy, entries, batch, now),
-          batch_revision: batch.batch_revision + 1
+          available_at: inbound_due_at(mode, batch.policy, entries, batch, now)
         })
-        |> repo.update()
         |> notify_inbound_batch_deadline(repo)
     end
   end
@@ -878,8 +851,6 @@ defmodule Ankole.Conversations.InboundBatches do
   end
 
   defp create_inbound_batch(repo, fact, policy, mode, entries, now) do
-    policy = Atom.to_string(policy)
-
     entries = normalize_batch_entries(entries)
 
     attrs = %{
@@ -890,7 +861,6 @@ defmodule Ankole.Conversations.InboundBatches do
       conversation_id: fact.conversation_id,
       provider_thread_id: thread_key(fact.provider_thread_id),
       reply_to_provider_message_id: Map.get(fact, :reply_to_provider_message_id),
-      batch_state: "open",
       mode: mode,
       policy: policy,
       requester_sender_key: requester_sender_key(mode, entries),
@@ -898,9 +868,7 @@ defmodule Ankole.Conversations.InboundBatches do
       available_at: inbound_due_at(mode, policy, entries, nil, now)
     }
 
-    %InboundBatch{}
-    |> InboundBatch.changeset(attrs)
-    |> repo.insert()
+    Ankole.Ash.create(InboundBatch, :open, attrs)
     |> notify_inbound_batch_deadline(repo)
   end
 
@@ -911,14 +879,11 @@ defmodule Ankole.Conversations.InboundBatches do
     if entries == batch.entries do
       {:ok, batch}
     else
-      batch
-      |> InboundBatch.changeset(%{
+      Ankole.Ash.update(batch, :revise, %{
         entries: entries,
         requester_sender_key: requester_sender_key(batch.mode, entries),
-        available_at: inbound_due_at(batch.mode, batch.policy, entries, batch, now),
-        batch_revision: batch.batch_revision + 1
+        available_at: inbound_due_at(batch.mode, batch.policy, entries, batch, now)
       })
-      |> repo.update()
       |> notify_inbound_batch_deadline(repo)
     end
   end
@@ -926,16 +891,13 @@ defmodule Ankole.Conversations.InboundBatches do
   defp upgrade_neutral_batch_to_addressed(%InboundBatch{} = batch, repo, entries, policy, now) do
     entries = normalize_batch_entries(entries)
 
-    batch
-    |> InboundBatch.changeset(%{
+    Ankole.Ash.update(batch, :revise, %{
       entries: entries,
-      mode: "addressed",
-      policy: Atom.to_string(policy),
-      requester_sender_key: requester_sender_key("addressed", entries),
-      available_at: inbound_due_at("addressed", policy, entries, batch, now),
-      batch_revision: batch.batch_revision + 1
+      mode: :addressed,
+      policy: policy,
+      requester_sender_key: requester_sender_key(:addressed, entries),
+      available_at: inbound_due_at(:addressed, policy, entries, batch, now)
     })
-    |> repo.update()
     |> notify_inbound_batch_deadline(repo)
   end
 
@@ -958,7 +920,7 @@ defmodule Ankole.Conversations.InboundBatches do
     |> where([batch], batch.binding_name == ^fact.binding_name)
     |> where([batch], batch.conversation_id == ^fact.conversation_id)
     |> where([batch], batch.provider_thread_id == ^thread_key(fact.provider_thread_id))
-    |> where([batch], batch.batch_state == "open")
+    |> where([batch], batch.batch_state == :open)
     |> order_by([batch], asc: batch.inserted_at)
     |> limit(1)
     |> repo.one()
@@ -1260,8 +1222,8 @@ defmodule Ankole.Conversations.InboundBatches do
 
   defp recompute_batch_mode(entries) do
     case Enum.any?(entries, &(&1["explicit"] == true)) do
-      true -> "addressed"
-      false -> "neutral"
+      true -> :addressed
+      false -> :neutral
     end
   end
 
@@ -1308,7 +1270,7 @@ defmodule Ankole.Conversations.InboundBatches do
       (entry["text_length"] || 0) >= @addressed_long_text_threshold
   end
 
-  defp inbound_due_at("addressed", _policy, entries, _batch, now) do
+  defp inbound_due_at(:addressed, _policy, entries, _batch, now) do
     case pending_attachment_deadline(entries, now) do
       %DateTime{} = deadline ->
         deadline
@@ -1320,7 +1282,7 @@ defmodule Ankole.Conversations.InboundBatches do
     end
   end
 
-  defp inbound_due_at("neutral", "may_intervene", entries, _batch, now) do
+  defp inbound_due_at(:neutral, :may_intervene, entries, _batch, now) do
     case pending_attachment_deadline(entries, now) do
       %DateTime{} = deadline ->
         deadline
@@ -1333,7 +1295,7 @@ defmodule Ankole.Conversations.InboundBatches do
     end
   end
 
-  defp inbound_due_at("neutral", _policy, entries, _batch, now) do
+  defp inbound_due_at(:neutral, _policy, entries, _batch, now) do
     case pending_attachment_deadline(entries, now) do
       %DateTime{} = deadline ->
         deadline
@@ -1383,7 +1345,7 @@ defmodule Ankole.Conversations.InboundBatches do
     end
   end
 
-  defp requester_sender_key("addressed", entries) do
+  defp requester_sender_key(:addressed, entries) do
     entries
     |> List.last()
     |> case do
@@ -1441,7 +1403,7 @@ defmodule Ankole.Conversations.InboundBatches do
         "|"
       )
 
-    Ecto.Adapters.SQL.query!(repo, "SELECT pg_advisory_xact_lock(hashtext($1))", [key])
+    Ankole.AdvisoryLock.lock!(repo, key)
     :ok
   end
 
@@ -1458,7 +1420,7 @@ defmodule Ankole.Conversations.InboundBatches do
         "|"
       )
 
-    Ecto.Adapters.SQL.query!(repo, "SELECT pg_advisory_xact_lock(hashtext($1))", [key])
+    Ankole.AdvisoryLock.lock!(repo, key)
     :ok
   end
 

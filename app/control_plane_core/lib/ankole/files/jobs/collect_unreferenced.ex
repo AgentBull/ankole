@@ -22,7 +22,7 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
     max_attempts: 1,
     unique: [period: :infinity, states: Oban.Job.states() -- [:completed, :cancelled, :discarded]]
 
-  import Ecto.Query
+  require Ash.Query
 
   alias Ankole.Files
   alias Ankole.Files.Schemas.Blob
@@ -31,27 +31,9 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
   alias Ankole.Repo
 
   @batch_size 100
-  @grace "1 day"
-
-  # Both phases use the same all-tenant definition of a live reference.
-  @unreferenced """
-  AND NOT EXISTS (SELECT 1 FROM drive_files WHERE drive_files.sha256 = files.sha256)
-  AND NOT EXISTS (
-    SELECT 1 FROM deliveries AS intent
-    WHERE intent.status IN ('pending', 'failed', 'unknown')
-      AND intent.payload @> jsonb_build_object('attachments',
-        jsonb_build_array(jsonb_build_object('blob_ref', encode(files.sha256, 'hex'))))
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM conversation_messages AS message,
-      unnest(message.attachments) AS attachment(value)
-    WHERE attachment.value->>'blob_ref' = encode(files.sha256, 'hex')
-  )
-  """
 
   @impl Ankole.Job
-  # Blob contents are site-owned. The two reviewed SQL statements check all
-  # tenant references before deletion; this job needs no tenant query bypass.
+  # Blob actions check references from every tenant before they collect content.
   def run(job), do: sweep(job)
 
   defp sweep(%Oban.Job{}) do
@@ -71,18 +53,15 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
   @doc false
   @spec mark_unreferenced() :: {:ok, non_neg_integer()}
   def mark_unreferenced do
-    %{num_rows: count} =
-      Repo.query!(
-        """
-        UPDATE files SET deleting = true
-        WHERE NOT deleting
-          AND last_referenced_at < now() - interval '#{@grace}'
-          #{@unreferenced}
-        """,
-        []
+    records =
+      Ankole.Ash.bulk_update(Blob, :mark_for_collection, %{},
+        strategy: [:atomic],
+        return_records?: true,
+        return_errors?: true
       )
+      |> records!()
 
-    {:ok, count}
+    {:ok, length(records)}
   end
 
   @doc false
@@ -96,18 +75,18 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
   end
 
   # Returns how many marked rows the batch processed and how many it removed.
-  defp remove_batch(repo) do
+  defp remove_batch(_repo) do
     digests =
-      from(blob in Blob,
-        where: blob.deleting,
-        select: blob.sha256,
-        limit: @batch_size,
-        lock: "FOR UPDATE SKIP LOCKED"
-      )
-      |> repo.all()
+      Blob
+      |> Ash.Query.filter(deleting)
+      |> Ash.Query.select([:sha256])
+      |> Ash.Query.limit(@batch_size)
+      |> Ash.Query.lock("FOR UPDATE SKIP LOCKED")
+      |> Ankole.Ash.read!()
+      |> Enum.map(& &1.sha256)
 
     Enum.reduce_while(digests, {:ok, {0, 0}}, fn digest, {:ok, {processed, removed}} ->
-      case remove_one(repo, digest) do
+      case remove_one(digest) do
         :removed -> {:cont, {:ok, {processed + 1, removed + 1}}}
         :kept -> {:cont, {:ok, {processed + 1, removed}}}
         {:error, reason} -> {:halt, {:error, reason}}
@@ -115,24 +94,35 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
     end)
   end
 
-  defp remove_one(repo, digest) do
-    %{num_rows: deleted} =
-      repo.query!(
-        """
-        DELETE FROM files
-        WHERE sha256 = $1 AND deleting
-          #{@unreferenced}
-        """,
-        [digest]
-      )
+  defp remove_one(digest) do
+    query = Blob |> Ash.Query.filter(sha256 == ^digest)
 
-    if deleted == 1 do
-      with :ok <- ObjectStore.delete(Files.object_key(digest)), do: :removed
-    else
-      repo.update_all(where(Blob, [blob], blob.sha256 == ^digest), set: [deleting: false])
-      :kept
+    records =
+      Ankole.Ash.bulk_destroy(query, :collect, %{},
+        strategy: [:atomic],
+        return_records?: true,
+        return_errors?: true
+      )
+      |> records!()
+
+    case records do
+      [_blob] ->
+        with :ok <- ObjectStore.delete(Files.object_key(digest)), do: :removed
+
+      [] ->
+        Ankole.Ash.bulk_update(query, :keep_referenced, %{},
+          strategy: [:atomic],
+          return_records?: true,
+          return_errors?: true
+        )
+        |> records!()
+
+        :kept
     end
   end
+
+  defp records!(%Ash.BulkResult{status: :success, records: records}), do: records
+  defp records!(%Ash.BulkResult{errors: errors}), do: raise(Ash.Error.to_error_class(errors))
 
   defp log_failure(reason, removed) do
     Logging.warning("files.collect_unreferenced_failed", "file content collection failed", %{

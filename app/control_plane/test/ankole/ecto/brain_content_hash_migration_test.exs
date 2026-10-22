@@ -86,13 +86,16 @@ defmodule Ankole.Ecto.BrainContentHashMigrationTest do
 
     for object <- objects do
       migrated = Repo.with_tenant(object.tenant_id, fn -> Repo.get!(Object, object.id) end)
-      assert migrated == object
+      assert_persisted_equal(migrated, object)
     end
 
     run_migration()
 
     for object <- objects do
-      assert Repo.with_tenant(object.tenant_id, fn -> Repo.get!(Object, object.id) end) == object
+      assert_persisted_equal(
+        Repo.with_tenant(object.tenant_id, fn -> Repo.get!(Object, object.id) end),
+        object
+      )
     end
   end
 

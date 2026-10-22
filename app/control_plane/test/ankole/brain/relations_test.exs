@@ -1,6 +1,7 @@
 defmodule Ankole.Brain.RelationsTest do
   use Ankole.DataCase, async: true
 
+  alias Ankole.Brain.Chunks
   alias Ankole.Brain.Links
   alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
@@ -42,17 +43,17 @@ defmodule Ankole.Brain.RelationsTest do
                :system
              )
 
-    assert {:ok, current} = Objects.reconcile_chunks(old)
+    assert {:ok, current} = Chunks.reconcile(old)
     assert current.body == "The current body."
     chunk = Repo.get_by!(Chunk, object_id: old.id, chunk_index: 0)
     assert chunk.chunk_text == "The current body."
 
     vector = Pgvector.new(List.duplicate(0.5, 4096))
-    assert {:ok, :stale} = Objects.record_chunk_embedding(old_chunk, {:ok, vector, "old-model"})
-    assert {:ok, :updated} = Objects.record_chunk_embedding(chunk, {:ok, vector, "current-model"})
+    assert {:ok, :stale} = Chunks.record_embedding(old_chunk, {:ok, vector, "old-model"})
+    assert {:ok, :updated} = Chunks.record_embedding(chunk, {:ok, vector, "current-model"})
 
     assert {:ok, :stale} =
-             Objects.record_chunk_embedding(chunk, {:error, "late failure", "old-model"})
+             Chunks.record_embedding(chunk, {:error, "late failure", "old-model"})
 
     embedded = Repo.get!(Chunk, chunk.id)
     assert embedded.embedding_signature == "current-model"

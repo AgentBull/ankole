@@ -872,7 +872,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
           agent_uid: agent.uid,
           binding_name: "discord-media",
           conversation_id: external_conversation_id(external_conversation_id(@dm_channel)),
-          batch_state: "open"
+          batch_state: :open
         )
       end
 

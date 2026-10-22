@@ -127,15 +127,17 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
   end
 
   defp pending_type_suggestion(term) do
-    Repo.insert!(%SchemaSuggestion{
-      id: UUIDv7.autogenerate(),
-      kind: "new_type",
-      term: term,
-      evidence_count: 100,
-      rationale: "test evidence",
-      status: "pending",
-      created_at: DateTime.utc_now(:microsecond)
-    })
+    {:ok, suggestion} =
+      Ankole.Ash.create(SchemaSuggestion, :suggest, %{
+        id: UUIDv7.autogenerate(),
+        kind: :new_type,
+        term: term,
+        evidence_count: 100,
+        rationale: "test evidence",
+        created_at: DateTime.utc_now(:microsecond)
+      })
+
+    suggestion
   end
 
   test "projects pages as managed world objects with chunks and aliases", %{
@@ -201,8 +203,6 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
   end
 
   test "a failed lazy Skill inventory keeps the previous projection live" do
-    allow_cache_database_access()
-
     root =
       Path.join(
         System.tmp_dir!(),
@@ -301,8 +301,6 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
   end
 
   test "a broken knowledge directory preserves its set while other sets synchronize" do
-    allow_cache_database_access()
-
     root =
       Path.join(System.tmp_dir!(), "ankole-knowledge-root-#{System.unique_integer([:positive])}")
 
@@ -340,8 +338,6 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
   end
 
   test "disabled Plugin knowledge stays absent while its lazy Skills remain discoverable" do
-    allow_cache_database_access()
-
     root =
       Path.join(
         System.tmp_dir!(),
@@ -375,8 +371,6 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
   end
 
   test "cached Skills cannot hide an unreadable required library root" do
-    allow_cache_database_access()
-
     root =
       Path.join(System.tmp_dir!(), "ankole-library-root-#{System.unique_integer([:positive])}")
 
@@ -416,8 +410,6 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
   end
 
   test "self-healing reports a failed Skill inventory and continues later repairs" do
-    allow_cache_database_access()
-
     root =
       Path.join(
         System.tmp_dir!(),

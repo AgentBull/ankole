@@ -49,6 +49,7 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
 
   require Logger
 
+  alias Ankole.Logging
   alias FeishuOpenAPI.{Client, Event, TokenManager}
 
   @default_max_skew_seconds 300
@@ -178,9 +179,10 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
           %{event_type: event_type, kind: :error, reason: exception, stacktrace: stacktrace}
         )
 
-        Logger.error(
-          "feishu_openapi event handler for #{event_type} raised: " <>
-            Exception.format(:error, exception, stacktrace)
+        Logging.error(
+          "feishu_openapi.event.handler_crashed",
+          "Feishu event handler failed",
+          Map.put(Logging.failure_fields(:error, exception, stacktrace), :event_type, event_type)
         )
 
         {:error, {:handler_crashed, exception}}
@@ -194,9 +196,10 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
           %{event_type: event_type, kind: kind, reason: reason, stacktrace: stacktrace}
         )
 
-        Logger.error(
-          "feishu_openapi event handler for #{event_type} threw: " <>
-            Exception.format(kind, reason, stacktrace)
+        Logging.error(
+          "feishu_openapi.event.handler_crashed",
+          "Feishu event handler failed",
+          Map.put(Logging.failure_fields(kind, reason, stacktrace), :event_type, event_type)
         )
 
         {:error, {:handler_crashed, {kind, reason}}}

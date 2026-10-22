@@ -21,11 +21,18 @@ receives the rendered notes with the Skill content.
 | `agent_uid`, `skill_name` | The owning Agent and Skill |
 | `content` | The note text |
 | `author_kind` | `dreaming` or `human` |
-| `author_uid` | The operator, for human lessons |
+| `author` | The typed actor reference, for human lessons |
 | `evidence_job_ids` | The finished Jobs the note is grounded in |
 | `checked_release`, `checked_skill_hash` | The environment fingerprint at the last review |
 | `review_after` | Lease end; `NULL` for human lessons |
 | `retired_at`, `retire_reason` | Terminal state: `obsolete`, `lapsed`, or `human_revoked` |
+
+The Lesson resource owns `teach_human`, `teach_dreaming`, `renew`, and
+`retire` actions. Content remains immutable. Native constraints preserve the
+lease and retirement shape. Review locks all candidate rows in ID order before
+writing verdicts; Human retirement locks the same row. A stale resource action
+cannot renew a retired row or replace its retirement reason. Enum attributes
+use atoms in memory and text in PostgreSQL and JSON responses.
 
 A lesson outlives its Skill's enablement: rows stay listed when the Skill is
 disabled or removed.

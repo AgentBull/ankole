@@ -72,13 +72,12 @@ pub(super) fn to_public_openai_error_json(error: &StreamError) -> Value {
     object.insert("type".to_string(), Value::String(error_type.to_string()));
     object.insert("param".to_string(), Value::Null);
     object.insert("code".to_string(), Value::String(code.to_string()));
+    let mut details = json!({"stage": error.stage});
     if let Some(status) = error.provider_status {
         object.insert("status".to_string(), Value::from(status));
-        object.insert(
-            "details_json".to_string(),
-            json!({"provider_status": status}),
-        );
+        details["provider_status"] = Value::from(status);
     }
+    object.insert("details_json".to_string(), details);
     Value::Object(object)
 }
 
@@ -213,5 +212,31 @@ mod tests {
         let redacted = redact_hosted_error(error);
 
         assert_eq!(redacted.stage, "connect");
+    }
+
+    #[test]
+    fn hosted_public_errors_keep_the_envelope_stage() {
+        for (status, code, expected_code) in [
+            (Some(403), "provider_status_rejected", "upstream_error"),
+            (Some(429), "provider_status_rejected", "rate_limit_exceeded"),
+            (Some(503), "provider_status_rejected", "upstream_error"),
+            (None, "total_timeout", "upstream_timeout"),
+        ] {
+            let mut error = StreamError::new(code, "image_generation", "private provider detail")
+                .provider_body_excerpt(b"private provider body");
+            error.provider_status = status;
+            let public = to_public_openai_error_json(&redact_hosted_error(error));
+
+            assert_eq!(public["code"], expected_code);
+            assert_eq!(public["details_json"]["stage"], "image_generation");
+            assert_eq!(public["details_json"]["provider_status"], json!(status));
+            assert_eq!(public["status"], json!(status));
+            assert!(!public.to_string().contains("private provider"));
+            assert!(
+                public["details_json"]
+                    .get("provider_body_excerpt")
+                    .is_none()
+            );
+        }
     }
 }

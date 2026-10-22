@@ -18,8 +18,8 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
                now: DateTime.add(checkpoint_at, @grace_seconds - 1, :second)
              )
 
-    assert Repo.one!(from(turn in Turn, where: turn.job_id == ^job.id)).status == "in_progress"
-    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).status == "running"
+    assert Repo.one!(from(turn in Turn, where: turn.job_id == ^job.id)).status == :in_progress
+    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).status == :running
   end
 
   test "a silent Turn is interrupted and its actor event stays open for retry" do
@@ -32,7 +32,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
              Ankole.BackgroundAgentJobs.TurnWatchdog.reconcile_stuck_job(job.id, now: stalled_at)
 
     turn = Repo.one!(from(turn in Turn, where: turn.job_id == ^job.id))
-    assert turn.status == "interrupted"
+    assert turn.status == :interrupted
     assert turn.error["code"] == TurnWatchdog.stall_code()
     assert %DateTime{} = turn.completed_at
 
@@ -43,11 +43,11 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
 
     # The Job keeps its retry budget: the event is still open and rescheduled.
     reloaded_event = Repo.get!(Signal, event.id)
-    assert reloaded_event.input_state == "open"
+    assert reloaded_event.status == :queued
     assert DateTime.compare(reloaded_event.available_at, stalled_at) == :gt
     # R1: the stalled attempt returns the Job to `queued` and the stall charges
     # one execution failure. See internals/docs/BackgroundAgentJobReliability.zh.md.
-    assert %{status: "queued", execution_failures: 1} =
+    assert %{status: :queued, execution_failures: 1} =
              BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
 
     # The Worker is told to stop spending tokens on the abandoned Turn.
@@ -70,10 +70,10 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
              Ankole.BackgroundAgentJobs.TurnWatchdog.reconcile_stuck_job(job.id, now: stalled_at)
 
     # One earlier stall left two rows, so this is the second stall, not the third.
-    assert Repo.get!(Signal, event.id).input_state == "open"
+    assert Repo.get!(Signal, event.id).status == :queued
     # R1: the stalled attempt returns the Job to `queued` and the stall charges
     # one execution failure. See internals/docs/BackgroundAgentJobReliability.zh.md.
-    assert %{status: "queued", execution_failures: 2} =
+    assert %{status: :queued, execution_failures: 2} =
              BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
   end
 
@@ -91,16 +91,16 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
              Ankole.BackgroundAgentJobs.TurnWatchdog.reconcile_stuck_job(job.id, now: stalled_at)
 
     failed = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
-    assert failed.status == "failed"
+    assert failed.status == :failed
     assert failed.error["code"] == TurnWatchdog.stall_code()
-    assert Repo.get!(Signal, event.id).input_state == "dead_letter"
+    assert Repo.get!(Signal, event.id).status == :dead_letter
   end
 
   test "an accepted attempt with no trajectory still has a bounded silence" do
     %{job: job} = start_job_turn("terminal-turn")
 
     Repo.update_all(from(turn in Turn, where: turn.job_id == ^job.id),
-      set: [status: "completed", completed_at: DateTime.utc_now(:microsecond)]
+      set: [status: :completed, completed_at: DateTime.utc_now(:microsecond)]
     )
 
     assert {:ok, :live} = Ankole.BackgroundAgentJobs.TurnWatchdog.reconcile_stuck_job(job.id)
@@ -112,7 +112,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
     )
 
     assert {:ok, :stalled} = Ankole.BackgroundAgentJobs.TurnWatchdog.reconcile_stuck_job(job.id)
-    assert BackgroundAgentJobs.get_job_for_agent(job.id, job.agent_uid).status == "queued"
+    assert BackgroundAgentJobs.get_job_for_agent(job.id, job.agent_uid).status == :queued
   end
 
   defp start_job_turn(suffix, attempt \\ 1) do
@@ -206,29 +206,32 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
   defp insert_stalled_turn!(job, attempt, runtime_turn_id) do
     now = DateTime.utc_now(:microsecond)
 
-    %Turn{}
-    |> Turn.changeset(%{
-      job_id: job.id,
-      attempt: attempt,
-      runtime_thread_id: "thread-stalled-history",
-      runtime_turn_id: runtime_turn_id,
-      kind: "agent",
-      status: "interrupted",
-      revision: 1,
-      trajectory: %{"format" => "ankole_chatml", "version" => 1},
-      progress: %{
-        "completed_items" => 0,
-        "tool_calls" => 0,
-        "tools_used" => [],
-        "files_changed" => []
-      },
-      error: %{
-        "code" => TurnWatchdog.stall_code(),
-        "summary" => "runtime Turn recorded no durable progress before the stall deadline"
-      },
-      started_at: now,
-      completed_at: now
-    })
-    |> Repo.insert!()
+    case Repo.transact(fn _ ->
+           Ankole.Ash.create(Turn, :record, %{
+             job_id: job.id,
+             attempt: attempt,
+             runtime_thread_id: "thread-stalled-history",
+             runtime_turn_id: runtime_turn_id,
+             kind: "agent",
+             status: :interrupted,
+             revision: 1,
+             trajectory: %{"format" => "ankole_chatml", "version" => 1},
+             progress: %{
+               "completed_items" => 0,
+               "tool_calls" => 0,
+               "tools_used" => [],
+               "files_changed" => []
+             },
+             error: %{
+               "code" => TurnWatchdog.stall_code(),
+               "summary" => "runtime Turn recorded no durable progress before the stall deadline"
+             },
+             started_at: now,
+             completed_at: now
+           })
+         end) do
+      {:ok, record} -> record
+      {:error, error} -> raise Ash.Error.to_error_class(error)
+    end
   end
 end

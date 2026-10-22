@@ -5,7 +5,7 @@ defmodule AnkoleWeb.OIDCClientController do
 
   use AnkoleWeb, :controller
 
-  action_fallback :fallback
+  action_fallback(:fallback)
   use OpenApiSpex.ControllerSpecs
 
   alias Ankole.OIDC
@@ -21,8 +21,9 @@ defmodule AnkoleWeb.OIDCClientController do
   tags(["OIDC Clients"])
   security([%{"consoleSession" => []}])
 
-  plug OpenApiSpex.Plug.CastAndValidate,
+  plug(OpenApiSpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
+  )
 
   operation(:index,
     summary: "List OIDC Clients",
@@ -236,8 +237,14 @@ defmodule AnkoleWeb.OIDCClientController do
     ConsoleErrors.render(conn, 409, "client_type_immutable", "OIDC Client type cannot be changed")
   end
 
-  defp error(conn, %Ecto.Changeset{} = changeset) do
-    ConsoleErrors.changeset(conn, changeset, "OIDC Client validation failed")
+  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid] do
+    ConsoleErrors.render(
+      conn,
+      422,
+      "validation_failed",
+      "OIDC Client validation failed",
+      ConsoleErrors.changeset_details(error)
+    )
   end
 
   defp error(conn, reason)

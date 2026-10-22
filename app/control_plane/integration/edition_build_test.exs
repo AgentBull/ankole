@@ -4,6 +4,9 @@ defmodule Ankole.EditionBuildTest do
   @root Path.expand("../../..", __DIR__)
 
   test "FOSS and SaaS source builds deliver separate releases without source-tree runtime dependencies" do
+    parent_native = kernel_native_artifacts()
+    assert Map.has_key?(parent_native, "ankole_kernel.so")
+
     checkout =
       Path.join(System.tmp_dir!(), "ankole-edition-#{System.unique_integer([:positive])}")
 
@@ -21,6 +24,8 @@ defmodule Ankole.EditionBuildTest do
       {"ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT", "ws://site.example.test/runtime-fabric/worker"},
       {"PHX_SERVER", "false"},
       {"DATABASE_URL", System.fetch_env!("DATABASE_URL")},
+      # Cargo locks its shared cache. Native library output stays in the copied checkout.
+      {"CARGO_TARGET_DIR", Path.join(@root, "app/kernel/target")},
       {"MIX_BUILD_PATH", nil}
     ]
 
@@ -30,6 +35,7 @@ defmodule Ankole.EditionBuildTest do
     command!(control_plane, "mix", ["release", "--overwrite"], foss)
     foss_release = Path.join(control_plane, "_build/foss/prod/rel/ankole")
     check_release!(foss_release, foss, false)
+    assert kernel_native_artifacts() == parent_native
 
     File.cp_r!(
       Path.join(@root, "app/control_plane/test/fixtures/edition/internals"),
@@ -85,6 +91,7 @@ defmodule Ankole.EditionBuildTest do
     File.cp_r!(saas_release, detached)
     File.rm_rf!(Path.join(checkout, "app/control_plane/_build"))
     check_release!(detached, saas, true)
+    assert kernel_native_artifacts() == parent_native
   end
 
   defp check_webapp_preparation!(checkout, webapps, env) do
@@ -265,6 +272,7 @@ defmodule Ankole.EditionBuildTest do
     for relative <- [
           "app/control_plane",
           "app/control_plane_core",
+          "app/kernel",
           "plugins",
           "app/webapps",
           "app/locales",
@@ -276,7 +284,6 @@ defmodule Ankole.EditionBuildTest do
     for relative <- [
           "libs",
           "node_modules",
-          "app/kernel",
           "app/library",
           "app/agent_computer",
           "tools/e2e",
@@ -299,24 +306,20 @@ defmodule Ankole.EditionBuildTest do
     for relative <- ["app/webapps/node_modules", "tools/openapi-client-generator/node_modules"] do
       File.ln_s!(Path.join(@root, relative), Path.join(checkout, relative))
     end
+  end
 
-    # Reuse only compiled dependencies. Each edition compiles its own :ankole.
-    for edition <- ["foss", "saas"], environment <- ["prod", "test"] do
-      destination = Path.join(checkout, "app/control_plane/_build/#{edition}/#{environment}/lib")
-      File.mkdir_p!(destination)
-
-      for source <- Path.wildcard(Path.join(@root, "app/control_plane/_build/foss/test/lib/*")),
-          Path.basename(source) != "ankole" do
-        File.cp_r!(source, Path.join(destination, Path.basename(source)))
-      end
-    end
+  defp kernel_native_artifacts do
+    :ankole_kernel
+    |> Application.app_dir("priv/native/*")
+    |> Path.wildcard()
+    |> Map.new(fn path -> {Path.basename(path), :crypto.hash(:sha256, File.read!(path))} end)
   end
 
   defp copy_source(source, target) do
     File.mkdir_p!(target)
 
     for name <- File.ls!(source),
-        name not in ["_build", "deps", "node_modules", "output"] and
+        name not in ["_build", "deps", "node_modules", "output", "target"] and
           not String.starts_with?(name, "mix_lock_") and
           not String.starts_with?(name, "mix_pubsub_") do
       path = Path.join(source, name)

@@ -96,22 +96,25 @@ defmodule Ankole.Sessions.ScheduledTest do
       refute Scheduled.produced_signal?(%{signal | session_id: "another-session"})
       refute Scheduled.produced_signal?(%{signal | type: "check_back_later.wakeup"})
 
-      for status <- ["scheduled", "cancelled", "failed"] do
+      for status <- [:scheduled, :cancelled, :failed] do
         Repo.get!(ScheduledEvent, event.id)
-        |> ScheduledEvent.changeset(%{status: status})
+        |> AshPostgres.DataLayer.to_ecto()
+        |> Ecto.Changeset.change(%{status: status})
         |> Repo.update!()
 
         refute Scheduled.produced_signal?(signal)
       end
 
       Repo.get!(ScheduledEvent, event.id)
-      |> ScheduledEvent.changeset(%{status: "fired", fired_at: nil})
+      |> AshPostgres.DataLayer.to_ecto()
+      |> Ecto.Changeset.change(%{status: :fired, fired_at: nil})
       |> Repo.update!()
 
       refute Scheduled.produced_signal?(signal)
 
       Repo.get!(ScheduledEvent, event.id)
-      |> ScheduledEvent.changeset(%{status: "fired", fired_at: @base_time})
+      |> AshPostgres.DataLayer.to_ecto()
+      |> Ecto.Changeset.change(%{status: :fired, fired_at: @base_time})
       |> Repo.update!()
 
       assert Scheduled.produced_signal?(signal)
@@ -189,6 +192,7 @@ defmodule Ankole.Sessions.ScheduledTest do
 
     test "other schedules and other sessions stay out of the streak" do
       %{agent: agent, session_id: session_id} = cron_session()
+      stub_driver(%{agent_uid: agent.uid, session_id: "other-session"})
 
       fire_with_reply(agent.uid, session_id, "other-schedule", "⚠️ 监控失败：权限错误 230027。")
       fire_with_reply(agent.uid, "other-session", "monitor", "⚠️ 监控失败：权限错误 230027。")
@@ -235,7 +239,7 @@ defmodule Ankole.Sessions.ScheduledTest do
           {fourth, nil, :sent, 6},
           {fifth, "same report 5", :failed, 7}
         ] do
-      Repo.insert!(%Intent{
+      Ankole.SignalsFixtures.delivery_fixture!(%{
         agent_uid: agent.uid,
         binding_name: "control-plane:test",
         outbound_key: Ecto.UUID.generate(),
@@ -254,18 +258,21 @@ defmodule Ankole.Sessions.ScheduledTest do
           {second, nil, 3},
           {third, "", 4}
         ] do
-      Repo.insert!(%Ankole.Conversations.Message{
-        id: Ecto.UUID.generate(),
-        conversation_id: room.id,
-        seq: seq,
-        author_type: :agent,
-        author_uid: agent.uid,
-        text: text,
-        signal_id: event.id,
-        origin: :external,
-        session_id: event.session_id,
-        created_at: DateTime.add(@base_time, seq, :second)
-      })
+      assert {:ok, _} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.create(Ankole.Conversations.Message, :record, %{
+                   id: Ecto.UUID.generate(),
+                   conversation_id: room.id,
+                   seq: seq,
+                   author_type: :agent,
+                   author_uid: agent.uid,
+                   text: text,
+                   signal_id: event.id,
+                   origin: :external,
+                   session_id: event.session_id,
+                   created_at: DateTime.add(@base_time, seq, :second)
+                 })
+               end)
     end
 
     candidates = Ankole.Conversations.reply_candidate_texts(Enum.map(events, & &1.id))
@@ -280,7 +287,12 @@ defmodule Ankole.Sessions.ScheduledTest do
 
     # Copied external fire metadata cannot enter the producer-filtered window.
     external = cron_fire_event(agent.uid, session_id, "batch")
-    external |> Signal.changeset(%{producer: :external}) |> Repo.update!()
+
+    external
+    |> AshPostgres.DataLayer.to_ecto()
+    |> Ecto.Changeset.change(%{producer: :external})
+    |> Repo.update!()
+
     input = cron_fire_event(agent.uid, session_id, "batch")
     tag = make_ref()
     handler = {__MODULE__, tag}
@@ -328,7 +340,9 @@ defmodule Ankole.Sessions.ScheduledTest do
 
   defp cron_session do
     %{principal: agent} = agent_fixture()
-    %{agent: agent, session_id: "session-#{System.unique_integer([:positive])}"}
+    session_id = "session-#{System.unique_integer([:positive])}"
+    stub_driver(%{agent_uid: agent.uid, session_id: session_id})
+    %{agent: agent, session_id: session_id}
   end
 
   defp real_schedule_fires do
@@ -413,7 +427,7 @@ defmodule Ankole.Sessions.ScheduledTest do
   defp fire_with_reply(agent_uid, session_id, schedule_name, reply_text) do
     event = cron_fire_event(agent_uid, session_id, schedule_name)
 
-    Repo.insert!(%Intent{
+    Ankole.SignalsFixtures.delivery_fixture!(%{
       agent_uid: agent_uid,
       binding_name: "control-plane:test",
       outbound_key: "reply-#{System.unique_integer([:positive])}",

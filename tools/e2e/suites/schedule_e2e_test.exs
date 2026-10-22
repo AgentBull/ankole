@@ -85,10 +85,10 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     assert_signal_completed!(input.id)
 
     assert Repo.get!(Ankole.Schedule.Schemas.ScheduledEvent, checkback.checkback.id).status ==
-             "cancelled"
+             :cancelled
 
     assert Repo.get!(Ankole.Schedule.Schemas.CronSchedule, cron.cron_schedule.id).status ==
-             "paused"
+             :paused
 
     assert {:error, :human_access_revoked} = Schedule.run_cron_schedule(cron.cron_schedule.id)
 
@@ -418,7 +418,8 @@ defmodule Ankole.E2E.ScheduleE2ETest do
                deadline(60_000)
              )
 
-    assert %Signal{completed_at: %DateTime{}} = Repo.get(Signal, fire_input.id)
+    assert %Signal{status: :completed, completed_at: %DateTime{}} =
+             Repo.get(Signal, fire_input.id)
 
     run_intent_dispatch!()
 

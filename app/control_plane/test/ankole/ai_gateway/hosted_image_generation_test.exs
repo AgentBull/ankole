@@ -390,6 +390,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
     {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
     agent_computer = Path.expand("../../../../agent_computer", __DIR__)
+    site_uri = AnkoleWeb.PodURL.site_origin(Phoenix.ConnTest.build_conn()) |> URI.parse()
 
     {output, 0} =
       System.cmd("bun", ["test/fixtures/image-generation-official-sdk.ts"],
@@ -397,6 +398,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
         stderr_to_stdout: true,
         env: [
           {"ANKOLE_AI_GATEWAY_BASE_URL", "http://127.0.0.1:#{port}/api/v1/ai-gateway"},
+          {"ANKOLE_AI_GATEWAY_HOST", site_uri.authority},
           {"ANKOLE_AI_GATEWAY_API_KEY", token.api_key}
         ]
       )
@@ -1004,92 +1006,99 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     assert_receive {:DOWN, ^monitor, :process, _pid, _reason}, 2_000
   end
 
-  test "hosted provider failures keep a safe status for Worker retry classification" do
-    %{principal: agent} = agent_fixture()
-    test_pid = self()
+  for {provider_status, retryable} <- [{403, false}, {503, true}] do
+    test "hosted HTTP #{provider_status} keeps its Worker retry classification" do
+      provider_status = unquote(provider_status)
+      retryable = unquote(retryable)
+      %{principal: agent} = agent_fixture()
+      test_pid = self()
 
-    base_url =
-      start_upstream_server(fn request ->
-        case {request.method, request.path} do
-          {:get, "api/v1/models"} ->
-            {:json, 200, %{"data" => []}}
+      base_url =
+        start_upstream_server(fn request ->
+          case {request.method, request.path} do
+            {:get, "api/v1/models"} ->
+              {:json, 200, %{"data" => []}}
 
-          {:get, "api/v1/images/models"} ->
-            {:json, 200, %{"data" => [%{"id" => "openai/gpt-image-2"}]}}
+            {:get, "api/v1/images/models"} ->
+              {:json, 200, %{"data" => [%{"id" => "openai/gpt-image-2"}]}}
 
-          {:get, "api/v1/images/models/openai/gpt-image-2/endpoints"} ->
-            {:json, 200,
-             %{
-               "endpoints" => [
-                 %{
-                   "provider_slug" => "openai",
-                   "provider_tag" => "openai/gpt-image-2:openai",
-                   "supports_streaming" => false,
-                   "allowed_passthrough_parameters" => [],
-                   "supported_parameters" => %{}
-                 }
-               ]
-             }}
+            {:get, "api/v1/images/models/openai/gpt-image-2/endpoints"} ->
+              {:json, 200,
+               %{
+                 "endpoints" => [
+                   %{
+                     "provider_slug" => "openai",
+                     "provider_tag" => "openai/gpt-image-2:openai",
+                     "supports_streaming" => false,
+                     "allowed_passthrough_parameters" => [],
+                     "supported_parameters" => %{}
+                   }
+                 ]
+               }}
 
-          {:post, "api/v1/chat/completions"} ->
-            send(test_pid, :hosted_route_main_attempt)
-            main_model_response(request.body)
+            {:post, "api/v1/chat/completions"} ->
+              send(test_pid, :hosted_route_main_attempt)
+              main_model_response(request.body)
 
-          {:post, "api/v1/images"} ->
-            send(test_pid, :hosted_route_image_attempt)
-            {:json, 503, %{"error" => %{"message" => "private provider detail"}}}
-        end
-      end)
+            {:post, "api/v1/images"} ->
+              send(test_pid, :hosted_route_image_attempt)
+              {:json, provider_status, %{"error" => %{"message" => "private provider detail"}}}
+          end
+        end)
 
-    provider_id = configure_openrouter_profiles(agent.uid, base_url, "provider-failure")
+      provider_id = configure_openrouter_profiles(agent.uid, base_url, "provider-failure")
 
-    assert {:ok, stream, _meta} =
-             AIGateway.open_sse_stream(agent.uid, %{
-               "model" => "primary",
-               "input" => "Generate an image.",
-               "stream" => true,
-               "tools" => [%{"type" => "image_generation"}],
-               "tool_choice" => %{"type" => "image_generation"}
-             })
+      assert {:ok, stream, _meta} =
+               AIGateway.open_sse_stream(agent.uid, %{
+                 "model" => "primary",
+                 "input" => "Generate an image.",
+                 "stream" => true,
+                 "tools" => [%{"type" => "image_generation"}],
+                 "tool_choice" => %{"type" => "image_generation"}
+               })
 
-    failure_log =
-      capture_log(
-        [
-          metadata: [
-            :event,
-            :image_model,
-            :image_provider_tag,
-            :image_provider_slug,
-            :image_failure_reason
-          ]
-        ],
-        fn ->
-          send(self(), {:z16a_events, collect_response_events(stream, [])})
-        end
-      )
+      failure_log =
+        capture_log(
+          [
+            metadata: [
+              :event,
+              :image_model,
+              :image_provider_tag,
+              :image_provider_slug,
+              :image_failure_reason
+            ]
+          ],
+          fn ->
+            send(self(), {:z16a_events, collect_response_events(stream, [])})
+          end
+        )
 
-    assert_receive {:z16a_events, events}
-    assert length(Regex.scan(~r/event=ai_gateway.response_failed(?:\s|$)/, failure_log)) == 1
-    assert failure_log =~ "image_model=openai/gpt-image-2"
-    assert failure_log =~ "image_provider_tag=openai/gpt-image-2:openai"
-    assert failure_log =~ "image_provider_slug=openai"
-    refute failure_log =~ "private provider detail"
+      assert_receive {:z16a_events, events}
+      assert length(Regex.scan(~r/event=ai_gateway.response_failed(?:\s|$)/, failure_log)) == 1
+      assert failure_log =~ "image_model=openai/gpt-image-2"
+      assert failure_log =~ "image_provider_tag=openai/gpt-image-2:openai"
+      assert failure_log =~ "image_provider_slug=openai"
+      refute failure_log =~ "private provider detail"
 
-    assert [%{"response" => %{"error" => error}}] =
-             Enum.filter(events, &(&1["type"] == "response.failed"))
+      assert [%{"response" => %{"error" => error}}] =
+               Enum.filter(events, &(&1["type"] == "response.failed"))
 
-    assert error["provider_status"] == 503
-    assert error["retryable"] == true
-    assert error["code"] == "upstream_error"
-    refute Ankole.JSON.encode!(events) =~ "private provider detail"
+      assert error["provider_status"] == provider_status
+      assert error["retryable"] == retryable
+      assert error["error_stage"] == "image_generation"
+      assert Ankole.AIGateway.FailureDiagnostics.provider_capacity?(error) == retryable
+      refute Map.has_key?(error, "provider_error_type")
+      assert error["code"] == "upstream_error"
+      refute Ankole.JSON.encode!(events) =~ "private provider detail"
 
-    assert_receive :hosted_route_main_attempt
-    assert_receive :hosted_route_image_attempt
-    refute_receive :hosted_route_main_attempt
-    refute_receive :hosted_route_image_attempt
+      assert_receive :hosted_route_main_attempt
+      assert_receive :hosted_route_image_attempt
+      refute_receive :hosted_route_main_attempt
+      refute_receive :hosted_route_image_attempt
 
-    assert {:ok, projection} = ProviderConfigs.get_provider(provider_id)
-    assert [%{"status" => "ok"}] = projection["credential_pool"]["entries"]
+      assert {:ok, projection} = ProviderConfigs.get_provider(provider_id)
+      assert [%{"status" => "ok"}] = projection["credential_pool"]["entries"]
+    end
   end
 
   test "a non-streaming hosted failure writes one safe routing log" do

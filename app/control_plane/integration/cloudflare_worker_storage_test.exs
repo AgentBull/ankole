@@ -56,7 +56,7 @@ defmodule Ankole.CloudflareWorkerStorageIntegrationTest do
 
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn -> cleanup_storage!(uids, ids, owner.uid) end)
 
-      Repo.delete!(tenant)
+      cleanup_tenant!(tenant)
     end)
 
     %{uids: uids, replacement: replacement, runtime: previous}
@@ -64,8 +64,8 @@ defmodule Ankole.CloudflareWorkerStorageIntegrationTest do
 
   test "real directory backups survive instance deletion and image replacement", context do
     [uid, peer_uid] = context.uids
-    first = await_worker_state!(uid, "ready")
-    peer = await_worker_state!(peer_uid, "ready")
+    first = await_worker_state!(uid, :ready)
+    peer = await_worker_state!(peer_uid, :ready)
     {:ok, provider} = Providers.load(first.provider_id)
     {:ok, peer_provider} = Providers.load(peer.provider_id)
 
@@ -88,7 +88,7 @@ defmodule Ankole.CloudflareWorkerStorageIntegrationTest do
     assert_proof!(first, "HOME-BEFORE-DELETE")
 
     assert {:ok, _} = Principals.delete_agent(uid)
-    absent = await_worker_state!(uid, "absent")
+    absent = await_worker_state!(uid, :absent)
     assert absent.generation == nil
     assert is_map(absent.storage_ref)
     assert {:ok, []} = Cloudflare.list_instances(provider, uid)
@@ -101,7 +101,7 @@ defmodule Ankole.CloudflareWorkerStorageIntegrationTest do
 
     assert {:ok, _} = Principals.enable_agent(uid)
     assert :ok = AgentWorkers.request(uid)
-    restored = await_worker_state!(uid, "ready")
+    restored = await_worker_state!(uid, :ready)
     refute restored.generation == first.generation
     assert_proof!(restored, "HOME-BEFORE-DELETE")
     put_proof!(restored, "proof.txt", "HOME-BEFORE-IMAGE-CHANGE")
@@ -109,7 +109,7 @@ defmodule Ankole.CloudflareWorkerStorageIntegrationTest do
     :ok =
       Config.put(context.runtime |> Map.to_list() |> Keyword.put(:image, context.replacement))
 
-    changed = await_worker_state!(uid, "ready", restored.generation)
+    changed = await_worker_state!(uid, :ready, restored.generation)
     assert changed.image == context.replacement
     assert_proof!(changed, "HOME-BEFORE-IMAGE-CHANGE")
 

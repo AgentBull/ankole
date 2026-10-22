@@ -4,8 +4,7 @@ defmodule AnkoleWeb.HumanAccessController do
 
   action_fallback :fallback
   use OpenApiSpex.ControllerSpecs
-  import Ecto.Query
-  alias Ankole.{AuthZ, Principals, Repo}
+  alias Ankole.{AuthZ, Principals}
   alias Ankole.Principals.HumanAccess
   alias Ankole.Principals.WorkAccess
   alias Ankole.Principals.WorkCleanup
@@ -167,16 +166,6 @@ defmodule AnkoleWeb.HumanAccessController do
   defp access(conn, uid) do
     with {:ok, %{type: :human} = principal} <- Principals.get_principal(uid),
          {:ok, review} <- AuthZ.restoration_review(uid) do
-      jobs =
-        Repo.all(
-          from j in Oban.Job,
-            where:
-              j.worker == "Ankole.Principals.WorkCleanup" and
-                fragment("?->>'human_uid' = ?", j.args, ^uid),
-            order_by: [desc: j.id],
-            limit: 20
-        )
-
       json(
         conn,
         Ankole.JSON.plain(%{
@@ -219,7 +208,7 @@ defmodule AnkoleWeb.HumanAccessController do
           work: WorkAccess.list_for_human(uid),
           cleanup_jobs:
             Enum.map(
-              jobs,
+              WorkCleanup.jobs_for_human(uid),
               &Map.take(&1, [
                 :id,
                 :state,
@@ -265,7 +254,7 @@ defmodule AnkoleWeb.HumanAccessController do
         "Access change could not be applied: #{reason}"
       )
 
-  defp error(conn, %Ecto.Changeset{} = changeset),
+  defp error(conn, %module{} = changeset) when module in [Ash.Changeset, Ash.Error.Invalid],
     do: ConsoleErrors.changeset(conn, changeset, "The access change is invalid")
 
   defp error(conn, reason),

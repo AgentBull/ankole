@@ -136,7 +136,10 @@ defmodule Ankole.AuthZTest do
                  computed_condition: "false"
                })
 
-      Repo.insert!(%Membership{principal_uid: principal.uid, group_id: group.id})
+      assert {:ok, _membership} =
+               Repo.transact(fn repo ->
+                 Ankole.AuthZ.Store.insert_membership(repo, group.id, principal.uid)
+               end)
 
       assert {:ok, _grant} =
                AuthZ.upsert_permission_grant(%{
@@ -340,7 +343,7 @@ defmodule Ankole.AuthZTest do
 
       dirty_external_id = "dirty-dept-#{System.unique_integer([:positive])}"
 
-      Repo.insert!(%ExternalBinding{
+      persist_binding(%{
         provider: "lark",
         external_kind: :directory_department,
         external_id: dirty_external_id,
@@ -358,7 +361,7 @@ defmodule Ankole.AuthZTest do
 
       dirty_operator_external_id = "dirty-operator-dept-#{System.unique_integer([:positive])}"
 
-      Repo.insert!(%ExternalBinding{
+      persist_binding(%{
         provider: "lark",
         external_kind: :directory_department,
         external_id: dirty_operator_external_id,
@@ -394,7 +397,7 @@ defmodule Ankole.AuthZTest do
                  group_id: managed_group.id
                })
 
-      Repo.insert!(%ExternalBinding{
+      persist_binding(%{
         provider: "lark-main",
         external_kind: :directory_department,
         external_id: "od_unmarked",
@@ -583,7 +586,10 @@ defmodule Ankole.AuthZTest do
       # An existing membership in the same-named operator group must not
       # satisfy the member-exists fast path either — the domain still
       # mismatches.
-      Repo.insert!(%Membership{group_id: operator_group.id, principal_uid: principal.uid})
+      assert {:ok, _membership} =
+               Repo.transact(fn repo ->
+                 Ankole.AuthZ.Store.insert_membership(repo, operator_group.id, principal.uid)
+               end)
 
       assert {:error, :group_domain_mismatch} =
                AuthZ.ensure_synced_group_member(group_attrs, principal.uid)
@@ -693,7 +699,7 @@ defmodule Ankole.AuthZTest do
   end
 
   describe "validation" do
-    test "changesets delegate rule syntax to the kernel" do
+    test "resource actions delegate rule syntax to the kernel" do
       assert {:error, group_changeset} =
                AuthZ.create_principal_group(%{
                  name: "bad_condition_#{System.unique_integer([:positive])}",
@@ -751,15 +757,29 @@ defmodule Ankole.AuthZTest do
     end
   end
 
+  defp persist_binding(attrs) do
+    {:ok, binding} =
+      Repo.transact(fn _repo ->
+        Ankole.Ash.create(ExternalBinding, :bind_in_tx, attrs)
+      end)
+
+    binding
+  end
+
   defp dirty_computed_group(prefix, condition) do
-    Repo.insert!(%Group{
-      id: Ankole.Kernel.gen_uuid_v7(),
-      name: "#{prefix}_#{System.unique_integer([:positive])}",
-      display_name: "Dirty Computed",
-      kind: :computed,
-      built_in: false,
-      computed_condition: condition,
-      metadata: %{}
-    })
+    {:ok, group} =
+      AuthZ.create_principal_group(%{
+        name: "#{prefix}_#{System.unique_integer([:positive])}",
+        display_name: "Dirty Computed",
+        kind: :computed,
+        computed_condition: "true"
+      })
+
+    {1, _} =
+      Repo.update_all(from(g in Group, where: g.id == ^group.id),
+        set: [computed_condition: condition]
+      )
+
+    Repo.get!(Group, group.id)
   end
 end

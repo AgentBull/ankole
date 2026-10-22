@@ -33,7 +33,8 @@ defmodule Ankole.OIDCCleanupFailureIntegrationTest do
       """)
 
       Repo.query!("""
-      INSERT INTO browser_sessions VALUES ('#{Ecto.UUID.generate()}', now() - interval '1 day')
+      INSERT INTO browser_sessions (id, expires_at, inserted_at, updated_at)
+      VALUES ('#{Ecto.UUID.generate()}', now() - interval '1 day', now(), now())
       """)
 
       assert {:error, {:tenant_failures, [{failed_id, {:exception, message}}]}} =
@@ -63,16 +64,22 @@ defmodule Ankole.OIDCCleanupFailureIntegrationTest do
       FOR EACH STATEMENT EXECUTE FUNCTION refuse_site_cleanup()
       """)
 
-      assert_raise Postgrex.Error, ~r/site cleanup unavailable/, fn ->
-        CleanupExpiredCredentials.perform(%Oban.Job{})
-      end
+      error =
+        assert_raise Ash.Error.Unknown, ~r/site cleanup unavailable/, fn ->
+          CleanupExpiredCredentials.perform(%Oban.Job{})
+        end
+
+      assert [%Ash.Error.Unknown.UnknownError{error: message}] = error.errors
+
+      assert message ==
+               "** (Postgrex.Error) ERROR P0001 (raise_exception) site cleanup unavailable"
 
       assert Repo.query!("SELECT digest FROM oidc_authorization_codes").rows == []
     end)
   end
 
   # Autocommit keeps a failed tenant statement from aborting a test-wide transaction.
-  # The small schema isolates fault injection; the normal OIDC suite checks full constraints.
+  # Copy the current tables to isolate fault injection without a second protocol schema.
   defp in_cleanup_schema(fun) do
     Repo.checkout(fn ->
       schema = "oidc_cleanup_failure_#{System.unique_integer([:positive])}"
@@ -80,21 +87,19 @@ defmodule Ankole.OIDCCleanupFailureIntegrationTest do
 
       try do
         Repo.query!("SET search_path TO #{schema}")
-        Repo.query!("CREATE TABLE tenants (LIKE public.tenants INCLUDING ALL)")
 
-        for {table, columns} <- [
-              {"oidc_authorization_codes",
-               "digest text, tenant_id uuid, session_id uuid, expires_at timestamp"},
-              {"oidc_refresh_tokens",
-               "tenant_id uuid, session_id uuid, absolute_expires_at timestamp"},
-              {"oidc_logout_requests", "tenant_id uuid, expires_at timestamp"},
-              {"oidc_sessions",
-               "id uuid, tenant_id uuid, browser_id uuid, expires_at timestamp, ended_at timestamp"},
-              {"oidc_logout_deliveries", "tenant_id uuid, session_id uuid, status text"},
-              {"browser_login_transactions", "expires_at timestamp"},
-              {"browser_sessions", "id uuid, expires_at timestamp"}
-            ] do
-          Repo.query!("CREATE TABLE #{table} (#{columns})")
+        for table <- ~w(
+              tenants
+              oidc_authorization_codes
+              oidc_refresh_token_families
+              oidc_refresh_tokens
+              oidc_logout_requests
+              oidc_sessions
+              oidc_logout_deliveries
+              browser_login_transactions
+              browser_sessions
+            ) do
+          Repo.query!("CREATE TABLE #{table} (LIKE public.#{table} INCLUDING ALL)")
         end
 
         fun.()
@@ -106,18 +111,31 @@ defmodule Ankole.OIDCCleanupFailureIntegrationTest do
   end
 
   defp tenant(slug) do
-    %Tenant{}
-    |> Tenant.changeset(%{slug: slug, display_name: slug})
-    |> Repo.insert!()
+    {:ok, tenant} =
+      Repo.transact(fn _repo ->
+        Ankole.Ash.create(Tenant, :create_in_tx, %{slug: slug, display_name: slug})
+      end)
+
+    tenant
   end
 
   defp insert_code(tenant, digest) do
     Repo.query!(
       """
-      INSERT INTO oidc_authorization_codes (digest, tenant_id, expires_at)
-      VALUES ($1, $2, now() - interval '1 day')
+      INSERT INTO oidc_authorization_codes
+        (digest, tenant_id, client_id, principal_uid, redirect_uri, scope,
+         code_challenge, session_id, expires_at, inserted_at)
+      VALUES ($1, $2, $3, $4, 'https://cleanup.example.test/callback', 'openid',
+              $5, $6, now() - interval '1 day', now())
       """,
-      [digest, Ecto.UUID.dump!(tenant.id)]
+      [
+        digest,
+        Ecto.UUID.dump!(tenant.id),
+        Ecto.UUID.dump!(Ecto.UUID.generate()),
+        "cleanup-test-principal",
+        String.duplicate("a", 43),
+        Ecto.UUID.dump!(Ecto.UUID.generate())
+      ]
     )
   end
 end

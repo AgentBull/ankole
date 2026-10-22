@@ -3,29 +3,30 @@ defmodule Ankole.OIDC.Logout do
   Persistent delivery of session-specific OIDC Back-Channel Logout.
   """
   import Ecto.Query
+  require Ash.Query
   alias Ankole.OIDC.Client
   alias Ankole.OIDC.LogoutDelivery
   alias Ankole.OIDC.LogoutWorker
   alias Ankole.OIDC.Session
-  alias Ankole.{Repo, TokenSigning}
+  alias Ankole.Repo
 
   def enqueue_in_tx(_repo, _session, %Client{backchannel_logout_uri: uri}) when uri in [nil, ""],
     do: :ok
 
-  def enqueue_in_tx(repo, session, client) do
-    case repo.get_by(LogoutDelivery, session_id: session.id) do
+  def enqueue_in_tx(_repo, session, client) do
+    case LogoutDelivery
+         |> Ash.Query.filter(session_id == ^session.id)
+         |> Ankole.Ash.read_one!() do
       nil ->
         now = DateTime.utc_now()
 
         with {:ok, delivery} <-
-               %LogoutDelivery{}
-               |> Ecto.Changeset.change(
+               Ankole.Ash.create(LogoutDelivery, :enqueue_in_tx, %{
                  session_id: session.id,
                  endpoint: client.backchannel_logout_uri,
                  deadline: DateTime.add(now, 24 * 60 * 60),
                  next_attempt_at: now
-               )
-               |> repo.insert(),
+               }),
              {:ok, _} <- Oban.insert(LogoutWorker.new(%{"delivery_id" => delivery.id})) do
           :ok
         end
@@ -37,11 +38,12 @@ defmodule Ankole.OIDC.Logout do
 
   def deliveries(client_id \\ nil) do
     query =
-      from d in LogoutDelivery,
+      from(d in LogoutDelivery,
         join: s in Session,
         on: s.id == d.session_id,
         order_by: [desc: d.inserted_at],
         select: %{delivery: d, client_id: s.client_id, principal_uid: s.principal_uid}
+      )
 
     query = if client_id, do: where(query, [_d, s], s.client_id == ^client_id), else: query
     Repo.all(query)
@@ -49,7 +51,7 @@ defmodule Ankole.OIDC.Logout do
 
   def retry(id) do
     Repo.transact(fn repo ->
-      case repo.one(from d in LogoutDelivery, where: d.id == ^id, lock: "FOR UPDATE") do
+      case repo.one(from(d in LogoutDelivery, where: d.id == ^id, lock: "FOR UPDATE")) do
         nil ->
           {:error, :not_found}
 
@@ -60,13 +62,10 @@ defmodule Ankole.OIDC.Logout do
           now = DateTime.utc_now()
 
           with {:ok, delivery} <-
-                 delivery
-                 |> Ecto.Changeset.change(
-                   status: :pending,
+                 Ankole.Ash.update(delivery, :restart_in_tx, %{
                    deadline: DateTime.add(now, 24 * 60 * 60),
                    next_attempt_at: now
-                 )
-                 |> repo.update(),
+                 }),
                {:ok, job} <- Oban.insert(LogoutWorker.new(%{"delivery_id" => delivery.id})),
                :ok <- Oban.retry_job(job) do
             {:ok, delivery}
@@ -79,11 +78,12 @@ defmodule Ankole.OIDC.Logout do
     deliveries =
       Repo.across_tenants(fn ->
         Repo.all(
-          from d in LogoutDelivery,
+          from(d in LogoutDelivery,
             join: s in Session,
             on: s.id == d.session_id,
             where: s.browser_id == ^browser_id and d.status in [:pending, :delivering],
             select: {d.tenant_id, d.id}
+          )
         )
       end)
 
@@ -124,7 +124,7 @@ defmodule Ankole.OIDC.Logout do
 
   defp claim(id) do
     Repo.transact(fn repo ->
-      case repo.one(from d in LogoutDelivery, where: d.id == ^id, lock: "FOR UPDATE") do
+      case repo.one(from(d in LogoutDelivery, where: d.id == ^id, lock: "FOR UPDATE")) do
         nil ->
           {:ok, :complete}
 
@@ -144,9 +144,7 @@ defmodule Ankole.OIDC.Logout do
 
             DateTime.compare(now, delivery.deadline) != :lt ->
               with {:ok, _} <-
-                     delivery
-                     |> Ecto.Changeset.change(status: :failed, next_attempt_at: nil)
-                     |> repo.update(),
+                     Ankole.Ash.update(delivery, :exhaust_in_tx, %{}),
                    do: {:ok, :expired}
 
             is_struct(delivery.next_attempt_at, DateTime) and
@@ -154,13 +152,7 @@ defmodule Ankole.OIDC.Logout do
               {:ok, {:wait, max(1, DateTime.diff(delivery.next_attempt_at, now))}}
 
             true ->
-              delivery
-              |> Ecto.Changeset.change(
-                status: :delivering,
-                attempt_count: delivery.attempt_count + 1,
-                last_attempt_at: now
-              )
-              |> repo.update()
+              Ankole.Ash.update(delivery, :claim_in_tx, %{at: now})
           end
       end
     end)
@@ -168,20 +160,11 @@ defmodule Ankole.OIDC.Logout do
 
   defp transmit(delivery) do
     with %Session{} = session <- Repo.get(Session, delivery.session_id),
-         now <- System.system_time(:second),
          {:ok, token} <-
-           TokenSigning.sign(
-             %{
-               iss: TokenSigning.issuer(),
-               aud: session.client_id,
-               iat: now,
-               exp: now + 120,
-               jti: Ankole.Kernel.gen_uuid_v7(),
-               sub: session.principal_uid,
-               sid: session.id,
-               events: %{"http://schemas.openid.net/event/backchannel-logout" => %{}}
-             },
-             "logout+jwt"
+           Attesto.LogoutToken.mint(Ankole.OIDC.attesto_config(), session.client_id,
+             sub: session.principal_uid,
+             sid: session.id,
+             lifetime: 120
            ) do
       case Req.post(delivery.endpoint,
              form: [logout_token: token],
@@ -205,23 +188,29 @@ defmodule Ankole.OIDC.Logout do
     now = DateTime.utc_now()
     delay = min(30 * Integer.pow(2, min(delivery.attempt_count - 1, 7)), 3600)
 
-    attrs =
+    {action, attrs} =
       case result do
         :ok ->
-          [status: :delivered, delivered_at: now, next_attempt_at: nil, last_error: nil]
+          {:acknowledge_in_tx, %{at: now}}
 
         {:error, reason} ->
-          [status: :pending, next_attempt_at: DateTime.add(now, delay), last_error: reason]
+          {:reschedule_in_tx,
+           %{at: now, next_attempt_at: DateTime.add(now, delay), last_error: reason}}
       end
 
-    Repo.update_all(
-      from(d in LogoutDelivery, where: d.id == ^delivery.id and d.status != :delivered),
-      set: attrs ++ [updated_at: now]
-    )
-
-    case result do
-      :ok -> :ok
-      {:error, _} -> {:snooze, delay}
+    case Repo.transact(fn ->
+           case LogoutDelivery
+                |> Ash.Query.filter(id == ^delivery.id)
+                |> Ankole.Ash.bulk_update(action, attrs,
+                  strategy: [:atomic],
+                  return_errors?: true
+                ) do
+             %Ash.BulkResult{status: :success} -> {:ok, :ok}
+             %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+           end
+         end) do
+      {:ok, :ok} -> if result == :ok, do: :ok, else: {:snooze, delay}
+      {:error, _} = error -> error
     end
   end
 

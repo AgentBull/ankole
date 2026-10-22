@@ -11,6 +11,7 @@ defmodule Ankole.Brain.Recall do
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.AIGateway
   alias Ankole.Brain.Access
@@ -127,8 +128,8 @@ defmodule Ankole.Brain.Recall do
     |> Enum.map(fn claim ->
       effective_confidence =
         case claim.claim_type do
-          "fact" -> effective_confidence(claim, forgetting, now)
-          "take" -> claim.weight
+          :fact -> effective_confidence(claim, forgetting, now)
+          :take -> claim.weight
         end
 
       %{claim: claim, score: Map.fetch!(fused_scores, claim.id) * max(effective_confidence, 0.05)}
@@ -148,7 +149,7 @@ defmodule Ankole.Brain.Recall do
   the halflife of the fact kind from `brain.forgetting`.
   """
   @spec effective_confidence(Claim.t(), map(), DateTime.t()) :: float()
-  def effective_confidence(%Claim{claim_type: "fact"} = claim, forgetting, now) do
+  def effective_confidence(%Claim{claim_type: :fact} = claim, forgetting, now) do
     halflife = halflife_days(claim.kind, forgetting)
 
     age_days =
@@ -329,7 +330,7 @@ defmodule Ankole.Brain.Recall do
 
     take_counts =
       Claim
-      |> where([claim], claim.claim_type == "take" and claim.active == true)
+      |> where([claim], claim.claim_type == :take and claim.active == true)
       |> where([claim], claim.object_slug in ^slugs)
       |> group_by([claim], claim.object_slug)
       |> select([claim], {
@@ -456,7 +457,7 @@ defmodule Ankole.Brain.Recall do
         else
           payload = %{
             id: claim.id,
-            claim_type: claim.claim_type,
+            claim_type: Atom.to_string(claim.claim_type),
             claim: claim.claim,
             kind: claim.kind,
             holder: claim.holder,
@@ -494,7 +495,7 @@ defmodule Ankole.Brain.Recall do
               title: hit.object.title,
               type: hit.object.type,
               chunk_index: hit.chunk.chunk_index,
-              content_kind: hit.chunk.content_kind,
+              content_kind: Atom.to_string(hit.chunk.content_kind),
               text: hit.chunk.chunk_text,
               audience_scope: hit.chunk.audience_scope
             }
@@ -519,13 +520,20 @@ defmodule Ankole.Brain.Recall do
     if slugs != [] do
       threshold = DateTime.add(DateTime.utc_now(), -@retrieved_throttle_seconds, :second)
 
-      Object
-      |> where([object], object.slug in ^slugs)
-      |> where(
-        [object],
-        is_nil(object.last_retrieved_at) or object.last_retrieved_at < ^threshold
-      )
-      |> Repo.update_all(set: [last_retrieved_at: DateTime.utc_now(:microsecond)])
+      result =
+        Object
+        |> Ash.Query.filter(
+          slug in ^slugs and (is_nil(last_retrieved_at) or last_retrieved_at < ^threshold)
+        )
+        |> Ankole.Ash.bulk_update(:touch_retrieved, %{},
+          strategy: [:atomic],
+          return_errors?: true
+        )
+
+      case result do
+        %Ash.BulkResult{status: :success} -> :ok
+        %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+      end
     end
 
     :ok

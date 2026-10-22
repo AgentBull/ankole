@@ -1,8 +1,7 @@
 defmodule Ankole.Conversations.ExternalTest do
-  use Ankole.DataCase, async: false
+  use Ankole.DataCase, async: true
   import Ankole.PrincipalsFixtures
   alias Ankole.Conversations.{Conversation, External, ExternalMessageRef, Message, Participant}
-  alias Ankole.Signals.Binding
 
   @now ~U[2026-10-14 10:00:00.000000Z]
 
@@ -10,14 +9,12 @@ defmodule Ankole.Conversations.ExternalTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, binding} =
-      %Binding{}
-      |> Binding.changeset(%{
+      Ankole.SignalsFixtures.raw_binding_fixture(%{
         agent_uid: agent.uid,
         name: "external",
         adapter: "mock",
         config_ref: "app-config://external-test"
       })
-      |> Repo.insert()
 
     {:ok, conversation} =
       Repo.transact(fn repo ->
@@ -36,6 +33,63 @@ defmodule Ankole.Conversations.ExternalTest do
       end)
 
     %{agent: agent, binding: binding, conversation: conversation}
+  end
+
+  test "membership retries preserve the first role", %{conversation: conversation, agent: agent} do
+    original =
+      Repo.get_by!(Participant, conversation_id: conversation.id, principal_uid: agent.uid)
+
+    assert original.role == :agent
+
+    assert {:ok, repeated} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.create(Participant, :join, %{
+                 conversation_id: conversation.id,
+                 principal_uid: agent.uid,
+                 role: :owner
+               })
+             end)
+
+    assert_persisted_equal(repeated, original)
+
+    assert_persisted_equal(
+      Repo.get_by!(Participant, conversation_id: conversation.id, principal_uid: agent.uid),
+      original
+    )
+  end
+
+  test "sequence allocation uses the stored counter even with a stale resource", %{
+    conversation: conversation
+  } do
+    for expected <- 1..3 do
+      assert {:ok, advanced} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.update(conversation, :advance_sequence, %{})
+               end)
+
+      assert advanced.sequence_high_water == expected
+    end
+
+    assert Repo.get_by!(Conversation, id: conversation.id).sequence_high_water == 3
+  end
+
+  test "observation metadata preserves normalized dates and rejects runtime objects", %{
+    conversation: conversation
+  } do
+    assert {:ok, updated} =
+             External.update_metadata(conversation.id, fn metadata ->
+               Map.put(metadata, "observed_at", @now)
+             end)
+
+    assert updated.metadata["observed_at"] == DateTime.to_iso8601(@now)
+    assert Repo.get_by!(Conversation, id: conversation.id).metadata == updated.metadata
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             External.update_metadata(conversation.id, fn metadata ->
+               Map.put(metadata, "runtime", self())
+             end)
+
+    assert Repo.get_by!(Conversation, id: conversation.id).metadata == updated.metadata
   end
 
   test "unknown authors and attachment-only observations remain public facts", %{conversation: c} do
@@ -88,8 +142,8 @@ defmodule Ankole.Conversations.ExternalTest do
                provider_time: DateTime.add(@now, -10, :second)
              })
 
-    assert stale.message == first.message
-    assert stale.external_ref == first.external_ref
+    assert_persisted_equal(stale.message, first.message)
+    assert_persisted_equal(stale.external_ref, first.external_ref)
   end
 
   test "reaction redelivery folds one actor and plain observations preserve reactions", %{
@@ -204,7 +258,7 @@ defmodule Ankole.Conversations.ExternalTest do
     binding: binding
   } do
     assert {:ok, observed} = observe(c.id, %{provider_message_id: "same", text: "History"})
-    assert {:ok, _} = Repo.delete(binding)
+    assert {:ok, _} = Repo.transact(fn _repo -> Ankole.Ash.destroy(binding, :remove) end)
     assert Repo.get_by!(Conversation, id: c.id).provider_conversation_id == "mock:room"
     assert External.get_message(Repo, c.id, "same").message.id == observed.message.id
 

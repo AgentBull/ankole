@@ -357,7 +357,7 @@ defmodule Ankole.Sessions.BackgroundAgentJobBrokerTest do
 
     source
     |> Ecto.Changeset.change(
-      status: "succeeded",
+      status: :succeeded,
       runtime_thread_id: "source-thread",
       workspace_owner_job_id: source.id,
       completed_at: DateTime.utc_now(:microsecond),

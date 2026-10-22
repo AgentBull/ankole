@@ -1,395 +1,236 @@
-# OIDC Server
-
-Clients, credentials and RP sessions belong to a tenant; the issuer and signing
-keys belong to the site. Client authentication establishes tenant context before
-accessing those rows. Login transactions retain that tenant through callbacks.
-Suspended tenants cannot issue Human tokens; introspection reports them inactive.
-Browser-wide logout follows [Browser Sessions](BrowserSessions.md#tenant-routing).
-
-The control plane is the OpenID Provider for one Ankole installation. It uses
-Boruta 2.3.8 for OAuth 2.0 and OpenID Connect protocol processing. Ankole owns
-Client administration, Human identity, persistence, token policy, and the web
-routes. It does not use Boruta's administration UI, identity store, or gateway.
-
-## Protocol Surface
-
-The public protocol routes are:
-
-- `/.well-known/openid-configuration`
-- `/.well-known/jwks.json`
-- `GET /oauth/authorize`
-- `POST /oauth/token`
-- `GET` and `POST /oauth/userinfo`
-- `POST /oauth/introspect`
-- `GET` and form-encoded `POST /oauth/logout`
-
-The server supports Authorization Code, Refresh Token, and PKCE S256. It does
-not support implicit, password, client credentials, device code, dynamic
-registration, token revocation, front-channel logout, or a consent page.
-
-[Offboarding protocol additions](#offboarding-protocol-additions) define the
-Back-Channel Logout and Introspection contracts.
-[Authentication and browser logout](#authentication-and-browser-logout) defines
-the related protocol contracts.
-
-An OIDC Client is public or confidential. A public Client authenticates at the
-token endpoint with its `client_id`. A confidential Client uses
-`client_secret_basic`; no other Client authentication form is valid. Redirect
-URIs match exactly. HTTP redirect URIs must use HTTPS, except for localhost.
-Native redirect URIs can use a safe application scheme.
-
-At the token endpoint, a Basic request with Client credentials in its body
-returns `400 invalid_request`. Failed Client authentication through the
-Authorization header returns `401 invalid_client` with a Basic challenge.
-An unsupported Authorization scheme is also rejected with the Basic challenge;
-the server does not create a challenge for an unimplemented scheme. Schemes
-can require their own challenge parameters and response handling, such as
-Digest nonce and quality-of-protection values. The token endpoint does not
-negotiate those methods or copy request credentials into a challenge. See
-[OAuth Working Group issue 162](https://github.com/oauth-wg/oauth-v2-1/issues/162)
-for the specification wording about unsupported methods.
-These failures do not consume the authorization code or Refresh Token.
-
-The scope vocabulary is `openid`, `profile`, `email`, `offline_access`, and
-`ai_gateway.write`. Every authorization request includes `openid`. The server
-issues an OIDC Refresh Token only when the request includes `offline_access`.
-A refresh request must retain `openid`. If it does not, the server returns
-`400 invalid_scope` without consuming the original Refresh Token.
-
-## Human Login
-
-An existing active Human Principal is the Boruta Resource Owner. The
-current browser selection supplies a default authentication, which must resolve
-the Client's fixed tenant. Multiple authentications can remain independent.
-The server does not silently try another account when the current one fails.
-Console permission remains a separate siteadmin check; a native Pod or OAuth
-login cannot grant it.
-
-[Browser Sessions](BrowserSessions.md) owns proof cookies, target selection,
-login transactions, and concurrent completion. The selection page lists only
-proofs held by the browser and allowed for the Client. `sub` remains the target
-Human Principal UID; `email` comes from that Human's profile. Site account
-contact data does not replace either claim.
-
-The authorization endpoint completes authorization after login. It does not
-store user consent. The administrator's Client scopes, allowed groups, and
-allowed models are the authorization boundary.
-
-## Keys, Tokens, and Persistence
-
-The installation has one RSA-2048 signing key. Startup loads it from PostgreSQL
-or creates it in one transaction on first use. The private key is encrypted with
-a key derived from `SecretKeyBase`. The public key is one JWK. Startup fails if
-the stored private key cannot be decrypted or does not match the stored public
-key. There is no signing-key administration or rotation system.
-
-Agent Access Tokens, OIDC Access Tokens, and OIDC ID Tokens use this RS256 key. A Client secret authenticates only its
-confidential Client. It never signs a token. Access Tokens use `typ=at+jwt` and
-include `iss`, `sub`, `aud`, `scope`, `subject_type`, `token_use`, `jti`, `iat`,
-`nbf`, and `exp`.
-
-OIDC Access Tokens live for 30 minutes, and ID Tokens live for 5 minutes. An
-Authorization Code lives for 5 minutes and can be used once. An OIDC Refresh
-Token has a 30-day absolute lifetime and rotates atomically on use. Only the
-digest of an Authorization Code or OIDC Refresh Token is stored. Client secrets
-are encrypted and returned only at Client creation or secret rotation. Access
-Tokens, ID Tokens, users, and consent are not duplicated in OIDC storage.
-
-`oidc_sessions` stores each Client, authentication ID and revision, Human access version,
-verified provider, authentication time, authorization expiry, session end, and
-authorization revocation. Its UUID is `sid`. The unique association key is Client, authentication ID, and
-revision. Two identities authorizing the same Client cannot share a subject row.
-Selecting or reusing an identity preserves its actual authentication time. Authorization Codes and Refresh
-Tokens reference this row. `oidc_logout_requests` binds a validated logout
-request to one browser revision. `oidc_logout_deliveries` stores the registered
-endpoint, target session, delivery state, attempts, retry time, deadline, and
-bounded error. These records remain available after token expiry; expiry alone
-is not proof that an RP session ended.
-
-## AI Gateway
-
-A Client with `ai_gateway.write` has at least one allowed Principal group and
-one Client-specific custom LLM alias. Each alias uses the Agent custom model
-profile shape: a custom name, required description, provider, model, optional
-context length, and request options. Custom names match
-`[a-z][a-z0-9_-]{0,63}` and cannot use a fixed Agent profile name. Raw
-`provider_id/model` selectors are not part of the Client contract. Static and
-computed group membership is read through AuthZ for each request. Removing this
-scope clears the Client's group and alias policy in the same transaction.
-
-Each AI Gateway HTTP request and each WebSocket `response.create` checks the
-RS256 token, active Human, active Client, current scope, current group
-membership, and current model policy. `/models` returns only allowed models that
-are currently available, identified by the Client aliases. An OIDC Human cannot
-use raw provider selectors, fixed Agent profiles, or aliases from an Agent or
-another Client.
-
-HTTP `POST /responses` still rejects `store=true`. Stateful storage uses the
-existing Responses WebSocket. Stored data uses the Human Principal uid as
-`subject_uid`, so another Human cannot read it. Client deletion does not delete
-this data.
-
-For each stored WebSocket request, AIGateway records `oidc_client_id` from
-the freshly validated grant in its own message metadata. Caller metadata
-cannot set this origin. The Human still owns the conversation; a continuation
-through another Client records that Client on the new request.
-
-Brain registers one `oidc_client` Source per Client with stored terminal
-requests. Its maintenance sweep enqueues learning through the existing Source
-job. Each Client/conversation pair becomes one Source-owned `media` page.
-The Brain maintainer Agent's `light` profile performs extraction; Client model
-aliases continue to control the external inference request only. Source defaults
-are configured in the Brain Sources Console. An unset default keeps each
-conversation private to the submitting Human. Defaults apply when a conversation
-first enters Brain; existing conversations keep their audience. Client edits
-and deletion do not change that audience or remove stored knowledge.
-
-A browser WebSocket sends `ankole.responses.v1` and
-`base64url.bearer.phx.<base64url(jwt)>` as subprotocol values. The server selects
-only `ankole.responses.v1`. The browser Origin must match an Origin derived from
-that Client's registered HTTP redirect URIs. Token, UserInfo, and AI Gateway
-CORS use the same derived Origins, with no wildcard or separate Origin list.
-Native applications can use the Authorization header without an Origin.
-
-## Offboarding Protocol Additions
-
-[Human Offboarding](HumanOffboarding.md) uses OpenID Connect Back-Channel
-Logout and OAuth 2.0 Token Introspection. Both run through the existing
-OIDC/Boruta boundary, Client administration, signing keys, and control-plane
-persistence; there is no parallel identity provider. The following sections
-define the supported protocol profile.
-
-### Back-Channel Logout
-
-Follow [OpenID Connect Back-Channel Logout 1.0](https://openid.net/specs/openid-connect-backchannel-1_0.html).
-Register `backchannel_logout_uri` and `backchannel_logout_session_required` in
-the existing Client configuration. Advertise `backchannel_logout_supported`
-and `backchannel_logout_session_supported` as true.
-
-Send a signed Logout Token by form-encoded HTTP POST as `logout_token`. Use the
-OIDC signing key and RS256. Include `iss`, `aud`, `iat`, `exp`, `jti`, `events`,
-`sub`, and `sid`; exclude `nonce`. Set the standard back-channel logout event
-and use `typ=logout+jwt`. The receiver must apply the specification's complete
-validation and logout rules. Treat HTTP 200 or 204 as success.
-
-Ankole chooses session-specific logout. Issue `sid` in ID Tokens and send it
-in Logout Tokens. Preserve it through refresh within that session. A fresh
-login after account recovery has a new `sid`. Address every recorded old
-Client/session pair; do not replace these requests with a subject-only logout
-that can also end a new session.
-
-OIDC must keep enough durable Client/session association to select every
-potentially live session, including sessions created without `offline_access`.
-Access Token expiry alone does not prove that a Client's session has ended.
-Session registration and credential issuance must respect the same disable
-boundary, so a concurrent authorization cannot escape notification tracking.
-
-Persist notification work with the disable operation. Retry temporary failures
-with backoff for at least 24 hours, then retain failures for operator retry.
-Use a fresh token when the previous one expires; retain the original target
-`sid` and disable-operation reference. An in-flight or retried notification
-must never target sessions created after recovery. HTTP success records the
-Client's acknowledgement, not an independently verified business-access result.
-
-Use only registered absolute callback addresses without fragments. Ankole's
-deployment policy requires HTTPS in production; permit HTTP only for an
-explicit confidential development Client on a trusted network. Do not
-follow redirects or allow an unvalidated callback target. The control-plane
-deployment must be able to reach the registered callback.
-
-Client registration stays administrator-managed. Ankole does not provide
-dynamic registration or front-channel logout. Browser logout uses the same
-notification owner, with the scope defined below.
-
-### Token Introspection
-
-`POST /oauth/introspect` follows
-[RFC 7662](https://www.rfc-editor.org/rfc/rfc7662.html). Accept form-encoded
-`token` and optional `token_type_hint`; a hint cannot exclude other supported
-token types from lookup. Return JSON with boolean `active`. A valid query for
-an unknown, inactive, or out-of-scope token returns only `{"active": false}`.
-Invalid caller authentication returns HTTP 401, not an inactive-token result.
-A disabled querying Client also fails authentication. Apply inactive-token
-rules only after authenticating the caller, and apply the RFC error rules to
-malformed requests.
-
-The Ankole profile supports its OIDC Access and Refresh Tokens. An enabled
-confidential Client authenticates with `client_secret_basic` and can inspect
-only tokens issued to that Client. Do not accept Agent tokens,
-ID Tokens, or a public `client_id` as caller authentication. Public Clients
-retain their existing login flows; Ankole does not give them anonymous
-Introspection access or a secret to embed in an application.
-
-Read the current token, Human, Client, and revocation state. A disabled Human,
-disabled Client, revoked authorization, expired token, or consumed Refresh
-Token is inactive. Apply the existing scope-validity rules. A restored Human
-does not make an old token active again. An active response includes `iss`,
-`sub`, `client_id`, `scope`, and `exp` from the verified authorization. Do not
-expose disable reasons or company directory data. A dependency failure returns
-a service error; it cannot produce an unverified `active: true` response.
-
-Advertise `introspection_endpoint` and
-`introspection_endpoint_auth_methods_supported: ["client_secret_basic"]` in
-the existing discovery document, using the metadata definitions in
-[RFC 8414](https://www.rfc-editor.org/rfc/rfc8414.html#section-2). Keep this
-authentication declaration separate from the token endpoint's public-Client
-support. Deployment must provide TLS and protect Client credentials and queried
-tokens from logs.
-
-### Client Integration
-
-Ankole provides the protocol, durable notification delivery, and current
-token checks. The Client owns its business session and access rules. It must validate notifications, match `sid`, make repeated logout
-safe, and prevent a delayed login callback from recreating an already logged-out
-session. A standard Logout Token is not an employee-status or HR event.
-
-The Client chooses and documents its check and cache interval. Cached validity
-must not outlive token expiry. The Client must handle timeouts, stale cached
-results, and service recovery without interpreting an outage or ordinary token
-expiry as employee departure. No fixed five-minute or other end-to-end logout
-deadline is part of this contract.
-
-## Authentication and Browser Logout
-
-These contracts use the existing Boruta protocol boundary.
-[Browser Sessions](BrowserSessions.md) owns authentication context and pending
-login state. OIDC owns Client policy, authorization credentials, and RP sessions.
-`Ankole.OIDC.LoginPolicy` decides whether selection, reuse, or reauthentication
-is required. BrowserSessions commits that decision under its browser lock.
-The web controllers use the same policy to choose the next page. Confirming an
-identity satisfies only account selection; freshness and source rules still apply.
-
-### Authentication Requests
-
-Apply [OIDC Core authentication request semantics](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest).
-Accept `prompt=login`, `prompt=none`, `prompt=select_account`, and no prompt.
-`select_account` requires explicit selection even when the active identity is
-valid. `login select_account` selects the subject, then requires a real
-reauthentication of that subject. A URL identity hint cannot change the active
-choice. Reject duplicate values, combined `none` and interactive values, and
-unsupported values with `invalid_request`. There is no consent interface.
-
-Parse `max_age` as decimal seconds from 0 through 2147483647. Reject negative,
-fractional, malformed, and larger values. Use the actual authentication time,
-not token issue time or profile-update time. `prompt=login` and `max_age=0`
-require a new authentication. A positive age permits reuse only while the
-verified authentication context meets that age. A missing authentication time
-requires authentication. If `prompt=none` cannot meet these rules, return
-`login_required` without interaction. Redirect errors only to a validated
-Client redirect URI and preserve its `state`.
-
-A successful authentication completes only its bound authorization transaction.
-The transaction records the Client, redirect URI, scopes, `state`, `nonce`,
-PKCE challenge, requested freshness, selected provider, and authenticated
-Principal. Consume its completion once. Resuming this transaction does not
-apply `prompt=login` again. A new request cannot use that completion proof.
-Cancellation, expiry, provider failure, or an obsolete transaction cannot fall
-back to a previous login.
-
-Carry `auth_time`, provider ID, Human revocation generation, and RP `sid` from
-authentication through the code and Refresh Token records. Include `auth_time`
-in ID Tokens when the provider proves it, and declare it in `claims_supported`.
-Ordinary Lark login omits `auth_time`; a request that requires it must use an
-allowed provider with freshness evidence or fail. Refresh
-preserves the original authentication time and `sid`. Set Boruta ResourceOwner
-`last_login_at` from this retained context so its current-time fallback cannot
-replace the authentication event. Claims requested through
-the standard `claims` parameter must not silently bypass a required
-`auth_time`; unsupported essential claims fail explicitly.
-
-### Client Identity-Provider Policy
-
-`allowed_identity_provider_ids` belongs to the existing Client configuration.
-An empty list permits the active login sources. A nonempty list permits only
-its configured tenant provider IDs or build-declared site source IDs. Include
-the local password source explicitly when it is required. The Client editor's
-source catalog includes both authorities. Validate IDs when saving the Client;
-tenant provider configuration cannot register a reserved site source ID. A removed or disabled provider does not cause a fallback to another
-source. A policy with no usable provider fails with an actionable error.
-
-Check the verified authentication source at login entry, session reuse, code
-issuance, code exchange, refresh, and protected-token validation. Store this
-source with credentials; do not infer it from the Principal's other identity
-links. Re-read current Client policy so that a removed source cannot keep
-issuing or using credentials. Apply the same rule to Introspection. This does
-not change Principal identity matching or grant Console administration rights.
-
-### RP-Initiated Logout
-
-Follow [OpenID Connect RP-Initiated Logout 1.0](https://openid.net/specs/openid-connect-rpinitiated-1_0.html).
-Expose `GET` and form-encoded `POST /oauth/logout`; publish
-`end_session_endpoint` in discovery. Register
-`post_logout_redirect_uris` separately from login redirects. Require exact
-matching. Use HTTPS; allow HTTP only for an explicitly configured confidential
-development Client. A public browser Client uses HTTPS for logout callbacks.
-
-Accept `id_token_hint`, `client_id`, `post_logout_redirect_uri`, and `state`.
-Validate hint signature, issuer, audience, and session association. When both
-hint and Client ID are present, they must identify the same Client. A hint is
-not an Access Token: an expired hint can identify a current or recent RP session.
-Retain ended RP associations for 24 hours to resolve recent sessions. An older
-or mismatched association cannot silently end the current browser session.
-Invalid hints and redirects produce an OP error page without a client redirect.
-
-The hint identifies the RP association, which can belong to a previous browser
-reference or another identity. It does not select the browser to end. Cookie
-removal after logout must still permit a recent hint to start a new confirmation.
-
-Always show a logout confirmation. Bind it to the browser session and validated
-request; require CSRF proof on confirmation. This also covers absent hints and
-identity conflicts. A valid Client ID and registered redirect are sufficient
-for the no-hint confirmation path; no Client secret enters the browser. Cancel
-leaves the OP session active and displays that result on the OP page.
-Check the confirmed browser revision again after taking the browser row lock.
-A login that commits while confirmation waits makes that confirmation obsolete.
-
-Confirmed logout ends the current browser's Ankole authentication through
-Browser Sessions. It does not disable the Principal or end other devices.
-Notify RP sessions associated with that browser through the existing
-Back-Channel Logout delivery path, including the initiating RP. Complete one
-bounded delivery attempt for each registered target before a successful
-post-logout redirect; persist failures for retry. A redirect does not certify
-that every RP received the notification. Echo `state` only to the validated
-post-logout URI. Repeated logout is safe.
-
-Browser logout invalidates pending codes and browser-bound online grants.
-Online grants also require their original Pod proof and current site identity
-binding; removing that binding cannot leave its online credentials usable.
-An explicit `offline_access` grant retains its existing absolute lifetime
-after ordinary logout; Principal disablement revokes it. Logout notifications
-end RP sessions and do not themselves prove revocation of offline grants.
-The same browser logout service handles Console logout and RP logout.
-
-### Expired State Cleanup
-
-`Ankole.OIDC.Jobs.CleanupExpiredCredentials` runs once per hour. It removes
-expired authorization codes, refresh tokens, and logout requests. It then
-removes an expired RP association only when no code or refresh token still
-references it, at least 24 hours have passed since it ended, and all of its
-logout deliveries succeeded. An expired association that never ended needs
-no ended-session retention period. Delivered rows are deleted with their
-association, so retention cannot cause the same notification to be queued again.
-
-Pending, in-progress, and failed deliveries retain their association and browser
-record. Failed delivery records remain available for operator retry, without
-an automatic deletion deadline. Explicit offline grants also retain their
-association until their credentials expire. Browser Sessions then removes its
-eligible expired state through its own cleanup operation.
-
-Manual delivery retry makes a scheduled retry job available immediately. It
-reuses the existing unique job when one is waiting; an executing attempt keeps
-its execution. Automatic retry retains the existing backoff and deadline.
-
-### Client Responsibilities
-
-The RP owns its local session, authorization rules, and in-flight login or
-refresh operations. Local logout must invalidate those pending operations so a
-late response cannot restore local tokens. Clear local state even when the OP
-is unavailable, and distinguish that result from completed OP logout. Discover
-the logout endpoint, keep login and logout callback registration separate, and
-validate the returned `state`.
-
-For authentication, validate the ID Token signature, issuer, audience, expiry,
-and requested `nonce` and `auth_time`; compare UserInfo `sub` with the ID Token.
-A display name or decoded but unverified JWT is not identity proof. OIDC does
-not allocate the RP's business permissions.
+# OpenID Connect Server
+
+Ankole is an OpenID Connect Provider for registered relying parties (RPs).
+`attesto` 2.6.1 owns the OAuth and OIDC protocol primitives. Ankole owns
+Client policy, browser authentication, durable sessions, access tokens, and
+PostgreSQL storage. The site has one issuer and one RSA signing key.
+
+Client registration, configuration, group links, and the installation signing
+key use Ash resources and named transaction actions. Only secret rotation can
+change an existing confidential Client's secret. Ordinary configuration cannot
+replace its ID or public/confidential type. The key initialization action
+returns the installed record on conflict without changing its key or timestamps.
+The SigningKey process still validates the stored key before publishing its
+runtime projection. Native tables, keys, and constraints retain Ecto migrations.
+
+OIDC sessions, logout confirmations, and logout deliveries use the same Domain.
+Session actions preserve the original authentication binding, extend expiry with
+`GREATEST`, and retain the first revocation and logout markers. Logout delivery
+actions own the pending, delivering, delivered, and failed transitions. A
+delivered record cannot restart or consume another attempt. Native constraints
+also enforce positive access and authentication versions and nonnegative
+browser revisions and delivery attempt counts. Historical sessions can retain a
+cleared authentication reference. A composite foreign key also binds each
+authentication reference to the Session's browser. Removing that reference
+retains the immutable browser and authentication revision history.
+
+Authorization codes, refresh tokens, and refresh families also use named
+transaction actions. A Code can be consumed once and finalized once. Its replay
+facts cannot be replaced after finalization. A Refresh can record its successor
+once. The redaction action can remove retry ciphertext only after its deadline;
+it retains the consumption tombstone. Family actions cannot change the original
+Session or absolute deadline, and repeated revocation retains its first marker.
+Native composite foreign keys bind each credential's Client and Human to its
+Session and each refresh token's family to that same Session. The context CHECK
+also binds the stored protocol JSON to those native columns.
+
+## User and RP contracts
+
+- A registered RP can sign in a Human with Authorization Code and PKCE S256.
+- A browser can reuse a valid authentication, select another account, or obtain
+  fresh proof for `prompt=login` and `max_age`.
+- The ID token and UserInfo return `sub` and the profile fields allowed by scope.
+- An RP that requests `offline_access` can renew access for at most 30 days.
+  Each successful renewal rotates the refresh token.
+- An authorized RP can request `ai_gateway.write`. Agents use their existing
+  30-day Agent tokens for the AI Gateway.
+- Revocation, a changed Human access version, a disabled Human, a suspended
+  tenant, a disabled Client, or reduced Client scopes takes effect when a
+  credential is used.
+- RP logout requires browser confirmation. Back-Channel Logout reaches each
+  registered RP through durable delivery state.
+- Discovery and JWKS expose the implemented endpoints and the installation key.
+- Only confidential Clients can introspect tokens. A Client can inspect only its
+  own tokens.
+
+## Protocol and product ownership
+
+`Attesto.AuthorizationRequest` validates the protocol request and decides whether
+an error can use the registered redirect URI. An invalid Client or redirect URI
+returns a direct error. A trusted redirect receives subsequent protocol errors.
+Ankole accepts only query responses, requires `openid`, and limits scopes to the
+Client's configured scopes. Request objects, request URIs, JARM, and DPoP are not
+supported or advertised.
+
+The supported prompts are `none`, `login`, `select_account`, and `consent`.
+`consent` follows the normal login policy. Ankole reads the normalized prompt
+list and `max_age` from Attesto. The `auth_time` essential claim requires a known
+authentication time. Other unimplemented claim requests do not reject login.
+
+`Ankole.OIDC.LoginPolicy` owns identity-provider restrictions, authentication
+reuse, account selection, and the need for fresh authentication. Browser
+transactions store this normalized policy input. Ankole does not create a second
+identity system for OIDC: Human Principals and their access versions remain the
+identity and revocation authority.
+
+### Upstream identity-provider authentication
+
+`Ankole.IdentityProviders.OIDC` uses `AttestoClient.IDToken` to verify upstream
+ID Tokens before an adapter can create or update a Human. Google Workspace,
+Microsoft Entra ID, and Slack require a signed ID Token. The verifier checks the
+configured issuer, client audience, signature, expiry, and nonce. The browser
+transaction's random upstream state also serves as its nonce. UserInfo must
+have the signed subject. Entra's signed tenant and object IDs must match the
+configured directory and the Graph user.
+
+The verified `auth_time` passes through the adapter, login boundary, browser
+authentication, and Ankole's ID Token. A normal login can have no `auth_time`.
+Ankole does not replace a missing upstream authentication time with its own
+clock.
+
+Only adapters with `oidc_fresh_authentication` can serve requests that require
+an authentication time. Entra supports this capability. Its authorization
+request carries the nonce, `prompt=login` and `max_age=0` when forced login is
+required, the requested positive `max_age`, and the
+essential `auth_time` claim. A response without the required signed time fails.
+For `prompt=login` and `max_age=0`, the signed time must be at or after the
+stored provider-selection time. Positive `max_age` limits the elapsed time at
+verification. Google and Slack do not advertise this capability because their
+login contracts do not guarantee forced authentication. Account selection or
+consent does not prove fresh authentication.
+
+## Authorization and token issuance
+
+`Ankole.OIDC.Grants` creates an OIDC session and calls
+`Attesto.AuthorizationCode.issue/3` in one database transaction. The code expires
+in 60 seconds. PostgreSQL stores its SHA-256 digest and PKCE challenge, never the
+plaintext code.
+
+Authorization holds the tenant parent lock before the browser serializer and
+the live Human lock. It locks the Client before an existing OIDC session. The
+browser serializer permits one session creation for that Client and
+authentication revision; a repeated authorization extends that row without
+replacing its original authentication facts. Code insertion stays in the same
+transaction. A concurrent Client deletion therefore waits before it can lock
+the session through its cascade.
+
+A code presentation calls `Attesto.AuthorizationCode.redeem/4` before the token
+issuance transaction. `CodeStore.take/1` atomically marks it consumed. A wrong
+Client, redirect URI, verifier, or expired grant cannot restore the code. Token
+issuance then checks the Client, granted scopes, OIDC session, active Human, and
+AI Gateway policy. The Human row is held with `FOR SHARE` during issuance.
+
+Ankole issues the existing RS256 `at+jwt` access token with a 30-minute lifetime.
+Its audiences, `client_id`, `sid`, `sub`, `subject_type`, and `token_use` semantics
+remain unchanged. `Attesto.IDToken.mint/4` signs the ID token once. It includes
+`sid`, the requested nonce, `at_hash`, and the original `auth_time` when known.
+`Ankole.OIDC.Claims.project/3` is the common owner of scope-based profile claims.
+
+After the complete response is ready, Attesto finalizes the code. Finalization
+records the issued refresh family, when present, and the replay retention
+boundary. The explicit `finalized` flag distinguishes a completed grant from a
+consumed code whose downstream issuance failed. A replay of a completed grant
+revokes its OIDC session and refresh family. A failed issuance leaves the code
+spent and does not create a false completed-grant replay marker.
+
+## Refresh storage and rotation
+
+`Attesto.RefreshToken` owns issuance, scope narrowing, rotation, retry recovery,
+and reuse detection. `Ankole.OIDC.RefreshStore` implements the PostgreSQL
+transaction boundary. The family row owns the absolute 30-day deadline and a
+sticky revocation marker. Each token has a digest, family ID, generation,
+canonical protocol context, expiry, and consumption state. A unique constraint
+on `(family_id, generation)` permits only one child at each generation.
+
+Issuance, rotation, and family revocation lock the tenant, subject Principal,
+and Client with `FOR KEY SHARE`, then the OIDC Session with `FOR UPDATE`, then
+the family and parent token. `Ankole.OIDC.Sessions` owns the shared credential
+parent locks. The subject lock uses its globally unique UID.
+This follows the native foreign-key parent order and prevents deletion or Human
+revocation from reversing those locks. The Session lock also serializes
+revocation across its families. Rotation checks family revocation,
+parent expiry, and the child contract before it writes the consumed parent and
+inserts the child in one transaction. An integrity conflict revokes the family.
+A revoked family rejects later insertion and rotation.
+
+For 10 seconds, an identical retry can recover the exact successor token if that
+successor is still the unconsumed leaf. PostgreSQL stores this credential-equivalent
+retry bundle with authenticated encryption, bound to the parent digest. Reads
+hide expired retry credentials in the returned value without changing storage.
+Cleanup removes their ciphertext after the retry deadline. Consumed records
+remain available for replay detection. Reuse outside the grace window, or after
+the successor advances, revokes the family and its OIDC session.
+
+A refresh request checks the requested `openid` scope and Client scope policy
+before rotation. After rotation it checks the OIDC session, Human, and Gateway
+policy. A failed business check revokes the rotated family. Refresh responses
+contain an access token and successor refresh token; they do not contain a new
+ID token.
+
+## Client authentication, UserInfo, and introspection
+
+Public Clients supply `client_id` only. Confidential Clients use
+`client_secret_basic`; form secrets and client assertions are rejected. Client
+authentication uses `Plug.BasicAuth`, form decoding, and a constant-time secret
+comparison. An Authorization header with invalid credentials or an unsupported
+scheme receives a Basic challenge.
+
+UserInfo accepts a case-insensitive Bearer header and POST form `access_token`.
+The common access-token verifier validates the signature, current Client, and
+OIDC session once and returns that verified context to UserInfo. UserInfo then
+checks the Origin and projects the current Human profile. It does not verify the
+same token or OIDC session a second time.
+
+Introspection requires a confidential Client. Ankole validates an access token
+through the same verifier, or reads an unconsumed, unexpired refresh token in a
+live family and validates its OIDC session. A credential from another Client
+returns `active: false`.
+
+## Keys, issuer, and rolling deployment
+
+`Ankole.OIDC.SigningKeyRecord` is a site row. Its encrypted PKCS#1 private key,
+public JWK, and key ID survive deployment. The `SigningKey` process verifies the
+stored key before it publishes an immutable runtime cache. First startup creates
+the key when no record exists. An existing key that cannot be decrypted or does
+not match its stored public identity stops startup instead of replacing it.
+`Ankole.OIDC.Keystore` exposes the cached key to Attesto. Attesto owns JWK
+conversion, the RFC 7638 key ID, JWKS, and discovery metadata. `Ankole.OIDC` owns
+the supported protocol policy and discovery projection. The HTTP controller
+passes requests to that context. Attesto currently advertises DPoP without a
+configuration switch, so the projection removes that unsupported capability.
+
+`Ankole.TokenSigning` reads the issuer from its own application configuration.
+SaaS uses its console origin for the same setting. The migration preserves the
+exact previous issuer value. Only development and test builds can use an HTTP
+issuer with a valid host and no query, fragment, or userinfo. This local exception
+validates the Principal kind and keystore callbacks before constructing the
+configuration. Production builds reject HTTP issuers and use
+`Attesto.Config.new/1` for HTTPS configuration.
+
+The storage upgrade retains existing refresh digests and absolute expiry times.
+Each existing token becomes generation 0 of its own family. The hash algorithm
+is unchanged. Existing access tokens, Agent tokens, ID-token logout hints, and
+signing keys remain valid. Existing authorization codes cannot be converted from
+their one-way challenge hashes; those short-lived grants must be requested again.
+
+## Logout and cleanup
+
+`Attesto.EndSession.parse/2` verifies ID-token hints, including expired hints,
+and binds an explicit Client to the hint audience. Ankole also checks the OIDC
+session and the permitted recent-logout window. The browser must confirm the
+request before Ankole ends its login. `Attesto.EndSession.confirm_redirect/2`
+checks the exact registered return URI and appends `state`.
+
+Back-Channel Logout remains a durable Ankole delivery queue. Attesto signs each
+`logout+jwt` with `sub`, `sid`, and the required logout event. Delivery attempts,
+backoff, and deadlines remain in PostgreSQL.
+
+The confirmation action cannot change the browser ID or revision and only
+confirms an unconsumed request. Cleanup uses atomic resource deletes. Its
+session retention predicates check codes, refresh tokens, and undelivered
+logout records in the delete statement.
+
+Credential cleanup preserves finalized code markers through their replay
+retention deadlines, removes expired refresh records after retry retention,
+redacts expired successor credentials, and removes eligible session and browser
+state. Every tenant row uses the explicit `Ankole.Repo` tenant context.

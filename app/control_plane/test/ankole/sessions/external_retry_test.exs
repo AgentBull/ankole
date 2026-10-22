@@ -100,7 +100,7 @@ defmodule Ankole.Sessions.ExternalRetryTest do
       assert retry.type == source.type
       assert Repo.get!(Signal, source.id).data === source.data
       assert Repo.get!(Signal, source.id).producer == :external
-      assert Repo.get!(Signal, source.id).input_state == "dead_letter"
+      assert Repo.get!(Signal, source.id).status == :dead_letter
       assert Commands.route(retry) == :run
     end
   end

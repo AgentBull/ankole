@@ -88,6 +88,24 @@ defmodule Ankole.E2E.Harness do
   @doc "App id used by the secondary agent's binding."
   def secondary_app_id, do: @secondary_app_id
 
+  @doc "Uses the production connection pool for a serial E2E suite with committed transactions."
+  def start_committed_repo! do
+    previous = Application.fetch_env!(:ankole, Repo)
+
+    on_exit(fn ->
+      :ok = Supervisor.terminate_child(Ankole.Supervisor, Repo)
+      Application.put_env(:ankole, Repo, previous)
+      assert {:ok, _} = Supervisor.restart_child(Ankole.Supervisor, Repo)
+      :ok = Ecto.Adapters.SQL.Sandbox.mode(Repo, :manual)
+    end)
+
+    :ok = Supervisor.terminate_child(Ankole.Supervisor, Repo)
+    Application.put_env(:ankole, Repo, Keyword.put(previous, :pool, DBConnection.ConnectionPool))
+    assert {:ok, _} = Supervisor.restart_child(Ankole.Supervisor, Repo)
+
+    :ok
+  end
+
   @doc """
   Cleans up committed fixtures for a serial test.
 
@@ -107,6 +125,13 @@ defmodule Ankole.E2E.Harness do
 
     scopes =
       Repo.all(from(c in Ankole.AppConfigure.AppConfig, distinct: c.scope, select: c.scope))
+
+    global_config =
+      Repo.all(from(c in Ankole.AppConfigure.AppConfig.for_scope("global"), select: c.key))
+      |> Map.new(fn key ->
+        assert {:ok, value} = Ankole.AppConfigure.get_global_by_key_in_tx(Repo, key)
+        {key, value}
+      end)
 
     conversations = Repo.all(from(c in Conversation, select: c.id))
 
@@ -148,6 +173,20 @@ defmodule Ankole.E2E.Harness do
           for provider <- AgentWorkers.Providers.list(),
               provider.provider_id not in worker_providers do
             assert {:ok, _provider} = AgentWorkers.Providers.delete(provider.provider_id)
+          end
+
+          for key <-
+                Repo.all(
+                  from(c in Ankole.AppConfigure.AppConfig.for_scope("global"),
+                    select: c.key
+                  )
+                ),
+              not Map.has_key?(global_config, key) do
+            assert :ok = Ankole.AppConfigure.delete_global_by_key(key)
+          end
+
+          for {key, value} <- global_config do
+            assert {:ok, _} = Ankole.AppConfigure.put_global_by_key(key, value)
           end
 
           if tenant = Repo.get(Ankole.Tenants.Tenant, tenant_id) do
@@ -416,6 +455,10 @@ defmodule Ankole.E2E.Harness do
   `%{container:, endpoint:, server_port:}`, where `container` is the Worker
   of the first Agent.
 
+  The test must use committed fixtures. ExUnit stops its HTTP server before
+  `on_exit` callbacks run, so a shared Sandbox transaction cannot own the
+  final Worker identity check.
+
   The supervisor in the image starts a crashed Worker process again in its
   container, and the control plane replaces an instance that is gone, so a
   Turn can still finish after a crash. Thus the test fails at its end when
@@ -442,23 +485,9 @@ defmodule Ankole.E2E.Harness do
   defp assert_workers_kept_on_exit!(agent_uids) do
     started = Map.new(agent_uids, &{&1, worker_identity(&1)})
 
-    # Committed fixtures need their own checkout during on_exit. Shared Sandbox
-    # fixtures must keep using the transaction that owns their Worker rows.
-    # Probe from a new process so an existing allowance cannot reuse that owner.
-    committed? =
-      Repo.bind_tenant(fn ->
-        committed_checkout(fn ->
-          Enum.all?(started, fn {agent_uid, _identity} ->
-            not is_nil(worker_identity(agent_uid))
-          end)
-        end)
-      end)
-      |> Task.async()
-      |> Task.await(15_000)
-
     on_exit(
       Repo.bind_tenant(fn ->
-        check = fn ->
+        committed_checkout(fn ->
           Enum.each(started, fn {agent_uid, identity} ->
             current = worker_identity(agent_uid)
 
@@ -471,11 +500,7 @@ defmodule Ankole.E2E.Harness do
               )
             end
           end)
-        end
-
-        if committed?,
-          do: committed_checkout(check),
-          else: check.()
+        end)
       end)
     )
   end
@@ -826,12 +851,12 @@ defmodule Ankole.E2E.Harness do
     end
   end
 
-  @doc "Returns the newest pending (not completed) Signal for one entry, or nil."
+  @doc "Returns the newest queued or running Signal for one entry, or nil."
   def pending_signal(agent_uid, provider_message_id) do
     Signal
     |> where([input], input.agent_uid == ^agent_uid)
     |> where([input], input.provider_message_id == ^provider_message_id)
-    |> where([input], is_nil(input.completed_at))
+    |> where([input], input.status in [:queued, :running])
     |> order_by([input], desc: input.inserted_at, desc: input.id)
     |> limit(1)
     |> Repo.one()
@@ -931,7 +956,7 @@ defmodule Ankole.E2E.Harness do
              WaitHelpers.wait_until(WaitHelpers.deadline(30_000), fn ->
                case Repo.get(Signal, signal_id) do
                  nil -> :finished
-                 %Signal{completed_at: %DateTime{}} -> :finished
+                 %Signal{status: :completed, completed_at: %DateTime{}} -> :finished
                  %Signal{} -> nil
                end
              end)

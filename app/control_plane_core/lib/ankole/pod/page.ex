@@ -1,52 +1,73 @@
 defmodule Ankole.Pod.Page do
-  @moduledoc """
-  One node of the page tree, its revision, and its trash state.
+  @moduledoc "One page tree node, its document revision, and its trash state."
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod.Domain
 
-  A root page has no `parent_id`. A root page in a person's Private space has
-  `private_owner_uid`; a child page inherits the space of its parent. A deleted
-  page stays in the table until its purge starts, and its descendants become
-  invisible with it.
-  """
+  postgres do
+    table("pages")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:parent_id, "pages_tenant_id_parent_id_fkey"}])
+    unique_index_names([{[:id], "pages_pkey"}])
 
-  use Ankole.Schema, tenancy: :tenant
-
-  import Ecto.Changeset
-
-  alias Ankole.Ecto.ActorRef
-
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-
-  @types ~w(doc database applet file)a
-
-  schema "pages" do
-    field :parent_id, Ankole.Ecto.UUIDv7
-    field :private_owner_uid, Ankole.Ecto.PrincipalKey
-    field :type, Ecto.Enum, values: @types
-    field :title, :string, default: ""
-    field :role, :string, virtual: true
-    field :icon, :string
-    field :position, :string
-    field :inherit_permissions, :boolean, default: true
-    field :revision, :integer, default: 0
-    field :saved_from_message_id, Ankole.Ecto.UUIDv7
-    field :created_by, ActorRef
-    field :deleted_at, :utc_datetime_usec
-    field :purge_started_at, :utc_datetime_usec
-    field :created_at, :utc_datetime_usec
-    field :updated_at, :utc_datetime_usec
+    check_constraints do
+      check_constraint(:type, "pages_type_check")
+      check_constraint(:parent_id, "pages_private_owner")
+      check_constraint(:purge_started_at, "pages_purge_state")
+    end
   end
 
-  @type t :: %__MODULE__{}
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+    )
 
-  @doc """
-  Builds the changeset for one page row.
-  """
-  @spec changeset(t(), map()) :: Ecto.Changeset.t()
-  def changeset(page, attrs) do
-    page
-    |> cast(
-      attrs,
-      [
+    attribute(:parent_id, Ankole.Ash.Types.UUIDv7)
+    attribute(:private_owner_uid, Ankole.Ash.Types.PrincipalKey)
+
+    attribute(:type, :atom,
+      allow_nil?: false,
+      constraints: [one_of: [:doc, :database, :applet, :file]]
+    )
+
+    attribute(:title, :string,
+      allow_nil?: false,
+      default: "",
+      constraints: [trim?: false, allow_empty?: true]
+    )
+
+    attribute(:icon, :string, constraints: [trim?: false, allow_empty?: true])
+    attribute(:position, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:inherit_permissions, :boolean, allow_nil?: false, default: true)
+    attribute(:revision, :integer, allow_nil?: false, default: 0, constraints: [min: 0])
+    attribute(:saved_from_message_id, Ankole.Ash.Types.UUIDv7)
+    attribute(:created_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
+    attribute(:deleted_at, :utc_datetime_usec)
+    attribute(:purge_started_at, :utc_datetime_usec)
+    attribute(:created_at, :utc_datetime_usec, allow_nil?: false)
+    attribute(:updated_at, :utc_datetime_usec, allow_nil?: false)
+  end
+
+  calculations do
+    calculate(:role, :string, expr(nil))
+  end
+
+  relationships do
+    has_many :children, __MODULE__ do
+      source_attribute(:id)
+      destination_attribute(:parent_id)
+    end
+  end
+
+  actions do
+    defaults([:read])
+
+    create :create_in_tx do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+
+      accept([
         :id,
         :parent_id,
         :private_owner_uid,
@@ -62,40 +83,57 @@ defmodule Ankole.Pod.Page do
         :purge_started_at,
         :created_at,
         :updated_at
-      ],
-      empty_values: []
-    )
-    |> validate_required([:type, :position, :created_by, :created_at, :updated_at])
-    |> validate_title()
-    |> validate_number(:revision, greater_than_or_equal_to: 0)
-    |> validate_private_owner()
-    |> validate_purge_state()
-    |> foreign_key_constraint(:parent_id, name: :pages_tenant_id_parent_id_fkey)
-    |> unique_constraint(:id, name: :pages_pkey)
-    |> check_constraint(:type, name: :pages_type_check)
-    |> check_constraint(:parent_id, name: :pages_private_owner)
-    |> check_constraint(:purge_started_at, name: :pages_purge_state)
-  end
+      ])
 
-  defp validate_private_owner(changeset) do
-    if get_field(changeset, :parent_id) && get_field(changeset, :private_owner_uid) do
-      add_error(changeset, :private_owner_uid, "belongs to a root page only")
-    else
-      changeset
+      validate(Ankole.Pod.Validations.PageState)
+    end
+
+    in_tx_update :edit do
+      accept([:title, :icon, :updated_at])
+    end
+
+    in_tx_update :move do
+      accept([:parent_id, :private_owner_uid, :position, :updated_at])
+      validate(Ankole.Pod.Validations.PageState)
+    end
+
+    atomic_in_tx_update :position do
+      accept([:position])
+    end
+
+    atomic_in_tx_update :sharing do
+      accept([:inherit_permissions])
+    end
+
+    atomic_in_tx_update :trash do
+      accept([])
+      change(set_attribute(:deleted_at, &DateTime.utc_now/0))
+    end
+
+    atomic_in_tx_update :restore do
+      change(filter(expr(not is_nil(deleted_at) and is_nil(purge_started_at))))
+      accept([])
+      change(set_attribute(:deleted_at, nil))
+    end
+
+    atomic_in_tx_update :begin_purge do
+      change(filter(expr(not is_nil(deleted_at))))
+      accept([])
+      change(set_attribute(:purge_started_at, &DateTime.utc_now/0))
+    end
+
+    atomic_in_tx_update :advance_revision do
+      accept([:updated_at])
+      change(atomic_update(:revision, expr(revision + 1)))
+    end
+
+    destroy :purge do
+      transaction?(false)
+      require_atomic?(true)
+      change(Ankole.Ash.RequireTransaction.Atomic)
+      change(filter(expr(not exists(children, true))))
     end
   end
 
-  defp validate_title(changeset) do
-    if is_nil(get_field(changeset, :title)),
-      do: add_error(changeset, :title, "cannot be null"),
-      else: changeset
-  end
-
-  defp validate_purge_state(changeset) do
-    if get_field(changeset, :purge_started_at) && is_nil(get_field(changeset, :deleted_at)) do
-      add_error(changeset, :purge_started_at, "requires a deleted page")
-    else
-      changeset
-    end
-  end
+  @type t :: %__MODULE__{}
 end

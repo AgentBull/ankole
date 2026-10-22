@@ -3,7 +3,6 @@ defmodule Ankole.AuthZ.Root do
 
   import Ecto.Query, warn: false
 
-  alias Ecto.Changeset
   alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Membership
   alias Ankole.AuthZ.Store
@@ -124,12 +123,10 @@ defmodule Ankole.AuthZ.Root do
   end
 
   defp create_builtin_group(repo, attrs) do
-    %Group{}
-    |> Group.changeset(attrs)
-    |> repo.insert(on_conflict: :nothing, conflict_target: [:tenant_id, :name])
+    Ankole.Ash.create(Group, :ensure_in_tx, attrs)
     |> case do
       {:ok, _group} -> upsert_builtin_group(repo, attrs)
-      {:error, %Changeset{} = changeset} -> {:error, changeset}
+      {:error, _reason} = error -> error
     end
   end
 

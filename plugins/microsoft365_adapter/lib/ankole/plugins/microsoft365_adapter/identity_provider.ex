@@ -22,7 +22,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(config, opts) do
     with {:ok, redirect_uri} <- MapHelpers.required_opt(opts, :redirect_uri),
-         {:ok, state} <- MapHelpers.required_opt(opts, :state) do
+         {:ok, state} <- MapHelpers.required_opt(opts, :state),
+         {:ok, nonce} <- MapHelpers.required_opt(opts, :nonce) do
       {:ok,
        EntraAuth.authorize_url(
          login_base_url: "https://login.microsoftonline.com",
@@ -30,6 +31,13 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
          client_id: Map.fetch!(config, "clientID"),
          redirect_uri: redirect_uri,
          state: state,
+         nonce: nonce,
+         prompt: Keyword.get(opts, :prompt),
+         max_age: Keyword.get(opts, :max_age),
+         claims:
+           if(Keyword.get(opts, :auth_time_required),
+             do: Ankole.JSON.encode!(%{"id_token" => %{"auth_time" => %{"essential" => true}}})
+           ),
          scopes: get_in(config, ["oidc", "scopes"]) || ["openid", "profile", "email", "User.Read"]
        )}
     end
@@ -44,12 +52,24 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
              code: code,
              redirect_uri: Keyword.get(opts, :redirect_uri)
            ),
+         {:ok, claims} <-
+           Ankole.IdentityProviders.OIDC.verify(
+             token,
+             "https://login.microsoftonline.com/#{client.tenant_id}/v2.0",
+             client.client_id,
+             opts
+           ),
+         true <- claims["tid"] == client.tenant_id,
          {:ok, user} <-
            Graph.get(client, "me",
              query: [{"$select", @me_select}],
              token: {:bearer, token.access_token}
-           ) do
-      {:ok, %{token: token, user: user}}
+           ),
+         true <- is_binary(claims["oid"]) and claims["oid"] == user["id"] do
+      {:ok, %{token: token, user: user, auth_time: claims["auth_time"]}}
+    else
+      false -> {:error, :oidc_subject_mismatch}
+      {:error, _} = error -> error
     end
   end
 

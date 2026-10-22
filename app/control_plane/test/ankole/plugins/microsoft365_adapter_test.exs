@@ -834,6 +834,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert {:ok, url} =
                IdentityProvider.authorization_url(config,
                  redirect_uri: "https://ankole.example.com/sessions/oidc/entra-id-main/callback",
+                 nonce: "nonce-1",
                  state: "state-1"
                )
 
@@ -845,6 +846,15 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
     test "exchange_code trades the code and reads authoritative claims from /me" do
       {:ok, config} = Config.validate_identity_config(identity_config())
+      issuer = "https://login.microsoftonline.com/#{@tenant_id}/v2.0"
+      auth_time = System.system_time(:second)
+
+      {id_token, jwks} =
+        Ankole.OIDCClientFixture.token(issuer, "client-1", %{
+          "oid" => "oid-ada",
+          "tid" => @tenant_id,
+          "auth_time" => auth_time
+        })
 
       Req.Test.stub(__MODULE__, fn conn ->
         case conn.request_path do
@@ -856,7 +866,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
             Req.Test.json(conn, %{
               "access_token" => "at-1",
-              "id_token" => "idt",
+              "id_token" => id_token,
               "expires_in" => 3599
             })
 
@@ -869,11 +879,15 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
               "mail" => "ada@example.com",
               "jobTitle" => "Engineer"
             })
+
+          _discovery ->
+            Ankole.OIDCClientFixture.discovery(conn, issuer, jwks)
         end
       end)
 
-      assert {:ok, %{user: user}} =
+      assert {:ok, %{user: user, auth_time: ^auth_time}} =
                IdentityProvider.exchange_code(config, "code-1",
+                 nonce: "nonce-1",
                  redirect_uri: "https://ankole.example.com/cb"
                )
 

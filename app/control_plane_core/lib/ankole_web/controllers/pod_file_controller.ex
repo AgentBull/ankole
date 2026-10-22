@@ -129,7 +129,8 @@ defmodule AnkoleWeb.PodFileController do
       404 => {"Error", "application/json", AnkoleWeb.Schemas.PodContent.ErrorEnvelope},
       409 => {"Error", "application/json", AnkoleWeb.Schemas.PodContent.ErrorEnvelope},
       413 => {"Error", "application/json", AnkoleWeb.Schemas.PodContent.ErrorEnvelope},
-      422 => {"Error", "application/json", AnkoleWeb.Schemas.PodContent.ErrorEnvelope}
+      422 => {"Error", "application/json", AnkoleWeb.Schemas.PodContent.ErrorEnvelope},
+      503 => {"Error", "application/json", AnkoleWeb.Schemas.PodContent.ErrorEnvelope}
     }
   )
 

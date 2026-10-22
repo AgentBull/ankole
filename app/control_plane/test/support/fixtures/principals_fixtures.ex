@@ -32,10 +32,8 @@ defmodule Ankole.PrincipalsFixtures do
           Principals.delete_agent(uid)
 
         _ ->
-          Ankole.Repo.transact(fn repo ->
-            principal
-            |> Ankole.Principals.Principal.status_changeset(%{status: :disabled})
-            |> repo.update()
+          Ankole.Repo.transact(fn _repo ->
+            Ankole.Ash.update(principal, :disable_in_tx, %{})
           end)
       end
     end
@@ -211,8 +209,8 @@ defmodule Ankole.PrincipalsFixtures do
   end
 
   def create_external_identity(attrs) do
-    %Ankole.Principals.ExternalIdentity{}
-    |> Ankole.Principals.ExternalIdentity.changeset(attrs)
-    |> Ankole.Repo.insert()
+    Ankole.Repo.transact(fn _repo ->
+      Ankole.Ash.create(Ankole.Principals.ExternalIdentity, :bind_in_tx, attrs)
+    end)
   end
 end

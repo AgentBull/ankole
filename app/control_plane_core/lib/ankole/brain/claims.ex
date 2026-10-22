@@ -11,6 +11,7 @@ defmodule Ankole.Brain.Claims do
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Brain.Access
   alias Ankole.Brain.Embeddings
@@ -18,7 +19,6 @@ defmodule Ankole.Brain.Claims do
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Scope
-  alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
 
   @fact_kinds ~w(event preference commitment belief fact)
@@ -62,7 +62,7 @@ defmodule Ankole.Brain.Claims do
   def current_external_facts(query) do
     query
     |> filter_live_parents()
-    |> where([claim], claim.claim_type == "fact")
+    |> where([claim], claim.claim_type == :fact)
     |> where([claim], is_nil(claim.expired_at) and is_nil(claim.superseded_by))
   end
 
@@ -124,14 +124,12 @@ defmodule Ankole.Brain.Claims do
   @spec write_fact(map(), writer(), keyword()) ::
           {:ok, %{claim: Claim.t(), status: atom()}} | {:error, term()}
   def write_fact(attrs, writer, opts \\ []) when is_map(attrs) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    with :ok <- validate_parent(attrs, repo),
+    with :ok <- validate_parent(attrs),
          :ok <- validate_claim_text(attrs[:claim]),
          :ok <- validate_fact_kind(attrs[:kind]),
          :ok <- validate_notability(attrs[:notability]),
          :ok <- validate_grid_value(attrs[:confidence], :confidence),
-         :ok <- validate_holder(attrs[:holder], repo),
+         :ok <- validate_holder(attrs[:holder]),
          :ok <- validate_scope(attrs[:audience_scope], writer),
          :ok <- validate_required_provenance(attrs[:provenance]),
          :ok <- validate_valid_from(attrs[:valid_from]) do
@@ -139,19 +137,19 @@ defmodule Ankole.Brain.Claims do
 
       dedup? = Keyword.get(opts, :dedup, true)
 
-      repo.transact(fn repo ->
+      Repo.transact(fn repo ->
         case find_dedup_action(repo, attrs, if(dedup?, do: {embedding, signature})) do
           {:duplicate, existing} ->
             {:ok, %{claim: existing, status: :duplicate}}
 
           {:supersede, existing} ->
-            with {:ok, claim} <- insert_fact(repo, attrs, embedding, signature, writer, opts),
-                 {:ok, _old} <- mark_superseded(repo, existing, claim.id) do
+            with {:ok, claim} <- insert_fact(attrs, embedding, signature, writer, opts),
+                 {:ok, _old} <- mark_superseded(existing, claim.id) do
               {:ok, %{claim: claim, status: :superseded, superseded_claim_id: existing.id}}
             end
 
           :insert ->
-            with {:ok, claim} <- insert_fact(repo, attrs, embedding, signature, writer, opts) do
+            with {:ok, claim} <- insert_fact(attrs, embedding, signature, writer, opts) do
               {:ok, %{claim: claim, status: :inserted}}
             end
         end
@@ -165,23 +163,19 @@ defmodule Ankole.Brain.Claims do
   """
   @spec write_take(map(), writer(), keyword()) :: {:ok, Claim.t()} | {:error, term()}
   def write_take(attrs, writer, opts \\ []) when is_map(attrs) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    with :ok <- validate_parent(attrs, repo),
+    with :ok <- validate_parent(attrs),
          :ok <- validate_claim_text(attrs[:claim]),
          :ok <- validate_open_kind(attrs[:kind]),
          :ok <- validate_grid_value(attrs[:weight], :weight),
-         :ok <- validate_holder(attrs[:holder], repo),
+         :ok <- validate_holder(attrs[:holder]),
          :ok <- validate_scope(attrs[:audience_scope], writer),
          :ok <- validate_required_provenance(attrs[:provenance]),
          {:ok, until_date} <- cast_until_date(attrs[:until_date]) do
       {embedding, signature} = resolve_embedding(attrs[:claim], opts)
       now = DateTime.utc_now(:microsecond)
 
-      claim = %Claim{
-        id: UUIDv7.autogenerate(),
+      attrs = %{
         author: Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts),
-        claim_type: "take",
         provenance_session: attrs[:provenance_session],
         object_slug: attrs[:object_slug],
         conversation_id: attrs[:conversation_id],
@@ -192,14 +186,13 @@ defmodule Ankole.Brain.Claims do
         weight: attrs[:weight] * 1.0,
         since_date: attrs[:since_date],
         until_date: until_date,
-        active: true,
         provenance: attrs[:provenance],
         embedding: embedding,
         embedding_signature: signature,
         embedded_at: if(embedding, do: now)
       }
 
-      repo.insert(claim)
+      Ankole.Ash.create(Claim, :record_take, attrs)
     end
   end
 
@@ -225,13 +218,11 @@ defmodule Ankole.Brain.Claims do
   @spec supersede_claim(Ecto.UUID.t(), map(), writer(), keyword()) ::
           {:ok, Claim.t()} | {:error, term()}
   def supersede_claim(claim_id, attrs, writer, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
     # The replacement text is known before the transaction, so the embedding
     # network call runs before this function takes the row lock.
     prepared = prepare_embedding(attrs[:claim])
 
-    repo.transact(fn repo ->
+    Repo.transact(fn repo ->
       with {:ok, old} <- lock_claim(repo, claim_id),
            :ok <- ensure_not_superseded(old),
            :ok <- validate_edit_eligibility(old, writer) do
@@ -246,7 +237,7 @@ defmodule Ankole.Brain.Claims do
 
         result =
           case old.claim_type do
-            "fact" ->
+            :fact ->
               replacement =
                 replacement
                 |> Map.put_new(:notability, old.notability)
@@ -257,7 +248,6 @@ defmodule Ankole.Brain.Claims do
               # would only rediscover the row it is replacing.
               with {:ok, %{claim: claim}} <-
                      write_fact(replacement, writer,
-                       repo: repo,
                        dedup: false,
                        embedding: prepared,
                        author: Keyword.get(opts, :author)
@@ -265,18 +255,17 @@ defmodule Ankole.Brain.Claims do
                 {:ok, claim}
               end
 
-            "take" ->
+            :take ->
               replacement = Map.put_new(replacement, :weight, old.weight)
 
               write_take(replacement, writer,
-                repo: repo,
                 embedding: prepared,
                 author: Keyword.get(opts, :author)
               )
           end
 
         with {:ok, claim} <- result,
-             {:ok, _old} <- mark_superseded(repo, old, claim.id) do
+             {:ok, _old} <- mark_superseded(old, claim.id) do
           {:ok, claim}
         end
       end
@@ -286,16 +275,12 @@ defmodule Ankole.Brain.Claims do
   @doc """
   Expires one current Fact out of the current state; history stays.
   """
-  @spec expire_fact(Ecto.UUID.t(), keyword()) :: {:ok, Claim.t()} | {:error, term()}
-  def expire_fact(claim_id, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    repo.transact(fn repo ->
+  @spec expire_fact(Ecto.UUID.t()) :: {:ok, Claim.t()} | {:error, term()}
+  def expire_fact(claim_id) do
+    Repo.transact(fn repo ->
       with {:ok, claim} <- lock_claim(repo, claim_id),
-           :ok <- ensure_claim_type(claim, "fact") do
-        claim
-        |> Ecto.Changeset.change(expired_at: DateTime.utc_now(:microsecond))
-        |> repo.update()
+           :ok <- ensure_claim_type(claim, :fact) do
+        Ankole.Ash.update(claim, :expire_fact, %{at: DateTime.utc_now(:microsecond)})
       end
     end)
   end
@@ -304,16 +289,12 @@ defmodule Ankole.Brain.Claims do
   Deactivates one Take; it leaves the current judgment set but keeps its
   calibration history.
   """
-  @spec deactivate_take(Ecto.UUID.t(), keyword()) :: {:ok, Claim.t()} | {:error, term()}
-  def deactivate_take(claim_id, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    repo.transact(fn repo ->
+  @spec deactivate_take(Ecto.UUID.t()) :: {:ok, Claim.t()} | {:error, term()}
+  def deactivate_take(claim_id) do
+    Repo.transact(fn repo ->
       with {:ok, claim} <- lock_claim(repo, claim_id),
-           :ok <- ensure_claim_type(claim, "take") do
-        claim
-        |> Ecto.Changeset.change(active: false)
-        |> repo.update()
+           :ok <- ensure_claim_type(claim, :take) do
+        Ankole.Ash.update(claim, :deactivate_take, %{})
       end
     end)
   end
@@ -325,67 +306,84 @@ defmodule Ankole.Brain.Claims do
   revision; expired rows keep the history.
   """
   @spec expire_source_session_facts(module(), String.t(), String.t()) :: non_neg_integer()
-  def expire_source_session_facts(repo, object_slug, session) do
-    now = DateTime.utc_now(:microsecond)
-
-    {count, _rows} =
-      Claim
-      |> where([claim], claim.claim_type == "fact" and is_nil(claim.expired_at))
-      |> where([claim], claim.object_slug == ^object_slug)
-      |> where([claim], claim.provenance_session == ^session)
-      |> repo.update_all(set: [expired_at: now, updated_at: now])
-
-    count
+  def expire_source_session_facts(_repo, object_slug, session) do
+    Claim
+    |> Ash.Query.filter(claim_type == :fact and is_nil(expired_at))
+    |> Ash.Query.filter(object_slug == ^object_slug and provenance_session == ^session)
+    |> update_claims_in_tx(:expire_fact, %{at: DateTime.utc_now(:microsecond)})
   end
 
   @doc "Withdraws the current claims derived by one changed conversation Source."
-  def withdraw_source_claims_in_tx(repo, source_id, now) do
+  def withdraw_source_claims_in_tx(_repo, source_id, now) do
     session = "source:" <> source_id
 
-    repo.update_all(
-      from(c in Claim,
-        where:
-          c.provenance_session == ^session and c.claim_type == "fact" and is_nil(c.expired_at)
-      ),
-      set: [expired_at: now, updated_at: now]
+    Claim
+    |> Ash.Query.filter(
+      provenance_session == ^session and claim_type == :fact and is_nil(expired_at)
     )
+    |> update_claims_in_tx(:expire_fact, %{at: now})
 
-    repo.update_all(
-      from(c in Claim,
-        where: c.provenance_session == ^session and c.claim_type == "take" and c.active == true
-      ),
-      set: [active: false, updated_at: now]
-    )
+    Claim
+    |> Ash.Query.filter(provenance_session == ^session and claim_type == :take and active == true)
+    |> update_claims_in_tx(:deactivate_take, %{at: now})
 
     :ok
+  end
+
+  @doc false
+  def consolidate_in_tx(ids, take_id, now) do
+    Claim
+    |> Ash.Query.filter(id in ^ids)
+    |> update_claims_in_tx(:consolidate, %{consolidated_at: now, consolidated_into: take_id})
+  end
+
+  @doc false
+  def repoint_in_tx(duplicate, canonical) do
+    claims =
+      Claim
+      |> Ash.Query.filter(object_slug == ^duplicate)
+      |> update_claims_in_tx(:reparent, %{object_slug: canonical})
+
+    holders =
+      Claim
+      |> Ash.Query.filter(holder == ^duplicate)
+      |> update_claims_in_tx(:reassign_holder, %{holder: canonical})
+
+    {claims, holders}
+  end
+
+  defp update_claims_in_tx(query, action, attrs) do
+    case Ankole.Ash.bulk_update(query, action, attrs,
+           strategy: [:atomic],
+           return_records?: true,
+           return_errors?: true,
+           select: [:id]
+         ) do
+      %Ash.BulkResult{status: :success, records: records} -> length(records)
+      %Ash.BulkResult{errors: errors} -> Repo.rollback(Ash.Error.to_error_class(errors))
+    end
   end
 
   @doc """
   Resolves one Take in place. Resolution is immutable: a second resolve
   returns `{:error, :already_resolved}`.
   """
-  @spec resolve_take(Ecto.UUID.t(), map(), String.t(), keyword()) ::
+  @spec resolve_take(Ecto.UUID.t(), map(), String.t()) ::
           {:ok, Claim.t()} | {:error, term()}
-  def resolve_take(claim_id, resolution, resolved_by, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    repo.transact(fn repo ->
+  def resolve_take(claim_id, resolution, resolved_by) do
+    Repo.transact(fn repo ->
       with {:ok, claim} <- lock_claim(repo, claim_id),
-           :ok <- ensure_claim_type(claim, "take"),
+           :ok <- ensure_claim_type(claim, :take),
            :ok <- ensure_unresolved(claim),
            :ok <- validate_resolution(resolution) do
-        claim
-        |> Ecto.Changeset.change(
-          resolved_at: DateTime.utc_now(:microsecond),
+        Ankole.Ash.update(claim, :resolve_take, %{
           resolved_quality: resolution[:resolved_quality],
           resolved_outcome: resolution[:resolved_outcome],
           resolved_value: resolution[:resolved_value],
           resolved_unit: resolution[:resolved_unit],
           resolution_provenance: resolution[:resolution_provenance],
-          resolved_by: resolved_by,
-          active: false
-        )
-        |> repo.update()
+          resolved_by: resolved_by
+        })
       end
     end)
   end
@@ -455,14 +453,39 @@ defmodule Ankole.Brain.Claims do
           {:ok, :embedded | :deduplicated | :superseded | :stale} | {:error, term()}
   def attach_embedding(%Claim{} = claim, embedding, signature, opts \\ [])
       when is_binary(signature) do
-    repo = Keyword.get(opts, :repo, Repo)
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    repo.transact(fn repo ->
+    Repo.transact(fn repo ->
       with {:ok, current} <- lock_claim(repo, claim.id) do
         attach_current_embedding(repo, current, embedding, signature, now)
       end
     end)
+  end
+
+  @doc "Discards a failed embedding result when another attempt already changed the vector state."
+  def record_embedding_error(%Claim{} = claim, error, signature) do
+    Claim
+    |> Ash.Query.filter(id == ^claim.id)
+    |> Ankole.Ash.bulk_update(
+      :record_embedding,
+      %{
+        embedding: nil,
+        embedding_signature: signature,
+        embedding_error: error,
+        embedded_at: nil,
+        input_embedded_at: claim.embedded_at,
+        input_signature: claim.embedding_signature
+      },
+      strategy: [:atomic],
+      return_records?: true,
+      return_errors?: true,
+      select: [:id]
+    )
+    |> case do
+      %Ash.BulkResult{status: :success, records: []} -> {:ok, :stale}
+      %Ash.BulkResult{status: :success, records: [_]} -> {:ok, :updated}
+      %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+    end
   end
 
   # Callers that hold a transaction or a row lock prepare the embedding
@@ -523,7 +546,7 @@ defmodule Ankole.Brain.Claims do
 
   defp attach_current_embedding(
          repo,
-         %Claim{claim_type: "fact", expired_at: nil, superseded_by: nil} = claim,
+         %Claim{claim_type: :fact, expired_at: nil, superseded_by: nil} = claim,
          embedding,
          signature,
          now
@@ -539,23 +562,23 @@ defmodule Ankole.Brain.Claims do
 
     case find_dedup_action(repo, attrs, {embedding, signature}) do
       :insert ->
-        put_embedding(repo, claim, embedding, signature, now, :embedded)
+        put_embedding(claim, embedding, signature, now, :embedded)
 
       {:duplicate, existing} ->
         with {:ok, _claim} <-
-               mark_superseded(repo, claim, existing.id, embedding_error: nil) do
+               mark_superseded(claim, existing.id, :deduplicate) do
           {:ok, :deduplicated}
         end
 
       {:supersede, existing} ->
         if later_than?(claim, existing) do
-          with {:ok, _claim} <- put_embedding(repo, claim, embedding, signature, now),
-               {:ok, _existing} <- mark_superseded(repo, existing, claim.id) do
+          with {:ok, _claim} <- put_embedding(claim, embedding, signature, now),
+               {:ok, _existing} <- mark_superseded(existing, claim.id) do
             {:ok, :superseded}
           end
         else
           with {:ok, _claim} <-
-                 mark_superseded(repo, claim, existing.id, embedding_error: nil) do
+                 mark_superseded(claim, existing.id, :deduplicate) do
             {:ok, :deduplicated}
           end
         end
@@ -563,27 +586,27 @@ defmodule Ankole.Brain.Claims do
   end
 
   defp attach_current_embedding(
-         repo,
-         %Claim{claim_type: "take", active: true} = claim,
+         _repo,
+         %Claim{claim_type: :take, active: true} = claim,
          embedding,
          signature,
          now
        ),
-       do: put_embedding(repo, claim, embedding, signature, now, :embedded)
+       do: put_embedding(claim, embedding, signature, now, :embedded)
 
   defp attach_current_embedding(_repo, _claim, _embedding, _signature, _now),
     do: {:ok, :stale}
 
-  defp put_embedding(repo, claim, embedding, signature, now, status \\ nil) do
+  defp put_embedding(claim, embedding, signature, now, status \\ nil) do
     result =
-      claim
-      |> Ecto.Changeset.change(
+      Ankole.Ash.update(claim, :record_embedding, %{
         embedding: embedding,
         embedding_signature: signature,
         embedding_error: nil,
-        embedded_at: now
-      )
-      |> repo.update()
+        embedded_at: now,
+        input_embedded_at: claim.embedded_at,
+        input_signature: claim.embedding_signature
+      })
 
     case {result, status} do
       {{:ok, updated}, nil} -> {:ok, updated}
@@ -647,13 +670,11 @@ defmodule Ankole.Brain.Claims do
     |> String.trim()
   end
 
-  defp insert_fact(repo, attrs, embedding, signature, writer, opts) do
+  defp insert_fact(attrs, embedding, signature, writer, opts) do
     now = DateTime.utc_now(:microsecond)
 
-    claim = %Claim{
-      id: UUIDv7.autogenerate(),
+    attrs = %{
       author: Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts),
-      claim_type: "fact",
       object_slug: attrs[:object_slug],
       conversation_id: attrs[:conversation_id],
       claim: attrs[:claim],
@@ -662,8 +683,8 @@ defmodule Ankole.Brain.Claims do
       audience_scope: attrs[:audience_scope],
       notability: attrs[:notability],
       context: attrs[:context],
-      valid_from: usec(attrs[:valid_from]),
-      valid_until: usec(attrs[:valid_until]),
+      valid_from: attrs[:valid_from],
+      valid_until: attrs[:valid_until],
       confidence: attrs[:confidence] * 1.0,
       provenance_session: attrs[:provenance_session],
       provenance: attrs[:provenance],
@@ -672,41 +693,20 @@ defmodule Ankole.Brain.Claims do
       embedded_at: if(embedding, do: now)
     }
 
-    repo.insert(claim)
+    Ankole.Ash.create(Claim, :record_fact, attrs)
   end
 
-  # Model-produced ISO 8601 datetimes often carry second precision, while
-  # the `:utc_datetime_usec` columns require microsecond precision on a raw
-  # struct insert. Normalizing here keeps every valid DateTime insertable.
-  defp usec(%DateTime{microsecond: {value, _precision}} = datetime),
-    do: %{datetime | microsecond: {value, 6}}
-
-  defp usec(other), do: other
-
-  defp mark_superseded(repo, %Claim{} = old, new_claim_id, extra_changes \\ []) do
-    changes =
-      case old.claim_type do
-        "fact" ->
-          [superseded_by: new_claim_id, expired_at: DateTime.utc_now(:microsecond)]
-
-        "take" ->
-          [superseded_by: new_claim_id, active: false]
-      end
-
-    changes = Keyword.merge(changes, extra_changes)
-
-    old
-    |> Ecto.Changeset.change(changes)
-    |> repo.update()
+  defp mark_superseded(%Claim{} = old, new_claim_id, action \\ :supersede) do
+    Ankole.Ash.update(old, action, %{superseded_by: new_claim_id})
   end
 
-  defp validate_parent(attrs, repo) do
+  defp validate_parent(attrs) do
     object_slug = attrs[:object_slug]
     channel_id = attrs[:conversation_id]
 
     cond do
       is_binary(object_slug) and is_nil(channel_id) ->
-        case Objects.get_by_slug(object_slug, repo: repo) do
+        case Objects.get_by_slug(object_slug) do
           {:ok, _object} -> :ok
           {:error, :not_found} -> {:error, {:unknown_parent_object, object_slug}}
         end
@@ -768,13 +768,13 @@ defmodule Ankole.Brain.Claims do
   defp validate_notability(notability),
     do: {:error, {:invalid_notability, notability, @notabilities}}
 
-  defp validate_holder(holder, repo) when is_binary(holder) and holder != "" do
-    if Objects.valid_holder?(holder, repo: repo),
+  defp validate_holder(holder) when is_binary(holder) and holder != "" do
+    if Objects.valid_holder?(holder),
       do: :ok,
       else: {:error, {:unresolvable_holder, holder}}
   end
 
-  defp validate_holder(_holder, _repo), do: {:error, :missing_holder}
+  defp validate_holder(_holder), do: {:error, :missing_holder}
 
   defp validate_scope(scope, :system), do: Scope.validate(scope)
 
@@ -829,7 +829,7 @@ defmodule Ankole.Brain.Claims do
   defp ensure_claim_type(%Claim{claim_type: type}, type), do: :ok
 
   defp ensure_claim_type(%Claim{claim_type: actual}, expected),
-    do: {:error, {:wrong_claim_type, actual, expected}}
+    do: {:error, {:wrong_claim_type, Atom.to_string(actual), Atom.to_string(expected)}}
 
   defp ensure_unresolved(%Claim{resolved_at: nil}), do: :ok
   defp ensure_unresolved(%Claim{}), do: {:error, :already_resolved}

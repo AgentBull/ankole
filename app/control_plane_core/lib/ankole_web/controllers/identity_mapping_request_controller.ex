@@ -154,7 +154,7 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
   defp error(conn, {:missing_param, field}),
     do: error(conn, 422, "invalid_request", "#{field} is required")
 
-  defp error(conn, %Ecto.Changeset{}),
+  defp error(conn, %module{}) when module in [Ash.Changeset, Ash.Error.Invalid],
     do: error(conn, 422, "invalid_request", "mapping is invalid")
 
   defp error(conn, reason) do

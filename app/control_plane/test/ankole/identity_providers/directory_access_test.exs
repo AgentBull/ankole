@@ -6,6 +6,60 @@ defmodule Ankole.IdentityProviders.DirectoryAccessTest do
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
   alias Ankole.Principals.HumanAccess
 
+  test "provider configuration invalidation fences both old completion and failure" do
+    {:ok, ticket} = DirectoryAccess.begin_sync("changed-provider")
+    opts = [admission_scope: "none", maximum_removal_percent: 20]
+    assert {:ok, healthy} = DirectoryAccess.finish_sync(ticket, "scope", [], opts)
+    assert healthy.status == :healthy
+
+    assert {:ok, :ok} =
+             Repo.transact(fn repo ->
+               :ok = DirectoryAccess.configuration_changed_in_tx(repo, ticket.provider_id)
+               {:ok, :ok}
+             end)
+
+    invalidated = DirectoryAccess.state(ticket.provider_id)
+    assert invalidated.revision == ticket.revision + 1
+    assert invalidated.status == :review_required
+    assert invalidated.approved_scope_fingerprint == nil
+    assert invalidated.snapshot_fingerprint == nil
+    assert {:ok, :superseded} = DirectoryAccess.finish_sync(ticket, "stale-scope", [], opts)
+    assert {:error, :stale_failure} = DirectoryAccess.fail_sync(ticket, :stale_failure)
+    assert DirectoryAccess.state(ticket.provider_id) == invalidated
+  end
+
+  test "event review cannot substitute its provider and state actions cannot forge a revision" do
+    {:ok, ticket} = DirectoryAccess.begin_sync("immutable-provider")
+
+    assert {:error, error} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.update(ticket, :receive_event_in_tx, %{revision: 999, status: :healthy})
+             end)
+
+    assert Enum.sort(Enum.map(error.errors, & &1.input)) == [:revision, :status]
+    assert_persisted_equal(DirectoryAccess.state(ticket.provider_id), ticket)
+
+    {:ok, event} =
+      DirectoryAccess.receive_event(ticket.provider_id, %{
+        event_id: "fixed-event",
+        event_type: "contact.user.deleted_v3",
+        external_ids: ["missing"],
+        reason: "departure",
+        provider_time: DateTime.utc_now()
+      })
+
+    assert {:error, error} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.update(event, :review_in_tx, %{
+                 provider_id: "substituted",
+                 review_reason: "Verified"
+               })
+             end)
+
+    assert [%Ash.Error.Invalid.NoSuchInput{input: :provider_id}] = error.errors
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(DirectoryEvent, event.id), event)
+  end
+
   test "a reliable object deletion resolves aliases, disables the last admin, and is idempotent" do
     {:ok, person} =
       IdentityProvider.upsert_user("lark-main", %{

@@ -7,7 +7,6 @@ defmodule Ankole.Sessions.TurnEnvelopeTest do
   alias Ankole.Sessions.JobTurnRef
 
   setup do
-    allow_cache_database_access()
     :ok
   end
 

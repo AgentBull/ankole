@@ -19,7 +19,7 @@ defmodule Ankole.AgentWorkers.BindingWorkerEnv do
   def resolve(agent_uid, opts \\ []) when is_binary(agent_uid) do
     adapter_server = Keyword.get(opts, :adapter_server)
 
-    with {:ok, bindings} <- Bindings.list_agent_bindings(agent_uid, opts) do
+    with {:ok, bindings} <- Bindings.list_agent_bindings(agent_uid) do
       bindings
       |> select_bindings(Keyword.get(opts, :binding_name))
       |> Enum.reduce_while({:ok, %{}}, &merge_binding(&1, &2, adapter_server))

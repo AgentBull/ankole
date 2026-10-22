@@ -246,15 +246,14 @@ defmodule Ankole.Sessions.ConversationContextTest do
 
       case unquote(change) do
         :edit ->
-          report
-          |> Ankole.Conversations.Message.changeset(%{text: "Edited later"})
-          |> Repo.update!()
+          assert {:ok, _} =
+                   in_tx(fn -> Ankole.Ash.update(report, :edit, %{text: "Edited later"}) end)
 
         :remove ->
-          Repo.delete!(report)
+          assert {:ok, _} = in_tx(fn -> Ankole.Ash.destroy(report, :remove) end)
       end
 
-      assert Repo.reload!(response) == response
+      Ankole.DataCase.assert_persisted_equal(Repo.reload!(response), response)
       assert Enum.any?(response.content, &(Ankole.JSON.encode!(&1) =~ report.text))
       assert ConversationContext.append(run, %{"metadata" => %{}, "input" => []})["input"] == []
     end
@@ -276,9 +275,8 @@ defmodule Ankole.Sessions.ConversationContextTest do
     {:ok, _} = ResponseCommit.commit_complete(response, [])
     signal = Repo.get!(Signals.Signal, run.signal_id)
 
-    report
-    |> Ankole.Conversations.Message.changeset(%{text: "Edited while generating"})
-    |> Repo.update!()
+    assert {:ok, _} =
+             in_tx(fn -> Ankole.Ash.update(report, :edit, %{text: "Edited while generating"}) end)
 
     assert :ok =
              Ankole.Sessions.Queue.ensure_event_source_live_in_tx(
@@ -445,8 +443,8 @@ defmodule Ankole.Sessions.ConversationContextTest do
         Repo.get_by!(Message, conversation_id: context.model_conversation_id, status: "error")
 
       checkpoint = Repo.get!(Message, failed.previous_message_id)
-      assert checkpoint.type == "checkpoint"
-      assert checkpoint.status == "complete"
+      assert checkpoint.type == :checkpoint
+      assert checkpoint.status == :complete
       assert AIGateway.response_metadata(checkpoint) == first["metadata"]
       artifact = Repo.get!(CompactionArtifact, checkpoint.id)
       refute Ankole.JSON.encode!(artifact.content) =~ report.text

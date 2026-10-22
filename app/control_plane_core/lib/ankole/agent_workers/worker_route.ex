@@ -149,12 +149,17 @@ defmodule Ankole.AgentWorkers.WorkerRoute do
       try do
         GenServer.call(pid, request, timeout_ms)
       catch
-        :exit, {:noproc, _call} -> {:error, :unknown_route}
-        :exit, {:normal, _call} -> {:error, :unknown_route}
-        :exit, {:shutdown, _call} -> {:error, :unknown_route}
-        :exit, {{:shutdown, _reason}, _call} -> {:error, :unknown_route}
-        :exit, {:timeout, _call} -> {:error, :timeout}
-        :exit, {{:nodedown, _node}, _call} -> {:error, :unknown_route}
+        :exit, {reason, _call} when reason in [:noproc, :normal, :shutdown, :killed] ->
+          {:error, :unknown_route}
+
+        :exit, {{:shutdown, _reason}, _call} ->
+          {:error, :unknown_route}
+
+        :exit, {:timeout, _call} ->
+          {:error, :timeout}
+
+        :exit, {{:nodedown, _node}, _call} ->
+          {:error, :unknown_route}
       end
     end
   end
@@ -200,7 +205,7 @@ defmodule Ankole.AgentWorkers.WorkerRoute do
   defp current_fence(agent_uid) do
     Repo.one(
       from(worker in AgentWorker,
-        where: worker.agent_uid == ^agent_uid and worker.state in ["ready", "draining"],
+        where: worker.agent_uid == ^agent_uid and worker.state in [:ready, :draining],
         select: %{transport_route: worker.transport_route, incarnation_id: worker.incarnation_id}
       )
     )

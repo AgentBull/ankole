@@ -403,10 +403,8 @@ defmodule Ankole.AIAgent.ModelProfiles do
     |> repo.one()
   end
 
-  defp update_agent_options(repo, agent, options) do
-    agent
-    |> Agent.changeset(%{options: options})
-    |> repo.update()
+  defp update_agent_options(_repo, agent, options) do
+    Ankole.Ash.update(agent, :options_in_tx, %{options: options})
   end
 
   defp profiles_from_agent(%Agent{options: options}) when is_map(options) do

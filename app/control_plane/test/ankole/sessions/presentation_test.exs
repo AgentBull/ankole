@@ -26,12 +26,10 @@ defmodule Ankole.Sessions.PresentationTest do
       secondary_provider_id = "mock:chat:cron-delivery-secondary"
       secondary_channel_id = Ecto.UUID.generate()
 
-      %PublicConversation{}
-      |> PublicConversation.changeset(%{
+      Ankole.ExternalConversationsFixtures.create_external_conversation!(%{
         id: secondary_channel_id,
         provider_conversation_id: secondary_provider_id,
         last_activity_at: @base_time,
-        kind: :external,
         external_kind: :im_group,
         reply_mode: :channel,
         title: "Secondary schedule delivery",
@@ -40,15 +38,15 @@ defmodule Ankole.Sessions.PresentationTest do
         first_seen_at: @base_time,
         last_seen_at: @base_time
       })
-      |> Repo.insert!()
 
-      %Ankole.Conversations.Participant{}
-      |> Ankole.Conversations.Participant.changeset(%{
-        conversation_id: secondary_channel_id,
-        principal_uid: agent.uid,
-        role: :agent
-      })
-      |> Repo.insert!()
+      assert {:ok, _} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.create(Ankole.Conversations.Participant, :join, %{
+                   conversation_id: secondary_channel_id,
+                   principal_uid: agent.uid,
+                   role: :agent
+                 })
+               end)
 
       targets = [
         %{
@@ -65,7 +63,8 @@ defmodule Ankole.Sessions.PresentationTest do
 
       event =
         event
-        |> Signal.changeset(%{
+        |> AshPostgres.DataLayer.to_ecto()
+        |> Ecto.Changeset.change(%{
           type: "cron.fire",
           provider_message_id: nil,
           data: %{
@@ -184,12 +183,10 @@ defmodule Ankole.Sessions.PresentationTest do
       secondary_provider_id = "mock:chat:cron-attachment-secondary"
       secondary_channel_id = Ecto.UUID.generate()
 
-      %PublicConversation{}
-      |> PublicConversation.changeset(%{
+      Ankole.ExternalConversationsFixtures.create_external_conversation!(%{
         id: secondary_channel_id,
         provider_conversation_id: secondary_provider_id,
         last_activity_at: @base_time,
-        kind: :external,
         external_kind: :im_group,
         reply_mode: :channel,
         title: "Secondary schedule attachment delivery",
@@ -198,15 +195,15 @@ defmodule Ankole.Sessions.PresentationTest do
         first_seen_at: @base_time,
         last_seen_at: @base_time
       })
-      |> Repo.insert!()
 
-      %Ankole.Conversations.Participant{}
-      |> Ankole.Conversations.Participant.changeset(%{
-        conversation_id: secondary_channel_id,
-        principal_uid: agent.uid,
-        role: :agent
-      })
-      |> Repo.insert!()
+      assert {:ok, _} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.create(Ankole.Conversations.Participant, :join, %{
+                   conversation_id: secondary_channel_id,
+                   principal_uid: agent.uid,
+                   role: :agent
+                 })
+               end)
 
       targets = [
         %{
@@ -223,7 +220,8 @@ defmodule Ankole.Sessions.PresentationTest do
 
       event =
         event
-        |> Signal.changeset(%{
+        |> AshPostgres.DataLayer.to_ecto()
+        |> Ecto.Changeset.change(%{
           type: "cron.fire",
           data: %{
             "wake_payload" => %{"delivery" => %{"targets" => targets}}
@@ -290,12 +288,10 @@ defmodule Ankole.Sessions.PresentationTest do
       secondary_provider_id = "mock:chat:background-job-delivery-secondary"
       secondary_channel_id = Ecto.UUID.generate()
 
-      %PublicConversation{}
-      |> PublicConversation.changeset(%{
+      Ankole.ExternalConversationsFixtures.create_external_conversation!(%{
         id: secondary_channel_id,
         provider_conversation_id: secondary_provider_id,
         last_activity_at: @base_time,
-        kind: :external,
         external_kind: :im_group,
         reply_mode: :channel,
         title: "Secondary background job delivery",
@@ -304,15 +300,15 @@ defmodule Ankole.Sessions.PresentationTest do
         first_seen_at: @base_time,
         last_seen_at: @base_time
       })
-      |> Repo.insert!()
 
-      %Ankole.Conversations.Participant{}
-      |> Ankole.Conversations.Participant.changeset(%{
-        conversation_id: secondary_channel_id,
-        principal_uid: agent.uid,
-        role: :agent
-      })
-      |> Repo.insert!()
+      assert {:ok, _} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.create(Ankole.Conversations.Participant, :join, %{
+                   conversation_id: secondary_channel_id,
+                   principal_uid: agent.uid,
+                   role: :agent
+                 })
+               end)
 
       targets = [
         %{
@@ -328,7 +324,8 @@ defmodule Ankole.Sessions.PresentationTest do
 
       event =
         event
-        |> Signal.changeset(%{
+        |> AshPostgres.DataLayer.to_ecto()
+        |> Ecto.Changeset.change(%{
           type: "background_agent_job.completed",
           provider_message_id: nil,
           data: %{
@@ -400,7 +397,8 @@ defmodule Ankole.Sessions.PresentationTest do
 
       event =
         event
-        |> Signal.changeset(%{type: "webhook.received"})
+        |> AshPostgres.DataLayer.to_ecto()
+        |> Ecto.Changeset.change(%{type: "webhook.received"})
         |> Repo.update!()
 
       final = complete_response(agent.uid, event, "GitHub issue state verified")
@@ -420,10 +418,14 @@ defmodule Ankole.Sessions.PresentationTest do
       %{agent: agent, event: event, run: run} =
         admit_event("listen-only-channel")
 
-      PublicConversation
-      |> Repo.get_by!(id: event.conversation_id)
-      |> PublicConversation.changeset(%{reply_mode: :none})
-      |> Repo.update!()
+      assert {:ok, _} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.update(
+                   Repo.get_by!(PublicConversation, id: event.conversation_id),
+                   :observe,
+                   %{reply_mode: :none}
+                 )
+               end)
 
       final = complete_response(agent.uid, event, "work is done")
 
@@ -447,7 +449,8 @@ defmodule Ankole.Sessions.PresentationTest do
 
       event =
         event
-        |> Signal.changeset(%{type: "internal.no_channel", conversation_id: nil})
+        |> AshPostgres.DataLayer.to_ecto()
+        |> Ecto.Changeset.change(%{type: "internal.no_channel", conversation_id: nil})
         |> Repo.update!()
 
       final = complete_response(agent.uid, event, "source learning completed")
@@ -694,7 +697,7 @@ defmodule Ankole.Sessions.PresentationTest do
       assert {:error, :turn_completion_has_no_user_visible_projection} =
                finalize_run(run, final)
 
-      assert_turn_remains_open(event)
+      assert_turn_remains_running(event)
     end
 
     test "rejects a stale actor epoch without modifying Actor state" do
@@ -703,7 +706,7 @@ defmodule Ankole.Sessions.PresentationTest do
       stale_run = %{run | epoch: run.epoch + 1}
 
       assert {:error, :stale_driver} = finalize_run(stale_run, final)
-      assert_turn_remains_open(event)
+      assert_turn_remains_running(event)
     end
 
     test "rejects a Response owned by another subject without modifying Actor state" do
@@ -713,7 +716,7 @@ defmodule Ankole.Sessions.PresentationTest do
       final = complete_response(other_subject.uid, event, "not this subject")
 
       assert {:error, :not_found} = finalize_run(run, final)
-      assert_turn_remains_open(event)
+      assert_turn_remains_running(event)
     end
 
     test "rejects a Response from another conversation without modifying Actor state" do
@@ -726,7 +729,7 @@ defmodule Ankole.Sessions.PresentationTest do
         )
 
       assert {:error, :response_conversation_mismatch} = finalize_run(run, final)
-      assert_turn_remains_open(event)
+      assert_turn_remains_running(event)
     end
 
     test "rejects opaque metadata for another Signal without modifying Actor state" do
@@ -736,7 +739,7 @@ defmodule Ankole.Sessions.PresentationTest do
         complete_response(agent.uid, event, "not this event", signal_id: Ecto.UUID.generate())
 
       assert {:error, :response_signal_mismatch} = finalize_run(run, final)
-      assert_turn_remains_open(event)
+      assert_turn_remains_running(event)
     end
 
     test "rejects a failed Response without modifying Actor state" do
@@ -751,7 +754,7 @@ defmodule Ankole.Sessions.PresentationTest do
                )
 
       assert {:error, :final_response_not_terminal_success} = finalize_run(run, failed)
-      assert_turn_remains_open(event)
+      assert_turn_remains_running(event)
     end
 
     test "rejects a generating Response without modifying Actor state" do
@@ -763,7 +766,7 @@ defmodule Ankole.Sessions.PresentationTest do
       assert {:error, :final_response_not_terminal_success} =
                finalize_run(run, generating)
 
-      assert_turn_remains_open(event)
+      assert_turn_remains_running(event)
     end
 
     test "accepts an incomplete Response as a terminal user-visible projection" do
@@ -880,16 +883,17 @@ defmodule Ankole.Sessions.PresentationTest do
     %{agent: agent, event: event, run: run} = admit_event("withdrawn")
     final = complete_response(agent.uid, event, "must not be sent")
 
-    Repo.insert!(
-      InputTombstone.changeset(%InputTombstone{}, %{
-        conversation_id: event.conversation_id,
-        provider_message_id: event.provider_message_id,
-        tombstoned_until: DateTime.add(DateTime.utc_now(:microsecond), 1, :day)
-      })
-    )
+    assert {:ok, _} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.create(InputTombstone, :record, %{
+                 conversation_id: event.conversation_id,
+                 provider_message_id: event.provider_message_id,
+                 tombstoned_until: DateTime.add(DateTime.utc_now(:microsecond), 1, :day)
+               })
+             end)
 
     assert {:error, :signal_canceled} = finalize_run(run, final)
-    assert_turn_remains_open(event)
+    assert_turn_remains_running(event)
 
     {:ok, revision} =
       Repo.transact(fn repo ->
@@ -922,23 +926,23 @@ defmodule Ankole.Sessions.PresentationTest do
   defp insert_fire_proof!(event) do
     now = DateTime.utc_now(:microsecond)
 
-    Repo.insert!(
-      Ankole.Schedule.Schemas.ScheduledEvent.changeset(
-        %Ankole.Schedule.Schemas.ScheduledEvent{},
-        %{
-          kind: "cron_fire",
-          status: "fired",
-          agent_uid: event.agent_uid,
-          session_id: event.session_id,
-          signal_id: event.id,
-          due_at: now,
-          fired_at: now,
-          requested_at: now,
-          timezone: "UTC",
-          idempotency_key: "presentation:#{event.id}"
-        }
-      )
-    )
+    {:ok, proof} =
+      Repo.transact(fn ->
+        with {:ok, proof} <-
+               Ankole.Ash.create(Ankole.Schedule.Schemas.ScheduledEvent, :create_event, %{
+                 kind: "cron_fire",
+                 agent_uid: event.agent_uid,
+                 session_id: event.session_id,
+                 due_at: now,
+                 requested_at: now,
+                 timezone: "UTC",
+                 idempotency_key: "presentation:#{event.id}"
+               }) do
+          Ankole.Ash.update(proof, :fire, %{signal_id: event.id, fired_at: now})
+        end
+      end)
+
+    proof
   end
 
   defp admit_event(suffix) do
@@ -1023,8 +1027,8 @@ defmodule Ankole.Sessions.PresentationTest do
     )
   end
 
-  defp assert_turn_remains_open(event) do
-    assert %Signal{producer: :kernel, completed_at: nil, input_state: "open"} =
+  defp assert_turn_remains_running(event) do
+    assert %Signal{producer: :kernel, completed_at: nil, status: :running} =
              Repo.get!(Signal, event.id)
 
     refute Repo.exists?(from(entry in Intent, where: entry.source_signal_id == ^event.id))

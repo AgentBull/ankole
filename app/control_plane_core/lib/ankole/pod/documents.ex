@@ -1,8 +1,9 @@
 defmodule Ankole.Pod.Documents do
   @moduledoc "Commits complete documents and idempotent OT batches under the page row lock."
   import Ecto.Query
+  require Ash.Query
   alias Ankole.{ActorRef, Repo}
-  alias Ankole.Pod.{Access, Page, PageChange, PageContent, Pages}
+  alias Ankole.Pod.{Access, PageChange, PageContent, Pages}
 
   def write(uid, id, base_revision, xml, authority \\ nil)
 
@@ -152,33 +153,33 @@ defmodule Ankole.Pod.Documents do
 
     with {:ok, window} <- Ankole.Pod.Config.ot_replay_window(),
          {:ok, content} <-
-           Repo.update(
-             PageContent.changeset(content, %{
-               content: parsed.xml,
-               plain_text: parsed.plain_text,
-               updated_by: author,
-               updated_at: now
-             })
-           ),
+           Ankole.Ash.update(content, :replace, %{
+             content: parsed.xml,
+             plain_text: parsed.plain_text,
+             updated_by: author,
+             updated_at: now
+           }),
          {:ok, page} <-
-           Repo.update(Page.changeset(page, %{revision: page.revision + 1, updated_at: now})),
+           Ankole.Ash.update(page, :advance_revision, %{updated_at: now}),
          {:ok, _} <-
-           Repo.insert(
-             PageChange.changeset(
-               %PageChange{},
-               Map.merge(change, %{
-                 page_id: page.id,
-                 revision: page.revision,
-                 author: author,
-                 created_at: now
-               })
-             )
+           Ankole.Ash.create(
+             PageChange,
+             :append,
+             Map.merge(change, %{
+               page_id: page.id,
+               revision: page.revision,
+               author: author,
+               created_at: now
+             })
            ) do
-      Repo.delete_all(
-        from(change in PageChange,
-          where: change.page_id == ^page.id and change.revision <= ^(page.revision - window)
-        )
-      )
+      query =
+        PageChange
+        |> Ash.Query.filter(page_id == ^page.id and revision <= ^(page.revision - window))
+
+      case Ankole.Ash.bulk_destroy(query, :prune, %{}, strategy: [:atomic], return_errors?: true) do
+        %Ash.BulkResult{status: :success} -> :ok
+        %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+      end
 
       {:ok, %{page: page, content: content}}
     end

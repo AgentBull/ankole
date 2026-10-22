@@ -1,169 +1,288 @@
 defmodule Ankole.AIGateway.Schemas.Message do
-  @moduledoc """
-  Stored AI-gateway message-log fact (formerly `ai_agent_messages`).
+  @moduledoc "Response facts, checkpoints, and tool journals with one terminal-state owner."
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.AIGateway.Domain,
+    extensions: [AshStateMachine]
 
-  One row represents one stateful Responses run, one compaction checkpoint, or
-  one internal AI-gateway message fact. AIGateway owns this table; the worker
-  does not read or write it directly.
+  require Ash.Expr
+  import Ash.Expr, only: [arg: 1]
 
-  Row-level `type` + `status` together express full semantics:
-    - `type = "message"`: an ordinary response/message fact.
-    - `type = "checkpoint"`: a response-chain checkpoint that points at one
-      compaction artifact.
-    - `status = "generating"`: a provider response is still in progress.
-    - `status = "complete"`: row can enter normal model-chain projection.
-    - `status = "error"`: terminal failure; content/metadata.error preserves audit facts.
-    - `status = "retracted"`: superseded response preserved for audit and
-      excluded from normal history/anchor projection.
-  """
+  @merge_metadata Ash.Expr.expr(
+                    fragment("COALESCE(?, '{}'::jsonb) || ?::jsonb", metadata, ^arg(:metadata))
+                  )
+  @append_output Ash.Expr.expr(fragment("? || to_jsonb(?::jsonb[])", content, ^arg(:output)))
 
-  use Ankole.Schema, tenancy: :tenant
+  postgres do
+    table("ai_gateway_messages")
+    repo(Ankole.Repo)
+    migrate?(false)
+    identity_index_names(journal_key: "ai_gateway_messages_tool_result_journal_key_index")
+    identity_wheres_to_sql(journal_key: "metadata ? 'tool_result_idempotency_key'")
+    calculations_to_sql(journal_key: "metadata->>'tool_result_idempotency_key'")
 
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
-
-  alias Ankole.AIGateway.Schemas.Conversation
-  alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JSONPayload
-
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
-  # Row-level type separates ordinary message facts from compaction checkpoints.
-  @types ~w(message checkpoint)
-  # A message row is `generating` while still in an active Responses loop,
-  # `complete` once final, `error` on terminal failure, or `retracted` after a
-  # user-requested regeneration supersedes a completed visible suffix.
-  @statuses ~w(generating complete error retracted)
-
-  schema "ai_gateway_messages" do
-    belongs_to(:subject, Principal,
-      foreign_key: :subject_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
+    foreign_key_names(
+      subject_uid: "ai_gateway_messages_subject_uid_fkey",
+      conversation_id: "ai_gateway_messages_conversation_id_fkey"
     )
 
-    belongs_to(:conversation, Conversation, type: :binary_id)
-
-    field(:type, :string)
-    field(:status, :string)
-    # Self-reference continuation anchor (renders as `previous_response_id` on the API).
-    # `resp_#{id}` always equals `resp_#{ai_gateway_messages.id}` (see plan §1.4).
-    field(:previous_message_id, Ecto.UUID)
-    field(:content, Ankole.Types.JSONValue, default: [])
-    # Caller metadata is opaque to AIGateway. AIGateway-owned response facts such
-    # as model/provider, usage, and provider raw ids also live here.
-    # Raw input stays in content; replay-only Brain context stays separate.
-    field(:metadata, :map, default: %{})
-
-    timestamps()
-  end
-
-  @doc """
-  Builds a changeset for message rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(message, attrs) do
-    message
-    |> cast(attrs, [
-      :subject_uid,
-      :conversation_id,
-      :type,
-      :status,
-      :previous_message_id,
-      :content,
-      :metadata
-    ])
-    |> normalize_blank([:subject_uid, :type, :status])
-    |> validate_required([
-      :subject_uid,
-      :conversation_id,
-      :type,
-      :status,
-      :content,
-      :metadata
-    ])
-    |> validate_inclusion(:type, @types)
-    |> validate_inclusion(:status, @statuses)
-    |> validate_json_array(:content)
-    |> JSONPayload.validate_map(:metadata, allow_datetime: true)
-    |> validate_type_content_contract()
-    |> foreign_key_constraint(:subject_uid)
-    |> foreign_key_constraint(:conversation_id)
-    |> check_constraint(:type, name: :ai_gateway_messages_type_check)
-    |> check_constraint(:status, name: :ai_gateway_messages_status_check)
-    |> check_constraint(:content, name: :ai_gateway_messages_content_array)
-    |> check_constraint(:metadata, name: :ai_gateway_messages_metadata_object)
-    |> unique_constraint(:metadata, name: :ai_gateway_messages_tool_result_journal_key_index)
-  end
-
-  # Allows OpenAI-style multi-part content while rejecting structs or atom-keyed
-  # maps that would not round-trip through JSON cleanly.
-  defp validate_json_array(changeset, field) do
-    validate_change(changeset, field, fn ^field, value ->
-      case is_list(value) and Enum.all?(value, &json_value?/1) do
-        true -> []
-        false -> [{field, "must be a JSON array"}]
-      end
-    end)
-  end
-
-  defp validate_type_content_contract(changeset) do
-    case get_field(changeset, :type) do
-      "checkpoint" ->
-        validate_exactly_one_compaction_artifact_ref(changeset)
-
-      "message" ->
-        validate_no_compaction_or_artifact_ref(changeset)
-
-      _type ->
-        changeset
+    check_constraints do
+      check_constraint(:type, "ai_gateway_messages_type_check")
+      check_constraint(:status, "ai_gateway_messages_status_check")
+      check_constraint(:content, "ai_gateway_messages_content_array")
+      check_constraint(:metadata, "ai_gateway_messages_metadata_object")
     end
   end
 
-  defp validate_no_compaction_or_artifact_ref(changeset) do
-    case content_has_compaction_or_artifact_ref?(get_field(changeset, :content)) do
-      true -> add_error(changeset, :content, "must not include compaction items or artifact refs")
-      false -> changeset
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+    )
+
+    attribute(:subject_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+    attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+    attribute(:type, :atom, allow_nil?: false, constraints: [one_of: [:message, :checkpoint]])
+    attribute(:previous_message_id, Ankole.Ash.Types.UUIDv7)
+    attribute(:content, Ankole.Ash.Types.JSONList, allow_nil?: false, default: [])
+
+    attribute(:metadata, Ankole.Ash.Types.JSONMap,
+      allow_nil?: false,
+      default: %{},
+      constraints: [allow_datetime?: true]
+    )
+
+    create_timestamp(:inserted_at, type: :utc_datetime_usec)
+    update_timestamp(:updated_at, type: :utc_datetime_usec)
+  end
+
+  calculations do
+    calculate(
+      :journal_key,
+      :string,
+      expr(fragment("?->>'tool_result_idempotency_key'", metadata))
+    )
+  end
+
+  identities do
+    identity(:journal_key, [:journal_key],
+      all_tenants?: true,
+      where: expr(fragment("? \\? 'tool_result_idempotency_key'", metadata))
+    )
+  end
+
+  state_machine do
+    state_attribute(:status)
+    initial_states([:generating, :complete, :error])
+    default_initial_state(:generating)
+
+    transitions do
+      transition(:complete, from: :generating, to: :complete)
+      transition(:fail, from: :generating, to: :error)
+      transition(:retract, from: [:generating, :complete], to: :retracted)
     end
   end
 
-  defp validate_exactly_one_compaction_artifact_ref(changeset) do
-    case get_field(changeset, :content) do
-      [%{"type" => "compaction_artifact", "id" => "cmp_" <> uuid}] ->
-        case Ecto.UUID.cast(uuid) do
-          {:ok, _uuid} -> changeset
-          :error -> add_error(changeset, :content, "must reference a valid compaction artifact")
-        end
+  actions do
+    defaults([:read])
 
-      _content ->
-        add_error(changeset, :content, "must include exactly one compaction artifact ref")
+    create :start do
+      transaction?(false)
+      accept([:subject_uid, :conversation_id, :previous_message_id, :content, :metadata])
+      change(Ankole.Ash.RequireTransaction)
+      change(set_attribute(:type, :message))
+    end
+
+    create :checkpoint do
+      transaction?(false)
+      accept([:id, :subject_uid, :conversation_id, :previous_message_id, :content, :metadata])
+      change(set_attribute(:type, :checkpoint))
+      change(set_attribute(:status, :complete))
+
+      validate(
+        fn changeset, _context ->
+          validate_checkpoint(Ash.Changeset.get_attribute(changeset, :content))
+        end,
+        only_when_valid?: true
+      )
+    end
+
+    create_if_absent :journal, upsert_fields: [:metadata] do
+      transaction?(false)
+      accept([:id, :subject_uid, :conversation_id, :previous_message_id, :content, :metadata])
+      argument(:journal_key, :string)
+      change(Ankole.Ash.RequireTransaction)
+      change(set_attribute(:type, :message))
+      change(set_attribute(:status, :complete))
+      validate(fn changeset, _context -> validate_journal_key(changeset) end)
+      upsert_identity(:journal_key)
+    end
+
+    create_if_absent :quarantine, upsert_fields: [:metadata] do
+      transaction?(false)
+      accept([:id, :subject_uid, :conversation_id, :previous_message_id, :content, :metadata])
+      argument(:journal_key, :string)
+      change(Ankole.Ash.RequireTransaction)
+      change(set_attribute(:type, :message))
+      change(set_attribute(:status, :error))
+      validate(fn changeset, _context -> validate_journal_key(changeset) end)
+      upsert_identity(:journal_key)
+    end
+
+    atomic_in_tx_update :heartbeat do
+      accept([])
+
+      argument(:metadata, Ankole.Ash.Types.JSONMap,
+        allow_nil?: false,
+        default: %{},
+        constraints: [allow_datetime?: true]
+      )
+
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+      change(filter(expr(status == :generating)))
+      change(atomic_update(:metadata, @merge_metadata))
+      change(set_attribute(:updated_at, arg(:now)))
+    end
+
+    atomic_in_tx_update :record_progress do
+      accept([])
+
+      argument(:metadata, Ankole.Ash.Types.JSONMap,
+        allow_nil?: false,
+        constraints: [allow_datetime?: true]
+      )
+
+      change(filter(expr(status == :generating)))
+      change(atomic_update(:metadata, @merge_metadata))
+      change(atomic_update(:updated_at, expr(updated_at)))
+    end
+
+    update :update_context do
+      transaction?(false)
+      require_atomic?(true)
+      accept([:previous_message_id])
+
+      argument(:metadata, Ankole.Ash.Types.JSONMap,
+        allow_nil?: false,
+        default: %{},
+        constraints: [allow_datetime?: true]
+      )
+
+      argument(:drop_keys, {:array, :string}, allow_nil?: false, default: [])
+      change(filter(expr(status == :generating)))
+
+      change(
+        atomic_update(
+          :metadata,
+          expr(
+            fragment(
+              "(COALESCE(?, '{}'::jsonb) - ?::text[]) || ?::jsonb",
+              metadata,
+              ^arg(:drop_keys),
+              ^arg(:metadata)
+            )
+          )
+        )
+      )
+    end
+
+    atomic_in_tx_update :complete do
+      accept([])
+      argument(:output, Ankole.Ash.Types.JSONList, allow_nil?: false, default: [])
+
+      argument(:metadata, Ankole.Ash.Types.JSONMap,
+        allow_nil?: false,
+        default: %{},
+        constraints: [allow_datetime?: true]
+      )
+
+      change(transition_state(:complete))
+      change(atomic_update(:content, @append_output))
+      change(atomic_update(:metadata, @merge_metadata))
+    end
+
+    atomic_in_tx_update :fail do
+      accept([])
+      argument(:output, Ankole.Ash.Types.JSONList, allow_nil?: false, default: [])
+
+      argument(:metadata, Ankole.Ash.Types.JSONMap,
+        allow_nil?: false,
+        default: %{},
+        constraints: [allow_datetime?: true]
+      )
+
+      argument(:now, :utc_datetime_usec,
+        allow_nil?: false,
+        default: &DateTime.utc_now/0
+      )
+
+      change(transition_state(:error))
+      change(atomic_update(:content, @append_output))
+      change(atomic_update(:metadata, @merge_metadata))
+      change(set_attribute(:updated_at, arg(:now)))
+    end
+
+    atomic_in_tx_update :retract do
+      accept([])
+
+      argument(:metadata, Ankole.Ash.Types.JSONMap,
+        allow_nil?: false,
+        constraints: [allow_datetime?: true]
+      )
+
+      argument(:now, :utc_datetime_usec,
+        allow_nil?: false,
+        default: &DateTime.utc_now/0
+      )
+
+      change(transition_state(:retracted))
+      change(atomic_update(:metadata, @merge_metadata))
+      change(set_attribute(:updated_at, arg(:now)))
+    end
+
+    destroy :remove_suffix do
+      transaction?(false)
+      require_atomic?(true)
+      change(Ankole.Ash.RequireTransaction.Atomic)
+      change(filter(expr(type == :message and status == :complete)))
     end
   end
 
-  defp content_has_compaction_or_artifact_ref?(items) when is_list(items) do
-    Enum.any?(items, &compaction_or_artifact_ref?/1)
+  validations do
+    validate(
+      fn changeset, _context ->
+        if Ash.Changeset.get_attribute(changeset, :type) == :message and
+             Enum.any?(Ash.Changeset.get_attribute(changeset, :content) || [], fn
+               %{"type" => type} when type in ["compaction", "compaction_artifact"] -> true
+               _item -> false
+             end),
+           do:
+             {:error,
+              field: :content, message: "must not include compaction items or artifact refs"},
+           else: :ok
+      end,
+      on: [:create],
+      only_when_valid?: true
+    )
   end
 
-  defp content_has_compaction_or_artifact_ref?(_items), do: false
-
-  defp compaction_or_artifact_ref?(%{"type" => type})
-       when type in ["compaction", "compaction_artifact"],
-       do: true
-
-  defp compaction_or_artifact_ref?(_item), do: false
-
-  defp json_value?(nil), do: true
-  defp json_value?(value) when is_boolean(value), do: true
-  defp json_value?(value) when is_binary(value), do: true
-  defp json_value?(value) when is_integer(value), do: true
-  defp json_value?(value) when is_float(value), do: true
-  defp json_value?(values) when is_list(values), do: Enum.all?(values, &json_value?/1)
-
-  defp json_value?(value) when is_map(value) do
-    not is_struct(value) and
-      Enum.all?(value, fn {key, nested} -> is_binary(key) and json_value?(nested) end)
+  defp validate_journal_key(changeset) do
+    if Ash.Changeset.get_argument(changeset, :journal_key) ==
+         (Ash.Changeset.get_attribute(changeset, :metadata) || %{})["tool_result_idempotency_key"],
+       do: :ok,
+       else: {:error, field: :metadata, message: "must match its journal identity"}
   end
 
-  defp json_value?(_value), do: false
+  defp validate_checkpoint([%{"type" => "compaction_artifact", "id" => "cmp_" <> uuid}]) do
+    case Ecto.UUID.cast(uuid) do
+      {:ok, _} -> :ok
+      :error -> {:error, field: :content, message: "must reference a valid compaction artifact"}
+    end
+  end
+
+  defp validate_checkpoint(_content),
+    do: {:error, field: :content, message: "must include exactly one compaction artifact ref"}
+
+  @type t :: %__MODULE__{}
 end

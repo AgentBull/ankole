@@ -7,6 +7,7 @@ defmodule Ankole.Brain.Sources do
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Source
@@ -19,51 +20,23 @@ defmodule Ankole.Brain.Sources do
     limit = Keyword.fetch!(opts, :limit)
 
     Source
-    |> order_by([source], desc: source.updated_at)
-    |> limit(^limit)
-    |> Repo.all()
+    |> Ash.Query.sort(updated_at: :desc)
+    |> Ash.Query.limit(limit)
+    |> Ankole.Ash.read!()
   end
 
-  @spec create(map()) :: {:ok, Source.t()} | {:error, Ecto.Changeset.t()}
-  def create(attrs) when is_map(attrs) do
-    %Source{}
-    |> Source.changeset(attrs)
-    |> Repo.insert()
-  end
+  @spec create(map()) :: {:ok, Source.t()} | {:error, term()}
+  def create(attrs) when is_map(attrs), do: Ankole.Ash.create(Source, :register, attrs)
 
   @spec get_or_create(map()) :: {:ok, Source.t()} | {:error, term()}
-  def get_or_create(attrs) when is_map(attrs) do
-    changeset = Source.changeset(%Source{}, attrs)
-
-    with {:ok, normalized} <- Ecto.Changeset.apply_action(changeset, :validate) do
-      case Repo.get_by(Source, kind: normalized.kind, upstream_id: normalized.upstream_id) do
-        %Source{} = source ->
-          {:ok, source}
-
-        nil ->
-          case Repo.insert(changeset) do
-            {:ok, source} ->
-              {:ok, source}
-
-            {:error, reason} ->
-              case Repo.get_by(Source,
-                     kind: normalized.kind,
-                     upstream_id: normalized.upstream_id
-                   ) do
-                %Source{} = source -> {:ok, source}
-                nil -> {:error, reason}
-              end
-          end
-      end
-    end
-  end
+  def get_or_create(attrs) when is_map(attrs), do: Ankole.Ash.create(Source, :ensure, attrs)
 
   @spec archive(Ecto.UUID.t()) :: {:ok, Source.t()} | {:error, term()}
   def archive(source_id) do
     Repo.transact(fn repo ->
       with {:ok, source} <- mark_archived(repo, source_id) do
         if source.kind == "library",
-          do: Objects.withdraw_library_projection(source, [], repo: repo)
+          do: Objects.withdraw_library_projection(source, [])
 
         {:ok, source}
       end
@@ -76,7 +49,7 @@ defmodule Ankole.Brain.Sources do
       Repo.transact(fn repo ->
         with {:ok, source} <- lock_active(repo, %Source{id: source_id}),
              true <- source.kind == "oidc_client" do
-          source |> Source.changeset(%{default_audience_scope: scope}) |> repo.update()
+          Ankole.Ash.update(source, :set_default_scope, %{default_audience_scope: scope})
         else
           false -> {:error, {:invalid, "source_kind"}}
           {:error, _reason} = error -> error
@@ -91,9 +64,7 @@ defmodule Ankole.Brain.Sources do
 
     case source do
       %Source{archived_at: nil} = source ->
-        source
-        |> Source.changeset(%{archived_at: DateTime.utc_now(:microsecond)})
-        |> repo.update()
+        Ankole.Ash.update(source, :archive, %{})
 
       %Source{} = source ->
         {:ok, source}
@@ -125,22 +96,17 @@ defmodule Ankole.Brain.Sources do
     end
   end
 
-  @spec record_revision(module(), Source.t(), String.t()) ::
-          {:ok, Source.t()} | {:error, Ecto.Changeset.t()}
-  def record_revision(repo, %Source{} = source, revision) when is_binary(revision) do
-    source
-    |> Source.changeset(%{
-      upstream_revision: revision,
-      last_sync_at: DateTime.utc_now(:microsecond)
-    })
-    |> repo.update()
-  end
+  @spec record_revision(module(), Source.t(), String.t()) :: {:ok, Source.t()} | {:error, term()}
+  def record_revision(_repo, %Source{} = source, revision) when is_binary(revision),
+    do: Ankole.Ash.update(source, :record_revision, %{upstream_revision: revision})
 
   @spec extraction_watermark(Source.t()) :: non_neg_integer() | nil
   def extraction_watermark(%Source{extracted_through_seq: seq}), do: seq
 
   def conversation_extraction_watermark(conversation_id) do
-    case Repo.get_by(Source, kind: "conversation", upstream_id: conversation_id) do
+    case Source
+         |> Ash.Query.filter(kind == "conversation" and upstream_id == ^conversation_id)
+         |> Ankole.Ash.read_one!() do
       %Source{} = source -> extraction_watermark(source)
       nil -> nil
     end
@@ -149,21 +115,16 @@ defmodule Ankole.Brain.Sources do
   @doc "Rewinds learning when a previously covered public Message changes."
   def invalidate_conversation_message_in_tx(repo, message, now) do
     case repo.one(
-           from s in Source,
+           from(s in Source,
              where: s.kind == "conversation" and s.upstream_id == ^message.conversation_id,
              lock: "FOR UPDATE"
+           )
          ) do
       %Source{extracted_through_seq: seq} = source when is_integer(seq) and seq >= message.seq ->
         :ok = Ankole.Brain.Claims.withdraw_source_claims_in_tx(repo, source.id, now)
 
         {:ok, _} =
-          source
-          |> Ecto.Changeset.change(
-            extracted_through_seq: 0,
-            extracted_through_at: nil,
-            upstream_revision: Ecto.UUID.generate()
-          )
-          |> repo.update()
+          Ankole.Ash.update(source, :invalidate_extraction, %{})
 
         if is_nil(source.archived_at) and Ankole.Brain.Config.enabled?() do
           {:ok, _} = Ankole.Brain.Jobs.ProcessConversationSlice.enqueue(message.conversation_id)
@@ -177,12 +138,13 @@ defmodule Ankole.Brain.Sources do
   end
 
   @doc "Records a sequence boundary while the caller holds the Source row lock."
-  def record_extraction_watermark(repo, %Source{id: id}, {%DateTime{} = at, seq})
+  def record_extraction_watermark(_repo, %Source{} = source, {%DateTime{} = at, seq})
       when is_integer(seq) and seq >= 0 do
-    {1, _} =
-      Source
-      |> where([source], source.id == ^id)
-      |> repo.update_all(set: [extracted_through_at: at, extracted_through_seq: seq])
+    {:ok, _} =
+      Ankole.Ash.update(source, :record_watermark, %{
+        extracted_through_at: at,
+        extracted_through_seq: seq
+      })
 
     :ok
   end

@@ -457,6 +457,42 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
     refute Map.has_key?(classification, :provider_error_code)
   end
 
+  test "hosted errors keep retry and capacity classification across native and SSE paths" do
+    for {status, native_code, public_code, retryable, kind, capacity} <- [
+          {403, "upstream_error", "upstream_error", false, :provider_response, false},
+          {429, "provider_status_rejected", "rate_limit_exceeded", true, :provider_response,
+           true},
+          {503, "upstream_error", "upstream_error", true, :provider_response, true},
+          {nil, "total_timeout", "upstream_timeout", true, :timeout, false}
+        ] do
+      native =
+        ProviderFailure.from_native(%{
+          "code" => native_code,
+          "stage" => "image_generation",
+          "provider_status" => status
+        })
+
+      event =
+        {:provider_event_failed,
+         %{
+           "code" => public_code,
+           "type" => if(status == 429, do: "rate_limit_error", else: "server_error"),
+           "status" => status,
+           "details_json" => %{"stage" => "image_generation", "provider_status" => status}
+         }}
+
+      for reason <- [native, event] do
+        classification = FailureDiagnostics.classify(reason)
+        assert classification.retryable == retryable
+        assert classification.failure_kind == kind
+        assert classification.error_stage == "image_generation"
+        assert classification[:provider_status] == status
+        assert FailureDiagnostics.provider_capacity?(reason) == capacity
+        refute Map.has_key?(classification, :provider_error_type)
+      end
+    end
+  end
+
   test "classifies a Bedrock stream exception by its declared status and keeps its type" do
     for {exception_type, status, retryable} <- [
           {"throttlingException", 429, true},

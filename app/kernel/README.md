@@ -29,7 +29,9 @@ The current surface is:
   bounded retries and per-call timeouts. Large objects move through local
   files; writes use 8 MiB chunks. Some backends buffer the complete object.
 - `program_runner/` - one-shot AIGateway Programmatic Tool Calling execution
-  in a `deno_core` isolate.
+  in a fresh `deno_core` isolate on a native thread. Handles own cancellation
+  before task launch and monitor the owner and execution processes. Replay
+  returns the first pending tool batch; no isolate survives that pause.
 - `applet_runtime/` - live Applet backend routes in a fresh capability-only
   `deno_core` isolate, with asynchronous control-plane request and reply.
 - `isolate_control.rs` - shared V8 timeout, heap, and cancellation authority.
@@ -67,8 +69,9 @@ The kernel owns mechanisms, not product state:
 
 The kernel owns no Worker socket or RuntimeFabric envelope codec.
 `proto/ankole/runtime_fabric/v1/envelope.proto` declares the protocol and its
-current version. Elixir uses Protox and the Worker uses protobuf-es. Each host
-writes the declared version on send and checks it on receive. Domain consumers
+current version. The control plane owns `Ankole.RuntimeFabric` and the Protox
+compilation unit; the Worker uses protobuf-es. Each host writes the declared
+version on send and checks it on receive. Domain consumers
 check execution references against their authoritative state. Cross-language
 fixtures live in `proto/golden`.
 
@@ -136,9 +139,9 @@ The isolate remains alive while a request waits. It does not replay code or
 share globals with other requests. Owner process exit and `cancel/1` terminate
 that isolate. Normal scheduler NIFs retain BEAM binaries without copying their
 bytes. Request and capability reply JSON decoding runs on the invocation's
-native thread, as does the handler. Applet calls do not wait for the dirty CPU
-pool used by ProgramRunner. No BEAM scheduler stays reserved while the isolate
-executes or waits. Cancellation stays on a normal scheduler so that it can
+native thread, as does the handler. Applet and ProgramRunner calls have separate
+limits of four native executions. No BEAM scheduler stays reserved while the
+isolate executes or waits. Cancellation stays on a normal scheduler so that it can
 interrupt active invocations. The timeout budget starts before thread creation
 and request decoding, and is not reset when execution starts.
 

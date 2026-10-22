@@ -21,7 +21,7 @@ defmodule Ankole.Schedule.Projections do
   def cron_projection(%CronSchedule{} = schedule) do
     %{
       "id" => schedule.id,
-      "status" => schedule.status,
+      "status" => Atom.to_string(schedule.status),
       "agent_uid" => schedule.agent_uid,
       "owner_session_id" => schedule.owner_session_id,
       "execution_session_id" => Cron.execution_session_id(schedule.id),
@@ -49,7 +49,7 @@ defmodule Ankole.Schedule.Projections do
   def cron_model_projection(%CronSchedule{} = schedule) do
     %{
       "name" => schedule.name,
-      "status" => schedule.status,
+      "status" => Atom.to_string(schedule.status),
       "schedule" => schedule.schedule || %{},
       "timezone" => schedule.timezone,
       "payload" => schedule.payload || %{},
@@ -73,7 +73,7 @@ defmodule Ankole.Schedule.Projections do
     %{
       "id" => event.id,
       "kind" => event.kind,
-      "status" => event.status,
+      "status" => Atom.to_string(event.status),
       "agent_uid" => event.agent_uid,
       "session_id" => event.session_id,
       "binding_name" => event.binding_name,
@@ -108,7 +108,7 @@ defmodule Ankole.Schedule.Projections do
 
     %{
       "checkback_id" => event.id,
-      "status" => event.status,
+      "status" => Atom.to_string(event.status),
       "due_at" => Planner.datetime(event.due_at),
       "timezone" => event.timezone,
       "reason" => wake_payload["reason"],
@@ -127,7 +127,7 @@ defmodule Ankole.Schedule.Projections do
     wake_payload = event.wake_payload || %{}
 
     %{
-      "status" => event.status,
+      "status" => Atom.to_string(event.status),
       "due_at" => Planner.datetime(event.due_at),
       "timezone" => event.timezone,
       "trigger" => wake_payload["trigger"],

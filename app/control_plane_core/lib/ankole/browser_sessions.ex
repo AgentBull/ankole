@@ -2,6 +2,7 @@ defmodule Ankole.BrowserSessions do
   @moduledoc "Durable browser authentication, identity selection, and one-use login transactions."
 
   import Ecto.Query
+  require Ash.Query
   alias Ankole.BrowserSessions.{Authentication, LoginTransaction, PodAuthentication, Session}
   alias Ankole.Principals.{ExternalIdentity, HumanAccess, Principal}
   alias Ankole.Repo
@@ -11,9 +12,11 @@ defmodule Ankole.BrowserSessions do
   @purposes [:console, :oauth, :pod, :site]
 
   def create do
-    %Session{}
-    |> Ecto.Changeset.change(expires_at: DateTime.add(DateTime.utc_now(), @session_ttl))
-    |> Repo.insert()
+    Repo.transact(fn _repo ->
+      Ankole.Ash.create(Session, :create_in_tx, %{
+        expires_at: DateTime.add(DateTime.utc_now(), @session_ttl)
+      })
+    end)
   end
 
   def reference(%Session{id: id}), do: %{"id" => id}
@@ -111,11 +114,12 @@ defmodule Ankole.BrowserSessions do
   defp current_binding?(%Authentication{purpose: :site} = authentication, proof) do
     Ankole.IdentityProviders.SiteSources.registered?(authentication.provider_id) and
       Repo.exists?(
-        from e in ExternalIdentity,
+        from(e in ExternalIdentity,
           where:
             e.provider == ^authentication.provider_id and
               e.external_id == ^authentication.subject_id and
               e.principal_uid == ^proof.principal_uid
+        )
       )
   end
 
@@ -131,12 +135,10 @@ defmodule Ankole.BrowserSessions do
            true <- authentication.browser_id == browser.id,
            target_tenant <- tenant_id || authentication.tenant_id,
            true <- is_nil(target_tenant) or is_map(identity(authentication_ref, target_tenant)) do
-        browser
-        |> Ecto.Changeset.change(
+        Ankole.Ash.update(browser, :activate_in_tx, %{
           active_authentication_id: authentication.id,
           active_tenant_id: target_tenant
-        )
-        |> repo.update()
+        })
       else
         false -> {:error, :invalid_authentication}
         error -> error
@@ -147,22 +149,57 @@ defmodule Ankole.BrowserSessions do
   def begin_login(ref, purpose, request, opts \\ [])
       when purpose in @purposes and is_map(request) do
     Repo.transact(fn repo ->
-      with {:ok, browser} <- fetch_browser(repo, ref, true) do
-        %LoginTransaction{}
-        |> Ecto.Changeset.change(
-          browser_id: browser.id,
-          tenant_id: if(purpose == :site, do: nil, else: Repo.tenant_id!()),
-          started_revision: browser.revision,
-          purpose: purpose,
-          mode: Keyword.get(opts, :mode, :replace),
-          expected_authentication_id: Keyword.get(opts, :expected_authentication_id),
-          request: request,
-          csrf_token: csrf_state(),
-          expires_at: DateTime.add(DateTime.utc_now(), @login_ttl)
-        )
-        |> repo.insert()
+      with {:ok, browser} <- fetch_browser(repo, ref, true),
+           {:ok, authentication} <- login_authentication(repo, browser, purpose, opts),
+           {:ok, transaction} <-
+             Ankole.Ash.create(LoginTransaction, :begin_in_tx, %{
+               browser_id: browser.id,
+               tenant_id: if(purpose == :site, do: nil, else: Repo.tenant_id!()),
+               started_revision: browser.revision,
+               purpose: purpose,
+               mode: Keyword.get(opts, :mode, :replace),
+               expected_authentication_id:
+                 if(authentication,
+                   do: authentication.id,
+                   else: Keyword.get(opts, :expected_authentication_id)
+                 ),
+               request: request,
+               csrf_token: csrf_state(),
+               expires_at: DateTime.add(DateTime.utc_now(), @login_ttl)
+             }) do
+        bind_login_proof(transaction, authentication, opts)
       end
     end)
+  end
+
+  defp login_authentication(repo, browser, purpose, opts) do
+    case Keyword.fetch(opts, :authentication_ref) do
+      :error ->
+        {:ok, nil}
+
+      {:ok, ref} ->
+        with true <- purpose == :pod and Keyword.get(opts, :mode, :replace) == :add,
+             {:ok, authentication} <- fetch_authentication(repo, ref),
+             true <- authentication.browser_id == browser.id,
+             %{} = auth <- identity(ref, Repo.tenant_id!()),
+             {:ok, _principal} <- lock_human(repo, auth) do
+          {:ok, authentication}
+        else
+          false -> {:error, :invalid_authentication}
+          nil -> {:error, :invalid_authentication}
+          error -> error
+        end
+    end
+  end
+
+  defp bind_login_proof(transaction, nil, _opts), do: {:ok, transaction}
+
+  defp bind_login_proof(transaction, authentication, opts) do
+    Ankole.Ash.update(transaction, :bind_proof_in_tx, %{
+      authentication_id: authentication.id,
+      authentication_revision: authentication.revision,
+      upstream_state: Keyword.get(opts, :upstream_state)
+    })
   end
 
   def login(ref, id) do
@@ -190,17 +227,16 @@ defmodule Ankole.BrowserSessions do
   def bind_provider(ref, id, provider_id, state \\ nil, redirect_uri \\ nil) do
     update_login(ref, id, fn
       %LoginTransaction{status: :pending, provider_id: nil} = transaction ->
-        {:ok,
-         Ecto.Changeset.change(transaction,
-           provider_id: provider_id,
-           upstream_state: state,
-           redirect_uri: redirect_uri
-         )}
+        Ankole.Ash.update(transaction, :bind_provider_in_tx, %{
+          provider_id: provider_id,
+          upstream_state: state,
+          redirect_uri: redirect_uri
+        })
 
       %LoginTransaction{status: :pending, provider_id: ^provider_id, upstream_state: nil} =
           transaction
       when is_nil(state) ->
-        {:ok, Ecto.Changeset.change(transaction)}
+        {:ok, transaction}
 
       _ ->
         {:error, :login_provider_already_selected}
@@ -210,7 +246,7 @@ defmodule Ankole.BrowserSessions do
   def put_password_ticket(ref, id, ticket) do
     update_login(ref, id, fn
       %LoginTransaction{status: :pending} = transaction ->
-        {:ok, Ecto.Changeset.change(transaction, password_ticket: ticket)}
+        Ankole.Ash.update(transaction, :password_ticket_in_tx, %{password_ticket: ticket})
 
       _ ->
         {:error, :login_expired}
@@ -345,16 +381,11 @@ defmodule Ankole.BrowserSessions do
              }),
            true <- Ankole.Tenants.accepting_work?(principal.tenant_id),
            true <- current_binding?(authentication, %{principal_uid: principal.uid}) do
-        %PodAuthentication{}
-        |> Ecto.Changeset.change(
+        Ankole.Ash.create(PodAuthentication, :record_in_tx, %{
           authentication_id: authentication.id,
           principal_uid: principal.uid,
           access_version: principal.access_version
-        )
-        |> repo.insert(
-          on_conflict: {:replace, [:principal_uid, :access_version, :updated_at]},
-          conflict_target: [:tenant_id, :authentication_id]
-        )
+        })
       else
         false -> {:error, :invalid_authentication}
         error -> error
@@ -366,16 +397,19 @@ defmodule Ankole.BrowserSessions do
     bindings =
       Repo.across_tenants(fn ->
         repo.all(
-          from e in ExternalIdentity,
+          from(e in ExternalIdentity,
             where: e.provider == ^provider_id and e.external_id == ^subject_id,
             order_by: e.principal_uid,
             select: {e.tenant_id, e.principal_uid}
+          )
         )
       end)
 
     Enum.flat_map(bindings, fn {tenant_id, uid} ->
       Repo.with_tenant(tenant_id, fn ->
-        case repo.one(from p in Principal, where: p.uid == ^uid, lock: "FOR SHARE") do
+        case repo.one(from(p in Principal, where: p.uid == ^uid, lock: "FOR SHARE"),
+               lock_identity: {"principals", uid}
+             ) do
           %Principal{type: :human, status: :active} = principal ->
             if fresh_for_human?(transaction, principal) and
                  Ankole.Tenants.accepting_work?(tenant_id), do: [principal], else: []
@@ -414,21 +448,17 @@ defmodule Ankole.BrowserSessions do
          :ok <- replace_context(repo, browser, transaction, old, subject_id),
          :ok <- end_authentication(repo, old),
          {:ok, authentication} <-
-           (old || struct(Authentication, attributes))
-           |> Ecto.Changeset.change(
+           persist_authentication(old, attributes, %{
              revision: browser.revision + 1,
              auth_time: auth_time,
              external_id: external_id,
              console_authenticated: transaction.purpose == :console,
              csrf_token: csrf_state(),
-             revoked_at: nil,
              expires_at: DateTime.add(DateTime.utc_now(), @session_ttl)
-           )
-           |> repo.insert_or_update(),
+           }),
          :ok <- save_pod_authentications(repo, authentication, principals),
          {:ok, browser} <-
-           browser
-           |> Ecto.Changeset.change(
+           Ankole.Ash.update(browser, :record_login_in_tx, %{
              revision: authentication.revision,
              active_authentication_id: authentication.id,
              active_tenant_id: transaction.tenant_id,
@@ -437,20 +467,25 @@ defmodule Ankole.BrowserSessions do
                  do: browser.expires_at,
                  else: authentication.expires_at
                )
-           )
-           |> repo.update(),
+           }),
          {:ok, transaction} <-
-           transaction
-           |> Ecto.Changeset.change(
-             status: if(transaction.purpose == :oauth, do: :authenticated, else: :consumed),
-             authentication_id: authentication.id,
-             authentication_revision: authentication.revision,
-             password_ticket: nil
-           )
-           |> repo.update() do
+           Ankole.Ash.update(
+             transaction,
+             if(transaction.purpose == :oauth, do: :authenticate_in_tx, else: :consume_in_tx),
+             %{
+               authentication_id: authentication.id,
+               authentication_revision: authentication.revision
+             }
+           ) do
       {:ok, %{browser: browser, transaction: transaction, authentication: authentication}}
     end
   end
+
+  defp persist_authentication(nil, subject, proof),
+    do: Ankole.Ash.create(Authentication, :create_in_tx, Map.merge(Map.new(subject), proof))
+
+  defp persist_authentication(authentication, _subject, proof),
+    do: Ankole.Ash.update(authentication, :renew_in_tx, proof)
 
   defp unchanged_target(_transaction, nil), do: :ok
 
@@ -464,10 +499,11 @@ defmodule Ankole.BrowserSessions do
     tenant_id = attributes[:tenant_id]
 
     query =
-      from a in Authentication,
+      from(a in Authentication,
         where:
           a.browser_id == ^attributes[:browser_id] and a.provider_id == ^attributes[:provider_id] and
             a.subject_id == ^attributes[:subject_id] and a.purpose == ^attributes[:purpose]
+      )
 
     query =
       if is_nil(tenant_id),
@@ -500,8 +536,9 @@ defmodule Ankole.BrowserSessions do
   defp replace_context(repo, browser, transaction, old, subject_id) do
     candidates =
       repo.all(
-        from a in Authentication,
+        from(a in Authentication,
           where: a.browser_id == ^browser.id and is_nil(a.revoked_at)
+        )
       )
 
     replaced =
@@ -519,36 +556,43 @@ defmodule Ankole.BrowserSessions do
           do: [:console, :oauth],
           else: [transaction.purpose]
 
-      repo.update_all(
-        from(t in LoginTransaction,
-          where:
-            t.browser_id == ^browser.id and t.id != ^transaction.id and t.purpose in ^purposes and
-              t.status in [:pending, :authenticated]
-        ),
-        set: [status: :cancelled, password_ticket: nil, updated_at: DateTime.utc_now()]
+      LoginTransaction
+      |> Ash.Query.filter(
+        browser_id == ^browser.id and id != ^transaction.id and purpose in ^purposes and
+          status in [:pending, :authenticated]
       )
-
-      :ok
+      |> cancel_logins()
     end
   end
 
   defp save_pod_authentications(repo, authentication, principals) do
-    Repo.across_tenants(fn ->
-      repo.delete_all(
-        from p in PodAuthentication, where: p.authentication_id == ^authentication.id
-      )
+    tenant_ids =
+      Repo.across_tenants(fn ->
+        repo.all(
+          from(p in PodAuthentication,
+            where: p.authentication_id == ^authentication.id,
+            distinct: p.tenant_id,
+            select: p.tenant_id
+          )
+        )
+      end)
+
+    Enum.each(tenant_ids, fn tenant_id ->
+      Repo.with_tenant(tenant_id, fn ->
+        PodAuthentication
+        |> Ash.Query.filter(authentication_id == ^authentication.id)
+        |> destroy_records(:remove_in_tx)
+      end)
     end)
 
     Enum.reduce_while(principals, :ok, fn principal, :ok ->
       result =
         Repo.with_tenant(principal.tenant_id, fn ->
-          %PodAuthentication{}
-          |> Ecto.Changeset.change(
+          Ankole.Ash.create(PodAuthentication, :record_in_tx, %{
             authentication_id: authentication.id,
             principal_uid: principal.uid,
             access_version: principal.access_version
-          )
-          |> repo.insert()
+          })
         end)
 
       case result do
@@ -570,33 +614,27 @@ defmodule Ankole.BrowserSessions do
              Repo.with_tenant(transaction.tenant_id, fn ->
                select_request(transaction, auth)
              end) do
-        attrs =
+        {action, attrs} =
           if action == :reuse,
-            do: [
-              status: if(purpose == :pod, do: :consumed, else: :authenticated),
-              authentication_id: authentication.id,
-              authentication_revision: authentication.revision
-            ],
-            else: [
-              status: :pending,
-              expected_authentication_id: authentication.id,
-              authentication_id: nil,
-              authentication_revision: nil
-            ]
+            do:
+              {if(purpose == :pod, do: :consume_in_tx, else: :authenticate_in_tx),
+               %{
+                 authentication_id: authentication.id,
+                 authentication_revision: authentication.revision
+               }},
+            else: {:reauthenticate_in_tx, %{expected_authentication_id: authentication.id}}
 
         with {:ok, _} <-
-               browser
-               |> Ecto.Changeset.change(
+               Ankole.Ash.update(browser, :activate_in_tx, %{
                  active_authentication_id: authentication.id,
                  active_tenant_id: transaction.tenant_id
-               )
-               |> repo.update(),
+               }),
              do:
-               transaction
-               |> Ecto.Changeset.change(
-                 [request: request, started_revision: browser.revision] ++ attrs
+               Ankole.Ash.update(
+                 transaction,
+                 action,
+                 Map.merge(attrs, %{request: request, started_revision: browser.revision})
                )
-               |> repo.update()
       else
         false -> {:error, :invalid_authentication}
         nil -> {:error, :invalid_authentication}
@@ -628,7 +666,7 @@ defmodule Ankole.BrowserSessions do
                %{} = auth <- identity(authentication_ref, transaction.tenant_id),
                {:ok, _} <- lock_human(repo, auth),
                {:ok, _} <-
-                 transaction |> Ecto.Changeset.change(status: :consumed) |> repo.update() do
+                 Ankole.Ash.update(transaction, :consume_in_tx, %{}) do
             issue.(transaction.request, auth)
           else
             {:ok, _} -> {:error, :login_expired}
@@ -652,9 +690,7 @@ defmodule Ankole.BrowserSessions do
                  fetch_login(repo, browser, id),
                {:ok, result} <- complete.(transaction),
                {:ok, _} <-
-                 transaction
-                 |> Ecto.Changeset.change(status: :consumed, password_ticket: nil)
-                 |> repo.update() do
+                 Ankole.Ash.update(transaction, :consume_in_tx, %{}) do
             {:ok, result}
           else
             {:ok, _} -> {:error, :login_expired}
@@ -692,17 +728,15 @@ defmodule Ankole.BrowserSessions do
       with {:ok, browser} <- fetch_browser(repo, browser_ref, true),
            {:ok, authentication} <- fetch_authentication(repo, authentication_ref),
            true <- authentication.browser_id == browser.id,
-           :ok <- revoke_records(repo, [authentication], browser.revision + 1) do
-        repo.update_all(
-          from(t in LoginTransaction,
-            where:
-              t.browser_id == ^browser.id and t.status in [:pending, :authenticated] and
-                (t.expected_authentication_id == ^authentication.id or
-                   t.authentication_id == ^authentication.id)
-          ),
-          set: [status: :cancelled, password_ticket: nil, updated_at: DateTime.utc_now()]
-        )
-
+           :ok <- revoke_records(repo, [authentication], browser.revision + 1),
+           :ok <-
+             LoginTransaction
+             |> Ash.Query.filter(
+               browser_id == ^browser.id and status in [:pending, :authenticated] and
+                 (expected_authentication_id == ^authentication.id or
+                    authentication_id == ^authentication.id)
+             )
+             |> cancel_logins() do
         attrs = [revision: browser.revision + 1]
 
         attrs =
@@ -710,7 +744,7 @@ defmodule Ankole.BrowserSessions do
             do: attrs ++ [active_authentication_id: nil, active_tenant_id: nil],
             else: attrs
 
-        browser |> Ecto.Changeset.change(attrs) |> repo.update()
+        Ankole.Ash.update(browser, :revoke_in_tx, Map.new(attrs))
       else
         false -> {:error, :invalid_authentication}
         error -> error
@@ -724,26 +758,22 @@ defmodule Ankole.BrowserSessions do
            true <- is_nil(expected_revision) or browser.revision == expected_revision,
            authentications <-
              repo.all(
-               from a in Authentication,
+               from(a in Authentication,
                  where: a.browser_id == ^browser.id and is_nil(a.revoked_at)
+               )
              ),
            :ok <- revoke_records(repo, authentications, browser.revision + 1),
-           :ok <- Ankole.OIDC.Sessions.end_browser_in_tx(repo, browser.id) do
-        repo.update_all(
-          from(t in LoginTransaction,
-            where: t.browser_id == ^browser.id and t.status in [:pending, :authenticated]
-          ),
-          set: [status: :cancelled, password_ticket: nil, updated_at: DateTime.utc_now()]
-        )
-
-        browser
-        |> Ecto.Changeset.change(
+           :ok <- Ankole.OIDC.Sessions.end_browser_in_tx(repo, browser.id),
+           :ok <-
+             LoginTransaction
+             |> Ash.Query.filter(
+               browser_id == ^browser.id and status in [:pending, :authenticated]
+             )
+             |> cancel_logins() do
+        Ankole.Ash.update(browser, :logout_in_tx, %{
           revision: browser.revision + 1,
-          logout_revision: browser.revision + 1,
-          active_authentication_id: nil,
-          active_tenant_id: nil
-        )
-        |> repo.update()
+          logout_revision: browser.revision + 1
+        })
       else
         false -> {:error, :logout_request_expired}
         error -> error
@@ -755,9 +785,7 @@ defmodule Ankole.BrowserSessions do
     Enum.reduce_while(authentications, :ok, fn authentication, :ok ->
       with :ok <- end_authentication(repo, authentication),
            {:ok, _} <-
-             authentication
-             |> Ecto.Changeset.change(revision: revision, revoked_at: DateTime.utc_now())
-             |> repo.update() do
+             Ankole.Ash.update(authentication, :revoke_in_tx, %{revision: revision}) do
         {:cont, :ok}
       else
         error -> {:halt, error}
@@ -776,29 +804,52 @@ defmodule Ankole.BrowserSessions do
       )
 
   def cleanup_expired(now) do
-    Repo.across_tenants(fn ->
-      {transactions, _} = Repo.delete_all(from t in LoginTransaction, where: t.expires_at <= ^now)
+    transactions = LoginTransaction |> Ash.Query.filter(expires_at <= ^now) |> expire_records()
 
-      {browsers, _} =
-        Repo.delete_all(
-          from b in Session,
-            as: :browser,
-            where: b.expires_at <= ^now,
-            where:
-              not exists(
-                from s in Ankole.OIDC.Session,
-                  where: s.browser_id == parent_as(:browser).id,
-                  select: 1
-              )
-        )
+    browsers =
+      Session
+      |> Ash.Query.filter(
+        expires_at <= ^now and
+          fragment("NOT EXISTS (SELECT 1 FROM oidc_sessions AS s WHERE s.browser_id = ?)", id)
+      )
+      |> expire_records()
 
-      %{login_transactions: transactions, browser_sessions: browsers}
-    end)
+    %{login_transactions: transactions, browser_sessions: browsers}
+  end
+
+  defp expire_records(query) do
+    case Repo.transact(fn _repo -> {:ok, destroy_records(query, :expire_in_tx)} end) do
+      {:ok, count} -> count
+      {:error, error} -> raise Ash.Error.to_error_class(error)
+    end
+  end
+
+  defp destroy_records(query, action) do
+    query = Ash.Query.select(query, Ash.Resource.Info.primary_key(query.resource))
+
+    case Ankole.Ash.bulk_destroy(query, action, %{},
+           strategy: [:atomic],
+           return_records?: true,
+           return_errors?: true
+         ) do
+      %Ash.BulkResult{status: :success, records: records} -> length(records)
+      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+    end
+  end
+
+  defp cancel_logins(query) do
+    case Ankole.Ash.bulk_update(query, :cancel_in_tx, %{},
+           strategy: [:atomic],
+           return_errors?: true
+         ) do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+    end
   end
 
   defp fetch_browser(repo, %{"id" => id}, lock?) do
     with {:ok, id} <- Ecto.UUID.cast(id) do
-      query = from b in Session, where: b.id == ^id and b.expires_at > ^DateTime.utc_now()
+      query = from(b in Session, where: b.id == ^id and b.expires_at > ^DateTime.utc_now())
 
       case repo.one(if(lock?, do: lock(query, "FOR UPDATE"), else: query)) do
         %Session{} = browser -> {:ok, browser}
@@ -844,13 +895,14 @@ defmodule Ankole.BrowserSessions do
     Repo.transact(fn repo ->
       with {:ok, browser} <- fetch_browser(repo, ref, true),
            {:ok, transaction} <- fetch_login(repo, browser, id),
-           {:ok, changeset} <- change.(transaction),
-           do: repo.update(changeset)
+           do: change.(transaction)
     end)
   end
 
   defp lock_human(repo, %{"principal_uid" => uid, "access_version" => version}) do
-    case repo.one(from p in Principal, where: p.uid == ^uid, lock: "FOR SHARE") do
+    case repo.one(from(p in Principal, where: p.uid == ^uid, lock: "FOR SHARE"),
+           lock_identity: {"principals", uid}
+         ) do
       %Principal{type: :human, status: :active, access_version: ^version} = principal ->
         {:ok, principal}
 

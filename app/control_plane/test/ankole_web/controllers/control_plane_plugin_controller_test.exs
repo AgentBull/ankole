@@ -3,10 +3,10 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
 
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
+  alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
 
   setup do
-    allow_cache_database_access()
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
 
@@ -73,5 +73,41 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
                "enabled" => false
              })
              |> json_response(404)
+  end
+
+  test "an assigned Worker prevents disabling its Plugin through the Console", %{conn: conn} do
+    alias Ankole.AgentWorkers.{AgentWorker, Providers}
+    alias Ankole.Plugins.VercelWorkerProvider.Provider, as: Vercel
+
+    {:ok, _} = Ankole.Plugins.put_configured_enabled("vercel-worker-provider", true)
+
+    {:ok, provider} =
+      Providers.create(%{
+        provider_id: "vercel-console",
+        kind: "vercel",
+        display_name: "Vercel",
+        config: Vercel.definition().example,
+        credentials: %{"token" => "test"}
+      })
+
+    Repo.insert!(%AgentWorker{
+      agent_uid: "plugin-console-worker",
+      provider_id: provider.provider_id,
+      state: :deleting
+    })
+
+    response =
+      conn
+      |> console_conn()
+      |> put(~p"/api/v1/site/control-plane-plugins", %{
+        id: "vercel-worker-provider",
+        enabled: false
+      })
+      |> json_response(409)
+
+    assert response["error"]["code"] == "worker_provider_plugin_in_use"
+    assert response["error"]["message"] =~ provider.provider_id
+    assert {:ok, ids} = Ankole.Plugins.enabled_ids()
+    assert "vercel-worker-provider" in ids
   end
 end

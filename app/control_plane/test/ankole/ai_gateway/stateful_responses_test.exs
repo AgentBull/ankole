@@ -211,7 +211,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       assert [checkpoint] =
                Message
                |> where([message], message.conversation_id == ^conversation.id)
-               |> where([message], message.type == "checkpoint")
+               |> where([message], message.type == :checkpoint)
                |> Repo.all()
 
       assert checkpoint.previous_message_id == root.id
@@ -260,7 +260,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
                from(message in Message,
                  where:
                    message.conversation_id == ^conversation.id and
-                     message.status == "generating"
+                     message.status == :generating
                )
              )
     end
@@ -302,8 +302,8 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       }
 
       assert {:ok, journal} = record_tool_results(attrs)
-      assert journal.status == "complete"
-      assert journal.type == "message"
+      assert journal.status == :complete
+      assert journal.type == :message
       assert journal.previous_message_id == anchor.id
       assert journal.content == request_items
       assert ResponseChain.response_metadata(journal) == %{"opaque" => "kept"}
@@ -328,6 +328,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
           [:ankole, :repo, :query],
           fn _event, _measurements, metadata, test_pid ->
             if self() == test_pid and metadata.source == "ai_gateway_messages" and
+                 String.starts_with?(metadata.query, "SELECT ") and
                  String.contains?(metadata.query, "tool_result_idempotency_key") do
               send(test_pid, {handler_id, metadata.query, metadata.params})
             end
@@ -363,7 +364,12 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
              inspect(plan)
 
       assert plan["Index Cond"] =~ "tool_result_idempotency_key"
-      assert plan["Index Cond"] =~ "$2"
+
+      key_position =
+        Enum.find_index(params, &(&1 == journal.metadata["tool_result_idempotency_key"]))
+
+      assert is_integer(key_position)
+      assert plan["Index Cond"] =~ "$#{key_position + 1}"
 
       assert Repo.aggregate(
                from(message in Message,
@@ -406,7 +412,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
                  request_items: [output, output]
                })
 
-      assert journal.status == "complete"
+      assert journal.status == :complete
       assert journal.content == [output]
       assert ResponseChain.latest_visible_leaf(conversation.id) == journal.id
     end
@@ -486,7 +492,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
                  request_items: [output]
                })
 
-      assert journal.status == "complete"
+      assert journal.status == :complete
       assert journal.content == [output]
 
       assert journal.metadata["tool_results"] == [
@@ -577,7 +583,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       quarantine_id = String.replace_prefix(quarantine_response_id, "resp_", "")
       quarantined = Repo.get!(Message, quarantine_id)
 
-      assert quarantined.status == "error"
+      assert quarantined.status == :error
       assert quarantined.previous_message_id == anchor.id
       assert quarantined.content == [orphan]
 
@@ -740,7 +746,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, committed} =
         ResponseCommit.commit_complete(message, output_items, %{"usage" => %{}})
 
-      assert committed.status == "complete"
+      assert committed.status == :complete
       assert committed.content == request_items ++ output_items
       assert committed.metadata["usage"] == %{}
     end
@@ -842,7 +848,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       {:ok, failed} = ResponseCommit.commit_error(message, partial_output, error)
 
-      assert failed.status == "error"
+      assert failed.status == :error
       assert failed.content == request_items ++ partial_output
       assert failed.metadata["error"]["code"] == "rate_limit"
     end

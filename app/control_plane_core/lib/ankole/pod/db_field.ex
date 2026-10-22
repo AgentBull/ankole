@@ -1,41 +1,93 @@
 defmodule Ankole.Pod.DbField do
-  @moduledoc """
-  One field of a data table: its type, its JSON configuration, and the version
-  that a write uses to compare and set the field.
+  @moduledoc "A field definition and its schema version."
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod.Domain
 
-  At most one field of a table is primary. Field names are unique in a table.
-  """
+  postgres do
+    table("db_fields")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:table_id, "db_fields_tenant_id_table_id_fkey"}])
 
-  use Ankole.Schema, tenancy: :tenant
+    unique_index_names([
+      {[:id], "db_fields_pkey"},
+      {[:name], "db_fields_name_index"},
+      {[:is_primary], "db_fields_one_primary_index"}
+    ])
 
-  import Ecto.Changeset
+    check_constraints do
+      check_constraint(:type, "db_fields_type_check")
+      check_constraint(:version, "db_fields_version")
+      check_constraint(:config, "db_fields_config_object")
+    end
+  end
 
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+    )
 
-  @types ~w(text number select datetime checkbox user attachment auto_number link formula
-            created_at updated_at created_by updated_by)a
+    attribute(:table_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+    attribute(:name, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:position, :string, allow_nil?: false, constraints: [trim?: false])
 
-  schema "db_fields" do
-    field :table_id, Ankole.Ecto.UUIDv7
-    field :name, :string
-    field :position, :string
-    field :type, Ecto.Enum, values: @types
-    field :config, :map, default: %{}
-    field :is_primary, :boolean, default: false
-    field :version, :integer, default: 1
+    attribute(:type, :atom,
+      allow_nil?: false,
+      constraints: [
+        one_of: [
+          :text,
+          :number,
+          :select,
+          :datetime,
+          :checkbox,
+          :user,
+          :attachment,
+          :auto_number,
+          :link,
+          :formula,
+          :created_at,
+          :updated_at,
+          :created_by,
+          :updated_by
+        ]
+      ]
+    )
+
+    attribute(:config, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
+    attribute(:is_primary, :boolean, allow_nil?: false, default: false)
+    attribute(:version, :integer, allow_nil?: false, default: 1, constraints: [min: 1])
+  end
+
+  relationships do
+    belongs_to :table, Ankole.Pod.DbTable do
+      define_attribute?(false)
+      source_attribute(:table_id)
+      destination_attribute(:id)
+      allow_nil?(false)
+    end
+  end
+
+  actions do
+    defaults([:read])
+
+    create :create_in_tx do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+      accept([:id, :table_id, :name, :position, :type, :config, :is_primary])
+    end
+
+    atomic_in_tx_update :update_definition do
+      accept([:name, :position, :type, :config])
+      change(atomic_update(:version, expr(version + 1)))
+    end
+
+    destroy :remove do
+      transaction?(false)
+      require_atomic?(true)
+      change(Ankole.Ash.RequireTransaction.Atomic)
+    end
   end
 
   @type t :: %__MODULE__{}
-
-  @spec changeset(t(), map()) :: Ecto.Changeset.t()
-  def changeset(field, attrs) do
-    field
-    |> cast(attrs, [:id, :table_id, :name, :position, :type, :config, :is_primary, :version])
-    |> validate_required([:table_id, :name, :position, :type, :config, :is_primary, :version])
-    |> validate_number(:version, greater_than: 0)
-    |> foreign_key_constraint(:table_id, name: :db_fields_tenant_id_table_id_fkey)
-    |> unique_constraint(:name, name: :db_fields_name_index)
-    |> unique_constraint(:is_primary, name: :db_fields_one_primary_index)
-    |> check_constraint(:type, name: :db_fields_type_check)
-  end
 end

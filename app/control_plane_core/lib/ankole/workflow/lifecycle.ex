@@ -1,0 +1,512 @@
+defmodule Ankole.Workflow.Lifecycle do
+  @moduledoc "Owns workflow creation, completion, and revocation."
+  import Ecto.Query, warn: false
+  require Ash.Query
+  alias Ankole.BackgroundAgentJobs
+  alias Ankole.I18n
+  alias Ankole.Principals
+  alias Ankole.Repo
+  alias Ankole.Signals.Signal
+  alias Ankole.Workflow.RunServer
+  alias Ankole.Workflow.Schemas.AgentCall
+  alias Ankole.Workflow.Schemas.Run
+  alias Ankole.Workflow.WorkerConfig
+  @supported_create_fields ~w(
+    agent_uid
+    args
+    concurrency
+    max_agent_calls
+    model_profile
+    owner_session_id
+    reply_route
+    script
+    source_signal_id
+    source_tool_call_id
+    title
+  )
+  @workflow_wakeup_notice_keys %{
+    "workflow.run.completed" => "workflow_dead_letter_completed",
+    "workflow.run.failed" => "workflow_dead_letter_failed"
+  }
+
+  def dead_letter_notice_text(%Signal{type: type} = event)
+      when is_map_key(@workflow_wakeup_notice_keys, type) do
+    data = event.data
+    counts = data["counts"] || %{}
+
+    detail =
+      [
+        Ankole.Workflow.Queries.text_value(data["result_preview"]),
+        Ankole.Workflow.Queries.workflow_failure_notice_lines(data["failure_summaries"])
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("\n")
+
+    I18n.t(
+      "conversations.delivery.reply.#{Map.fetch!(@workflow_wakeup_notice_keys, type)}",
+      %{
+        "run_id" => data["run_id"] || 0,
+        "title" => Ankole.Workflow.Queries.text_value(data["title"]) || "",
+        "succeeded" => counts["succeeded"] || 0,
+        "failed" => counts["failed"] || 0,
+        "total" => counts["total"] || 0,
+        "detail" => detail
+      }
+    )
+  end
+
+  def dead_letter_notice_text(%Signal{}) do
+    nil
+  end
+
+  def cleanup_terminal_transition({:ok, %{run: %Run{} = run, released_slot?: true}} = result) do
+    with {:ok, :released} <- Ankole.Workflow.Mail.release_capacity(run) do
+      do_cleanup_terminal_transition(result)
+    end
+  end
+
+  def cleanup_terminal_transition(result), do: do_cleanup_terminal_transition(result)
+
+  defp do_cleanup_terminal_transition({:ok, %{run: %Run{status: status} = run} = result})
+       when status in [:completed, :failed, :cancelled] do
+    Repo.assert_outside_transaction!()
+
+    if status == :cancelled do
+      RunServer.stop_replay(run.id)
+    end
+
+    case cleanup_terminal_run(run) do
+      {:ok, cleaned_run} ->
+        {:ok, result |> Map.put(:run, cleaned_run) |> Map.put(:cleanup_errors, [])}
+
+      {:error, {:workflow_terminal_cleanup_failed, cleanup_errors}} ->
+        {:ok, Map.put(result, :cleanup_errors, cleanup_errors)}
+    end
+  end
+
+  defp do_cleanup_terminal_transition(
+         {:ok, %{run: %Run{} = run, running_session_ids: running_session_ids} = result}
+       )
+       when is_list(running_session_ids) do
+    Repo.assert_outside_transaction!()
+    cleanup_errors = stop_running_task_turns(run, running_session_ids)
+    {:ok, Map.put(result, :cleanup_errors, cleanup_errors)}
+  end
+
+  defp do_cleanup_terminal_transition(result) do
+    result
+  end
+
+  def cleanup_terminal_run(%Run{cleanup_completed_at: %DateTime{}} = run) do
+    {:ok, run}
+  end
+
+  def cleanup_terminal_run(%Run{status: status} = run)
+      when status in [:completed, :failed, :cancelled] do
+    Repo.assert_outside_transaction!()
+    sessions = Ankole.Workflow.Queries.task_sessions(run.id)
+
+    cancelled_session_ids =
+      for {session_id, :cancelled} <- sessions do
+        session_id
+      end
+
+    all_session_ids = Enum.map(sessions, &elem(&1, 0))
+
+    cleanup_errors =
+      stop_running_task_turns(run, cancelled_session_ids) ++
+        stop_delegated_jobs(run, all_session_ids)
+
+    case cleanup_errors do
+      [] ->
+        case complete_terminal_cleanup(run.id, DateTime.utc_now(:microsecond)) do
+          {:ok, cleaned_run} ->
+            {:ok, cleaned_run}
+
+          {:error, reason} ->
+            {:error, {:workflow_terminal_cleanup_failed, [%{run_id: run.id, reason: reason}]}}
+        end
+
+      errors ->
+        {:error, {:workflow_terminal_cleanup_failed, errors}}
+    end
+  end
+
+  defp stop_running_task_turns(run, session_ids) do
+    now = DateTime.utc_now(:microsecond)
+
+    Enum.flat_map(session_ids, fn session_id ->
+      case append_stop_event(run, session_id, now) do
+        {:ok, _event} -> []
+        {:error, reason} -> [%{session_id: session_id, reason: reason}]
+      end
+    end)
+  end
+
+  defp append_stop_event(run, session_id, now) do
+    reply_route = run.reply_route || %{}
+    call_id = String.replace_prefix(session_id, Ankole.Workflow.Queries.task_session_prefix(), "")
+    source_event_id = "workflow:call:#{call_id}:stop"
+    binding_name = Map.get(reply_route, "binding_name")
+
+    with true <-
+           Ankole.Workflow.Replay.valid_reply_route?(reply_route) ||
+             {:error, :workflow_reply_route_binding_missing} do
+      Ankole.Signals.accept(%{
+        producer: :kernel,
+        source: "control-plane://workflow",
+        id: source_event_id,
+        type: "command.stop",
+        subject: "workflow-call:#{call_id}",
+        time: DateTime.to_iso8601(now),
+        available_at: now,
+        target: %{agent_uid: run.agent_uid, session_id: session_id},
+        sender: nil,
+        authorization: Ankole.Principals.WorkAccess.fields(run),
+        reply_route: %{
+          binding_name: binding_name,
+          conversation_id: nil,
+          provider_thread_id: nil,
+          provider_message_id: nil
+        },
+        data: %{
+          "command" => %{
+            "argsText" => task_stop_reason(run.status),
+            "cancel_requested_by" => "workflow"
+          }
+        }
+      })
+    end
+  end
+
+  defp task_stop_reason(:cancelled) do
+    "Workflow cancelled"
+  end
+
+  defp task_stop_reason(status) do
+    "Workflow ended with status #{status}"
+  end
+
+  defp stop_delegated_jobs(%Run{} = run, session_ids) do
+    session_ids
+    |> BackgroundAgentJobs.live_job_ids_for_owner_sessions(run.agent_uid)
+    |> Enum.flat_map(fn job_id ->
+      case BackgroundAgentJobs.request_stop(job_id, %{
+             "agent_uid" => run.agent_uid,
+             "cancel_requested_by" => "workflow:#{run.id}"
+           }) do
+        {:ok, result} ->
+          Ankole.Sessions.stop_job_turn(result.job, result.turn)
+          []
+
+        {:error, reason} ->
+          [%{job_id: job_id, reason: reason}]
+      end
+    end)
+  end
+
+  def create_with_dispatch(attrs) when is_map(attrs) do
+    with :ok <- validate_string_keys(attrs),
+         :ok <- reject_unsupported_fields(attrs),
+         {:ok, agent_uid} <-
+           Principals.normalize_uid(Ankole.Attrs.optional_text(Map.get(attrs, "agent_uid"))),
+         {:ok, owner_session_id} <- required_text(attrs, "owner_session_id"),
+         {:ok, source_tool_call_id} <- required_text(attrs, "source_tool_call_id"),
+         {:ok, reply_route} <- reply_route(attrs),
+         {:ok, concurrency} <-
+           bounded_limit(attrs, "concurrency", WorkerConfig.max_concurrency_per_run()),
+         {:ok, max_agent_calls} <-
+           bounded_limit(attrs, "max_agent_calls", WorkerConfig.max_agent_calls_per_run()) do
+      attrs =
+        attrs
+        |> Map.put("agent_uid", agent_uid)
+        |> Map.put("owner_session_id", owner_session_id)
+        |> Map.put("source_tool_call_id", source_tool_call_id)
+        |> Map.put("reply_route", reply_route)
+        |> Map.put("concurrency", concurrency)
+        |> Map.put("max_agent_calls", max_agent_calls)
+        |> Map.put_new("args", %{})
+        |> Map.put("error", %{})
+
+      Repo.transact(fn repo -> persist_in_tx(repo, attrs) end)
+    end
+  end
+
+  defp persist_in_tx(repo, attrs) do
+    attrs = Ankole.Principals.WorkAccess.inherit(repo, attrs)
+
+    with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
+         :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
+         :ok <- lock_idempotency(repo, attrs) do
+      case find_existing(repo, attrs) do
+        %Run{status: :running} = run ->
+          with :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id) do
+            {:ok, %{run: run}}
+          end
+
+        %Run{} = run ->
+          {:ok, %{run: run}}
+
+        nil ->
+          with {:ok, run} <- Ankole.Ash.create(Run, :create_run, attrs),
+               :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id) do
+            {:ok, %{run: run}}
+          end
+      end
+    end
+  end
+
+  defp find_existing(repo, attrs) do
+    Run
+    |> where([run], run.agent_uid == ^attrs["agent_uid"])
+    |> where([run], run.owner_session_id == ^attrs["owner_session_id"])
+    |> where([run], run.source_tool_call_id == ^attrs["source_tool_call_id"])
+    |> repo.one()
+  end
+
+  defp lock_idempotency(repo, attrs) do
+    key =
+      [
+        "workflow:create",
+        attrs["agent_uid"],
+        attrs["owner_session_id"],
+        attrs["source_tool_call_id"]
+      ]
+      |> Enum.join(":")
+
+    case Ankole.AdvisoryLock.lock(repo, key) do
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp validate_string_keys(attrs) do
+    case Enum.find(Map.keys(attrs), &(not is_binary(&1))) do
+      nil -> :ok
+      key -> {:error, {:invalid_workflow_attribute_key, key}}
+    end
+  end
+
+  defp reject_unsupported_fields(attrs) do
+    case Map.keys(attrs) |> Enum.reject(&(&1 in @supported_create_fields)) |> Enum.sort() do
+      [] -> :ok
+      fields -> {:error, {:unsupported_workflow_create_fields, fields}}
+    end
+  end
+
+  defp reply_route(attrs) do
+    case Map.get(attrs, "reply_route") do
+      route when is_map(route) ->
+        with :ok <- validate_string_keys(route) do
+          case Ecto.UUID.cast(Map.get(route, "conversation_id")) do
+            {:ok, id} ->
+              {:ok, Map.put(route, "conversation_id", id)}
+
+            :error ->
+              with {:ok, binding_name} <- required_text(route, "binding_name") do
+                {:ok, Map.put(route, "binding_name", binding_name)}
+              end
+          end
+        end
+
+      _value ->
+        {:error, :invalid_workflow_reply_route}
+    end
+  end
+
+  defp bounded_limit(attrs, "concurrency", configured_maximum) do
+    case Map.get(attrs, "concurrency") do
+      nil -> {:ok, configured_maximum}
+      value when is_integer(value) and value in 1..32 -> {:ok, min(value, configured_maximum)}
+      _value -> {:error, {:invalid_workflow_concurrency, %{min: 1, max: 32}}}
+    end
+  end
+
+  defp bounded_limit(attrs, "max_agent_calls", configured_maximum) do
+    case Map.get(attrs, "max_agent_calls") do
+      nil -> {:ok, configured_maximum}
+      value when is_integer(value) and value in 1..1024 -> {:ok, min(value, configured_maximum)}
+      _value -> {:error, {:invalid_workflow_max_agent_calls, %{min: 1, max: 1024}}}
+    end
+  end
+
+  defp required_text(attrs, "owner_session_id") do
+    Ankole.Attrs.required_text(
+      Map.get(attrs, "owner_session_id"),
+      :workflow_owner_session_id_required
+    )
+  end
+
+  defp required_text(attrs, "source_tool_call_id") do
+    Ankole.Attrs.required_text(
+      Map.get(attrs, "source_tool_call_id"),
+      :workflow_source_tool_call_id_required
+    )
+  end
+
+  defp required_text(attrs, "binding_name") do
+    {:ok, Ankole.Attrs.optional_text(Map.get(attrs, "binding_name"))}
+  end
+
+  defp required_text(attrs, key) do
+    Ankole.Attrs.required_text(Map.get(attrs, key), :workflow_required_text_missing)
+  end
+
+  defp complete_terminal_cleanup(run_id, %DateTime{} = completed_at)
+       when is_integer(run_id) and run_id > 0 do
+    Repo.transact(fn repo ->
+      case Ankole.Workflow.Slot.lock_run(repo, run_id) do
+        %Run{cleanup_completed_at: %DateTime{}} = run ->
+          {:ok, run}
+
+        %Run{status: status} = run when status in [:completed, :failed, :cancelled] ->
+          Ankole.Ash.update(run, :update_metadata, %{cleanup_completed_at: completed_at})
+
+        %Run{status: :running} ->
+          {:error, :workflow_run_not_terminal}
+
+        nil ->
+          {:error, :workflow_not_found}
+      end
+    end)
+  end
+
+  def cancel_in_tx(repo, run_id, agent_uid) do
+    with :ok <- Ankole.Workflow.Slot.lock_agent_slots(repo, agent_uid),
+         %Run{} = run <- Ankole.Workflow.Slot.lock_run(repo, run_id, agent_uid) do
+      if run.status == :running do
+        completed_at = DateTime.utc_now()
+
+        with {:ok, running_ids} <- cancel_live_calls_in_tx(repo, run.id, completed_at),
+             {:ok, run} <-
+               Ankole.Ash.update(run, :stop, %{completed_at: completed_at, error: %{}}),
+             :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id) do
+          {:ok, %{run: run, running_session_ids: running_ids}}
+        end
+      else
+        {:ok, %{run: run, running_session_ids: []}}
+      end
+    else
+      nil -> {:error, :workflow_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def conclude_run_in_tx(repo, run, status, result_text, error, completed_at) do
+    with {:ok, running_ids} <- cancel_live_calls_in_tx(repo, run.id, completed_at),
+         {:ok, run} <-
+           Ankole.Ash.update(run, run_action(status), %{
+             result_text: result_text,
+             error: error,
+             completed_at: completed_at
+           }),
+         {:ok, wakeup_event} <- Ankole.Workflow.Mail.append_wakeup_event(repo, run, completed_at),
+         :ok <- Ankole.Workflow.Jobs.PokeRun.enqueue_in_tx(repo, run.id) do
+      {:ok, %{run: run, wakeup_event: wakeup_event, running_session_ids: running_ids}}
+    end
+  end
+
+  defp cancel_live_calls_in_tx(repo, run_id, _updated_at) do
+    calls = Ankole.Workflow.Slot.lock_run_calls(repo, run_id)
+
+    running_ids =
+      for %AgentCall{status: :running, id: id} <- calls do
+        Ankole.Workflow.Queries.task_session_id(id)
+      end
+
+    with {:ok, _count} <-
+           bulk_transition(
+             AgentCall,
+             Enum.filter(calls, &(&1.status in [:queued, :running, :sleeping]))
+             |> Enum.map(& &1.id),
+             :cancel_live_calls,
+             %{result: nil, error: %{}}
+           ) do
+      {:ok, running_ids}
+    end
+  end
+
+  defp run_action(:completed) do
+    :complete
+  end
+
+  defp run_action(:failed) do
+    :fail
+  end
+
+  defp run_action(:cancelled) do
+    :stop
+  end
+
+  def update_run_memo_bytes(_repo, %Run{memo_bytes: memo_bytes} = run, memo_bytes) do
+    {:ok, run}
+  end
+
+  def update_run_memo_bytes(_repo, run, memo_bytes) do
+    Ankole.Ash.update(run, :update_metadata, %{memo_bytes: memo_bytes})
+  end
+
+  def revoke_run_in_tx(repo, %Run{} = run) do
+    stop_runs_in_tx(repo, from(r in Run, where: r.id == ^run.id), DateTime.utc_now())
+    repo.get!(Run, run.id)
+  end
+
+  def stop_human_work_in_tx(repo, uid, version, now) do
+    runs = from(r in Run, where: r.human_uid == ^uid and r.human_access_version < ^version)
+    stop_runs_in_tx(repo, runs, now)
+  end
+
+  defp stop_runs_in_tx(repo, runs, now) do
+    ids = repo.all(from run in runs, where: run.status == :running, select: run.id)
+
+    live =
+      repo.all(
+        from(run in runs,
+          where: run.status == :running and run.id in ^ids,
+          order_by: run.id,
+          lock: "FOR UPDATE"
+        ),
+        lock_identity: {"workflow_runs", ids}
+      )
+
+    ids = Enum.map(live, & &1.id)
+
+    {:ok, count} =
+      bulk_transition(Run, ids, :stop_runs, %{
+        completed_at: now,
+        cleanup_completed_at: now,
+        error: %{"code" => "human_access_revoked"}
+      })
+
+    call_ids =
+      repo.all(
+        from(c in AgentCall,
+          where: c.run_id in ^ids and c.status in [:queued, :sleeping],
+          select: c.id
+        )
+      )
+
+    {:ok, _count} =
+      bulk_transition(AgentCall, call_ids, :cancel_live_calls, %{
+        error: %{"code" => "human_access_revoked"}
+      })
+
+    {count, nil}
+  end
+
+  defp bulk_transition(_resource, [], _action, _attrs) do
+    {:ok, 0}
+  end
+
+  defp bulk_transition(resource, ids, action, attrs) do
+    result =
+      resource
+      |> Ash.Query.filter(id in ^ids)
+      |> Ankole.Ash.bulk_update(action, attrs, strategy: [:atomic], return_errors?: true)
+
+    case result do
+      %Ash.BulkResult{status: :success} -> {:ok, length(ids)}
+      result -> {:error, result}
+    end
+  end
+end

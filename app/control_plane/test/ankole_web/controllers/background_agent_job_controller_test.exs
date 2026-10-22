@@ -17,7 +17,6 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
 
   setup do
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
@@ -27,6 +26,30 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
     :ok
+  end
+
+  test "the public status schema follows the resource state machines and rejects unknown filters",
+       %{
+         conn: conn
+       } do
+    schemas = AnkoleWeb.APISpec.spec().components.schemas
+
+    assert schemas["BackgroundAgentJobStatus"].enum ==
+             Job |> AshStateMachine.Info.state_machine_all_states() |> Enum.map(&Atom.to_string/1)
+
+    assert schemas["BackgroundAgentJobTurnItem"].properties.status.enum ==
+             Turn
+             |> AshStateMachine.Info.state_machine_all_states()
+             |> Enum.map(&Atom.to_string/1)
+
+    {conn, _admin_uid} = console_conn_with_principal(conn)
+
+    assert %{"error" => %{"code" => "validation_failed", "details" => details}} =
+             conn
+             |> get(~p"/api/v1/background-agent-jobs?status=unrecognized")
+             |> json_response(422)
+
+    assert Enum.any?(details, &(&1["path"] == "/status"))
   end
 
   test "admin lists with filters and cursor, reads the timeline, and cancels", %{conn: conn} do
@@ -368,65 +391,71 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     now = Keyword.get(opts, :started_at, DateTime.utc_now(:microsecond))
 
     turn =
-      %Turn{}
-      |> Turn.changeset(%{
-        job_id: job.id,
-        attempt: max(job.attempts, 1),
-        runtime_thread_id: runtime_thread_id,
-        runtime_turn_id: runtime_turn_id,
-        kind: "agent",
-        status: "completed",
-        revision: 2,
-        trajectory: %{
-          "format" => "ankole_chatml",
-          "version" => 1
-        },
-        progress: %{
-          "completed_items" => 2,
-          "tool_calls" => 1,
-          "tools_used" => [%{"name" => "shell", "calls" => 1}],
-          "files_changed" => ["brief.md"],
-          "plan" => %{
-            "steps" => [%{"step" => "Write brief", "status" => "completed"}]
-          }
-        },
-        usage: %{
-          "thread_total" => %{
-            "total_tokens" => 21,
-            "input_tokens" => 16,
-            "cached_input_tokens" => 2,
-            "output_tokens" => 5,
-            "reasoning_output_tokens" => 3
-          },
-          "last_model_call" => %{
-            "total_tokens" => 21,
-            "input_tokens" => 16,
-            "cached_input_tokens" => 2,
-            "output_tokens" => 5,
-            "reasoning_output_tokens" => 3
-          },
-          "model_context_window" => 200_000
-        },
-        error: %{},
-        started_at: now,
-        completed_at: now
-      })
-      |> Repo.insert!()
+      case Repo.transact(fn _ ->
+             Ankole.Ash.create(Turn, :record, %{
+               job_id: job.id,
+               attempt: max(job.attempts, 1),
+               runtime_thread_id: runtime_thread_id,
+               runtime_turn_id: runtime_turn_id,
+               kind: "agent",
+               status: :completed,
+               revision: 2,
+               trajectory: %{
+                 "format" => "ankole_chatml",
+                 "version" => 1
+               },
+               progress: %{
+                 "completed_items" => 2,
+                 "tool_calls" => 1,
+                 "tools_used" => [%{"name" => "shell", "calls" => 1}],
+                 "files_changed" => ["brief.md"],
+                 "plan" => %{
+                   "steps" => [%{"step" => "Write brief", "status" => "completed"}]
+                 }
+               },
+               usage: %{
+                 "thread_total" => %{
+                   "total_tokens" => 21,
+                   "input_tokens" => 16,
+                   "cached_input_tokens" => 2,
+                   "output_tokens" => 5,
+                   "reasoning_output_tokens" => 3
+                 },
+                 "last_model_call" => %{
+                   "total_tokens" => 21,
+                   "input_tokens" => 16,
+                   "cached_input_tokens" => 2,
+                   "output_tokens" => 5,
+                   "reasoning_output_tokens" => 3
+                 },
+                 "model_context_window" => 200_000
+               },
+               error: %{},
+               started_at: now,
+               completed_at: now
+             })
+           end) do
+        {:ok, record} -> record
+        {:error, error} -> raise Ash.Error.to_error_class(error)
+      end
 
     for position <- 0..(Keyword.get(opts, :items, 1) - 1)//1 do
-      %TurnItem{}
-      |> TurnItem.changeset(%{
-        turn_id: turn.id,
-        position: position,
-        revision: turn.revision,
-        item_key: "assistant:finished:#{position}",
-        item: %{
-          "type" => "agentMessage",
-          "id" => "assistant:finished",
-          "text" => "Finished semantic report."
-        }
-      })
-      |> Repo.insert!()
+      case Repo.transact(fn _ ->
+             Ankole.Ash.create(TurnItem, :append, %{
+               turn_id: turn.id,
+               position: position,
+               revision: turn.revision,
+               item_key: "assistant:finished:#{position}",
+               item: %{
+                 "type" => "agentMessage",
+                 "id" => "assistant:finished",
+                 "text" => "Finished semantic report."
+               }
+             })
+           end) do
+        {:ok, record} -> record
+        {:error, error} -> raise Ash.Error.to_error_class(error)
+      end
     end
 
     turn

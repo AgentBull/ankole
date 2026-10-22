@@ -110,7 +110,7 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
       nil ->
         :done
 
-      %AgentWorker{state: "deleting", provider_id: nil} = worker ->
+      %AgentWorker{state: :deleting, provider_id: nil} = worker ->
         {:ok, %{worker: worker, provider: nil, kind: nil, objects: []}}
 
       worker ->
@@ -130,8 +130,8 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
       nil ->
         :done
 
-      %AgentWorker{state: "deleting", provider_id: nil} = worker ->
-        repo.delete!(worker)
+      %AgentWorker{state: :deleting, provider_id: nil} = worker ->
+        {:ok, _deleted} = Ankole.Ash.destroy(worker, :remove)
         :done
 
       worker ->
@@ -236,16 +236,18 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   defp facts(worker, provider, kind, objects, now) do
     agent =
       Repo.one(
-        from p in Principal,
+        from(p in Principal,
           where: p.uid == ^worker.agent_uid and p.type == :agent,
           select: p.status
+        )
       ) || :deleted
 
     turn? =
       (worker.load["active_slots"] || 0) > 0 or
         Repo.exists?(
-          from j in Ankole.BackgroundAgentJobs.Schemas.Job,
-            where: j.agent_uid == ^worker.agent_uid and j.status == "running"
+          from(j in Ankole.BackgroundAgentJobs.Schemas.Job,
+            where: j.agent_uid == ^worker.agent_uid and j.status == :running
+          )
         )
 
     settings =
@@ -298,12 +300,12 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
         ]
 
         changes =
-          if worker.state in ~w(starting stale) and is_binary(object.reason) and
+          if worker.state in [:starting, :stale] and is_binary(object.reason) and
                object.reason != "",
              do: changes ++ AgentWorker.error_fields(object.reason, "transient"),
              else: changes
 
-        write(worker, changes)
+        write(worker, :observe, changes)
     end
   end
 
@@ -318,8 +320,7 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
       |> binary_part(0, 10)
 
     with {:ok, credential} <- AgentWorkers.issue_credential(worker.agent_uid, generation) do
-      write(worker,
-        state: "starting",
+      write(worker, :begin_generation,
         generation: generation,
         create_sent_at: nil,
         last_error: nil,
@@ -344,13 +345,13 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
     worker =
       if retry?,
         do: worker,
-        else: write(worker, create_sent_at: facts.now)
+        else: write(worker, :observe, create_sent_at: facts.now)
 
     {:call, :create, facts |> Map.put(:worker, worker) |> Map.put(:create_retry?, retry?)}
   end
 
   defp intend(:mark_paused, facts) do
-    write(facts.worker, state: "paused", drain_reason: nil, transport_route: nil)
+    write(facts.worker, :pause, [])
     {:paused, facts.worker.transport_route}
   end
 
@@ -361,7 +362,7 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
     do: {:call, action, %{facts | worker: drain(facts.worker, reason)}}
 
   defp intend(:resume, facts),
-    do: {:call, :resume, %{facts | worker: write(facts.worker, state: "starting")}}
+    do: {:call, :resume, %{facts | worker: write(facts.worker, :resume, [])}}
 
   defp intend({:delete_object, object} = action, facts),
     do: {:call, action, %{facts | worker: wait_for_deletion(facts.worker, object)}}
@@ -461,7 +462,7 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   # A rebuild can be caused by a broken cache. Other replacements keep it:
   # a cache whose own settings changed is replaced by storage preparation.
   defp delete_replaced_cache(facts) do
-    if facts.worker.state != "deleting" and facts.worker.drain_reason == "rebuild",
+    if facts.worker.state != :deleting and facts.worker.drain_reason == "rebuild",
       do: facts.kind.delete_cache(facts.provider, facts.worker.agent_uid),
       else: :ok
   end
@@ -494,7 +495,7 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
             ),
         else: changes
 
-    write(worker, changes)
+    write(worker, :observe, changes)
 
     :ok
   end
@@ -520,13 +521,14 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   end
 
   defp apply_result(:delete_storage, worker, {:ok, _ref}) do
-    Repo.delete!(worker)
+    {:ok, _deleted} = Ankole.Ash.destroy(worker, :remove)
     :ok
   end
 
   defp apply_result(:delete_storage, worker, {:pending, ref}) do
     write(
       worker,
+      :observe,
       [storage_ref: ref] ++ AgentWorker.error_fields("Waiting for storage deletion", "pending")
     )
 
@@ -540,29 +542,10 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   defp unchanged_error(_result), do: :ok
 
   defp settle(worker, ref, reason) do
-    state = if worker.state == "deleting", do: "deleting", else: "absent"
-
-    write(worker,
-      state: state,
-      generation: nil,
-      create_sent_at: nil,
-      token_digest: nil,
-      token_ciphertext: nil,
-      instance_seen_at: nil,
-      instance_ref: nil,
+    write(worker, :settle,
       storage_ref: ref || worker.storage_ref,
       last_error: if(is_binary(reason), do: String.slice(reason, -4_000, 4_000)),
-      last_error_kind: if(is_binary(reason), do: "transient"),
-      image: nil,
-      protocol_version: nil,
-      settings_digest: nil,
-      instance_settings: %{},
-      incarnation_id: nil,
-      transport_route: nil,
-      drain_reason: nil,
-      capacity: %{},
-      load: %{},
-      last_worker_heartbeat_at: nil
+      last_error_kind: if(is_binary(reason), do: "transient")
     )
   end
 
@@ -578,49 +561,33 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
 
   defp wait_for_deletion(worker, object),
     do:
-      write(worker,
+      write(worker, :observe,
         last_error:
           "Waiting for instance #{object.instance_ref || object.generation} to disappear",
         last_error_kind: "pending"
       )
 
-  defp drain(worker, reason),
-    do:
-      write(worker,
-        state: "draining",
-        drain_reason: reason,
-        capacity: Map.put(worker.capacity, "available_slots", 0)
-      )
+  defp drain(worker, reason), do: write(worker, :drain, drain_reason: reason)
 
-  # The caller holds the row lock. Preserve the continuous not-ready clock.
-  defp write(worker, changes) do
-    query = from w in AgentWorker, where: w.agent_uid == ^worker.agent_uid, select: w
-
-    query =
-      case Keyword.get(changes, :state) do
-        nil ->
-          query
-
-        state when state == worker.state ->
-          query
-
-        state when state in ["starting", "stale"] and worker.state in ["starting", "stale"] ->
-          query
-
-        _state ->
-          update(query, set: [state_changed_at: fragment("clock_timestamp()")])
-      end
-
-    {1, [row]} = query |> update(set: ^changes) |> Repo.update_all([])
-    row
+  defp write(worker, action, changes) do
+    {:ok, updated} = Ankole.Ash.update(worker, action, Map.new(changes))
+    updated
   end
 
   defp record_error(uid, reason, kind \\ "transient") do
     text = inspect(reason) |> String.slice(-4_000, 4_000)
 
-    Repo.update_all(from(w in AgentWorker, where: w.agent_uid == ^uid),
-      set: AgentWorker.error_fields(text, kind)
-    )
+    require Ash.Query
+
+    case AgentWorker
+         |> Ash.Query.filter(agent_uid == ^uid)
+         |> Ankole.Ash.bulk_update(:record_error, Map.new(AgentWorker.error_fields(text, kind)),
+           strategy: [:atomic],
+           return_errors?: true
+         ) do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+    end
 
     AgentWorkers.notify_changed(uid)
     :ok
@@ -630,8 +597,8 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
     {:ok, changed?} =
       Repo.transact(fn repo ->
         case AgentWorkers.lock_in_tx(repo, uid) do
-          %AgentWorker{state: "absent", provider_id: ^provider_id} = worker ->
-            write(worker, AgentWorker.error_fields(inspect(reason), kind))
+          %AgentWorker{state: :absent, provider_id: ^provider_id} = worker ->
+            write(worker, :observe, AgentWorker.error_fields(inspect(reason), kind))
             {:ok, true}
 
           _changed ->
@@ -645,7 +612,7 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
 
   defp prepare_storage(kind, provider, uid) do
     case Repo.get(AgentWorker, uid) do
-      %AgentWorker{state: "absent", provider_id: provider_id}
+      %AgentWorker{state: :absent, provider_id: provider_id}
       when provider_id == provider.provider_id ->
         kind.prepare_storage(provider, uid)
 

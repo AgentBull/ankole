@@ -1,7 +1,7 @@
 defmodule Ankole.AIAgent.Library.SkillLessons do
   @moduledoc false
 
-  import Ecto.Query
+  require Ash.Query
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
   alias Ankole.AIAgent.Library.Schemas.AgentSkillLesson
   alias Ankole.AIAgent.Library.SourceReader
@@ -11,14 +11,13 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   alias Ankole.Principals.Agent
   alias Ankole.Repo
 
-  def apply_adds_in_tx(repo, agent_uid, adds, context, now, catalog) do
+  def apply_adds_in_tx(agent_uid, adds, context, now, catalog) do
     state = %{
-      repo: repo,
       catalog: catalog,
       now: now,
       context: context,
-      active: active_lesson_index(repo, agent_uid),
-      immunity: immunity_index(repo, agent_uid),
+      active: active_lesson_index(agent_uid),
+      immunity: immunity_index(agent_uid),
       accepted: [],
       rejected: [],
       round_counts: %{}
@@ -28,22 +27,8 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
     {:ok, %{accepted: Enum.reverse(state.accepted), rejected: Enum.reverse(state.rejected)}}
   end
 
-  def create_in_tx(repo, agent_uid, skill_name, content, author) do
-    with :ok <- validate_lesson_content(content, :human) do
-      %AgentSkillLesson{}
-      |> AgentSkillLesson.changeset(%{
-        agent_uid: agent_uid,
-        skill_name: skill_name,
-        content: String.trim(content),
-        author_kind: "human",
-        author: author
-      })
-      |> repo.insert()
-    end
-  end
-
-  defp ensure_agent(repo, agent_uid) do
-    case repo.get(Agent, agent_uid) do
+  defp ensure_agent(agent_uid) do
+    case Agent |> Ash.Query.filter(uid == ^agent_uid) |> Ankole.Ash.read_one!() do
       %Agent{} -> :ok
       nil -> {:error, :not_found}
     end
@@ -51,13 +36,13 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
 
   def apply_skill_lesson_reviews(agent_uid, reviews, docket_ids, context, opts \\ [])
       when is_list(reviews) do
-    repo = Keyword.get(opts, :repo, Repo)
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
-      repo.transact(fn repo ->
+      Repo.transact(fn ->
+        lock_review_lessons(agent_uid, reviews)
+
         state = %{
-          repo: repo,
           now: now,
           context: context,
           docket_ids: docket_ids,
@@ -82,24 +67,22 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
     end
   end
 
-  def skill_lesson_review_docket(agent_uid, horizon, current_release, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
+  def skill_lesson_review_docket(agent_uid, horizon, current_release) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
       skill_hashes =
         AgentSkill
-        |> where([skill], skill.agent_uid == ^agent_uid)
-        |> select([skill], {skill.skill_name, skill.content_hash})
-        |> repo.all()
-        |> Map.new()
+        |> Ash.Query.filter(agent_uid == ^agent_uid)
+        |> Ash.Query.select([:skill_name, :content_hash])
+        |> Ankole.Ash.read!()
+        |> Map.new(&{&1.skill_name, &1.content_hash})
 
       docket =
         AgentSkillLesson
-        |> where([lesson], lesson.agent_uid == ^agent_uid)
-        |> where([lesson], is_nil(lesson.retired_at))
-        |> where([lesson], lesson.author_kind == "dreaming")
-        |> order_by([lesson], asc: lesson.inserted_at)
-        |> repo.all()
+        |> Ash.Query.filter(agent_uid == ^agent_uid)
+        |> Ash.Query.filter(is_nil(retired_at))
+        |> Ash.Query.filter(author_kind == :dreaming)
+        |> Ash.Query.sort(inserted_at: :asc)
+        |> Ankole.Ash.read!()
         |> Enum.filter(fn lesson ->
           DateTime.compare(lesson.review_after, horizon) != :gt or
             lesson.checked_release != current_release or
@@ -110,13 +93,14 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
     end
   end
 
-  def retire_skill_lesson(agent_uid, lesson_id, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
+  def retire_skill_lesson(agent_uid, lesson_id) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         :ok <- ensure_agent(repo, agent_uid) do
-      repo.transact(fn repo ->
-        case repo.get_by(AgentSkillLesson, id: lesson_id, agent_uid: agent_uid) do
+         :ok <- ensure_agent(agent_uid) do
+      Repo.transact(fn ->
+        case AgentSkillLesson
+             |> Ash.Query.filter(id == ^lesson_id and agent_uid == ^agent_uid)
+             |> Ash.Query.lock(:for_update)
+             |> Ankole.Ash.read_one!() do
           nil ->
             {:error, :skill_lesson_not_found}
 
@@ -124,40 +108,34 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
             {:error, :skill_lesson_already_retired}
 
           %AgentSkillLesson{} = lesson ->
-            lesson
-            |> AgentSkillLesson.changeset(%{
+            Ankole.Ash.update(lesson, :retire, %{
               retired_at: DateTime.utc_now(:microsecond),
-              retire_reason: "human_revoked"
+              retire_reason: :human_revoked
             })
-            |> repo.update()
         end
       end)
     end
   end
 
-  def active_skill_lessons(agent_uid, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
+  def active_skill_lessons(agent_uid) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
       {:ok,
        AgentSkillLesson
-       |> where([lesson], lesson.agent_uid == ^agent_uid)
-       |> where([lesson], is_nil(lesson.retired_at))
-       |> order_by([lesson], asc: lesson.skill_name, asc: lesson.inserted_at)
-       |> repo.all()}
+       |> Ash.Query.filter(agent_uid == ^agent_uid)
+       |> Ash.Query.filter(is_nil(retired_at))
+       |> Ash.Query.sort(skill_name: :asc, inserted_at: :asc)
+       |> Ankole.Ash.read!()}
     end
   end
 
-  def revoked_skill_lessons(agent_uid, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
+  def revoked_skill_lessons(agent_uid) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
       {:ok,
        AgentSkillLesson
-       |> where([lesson], lesson.agent_uid == ^agent_uid)
-       |> where([lesson], lesson.retire_reason == "human_revoked")
-       |> order_by([lesson], asc: lesson.skill_name, asc: lesson.inserted_at)
-       |> repo.all()}
+       |> Ash.Query.filter(agent_uid == ^agent_uid)
+       |> Ash.Query.filter(retire_reason == :human_revoked)
+       |> Ash.Query.sort(skill_name: :asc, inserted_at: :asc)
+       |> Ankole.Ash.read!()}
     end
   end
 
@@ -184,40 +162,39 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   ]
   @lesson_render_header "Field notes (dated; verify against the current environment):"
 
-  defp delivered_skill_lessons(repo, agent_uid, skill_names) do
+  defp delivered_skill_lessons(agent_uid, skill_names) do
     grace_floor =
       DateTime.add(DateTime.utc_now(:microsecond), -@lesson_delivery_grace_days, :day)
 
     AgentSkillLesson
-    |> where([lesson], lesson.agent_uid == ^agent_uid)
-    |> where([lesson], lesson.skill_name in ^skill_names)
-    |> where([lesson], is_nil(lesson.retired_at))
-    |> where([lesson], is_nil(lesson.review_after) or lesson.review_after > ^grace_floor)
-    |> order_by([lesson], asc: lesson.inserted_at)
-    |> repo.all()
+    |> Ash.Query.filter(agent_uid == ^agent_uid)
+    |> Ash.Query.filter(skill_name in ^skill_names)
+    |> Ash.Query.filter(is_nil(retired_at))
+    |> Ash.Query.filter(is_nil(review_after) or review_after > ^grace_floor)
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ankole.Ash.read!()
   end
 
-  def delivered_skill_names(repo, agent_uid) do
+  def delivered_skill_names(agent_uid) do
     if BrainConfig.skill_learning_enabled?() do
       grace_floor =
         DateTime.add(DateTime.utc_now(:microsecond), -@lesson_delivery_grace_days, :day)
 
       AgentSkillLesson
-      |> where([lesson], lesson.agent_uid == ^agent_uid)
-      |> where([lesson], is_nil(lesson.retired_at))
-      |> where([lesson], is_nil(lesson.review_after) or lesson.review_after > ^grace_floor)
-      |> select([lesson], lesson.skill_name)
-      |> repo.all()
-      |> MapSet.new()
+      |> Ash.Query.filter(agent_uid == ^agent_uid)
+      |> Ash.Query.filter(is_nil(retired_at))
+      |> Ash.Query.filter(is_nil(review_after) or review_after > ^grace_floor)
+      |> Ash.Query.select([:skill_name])
+      |> Ankole.Ash.read!()
+      |> MapSet.new(& &1.skill_name)
     else
       MapSet.new()
     end
   end
 
-  def delivered_text(repo, agent_uid, skill_name) do
+  def delivered_text(agent_uid, skill_name) do
     if BrainConfig.skill_learning_enabled?() do
-      repo
-      |> delivered_skill_lessons(agent_uid, [skill_name])
+      delivered_skill_lessons(agent_uid, [skill_name])
       |> render_skill_lessons()
     else
       nil
@@ -227,22 +204,22 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   defp render_skill_lessons([]), do: nil
 
   defp render_skill_lessons(lessons) do
-    {human, dreaming} = Enum.split_with(lessons, &(&1.author_kind == "human"))
+    {human, dreaming} = Enum.split_with(lessons, &(&1.author_kind == :human))
     bullets = Enum.map(human ++ dreaming, &lesson_bullet/1)
     Enum.join([@lesson_render_header | bullets], "\n")
   end
 
   defp lesson_bullet(%AgentSkillLesson{} = lesson) do
     date = lesson.inserted_at |> DateTime.to_date() |> Date.to_iso8601()
-    marker = if lesson.author_kind == "human", do: date <> ", human", else: date
+    marker = if lesson.author_kind == :human, do: date <> ", human", else: date
     "- [" <> marker <> "] " <> String.trim(lesson.content)
   end
 
-  defp active_lesson_index(repo, agent_uid) do
+  defp active_lesson_index(agent_uid) do
     AgentSkillLesson
-    |> where([lesson], lesson.agent_uid == ^agent_uid)
-    |> where([lesson], is_nil(lesson.retired_at))
-    |> repo.all()
+    |> Ash.Query.filter(agent_uid == ^agent_uid)
+    |> Ash.Query.filter(is_nil(retired_at))
+    |> Ankole.Ash.read!()
     |> Enum.reduce(%{}, &index_lesson(&2, &1))
   end
 
@@ -255,11 +232,11 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
     })
   end
 
-  defp immunity_index(repo, agent_uid) do
+  defp immunity_index(agent_uid) do
     AgentSkillLesson
-    |> where([lesson], lesson.agent_uid == ^agent_uid)
-    |> where([lesson], lesson.retire_reason == "human_revoked")
-    |> repo.all()
+    |> Ash.Query.filter(agent_uid == ^agent_uid)
+    |> Ash.Query.filter(retire_reason == :human_revoked)
+    |> Ankole.Ash.read!()
     |> Enum.group_by(& &1.skill_name, &normalize_lesson_text(&1.content))
     |> Map.new(fn {skill_name, normals} -> {skill_name, MapSet.new(normals)} end)
   end
@@ -275,7 +252,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   defp apply_lesson_add(agent_uid, add, state) do
     case validate_lesson_add(agent_uid, add, state) do
       {:ok, attrs} ->
-        case %AgentSkillLesson{} |> AgentSkillLesson.changeset(attrs) |> state.repo.insert() do
+        case Ankole.Ash.create(AgentSkillLesson, :teach_dreaming, Map.delete(attrs, :author_kind)) do
           {:ok, lesson} ->
             %{
               state
@@ -313,7 +290,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
          agent_uid: agent_uid,
          skill_name: skill_name,
          content: String.trim(content),
-         author_kind: "dreaming",
+         author_kind: :dreaming,
          evidence_job_ids: evidence_ids,
          checked_release: Map.fetch!(state.context, :checked_release),
          checked_skill_hash: skill.content_hash,
@@ -324,7 +301,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
 
   defp validate_lesson_add(_agent_uid, _add, _state), do: {:error, :invalid_add}
 
-  defp validate_lesson_content(content, author_kind) when is_binary(content) do
+  def validate_lesson_content(content, author_kind) when is_binary(content) do
     trimmed = String.trim(content)
 
     cond do
@@ -348,7 +325,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
     end
   end
 
-  defp validate_lesson_content(_content, _author_kind), do: {:error, :blank_content}
+  def validate_lesson_content(_content, _author_kind), do: {:error, :blank_content}
 
   defp reject_duplicate_lesson(active, skill_name, normalized) do
     case Map.get(active, skill_name) do
@@ -406,7 +383,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
 
   defp apply_lesson_review(agent_uid, review, state) do
     with {:ok, lesson_id, verdict, evidence, note} <- review_fields(review),
-         {:ok, lesson} <- reviewable_lesson(state.repo, agent_uid, lesson_id),
+         {:ok, lesson} <- reviewable_lesson(agent_uid, lesson_id),
          :ok <- validate_review_evidence(evidence, state.context) do
       apply_lesson_verdict(verdict, lesson, note, state)
     else
@@ -422,12 +399,32 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
 
   defp review_fields(_review), do: {:error, :invalid_review}
 
-  defp reviewable_lesson(repo, agent_uid, lesson_id) do
+  defp lock_review_lessons(agent_uid, reviews) do
+    ids =
+      Enum.flat_map(reviews, fn review ->
+        with {:ok, id, _verdict, _evidence, _note} <- review_fields(review),
+             {:ok, id} <- Ecto.UUID.cast(id) do
+          [id]
+        else
+          _invalid -> []
+        end
+      end)
+
+    AgentSkillLesson
+    |> Ash.Query.filter(agent_uid == ^agent_uid and id in ^ids)
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read!()
+  end
+
+  defp reviewable_lesson(agent_uid, lesson_id) do
     with {:ok, _uuid} <- Ecto.UUID.cast(lesson_id) do
-      case repo.get_by(AgentSkillLesson, id: lesson_id, agent_uid: agent_uid) do
+      case AgentSkillLesson
+           |> Ash.Query.filter(id == ^lesson_id and agent_uid == ^agent_uid)
+           |> Ankole.Ash.read_one!() do
         nil -> {:error, :not_reviewable}
         %AgentSkillLesson{retired_at: %DateTime{}} -> {:error, :not_reviewable}
-        %AgentSkillLesson{author_kind: "human"} -> {:error, :not_reviewable}
+        %AgentSkillLesson{author_kind: :human} -> {:error, :not_reviewable}
         %AgentSkillLesson{} = lesson -> {:ok, lesson}
       end
     else
@@ -450,10 +447,10 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
       attrs = %{
         review_after: DateTime.add(state.now, @lesson_term_days, :day),
         checked_release: Map.fetch!(state.context, :checked_release),
-        checked_skill_hash: current_skill_hash(state.repo, lesson) || lesson.checked_skill_hash
+        checked_skill_hash: current_skill_hash(lesson) || lesson.checked_skill_hash
       }
 
-      case lesson |> AgentSkillLesson.changeset(attrs) |> state.repo.update() do
+      case Ankole.Ash.update(lesson, :renew, attrs) do
         {:ok, _lesson} -> %{state | renewed: state.renewed + 1}
         {:error, _changeset} -> reject_review(state, lesson, :invalid_review)
       end
@@ -464,7 +461,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
 
   defp apply_lesson_verdict("obsolete", lesson, note, state) do
     if is_binary(note) and String.trim(note) != "" do
-      retire_lesson(lesson, "obsolete", state, &%{&1 | obsoleted: &1.obsoleted + 1})
+      retire_lesson(lesson, :obsolete, state, &%{&1 | obsoleted: &1.obsoleted + 1})
     else
       reject_review(state, lesson, :missing_note)
     end
@@ -472,7 +469,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
 
   defp apply_lesson_verdict("lapse", lesson, _note, state) do
     if MapSet.member?(state.docket_ids, lesson.id) do
-      retire_lesson(lesson, "lapsed", state, &%{&1 | lapsed: &1.lapsed + 1})
+      retire_lesson(lesson, :lapsed, state, &%{&1 | lapsed: &1.lapsed + 1})
     else
       reject_review(state, lesson, :outside_docket)
     end
@@ -481,7 +478,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   defp retire_lesson(lesson, reason, state, count) do
     attrs = %{retired_at: state.now, retire_reason: reason}
 
-    case lesson |> AgentSkillLesson.changeset(attrs) |> state.repo.update() do
+    case Ankole.Ash.update(lesson, :retire, attrs) do
       {:ok, retired} ->
         count.(%{state | retired_skills: [retired.skill_name | state.retired_skills]})
 
@@ -496,8 +493,10 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
       | rejected: [%{review: %{"lesson_id" => lesson.id}, reason: reason} | state.rejected]
     }
 
-  defp current_skill_hash(repo, %AgentSkillLesson{} = lesson) do
-    case repo.get_by(AgentSkill, agent_uid: lesson.agent_uid, skill_name: lesson.skill_name) do
+  defp current_skill_hash(%AgentSkillLesson{} = lesson) do
+    case AgentSkill
+         |> Ash.Query.filter(agent_uid == ^lesson.agent_uid and skill_name == ^lesson.skill_name)
+         |> Ankole.Ash.read_one!() do
       %AgentSkill{content_hash: content_hash} -> content_hash
       nil -> nil
     end

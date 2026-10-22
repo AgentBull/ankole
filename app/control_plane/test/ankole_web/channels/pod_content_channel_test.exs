@@ -185,7 +185,10 @@ defmodule AnkoleWeb.PodContentChannelTest do
                "page:#{page.id}"
              )
 
-    Repo.update!(Ankole.Pod.Page.changeset(page, %{revision: 1}))
+    Ankole.Pod.PagesFixtures.update_record!(page, :advance_revision, %{
+      updated_at: DateTime.utc_now(:microsecond)
+    })
+
     Pages.broadcast(page.id)
     assert_push "changes", %{revision: 1, changes: []}, 1_000
   end

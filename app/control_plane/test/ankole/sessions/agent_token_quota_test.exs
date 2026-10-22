@@ -5,6 +5,8 @@ defmodule Ankole.Sessions.AgentTokenQuotaTest do
   alias Ankole.AIGateway.Schemas.UsageRecord
   alias Ankole.BackgroundAgentJobs
   alias Ankole.Sessions.Admission
+  alias Ankole.Sessions.AmbientJudgment
+  alias Ankole.Sessions.AmbientTriage
   alias Ankole.Sessions.CodexJob
   alias Ankole.Sessions.Run
 
@@ -48,10 +50,11 @@ defmodule Ankole.Sessions.AgentTokenQuotaTest do
              }
 
       assert %Signal{producer: :kernel, completed_at: %DateTime{}} = Repo.get!(Signal, input.id)
-      assert Repo.get!(AgentWorker, agent.uid).state == "absent"
+      assert Repo.get!(AgentWorker, agent.uid).state == :absent
     end
 
     test "an ambient message is completed without a notice" do
+      now = DateTime.utc_now(:microsecond)
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :may_intervene)
       exhaust_quota!(agent.uid, 1_000, 1_500)
@@ -60,21 +63,40 @@ defmodule Ankole.Sessions.AgentTokenQuotaTest do
                emit_entry(
                  agent.uid,
                  "bot",
-                 group_entry(%{text: "ambient message"}),
-                 now: @base_time
+                 group_entry(%{text: "ambient message", provider_time: now}),
+                 now: now
                )
 
       assert input.type == "im.message.may_intervene"
 
       assert {:ok,
-              %{status: :agent_token_quota_exceeded, posted: %{intents: []}, notice_error: nil}} =
-               Admission.admit(%{agent_uid: agent.uid, session_id: input.session_id}, input,
-                 now: DateTime.add(@base_time, 20, :second)
-               )
+              %{
+                status: :agent_token_quota_exceeded,
+                token_quota: window,
+                posted: %{intents: []},
+                notice_error: nil
+              }} =
+               AmbientTriage.run(%{agent_uid: agent.uid, session_id: input.session_id}, input)
 
-      assert %Signal{producer: :kernel, completed_at: %DateTime{}} = Repo.get!(Signal, input.id)
+      assert window.used_tokens == 1_500
+      assert window.limit_tokens == 1_000
+      assert window.exceeded
+
+      assert %Signal{
+               producer: :kernel,
+               completed_at: %DateTime{},
+               turn_outcome: "silent",
+               attempt_count: 0,
+               last_attempt_at: nil
+             } = Repo.get!(Signal, input.id)
+
+      assert %AmbientJudgment{action: "NOOP", authority: "NONE"} =
+               Repo.get!(AmbientJudgment, input.id)
+
       refute Repo.get_by(Intent, source_signal_id: input.id)
-      assert Repo.get!(AgentWorker, agent.uid).state == "absent"
+      refute Repo.exists?(Ankole.Sessions.SessionWorkspace)
+      refute Repo.exists?(Ankole.AIGateway.Schemas.Conversation)
+      assert Repo.get!(AgentWorker, agent.uid).state == :absent
     end
   end
 
@@ -110,7 +132,7 @@ defmodule Ankole.Sessions.AgentTokenQuotaTest do
 
       dead_lettered = Repo.get!(Signal, input.id)
       assert dead_lettered.id == input.id
-      assert Repo.get!(Signal, input.id).input_state == "dead_letter"
+      assert Repo.get!(Signal, input.id).status == :dead_letter
 
       notice = Repo.get_by!(Intent, outbound_key: "ai-dead-letter:#{input.id}")
 
@@ -162,10 +184,10 @@ defmodule Ankole.Sessions.AgentTokenQuotaTest do
                  }
                })
 
-      assert dead_lettered.input_state == "dead_letter"
+      assert dead_lettered.status == :dead_letter
 
       failed = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
-      assert failed.status == "failed"
+      assert failed.status == :failed
       assert failed.error["code"] == "agent_token_quota_exceeded"
       assert failed.error["details"]["error_code"] == "agent_token_quota_exceeded"
       assert failed.attempts == 1
@@ -215,8 +237,8 @@ defmodule Ankole.Sessions.AgentTokenQuotaTest do
       settled = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
 
       if @exhausted? do
-        assert event.input_state == "dead_letter"
-        assert settled.status == "failed"
+        assert event.status == :dead_letter
+        assert settled.status == :failed
         assert settled.error["code"] == "agent_token_quota_exceeded"
 
         assert settled.error["summary"] ==
@@ -230,9 +252,9 @@ defmodule Ankole.Sessions.AgentTokenQuotaTest do
                  type: "background_agent_job.failed"
                )
       else
-        assert event.input_state == "open"
+        assert event.status == :queued
         assert event.available_at == retry_at
-        assert settled.status == "queued"
+        assert settled.status == :queued
         assert settled.execution_failures == 0
 
         refute Repo.get_by(Signal,
@@ -269,14 +291,14 @@ defmodule Ankole.Sessions.AgentTokenQuotaTest do
   end
 
   defp record_usage!(agent_uid, input_tokens, output_tokens) do
-    Repo.insert!(%UsageRecord{
-      subject_uid: agent_uid,
-      origin: "agent",
-      model: "test-provider/test-model",
-      input_tokens: input_tokens,
-      output_tokens: output_tokens,
-      inserted_at: DateTime.utc_now(:microsecond)
-    })
+    assert {:ok, _record} =
+             Ankole.Ash.create(UsageRecord, :record_round, %{
+               subject_uid: agent_uid,
+               origin: :agent,
+               model: "test-provider/test-model",
+               input_tokens: input_tokens,
+               output_tokens: output_tokens
+             })
   end
 
   defp create_job!(agent_uid, suffix) do

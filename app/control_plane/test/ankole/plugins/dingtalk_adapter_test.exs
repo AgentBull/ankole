@@ -287,9 +287,24 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     |> where([row], row.scope == "global" and row.key == ^key)
     |> Repo.delete_all()
 
-    %SiteConfig{}
-    |> SiteConfig.changeset(%{scope: "global", key: key, value: envelope})
-    |> Repo.insert!()
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    {1, [row]} =
+      Repo.insert_all(
+        SiteConfig,
+        [
+          %{
+            scope: "global",
+            key: key,
+            value: envelope,
+            inserted_at: now,
+            updated_at: now
+          }
+        ],
+        returning: true
+      )
+
+    row
   end
 
   defp intent_entry(binding, attrs) do
@@ -633,7 +648,6 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   end
 
   defp configure_identity_provider(provider_id, config) do
-    allow_cache_database_access()
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
 

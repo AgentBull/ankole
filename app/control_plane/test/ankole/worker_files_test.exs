@@ -356,7 +356,7 @@ defmodule Ankole.WorkerFilesTest do
 
   defp ready_worker(route) do
     %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
-    %{Repo.get!(AgentWorker, agent.uid) | state: "ready", transport_route: route}
+    %{Repo.get!(AgentWorker, agent.uid) | state: :ready, transport_route: route}
   end
 
   defp temp_file!(content) do

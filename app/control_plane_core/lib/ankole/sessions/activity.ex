@@ -41,15 +41,21 @@ defmodule Ankole.Sessions.Activity do
   defp put_display(data, "tool.activity", payload) do
     id = payload["operation_id"]
 
-    if Map.has_key?(data.pending, id) do
-      previous = data.pending[id].activity
+    if Map.has_key?(data.turn.pending, id) do
+      previous = data.turn.pending[id].activity
 
       activity =
         if previous && previous["phase"] in ["completed", "failed"],
           do: previous,
           else: payload
 
-      %{data | pending: Map.update!(data.pending, id, &%{&1 | activity: activity})}
+      %{
+        data
+        | turn: %{
+            data.turn
+            | pending: Map.update!(data.turn.pending, id, &%{&1 | activity: activity})
+          }
+      }
     else
       data
     end
@@ -61,7 +67,7 @@ defmodule Ankole.Sessions.Activity do
     data
   end
 
-  def clear(%{run: nil} = data, _state), do: data
+  def clear(%{turn: %{run: nil}} = data, _state), do: data
 
   def clear(data, state) do
     data = %{
@@ -71,7 +77,7 @@ defmodule Ankole.Sessions.Activity do
         activity_state: state
     }
 
-    publish_snapshot(project(%{data | pending: %{}}))
+    publish_snapshot(project(%{data | turn: %{data.turn | pending: %{}}}))
     data
   end
 
@@ -128,9 +134,9 @@ defmodule Ankole.Sessions.Activity do
   end
 
   def project(%{activity_conversation_id: nil}), do: nil
-  def project(%{run: nil}), do: nil
+  def project(%{turn: %{run: nil}}), do: nil
 
-  def project(%{run: run} = data) do
+  def project(%{turn: %{run: run}} = data) do
     case Key.parse(run.session_id) do
       {:conversation, id} ->
         %{
@@ -144,7 +150,7 @@ defmodule Ankole.Sessions.Activity do
           state: data.activity_state,
           phase: data.phase,
           tools:
-            data.pending
+            data.turn.pending
             |> Enum.sort_by(&elem(&1, 0))
             |> Enum.flat_map(fn {_id, entry} ->
               if entry.activity && entry.activity["phase"] not in ["completed", "failed"],
@@ -193,7 +199,7 @@ defmodule Ankole.Sessions.Activity do
         where:
           w.agent_uid == ^snapshot.agentUID and w.session_id == ^snapshot.sessionID and
             w.epoch == ^snapshot.epoch and s.id == ^snapshot.signalID and
-            s.input_state == "open" and is_nil(s.completed_at) and
+            s.status in [:queued, :running] and
             s.available_at <= ^DateTime.utc_now()
       ),
       timeout: @snapshot_timeout
@@ -209,7 +215,7 @@ defmodule Ankole.Sessions.Activity do
           left_join: s in Signal,
           on:
             s.agent_uid == w.agent_uid and s.session_id == w.session_id and
-              s.input_state == "open" and is_nil(s.completed_at),
+              s.status in [:queued, :running],
           where: w.agent_uid == ^key.agent_uid and w.session_id == ^key.session_id,
           group_by: w.epoch,
           select: {w.epoch, count(s.id)}

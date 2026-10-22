@@ -16,7 +16,6 @@ defmodule Ankole.Brain.SynthesisScopeTest do
   @analysis_body "Acme plans to cut the renewal to one seat."
 
   setup do
-    allow_cache_database_access()
     AppConfigure.Cache.clear_for_test()
     on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
 

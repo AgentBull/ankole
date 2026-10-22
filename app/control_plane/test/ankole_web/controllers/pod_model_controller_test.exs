@@ -1,6 +1,7 @@
 defmodule AnkoleWeb.PodModelControllerTest do
   use AnkoleWeb.ConnCase, async: false
-  import Phoenix.ConnTest, except: [json_response: 2]
+  @moduletag host: :pod
+  import Phoenix.ConnTest, except: [json_response: 2, build_conn: 0]
   import AnkoleWeb.InternalAPIContract, only: [json_response: 2]
   import Ankole.SessionsCase, only: [agent_fixture: 1]
   alias Ankole.{Conversations, Repo}
@@ -9,11 +10,10 @@ defmodule AnkoleWeb.PodModelControllerTest do
   alias Ankole.Signals.Signal
 
   setup %{conn: conn, tenant: tenant} do
-    allow_cache_database_access()
     Ankole.AppConfigure.Cache.clear_for_test()
 
     {conn, human} =
-      console_conn_with_principal(%{conn | host: tenant.slug <> ".ankole.localhost"})
+      console_conn_with_principal(pod_conn(conn, tenant))
 
     agent = agent_fixture(%{owner_principal_uid: human}).principal
     {:ok, heavy} = ModelProfiles.get_model_profile(agent.uid, "heavy")
@@ -42,7 +42,8 @@ defmodule AnkoleWeb.PodModelControllerTest do
     anonymous =
       get(
         build_conn(),
-        "http://#{ctx.conn.host}/.internal-apis/pod/agents/#{ctx.agent.uid}/model-profiles"
+        AnkoleWeb.Plugs.RequestHost.origin(ctx.conn) <>
+          "/.internal-apis/pod/agents/#{ctx.agent.uid}/model-profiles"
       )
 
     assert json_response(anonymous, 401)["error"]["code"] == "unauthorized"

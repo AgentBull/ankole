@@ -182,7 +182,11 @@ defmodule Ankole.Pod.DatabaseContractTest do
     |> Enum.each(&Repo.insert_all(DbRecord, &1))
 
     table = Repo.get!(DbTable, ctx.table.id)
-    Repo.update!(DbTable.changeset(table, %{record_count: 100_000, next_auto_number: 100_001}))
+
+    Ankole.Pod.PagesFixtures.update_record!(table, :commit_write, %{
+      delta: 100_000,
+      inserted: 100_000
+    })
 
     {filter_us, {:ok, filtered}} =
       :timer.tc(fn ->

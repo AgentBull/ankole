@@ -30,6 +30,12 @@ defmodule MicrosoftOpenAPI.EntraAuth do
         state: Keyword.fetch!(opts, :state),
         scope: Enum.join(Keyword.get(opts, :scopes, ["openid", "profile", "email"]), " ")
       }
+      |> Map.merge(
+        opts
+        |> Keyword.take([:nonce, :prompt, :max_age, :claims])
+        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+        |> Map.new()
+      )
 
     "#{login_base_url}/#{URI.encode(tenant)}/oauth2/v2.0/authorize?#{URI.encode_query(params)}"
   end

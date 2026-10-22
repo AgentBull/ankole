@@ -43,14 +43,19 @@ defmodule Ankole.IdentityProviders.LocalPasswordLifecycleTest do
       assert {:error, {:missing, :email}} = Principals.create_local_user(%{uid: "x"}, true)
     end
 
-    test "rejects a duplicate email with a changeset error" do
+    test "rejects a duplicate email with a validation error" do
       %{human_user: human_user} = human_fixture()
       email = human_user.email
 
-      assert {:error, %Ecto.Changeset{} = changeset} =
+      assert {:error, %Ash.Error.Invalid{} = error} =
                Principals.create_local_user(%{uid: "another-uid", email: email}, true)
 
-      assert {"has already been taken", _meta} = changeset.errors[:email]
+      assert [
+               %Ash.Error.Changes.InvalidAttribute{
+                 field: :email,
+                 message: "has already been taken"
+               }
+             ] = error.errors
     end
   end
 

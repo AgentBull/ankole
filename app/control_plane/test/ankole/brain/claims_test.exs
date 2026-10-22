@@ -73,7 +73,7 @@ defmodule Ankole.Brain.ClaimsTest do
       assert {:ok, %{claim: claim, status: :inserted}} =
                Claims.write_fact(fact_attrs(), human.uid)
 
-      assert claim.claim_type == "fact"
+      assert claim.claim_type == :fact
       assert claim.author == Ankole.ActorRef.from_principal(human)
       assert is_nil(claim.embedding)
       assert is_nil(claim.embedding_signature)
@@ -215,7 +215,7 @@ defmodule Ankole.Brain.ClaimsTest do
                )
 
       assert take.active == true
-      assert take.claim_type == "take"
+      assert take.claim_type == :take
     end
 
     test "resolution is immutable and outcome must match quality", %{human: human} do

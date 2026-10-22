@@ -627,7 +627,7 @@ defmodule Ankole.AIGateway.CompactionRequests do
       cond do
         nonempty_binary?(previous_response_id) ->
           case ResponseChain.get_response_for_subject(subject_uid, previous_response_id) do
-            {:ok, %Message{status: "complete"} = anchor} ->
+            {:ok, %Message{status: :complete} = anchor} ->
               {:ok,
                %{
                  store?: true,

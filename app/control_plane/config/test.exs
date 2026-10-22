@@ -1,5 +1,7 @@
 import Config
 
+config :ankole, :check_lock_order, true
+
 config :ankole, Ankole.Repo,
   template: "template0",
   pool: Ecto.Adapters.SQL.Sandbox,
@@ -12,7 +14,7 @@ config :ankole, AnkoleWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   server: false
 
-config :boruta, Boruta.Oauth, issuer: "http://localhost:4002"
+config :ankole, Ankole.TokenSigning, issuer: "http://localhost:4002"
 
 config :ankole, AnkoleWeb.Assets, dev_server: "http://assets.test"
 

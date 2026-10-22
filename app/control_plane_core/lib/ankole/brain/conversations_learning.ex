@@ -239,7 +239,7 @@ defmodule Ankole.Brain.ConversationsLearning do
              :ok <- ensure_source_revision(current, source),
              :ok <- ensure_same_watermark(Sources.extraction_watermark(current), start),
              :ok <- ensure_slice_version_in_tx(repo, conversation_id, start, boundary, token),
-             written = write_items(repo, conversation_id, items, learning_context, prepared),
+             written = write_items(conversation_id, items, learning_context, prepared),
              :ok <- ensure_extraction_written(items, written),
              :ok <- Sources.record_extraction_watermark(repo, current, boundary) do
           {:ok, %{status: outcome, token: token, written: written}}
@@ -329,14 +329,14 @@ defmodule Ankole.Brain.ConversationsLearning do
 
   defp ensure_extraction_written(_items, _written), do: :ok
 
-  defp write_items(repo, conversation_id, items, learning_context, prepared) do
+  defp write_items(conversation_id, items, learning_context, prepared) do
     # Objects first: facts, takes, timelines, and links in the same batch
     # may reference pages the model declared later in its output order.
     {object_items, other_items} = Enum.split_with(items, &match?(%{"type" => "object"}, &1))
 
     counts =
       Enum.reduce(object_items ++ other_items, @empty_counts, fn item, counts ->
-        case write_item(repo, conversation_id, item, learning_context, prepared) do
+        case write_item(conversation_id, item, learning_context, prepared) do
           {:ok, kind} ->
             Map.update!(counts, kind, &(&1 + 1))
 
@@ -353,7 +353,6 @@ defmodule Ankole.Brain.ConversationsLearning do
   end
 
   defp write_item(
-         repo,
          _conversation_id,
          %{"type" => "object"} = item,
          _learning_context,
@@ -367,13 +366,13 @@ defmodule Ankole.Brain.ConversationsLearning do
       body: item["body"] || ""
     }
 
-    case Objects.create_object(attrs, :system, repo: repo) do
+    case Objects.create_object(attrs, :system) do
       {:ok, object} ->
         item
         |> Map.get("aliases", [])
         |> List.wrap()
         |> Enum.each(fn alias_text ->
-          Links.add_alias(object.slug, alias_text, repo: repo)
+          Links.add_alias(object.slug, alias_text)
         end)
 
         {:ok, :objects}
@@ -386,7 +385,7 @@ defmodule Ankole.Brain.ConversationsLearning do
     end
   end
 
-  defp write_item(repo, conversation_id, %{"type" => "fact"} = item, learning_context, prepared) do
+  defp write_item(conversation_id, %{"type" => "fact"} = item, learning_context, prepared) do
     scope = enforce_scope(item["scope"], learning_context)
 
     attrs = %{
@@ -405,10 +404,9 @@ defmodule Ankole.Brain.ConversationsLearning do
       provenance_session: "source:" <> learning_context.source_id
     }
 
-    attrs = put_parent(attrs, repo, conversation_id, item["object_slug"])
+    attrs = put_parent(attrs, conversation_id, item["object_slug"])
 
     case Claims.write_fact(attrs, :system,
-           repo: repo,
            author: learning_context.author,
            embedding: Map.get(prepared, item["claim"], {nil, nil})
          ) do
@@ -417,7 +415,7 @@ defmodule Ankole.Brain.ConversationsLearning do
     end
   end
 
-  defp write_item(repo, conversation_id, %{"type" => "take"} = item, learning_context, prepared) do
+  defp write_item(conversation_id, %{"type" => "take"} = item, learning_context, prepared) do
     scope = enforce_scope(item["scope"], learning_context)
 
     attrs = %{
@@ -432,10 +430,9 @@ defmodule Ankole.Brain.ConversationsLearning do
       provenance_session: "source:" <> learning_context.source_id
     }
 
-    attrs = put_parent(attrs, repo, conversation_id, item["object_slug"])
+    attrs = put_parent(attrs, conversation_id, item["object_slug"])
 
     case Claims.write_take(attrs, :system,
-           repo: repo,
            author: learning_context.author,
            embedding: Map.get(prepared, item["claim"], {nil, nil})
          ) do
@@ -445,7 +442,6 @@ defmodule Ankole.Brain.ConversationsLearning do
   end
 
   defp write_item(
-         repo,
          _conversation_id,
          %{"type" => "timeline"} = item,
          learning_context,
@@ -462,17 +458,13 @@ defmodule Ankole.Brain.ConversationsLearning do
       audience_scope: scope
     }
 
-    case Timelines.write_timeline(attrs, :system,
-           repo: repo,
-           author: learning_context.author
-         ) do
+    case Timelines.write_timeline(attrs, :system, author: learning_context.author) do
       {:ok, _timeline} -> {:ok, :timelines}
       {:error, reason} -> {:rejected, reason}
     end
   end
 
   defp write_item(
-         repo,
          _conversation_id,
          %{"type" => "link"} = item,
          _learning_context,
@@ -486,19 +478,19 @@ defmodule Ankole.Brain.ConversationsLearning do
       link_source: "extraction"
     }
 
-    case Links.upsert_link(attrs, repo: repo) do
+    case Links.upsert_link(attrs) do
       {:ok, _link} -> {:ok, :links}
       {:error, reason} -> {:rejected, reason}
     end
   end
 
-  defp write_item(_repo, _conversation_id, item, _learning_context, _prepared),
+  defp write_item(_conversation_id, item, _learning_context, _prepared),
     do: {:rejected, {:unknown_item_type, item["type"]}}
 
-  defp put_parent(attrs, repo, conversation_id, object_slug) do
+  defp put_parent(attrs, conversation_id, object_slug) do
     case object_slug do
       slug when is_binary(slug) and slug != "" ->
-        case Objects.resolve_slug(slug, repo: repo) do
+        case Objects.resolve_slug(slug) do
           {:ok, object} -> Map.put(attrs, :object_slug, object.slug)
           {:error, :not_found} -> Map.put(attrs, :conversation_id, conversation_id)
         end

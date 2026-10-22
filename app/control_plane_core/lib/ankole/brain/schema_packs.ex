@@ -35,13 +35,12 @@ defmodule Ankole.Brain.SchemaPacks do
   def industry_packs, do: @industry_packs
 
   @doc "Lists installed relation names and inverses as extraction vocabulary."
-  def relation_vocabulary(opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
+  def relation_vocabulary do
     SchemaLinkType
-    |> order_by([type], asc: type.name)
-    |> select([type], %{name: type.name, inverse: type.inverse})
-    |> repo.all()
+    |> Ash.Query.sort(:name)
+    |> Ash.Query.select([:name, :inverse])
+    |> Ankole.Ash.read!()
+    |> Enum.map(&Map.take(&1, [:name, :inverse]))
   end
 
   @doc """
@@ -77,12 +76,10 @@ defmodule Ankole.Brain.SchemaPacks do
   their first declaring pack; new packs can only add subtype suggestions to
   them.
   """
-  @spec install_packs([String.t()], keyword()) :: {:ok, map()} | {:error, term()}
-  def install_packs(names, opts \\ []) when is_list(names) do
-    repo = Keyword.get(opts, :repo, Repo)
-
+  @spec install_packs([String.t()]) :: {:ok, map()} | {:error, term()}
+  def install_packs(names) when is_list(names) do
     with {:ok, ordered} <- normalize_selection(names) do
-      repo.transact(fn repo ->
+      Repo.transact(fn repo ->
         installed = repo.all(SchemaPack |> lock("FOR UPDATE"))
         installed_names = MapSet.new(installed, & &1.name)
 
@@ -97,7 +94,7 @@ defmodule Ankole.Brain.SchemaPacks do
                  all_manifests =
                    Enum.map(installed, & &1.manifest) ++ Enum.map(seeds, & &1.manifest),
                  {:ok, merged} <- merge_manifests(all_manifests) do
-              materialize(repo, seeds, merged)
+              materialize(seeds, merged)
             end
         end
       end)
@@ -399,13 +396,13 @@ defmodule Ankole.Brain.SchemaPacks do
   defp link_signature(link), do: {link["name"], Map.get(link, "inverse")}
   defp domain_signature(domain), do: {domain["name"], domain["aggregator"]}
 
-  defp materialize(repo, seeds, merged) do
+  defp materialize(seeds, merged) do
     now = DateTime.utc_now(:microsecond)
 
-    with :ok <- insert_pack_rows(repo, seeds, now),
-         :ok <- upsert_type_rows(repo, merged.types, now),
-         :ok <- insert_link_rows(repo, merged.link_types, now),
-         :ok <- insert_domain_rows(repo, merged.calibration_domains, now) do
+    with :ok <- insert_pack_rows(seeds, now),
+         :ok <- upsert_type_rows(merged.types, now),
+         :ok <- insert_link_rows(merged.link_types, now),
+         :ok <- insert_domain_rows(merged.calibration_domains, now) do
       {:ok,
        %{
          installed: Enum.map(seeds, & &1.manifest["name"]),
@@ -416,7 +413,7 @@ defmodule Ankole.Brain.SchemaPacks do
     end
   end
 
-  defp insert_pack_rows(repo, seeds, now) do
+  defp insert_pack_rows(seeds, now) do
     rows =
       Enum.map(seeds, fn seed ->
         %{
@@ -429,23 +426,22 @@ defmodule Ankole.Brain.SchemaPacks do
         }
       end)
 
-    repo.insert_all(SchemaPack, Enum.map(rows, &Map.put(&1, :tenant_id, Repo.tenant_id!())))
-    :ok
+    register_rows(SchemaPack, :install, rows)
   end
 
   # Types already registered by an earlier install or a promotion keep their
   # row and first declaring pack; a new pack can only widen their subtype
   # suggestions. New names insert with the merged declaration.
-  defp upsert_type_rows(repo, types, now) do
+  defp upsert_type_rows(types, now) do
     existing =
       SchemaType
-      |> repo.all()
+      |> Ankole.Ash.read!()
       |> Map.new(&{&1.name, &1})
 
     Enum.reduce_while(types, :ok, fn {name, type}, :ok ->
       case Map.get(existing, name) do
         nil ->
-          row = %SchemaType{
+          row = %{
             id: UUIDv7.autogenerate(),
             name: name,
             primitive: type["primitive"],
@@ -457,7 +453,7 @@ defmodule Ankole.Brain.SchemaPacks do
             created_at: now
           }
 
-          case repo.insert(row) do
+          case Ankole.Ash.create(SchemaType, :register, row) do
             {:ok, _row} -> {:cont, :ok}
             {:error, reason} -> {:halt, {:error, reason}}
           end
@@ -467,9 +463,7 @@ defmodule Ankole.Brain.SchemaPacks do
                registered.slug_prefix == type["slug_prefix"] and
                registered.extractable == type["extractable"] and
                registered.expert_routing == type["expert_routing"] do
-            subtypes = Enum.uniq(registered.subtypes ++ type["subtypes"])
-
-            case repo.update(Ecto.Changeset.change(registered, subtypes: subtypes)) do
+            case Ankole.Ash.update(registered, :add_subtypes, %{subtypes: type["subtypes"]}) do
               {:ok, _row} -> {:cont, :ok}
               {:error, reason} -> {:halt, {:error, reason}}
             end
@@ -480,8 +474,8 @@ defmodule Ankole.Brain.SchemaPacks do
     end)
   end
 
-  defp insert_link_rows(repo, links, now) do
-    existing = repo.all(SchemaLinkType |> select([link], link.name)) |> MapSet.new()
+  defp insert_link_rows(links, now) do
+    existing = MapSet.new(Ankole.Ash.read!(SchemaLinkType), & &1.name)
 
     rows =
       links
@@ -497,12 +491,11 @@ defmodule Ankole.Brain.SchemaPacks do
         }
       end)
 
-    repo.insert_all(SchemaLinkType, Enum.map(rows, &Map.put(&1, :tenant_id, Repo.tenant_id!())))
-    :ok
+    register_rows(SchemaLinkType, :register, rows)
   end
 
-  defp insert_domain_rows(repo, domains, now) do
-    existing = repo.all(SchemaCalibrationDomain |> select([domain], domain.name)) |> MapSet.new()
+  defp insert_domain_rows(domains, now) do
+    existing = MapSet.new(Ankole.Ash.read!(SchemaCalibrationDomain), & &1.name)
 
     rows =
       domains
@@ -518,12 +511,14 @@ defmodule Ankole.Brain.SchemaPacks do
         }
       end)
 
-    repo.insert_all(
-      SchemaCalibrationDomain,
-      Enum.map(rows, &Map.put(&1, :tenant_id, Repo.tenant_id!()))
-    )
+    register_rows(SchemaCalibrationDomain, :register, rows)
+  end
 
-    :ok
+  defp register_rows(resource, action, rows) do
+    case Ankole.Ash.bulk_create(rows, resource, action, return_errors?: true) do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+    end
   end
 
   defp seeds_root do

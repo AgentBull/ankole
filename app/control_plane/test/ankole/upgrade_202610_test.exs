@@ -16,7 +16,6 @@ defmodule Ankole.Upgrade202610Test do
   alias Ankole.Upgrade202610
 
   setup do
-    allow_cache_database_access()
     Req.Test.set_req_test_to_shared()
     previous = Application.fetch_env(:ankole, SlackConfig)
 
@@ -227,8 +226,6 @@ defmodule Ankole.Upgrade202610Test do
                  binding_name: "test",
                  outbound_key: "legacy-attachment",
                  operation: :post,
-                 status: :unknown,
-                 attempt_count: 2,
                  payload: %{
                    "attachments" => [
                      %{
@@ -241,6 +238,12 @@ defmodule Ankole.Upgrade202610Test do
                    ]
                  }
                })
+
+      # Restore the delivery state that existed before the attachment migration.
+      intent
+      |> AshPostgres.DataLayer.to_ecto()
+      |> Ecto.Changeset.change(status: :unknown, attempt_count: 2)
+      |> Repo.update!()
 
       assert %{attachments: 1, skipped: []} = import_home(root)
 

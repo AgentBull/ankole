@@ -1,49 +1,73 @@
 defmodule Ankole.AgentWorkers.WorkerEnv.SiteEnvVar do
-  @moduledoc """
-  Database row for one operator-defined Agent Computer shell variable.
-  """
+  @moduledoc "One durable operator-defined shell variable under its natural scope and name."
 
-  use Ankole.Schema, tenancy: :site
+  use Ankole.Ash.Resource,
+    tenancy: :site,
+    domain: Ankole.AgentWorkers.WorkerEnv.Domain
 
-  import Ecto.Changeset
+  postgres do
+    table("site_worker_envs")
+    repo(Ankole.Repo)
+    migrate?(false)
+    identity_index_names(scope_name: "site_worker_envs_scope_name_unique")
 
-  @primary_key false
-  schema "site_worker_envs" do
-    field :scope, :string
-    field :name, :string
-    field :secret, :boolean
-    field :value, :string
-    field :description, :string
-
-    timestamps(type: :utc_datetime)
+    check_constraints do
+      check_constraint(:scope, "site_worker_envs_scope_check")
+      check_constraint(:name, "site_worker_envs_name_check")
+    end
   end
 
-  @type t :: %__MODULE__{
-          scope: String.t(),
-          name: String.t(),
-          secret: boolean(),
-          value: String.t(),
-          description: String.t() | nil,
-          inserted_at: DateTime.t() | nil,
-          updated_at: DateTime.t() | nil
-        }
+  attributes do
+    attribute(:scope, :string,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      constraints: [trim?: false]
+    )
 
-  @doc """
-  Validates the durable row shape before insert or upsert.
+    attribute(:name, :string,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      constraints: [trim?: false, match: ~r/\A[A-Za-z_][A-Za-z0-9_]*\z/]
+    )
 
-  The application schema keeps the same constraints as the database so normal
-  callers get changeset errors, while the database still protects against direct
-  SQL writes.
-  """
-  @spec changeset(t(), map()) :: Ecto.Changeset.t()
-  def changeset(row, attrs) do
-    row
-    |> cast(attrs, [:scope, :name, :secret, :value, :description])
-    |> validate_required([:scope, :name, :secret, :value])
-    |> validate_format(:scope, ~r/\Aglobal\z/)
-    |> validate_format(:name, ~r/\A[A-Za-z_][A-Za-z0-9_]*\z/)
-    |> unique_constraint([:scope, :name], name: :site_worker_envs_scope_name_unique)
-    |> check_constraint(:scope, name: :site_worker_envs_scope_check)
-    |> check_constraint(:name, name: :site_worker_envs_name_check)
+    attribute(:secret, :boolean, allow_nil?: false, public?: true)
+
+    attribute(:value, :string,
+      allow_nil?: false,
+      sensitive?: true,
+      constraints: [trim?: false, match: ~r/\S/]
+    )
+
+    attribute(:description, :string, public?: true, constraints: [trim?: false])
+    create_timestamp(:inserted_at, type: :utc_datetime)
+    update_timestamp(:updated_at, type: :utc_datetime)
   end
+
+  identities do
+    identity(:scope_name, [:scope, :name])
+  end
+
+  actions do
+    defaults([:read])
+
+    create :put do
+      accept([:scope, :name])
+      argument(:input, :map, allow_nil?: false)
+      transaction?(false)
+      upsert?(true)
+      upsert_identity(:scope_name)
+      upsert_fields([:secret, :value, :description, :updated_at])
+      validate(Ankole.AppConfigure.Scope)
+      change(Ankole.AgentWorkers.WorkerEnv.Changes.PrepareValue, only_when_valid?: true)
+    end
+
+    destroy :remove do
+      transaction?(false)
+      require_atomic?(true)
+    end
+  end
+
+  @type t :: %__MODULE__{}
 end

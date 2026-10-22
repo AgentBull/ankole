@@ -472,7 +472,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert [persisted_active_run] =
              Message
              |> where([message], message.conversation_id == ^conversation.id)
-             |> where([message], message.status == "generating")
+             |> where([message], message.status == :generating)
              |> Repo.all()
 
     assert persisted_active_run.id == active_run.id
@@ -1640,7 +1640,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     assert [committed] =
              Message
-             |> Ecto.Query.where(conversation_id: ^conversation.id, status: "complete")
+             |> Ecto.Query.where(conversation_id: ^conversation.id, status: :complete)
              |> Repo.all()
              |> Enum.reject(&(&1.id == root.id))
 
@@ -1719,7 +1719,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
            } = Ankole.JSON.decode!(pushed)
 
     stored = Repo.get!(Message, message.id)
-    assert stored.status == "complete"
+    assert stored.status == :complete
     assert stored.content == message.content ++ [terminal_item]
     assert stored.metadata["provider_model"] == "gpt-terminal"
     assert stored.metadata["usage"]["total_tokens"] == 7
@@ -1776,7 +1776,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              handle_test_event(%{active_stream: active}, ref, chunk, 10)
 
     stored = Repo.get!(Message, message.id)
-    assert stored.status == "complete"
+    assert stored.status == :complete
     assert stored.content == message.content ++ [web_search_item]
     refute Map.has_key?(stored.metadata["provider_metadata"], "max_tool_calls")
 
@@ -1851,7 +1851,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
            } = Ankole.JSON.decode!(completed_chunk)
 
     stored = Repo.get!(Message, message.id)
-    assert stored.status == "complete"
+    assert stored.status == :complete
     assert stored.content == message.content ++ [web_search_item]
     assert stored.metadata["response"]["status"] == "completed"
     assert stored.metadata["stop_reason"] == "stop"
@@ -1972,7 +1972,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
            } = Ankole.JSON.decode!(pushed)
 
     stored = Repo.get!(Message, message.id)
-    assert stored.status == "complete"
+    assert stored.status == :complete
     assert stored.content == committed.content
   end
 
@@ -2014,7 +2014,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
            } = Ankole.JSON.decode!(pushed)
 
     stored = Repo.get!(Message, message.id)
-    assert stored.status == "complete"
+    assert stored.status == :complete
     assert stored.content == message.content ++ [terminal_item]
     assert stored.metadata["provider_model"] == "gpt-terminal"
     assert stored.metadata["incomplete_details"] == incomplete_details
@@ -2059,7 +2059,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
            } = Ankole.JSON.decode!(pushed)
 
     stored = Repo.get!(Message, message.id)
-    assert stored.status == "error"
+    assert stored.status == :error
     assert stored.content == message.content ++ [partial_call]
     assert stored.metadata["error"]["code"] == "partial_tool_call_incomplete"
     assert stored.metadata["error"]["reason"] == "upstream_stream_closed"
@@ -2096,7 +2096,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              handle_test_event(%{active_stream: active}, ref, chunk, 11)
 
     stored = Repo.get!(Message, message.id)
-    assert stored.status == "error"
+    assert stored.status == :error
     assert stored.metadata["error"]["code"] == "partial_tool_call_incomplete"
     assert stored.metadata["error"]["reason"] == "max_output_tokens"
     assert stored.metadata["error"]["retryable"] == false
@@ -2133,7 +2133,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              handle_test_event(%{active_stream: active}, ref, chunk, 11)
 
     stored = Repo.get!(Message, message.id)
-    assert stored.status == "error"
+    assert stored.status == :error
     assert stored.content == message.content ++ [partial_call]
     assert stored.metadata["error"]["code"] == "partial_tool_call_completed"
     assert stored.metadata["stop_reason"] == "error"
@@ -2233,7 +2233,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
            } = Ankole.JSON.decode!(pushed)
 
     stored = Repo.get!(Message, message.id)
-    assert stored.status == "complete"
+    assert stored.status == :complete
     assert stored.content == message.content ++ terminal_items
     assert is_nil(Repo.get!(Signal, signal.id).completed_at)
   end
@@ -2280,7 +2280,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert %{"type" => "response.output_item.done"} = Ankole.JSON.decode!(pushed)
 
     stored = Repo.get!(Message, message.id)
-    assert stored.status == "error"
+    assert stored.status == :error
     assert stored.content == [request_item, completed_item]
     assert stored.metadata["error"]["stage"] == "response_stream_cleanup"
     assert stored.metadata["error"]["retryable"] == true
@@ -2421,7 +2421,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     refute pushed =~ "upstream closed"
 
     stored = Repo.get!(Message, message.id)
-    assert stored.status == "error"
+    assert stored.status == :error
     assert stored.content == message.content ++ [partial_item]
     assert stored.metadata["error"]["stage"] == "response_stream_cleanup"
     assert stored.metadata["error"]["retryable"] == true
@@ -2486,7 +2486,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
            } = Ankole.JSON.decode!(pushed)
 
     stored = Repo.get!(Message, message.id)
-    assert stored.status == "error"
+    assert stored.status == :error
     assert stored.content == message.content ++ [partial_item]
     assert stored.metadata["error"]["code"] == "provider_stream_closed_without_terminal"
     assert stored.metadata["error"]["retryable"] == true
@@ -2747,8 +2747,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       |> Repo.all()
       |> Enum.filter(&(get_in(&1.metadata, ["request_metadata", "signal_id"]) == signal.id))
 
-    assert Enum.any?(runs, &(&1.id == first_run.id and &1.status == "complete"))
-    assert Enum.any?(runs, &(&1.id != first_run.id and &1.status == "error"))
+    assert Enum.any?(runs, &(&1.id == first_run.id and &1.status == :complete))
+    assert Enum.any?(runs, &(&1.id != first_run.id and &1.status == :error))
 
     failed_run = Enum.find(runs, &(&1.id != first_run.id))
 
@@ -2929,7 +2929,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       |> Repo.all()
       |> Enum.filter(&(get_in(&1.metadata, ["request_metadata", "signal_id"]) == signal.id))
 
-    assert run.status == "error"
+    assert run.status == :error
 
     assert run.metadata["error"] == %{
              "code" => "credential_pool_exhausted",
@@ -3028,7 +3028,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       |> Repo.all()
       |> Enum.filter(&(get_in(&1.metadata, ["request_metadata", "signal_id"]) == signal.id))
 
-    assert run.status == "error"
+    assert run.status == :error
 
     assert run.metadata["error"] == %{
              "code" => "upstream_response_failed",

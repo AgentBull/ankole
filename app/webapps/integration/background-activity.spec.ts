@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import type { BackgroundActivityWorkflowCall } from '../console/api/generated'
 
 const observed_at = '2026-10-16T00:00:00Z'
 const counts = { total: 1, queued: 0, running: 1, sleeping: 0, succeeded: 0, failed: 0, cancelled: 0 }
@@ -28,7 +29,8 @@ const call = {
   label: 'Admitted call still running',
   status: 'running',
   sleep_note: null,
-  sleeping_until: null,
+  wake_kind: null,
+  wake_at: null,
   attention: false,
   attempts: 1,
   error_code: null,
@@ -37,7 +39,7 @@ const call = {
   run_error_summary: 'Parent access was revoked',
   updated_at: observed_at,
   run_counts: counts
-}
+} satisfies BackgroundActivityWorkflowCall
 const run = {
   ...owner,
   id: 92,
@@ -105,8 +107,21 @@ async function home(page: Page, failures = false) {
                 label: 'Sleeping approval call',
                 status: 'sleeping',
                 sleep_note: 'Waiting for operator confirmation',
-                sleeping_until: observed_at,
+                wake_kind: 'sleep',
+                wake_at: observed_at,
                 attention: true
+              },
+              {
+                ...call,
+                id: 83,
+                label: 'Queued for Agent capacity',
+                run_id: 94,
+                run_status: 'running',
+                run_title: 'Waiting for capacity',
+                status: 'queued',
+                wake_kind: 'agent_capacity',
+                wake_at: observed_at,
+                run_counts: { ...counts, queued: 1, running: 0 }
               }
             ],
             calls_next_cursor: null,
@@ -183,6 +198,8 @@ test('Home shows native activity relationships including cancelled parents and i
   await expect(workflow.getByText(/Parent run #91 .*cancelled/i).first()).toBeVisible()
   await expect(workflow.getByText('Needs attention', { exact: true })).toBeVisible()
   await expect(workflow.getByText('Waiting for operator confirmation', { exact: true })).toBeVisible()
+  await expect(workflow.getByText('Queued for Agent capacity', { exact: true })).toBeVisible()
+  await expect(workflow.getByText(/^Sleeping until /)).toHaveCount(1)
   await expect(workflow.getByText('Running before calls exist', { exact: true })).toBeVisible()
   await expect(workflow.getByText('Terminal cleanup pending', { exact: true })).toBeVisible()
   await expect(automations.getByText(/Definition #111 .*cancelled/i)).toBeVisible()

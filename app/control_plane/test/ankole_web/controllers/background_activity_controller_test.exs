@@ -8,9 +8,6 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
   alias Ankole.Workflow.Schemas.{AgentCall, Run}
 
   setup do
-    existing_drivers = Ankole.SessionsCase.driver_pids()
-    on_exit(fn -> Ankole.SessionsCase.stop_new_drivers(existing_drivers) end)
-    allow_cache_database_access()
     Ankole.AppConfigure.Registry.clear_for_test()
     Ankole.AppConfigure.Cache.clear_for_test()
 
@@ -30,6 +27,12 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
 
     source = Ankole.WorkFixtures.service_source(agent.uid)
     {job, run} = automation_run(agent.uid, source)
+
+    assert {:ok, _worker} =
+             Ankole.SessionsCase.admit_worker("automation-test-#{agent.uid}", %{
+               worker_id: agent.uid
+             })
+
     assert {:ok, %{run: attempt}} = AutomationJobs.start_attempt(run.id)
 
     assert {:ok, %{status: :cancelled}} =
@@ -59,8 +62,8 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
                {:ok, :revoked}
              end)
 
-    assert Repo.get!(Run, revoked.id).status == "cancelled"
-    assert Repo.get!(AgentCall, admitted.id).status == "running"
+    assert Repo.get!(Run, revoked.id).status == :cancelled
+    assert Repo.get!(AgentCall, admitted.id).status == :running
 
     sleeping_run = workflow(agent.uid, source, "Waiting for evidence")
     sleeping = claimed_call(sleeping_run)
@@ -96,6 +99,17 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     assert {:ok, %{run: %{cleanup_completed_at: nil}}} =
              Repo.transact(&Workflow.cancel_in_tx(&1, cleanup.id, agent.uid))
 
+    capacity_run = workflow(agent.uid, source, "Waiting for Agent capacity")
+    capacity_call = queued_call(capacity_run)
+
+    dispatch =
+      Repo.get_by!(Ankole.Signals.Signal,
+        source_event_id: "workflow:call:#{capacity_call.id}:dispatch"
+      )
+
+    capacity_retry_at = DateTime.add(DateTime.utc_now(:microsecond), 30, :second)
+    assert {:ok, _} = Workflow.defer_task_event(dispatch, capacity_retry_at, :agent_capacity)
+
     idle = workflow(agent.uid, source, "Replay has no live calls")
     signal_count = Repo.aggregate(Ankole.Signals.Signal, :count)
     task_count = Repo.aggregate(Oban.Job, :count)
@@ -126,13 +140,19 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     assert visible_admitted["status"] == "running"
     assert visible_admitted["run_status"] == "cancelled"
     assert visible_admitted["run_error_code"] == "human_access_revoked"
+    assert visible_admitted["wake_kind"] == nil
     visible_sleep = Enum.find(workflow_page["live_calls"], &(&1["id"] == sleeping.id))
     assert visible_sleep["status"] == "sleeping"
     assert visible_sleep["attention"]
     assert visible_sleep["sleep_note"] == sleeping.sleep_note
-    assert visible_sleep["sleeping_until"] == DateTime.to_iso8601(sleeping.sleeping_until)
+    assert visible_sleep["wake_kind"] == "sleep"
+    assert visible_sleep["wake_at"] == DateTime.to_iso8601(sleeping.wake_at)
     assert visible_sleep["run_counts"]["sleeping"] == 1
     assert visible_sleep["task_session_id"] == delegated.owner_session_id
+    visible_capacity = Enum.find(workflow_page["live_calls"], &(&1["id"] == capacity_call.id))
+    assert visible_capacity["status"] == "queued"
+    assert visible_capacity["wake_kind"] == "agent_capacity"
+    assert visible_capacity["wake_at"] == DateTime.to_iso8601(capacity_retry_at)
     assert Enum.find(workflow_page["runs"], &(&1["id"] == cleanup.id))["cleanup_pending"]
     assert Enum.find(workflow_page["runs"], &(&1["id"] == idle.id))["counts"]["total"] == 0
     refute Enum.any?(workflow_page["runs"], &(&1["id"] in [revoked.id, sleeping_run.id]))
@@ -153,7 +173,7 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     Repo.put_tenant_id(tenant.id)
     assert Repo.aggregate(Ankole.Signals.Signal, :count) == signal_count
     assert Repo.aggregate(Oban.Job, :count) == task_count
-    assert Repo.get!(AgentCall, admitted.id).status == "running"
+    assert Repo.get!(AgentCall, admitted.id).status == :running
     assert Repo.get!(Ankole.AutomationJobs.Schemas.Run, run.id).attempt_id == attempt.attempt_id
   end
 
@@ -167,6 +187,12 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     {_, first} = automation_run(agent.uid, source)
     {_, second} = automation_run(agent.uid, source)
     {_, terminal} = automation_run(agent.uid, source)
+
+    assert {:ok, _worker} =
+             Ankole.SessionsCase.admit_worker("automation-test-#{agent.uid}", %{
+               worker_id: agent.uid
+             })
+
     {:ok, %{run: attempt}} = AutomationJobs.start_attempt(terminal.id)
 
     {:ok, _} =
@@ -401,6 +427,15 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
   end
 
   defp claimed_call(run) do
+    call = queued_call(run)
+
+    {:ok, %{call: call}} =
+      Repo.transact(&Workflow.claim_task_in_tx(&1, call.id, run.agent_uid, 8))
+
+    call
+  end
+
+  defp queued_call(run) do
     {:ok, %{new_calls: [call]}} =
       Repo.transact(fn _ ->
         Workflow.commit_replay_pending(
@@ -414,9 +449,6 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
       agent_uid: run.agent_uid,
       session_id: Workflow.task_session_id(call.id)
     })
-
-    {:ok, %{call: call}} =
-      Repo.transact(&Workflow.claim_task_in_tx(&1, call.id, run.agent_uid, 8))
 
     call
   end

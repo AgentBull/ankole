@@ -11,138 +11,157 @@ defmodule Ankole.Signals.Binding do
   the gateway's routing key.
   """
 
-  use Ankole.Schema, tenancy: :tenant
-
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Signals.Domain
 
   alias Ankole.Signals.Target, as: ExecutionTarget
-  alias Ankole.Principals.Principal
   alias Ankole.Signals.BindingFilters
-  alias Ankole.Ecto.JSONPayload
 
-  @primary_key false
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
+  @type t :: %__MODULE__{}
 
-  schema "signal_bindings" do
-    belongs_to(:agent, Principal,
-      foreign_key: :agent_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey,
-      primary_key: true
-    )
+  postgres do
+    table("signal_bindings")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:agent_uid, "signal_bindings_agent_uid_fkey"}])
+    unique_index_names([{[:agent_uid, :name], "signal_bindings_pkey"}])
 
-    field(:name, :string, primary_key: true)
-    field(:adapter, :string)
-    field(:config_ref, :string)
-    # CEL admission filter, stored as `{"cel" => expression}`; empty object
-    # means accept everything.
-    field(:filters, :map, default: %{})
-    field(:target, :map, default: %{})
-
-    # What the agent does with a group message that does NOT explicitly address
-    # it: stay out (:ignore), just mirror it for context (:record_only), or be
-    # allowed to jump in (:may_intervene → ambient "may_intervene" Signal).
-    # Default :record_only so a new group binding captures shared-room context
-    # without waking the agent for unaddressed messages.
-    field(:unaddressed_group_message_policy, Ecto.Enum,
-      values: [:ignore, :record_only, :may_intervene],
-      default: :record_only
-    )
-
-    # What ingress does with a sender that maps to no Principal: hold them for
-    # manual binding in the console (:manual_review) or create a standalone
-    # account on first sight (:create_standalone). Manual review fails closed,
-    # so it is the default.
-    field(:unmatched_sender_policy, Ecto.Enum,
-      values: [:manual_review, :create_standalone],
-      default: :manual_review
-    )
-
-    field(:enabled, :boolean, default: true)
-    # When set on an enabled binding, ingress is refused with this reason instead
-    # of accepted — lets an operator soft-disable a route (e.g. revoked provider
-    # creds) without deleting it. See Ankole.Signals.Bindings.get_binding/2.
-    field(:unavailable_reason, :string)
-
-    timestamps()
+    check_constraints do
+      check_constraint(:name, "signal_bindings_name_present")
+      check_constraint(:adapter, "signal_bindings_adapter_present")
+      check_constraint(:config_ref, "signal_bindings_config_ref_present")
+      check_constraint(:filters, "signal_bindings_filters_object")
+      check_constraint(:target, "signal_bindings_target_object")
+    end
   end
 
-  @doc """
-  Builds a changeset for signal binding rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(binding, attrs) do
-    binding
-    |> cast(attrs, [
-      :agent_uid,
-      :name,
-      :adapter,
-      :config_ref,
-      :filters,
-      :target,
-      :unaddressed_group_message_policy,
-      :unmatched_sender_policy,
-      :enabled,
-      :unavailable_reason
-    ])
-    |> normalize_blank([:agent_uid, :name, :adapter, :config_ref, :unavailable_reason])
-    |> validate_required([
-      :agent_uid,
-      :name,
-      :adapter,
-      :config_ref,
-      :filters,
-      :unaddressed_group_message_policy,
-      :enabled
-    ])
-    |> JSONPayload.validate_map(:filters)
-    |> JSONPayload.validate_map(:target)
-    |> validate_target()
-    |> validate_filters(:filters)
-    |> foreign_key_constraint(:agent_uid)
-    |> unique_constraint([:agent_uid, :name], name: :signal_bindings_pkey)
-    |> check_constraint(:name, name: :signal_bindings_name_present)
-    |> check_constraint(:adapter, name: :signal_bindings_adapter_present)
-    |> check_constraint(:config_ref, name: :signal_bindings_config_ref_present)
-    |> check_constraint(:filters, name: :signal_bindings_filters_object)
-    |> check_constraint(:target, name: :signal_bindings_target_object)
+  attributes do
+    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:name, :string,
+      constraints: [trim?: true],
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:adapter, :string, allow_nil?: false, public?: true)
+    attribute(:config_ref, :string, allow_nil?: false, public?: true)
+    attribute(:filters, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{}, public?: true)
+    attribute(:target, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{}, public?: true)
+
+    attribute(:unaddressed_group_message_policy, Ankole.Ash.Types.State,
+      constraints: [one_of: [:ignore, :record_only, :may_intervene]],
+      default: :record_only,
+      allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:unmatched_sender_policy, Ankole.Ash.Types.State,
+      constraints: [one_of: [:manual_review, :create_standalone]],
+      default: :manual_review,
+      allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:enabled, :boolean, default: true, allow_nil?: false, public?: true)
+    attribute(:unavailable_reason, :string, public?: true)
+    timestamps(type: :utc_datetime_usec)
   end
 
-  defp validate_target(changeset) do
-    if get_field(changeset, :adapter) == "cloudevents" do
-      target = get_field(changeset, :target)
+  actions do
+    defaults([:read])
+
+    create :put do
+      primary?(true)
+      transaction?(false)
+      upsert?(true)
+
+      upsert_fields([
+        :adapter,
+        :config_ref,
+        :filters,
+        :target,
+        :unaddressed_group_message_policy,
+        :unmatched_sender_policy,
+        :enabled,
+        :unavailable_reason
+      ])
+
+      accept([
+        :agent_uid,
+        :name,
+        :adapter,
+        :config_ref,
+        :filters,
+        :target,
+        :unaddressed_group_message_policy,
+        :unmatched_sender_policy,
+        :enabled,
+        :unavailable_reason
+      ])
+
+      change(Ankole.Ash.RequireTransaction)
+      change(set_attribute(:unavailable_reason, nil, new?: true))
+      change(fn changeset, _context -> normalize_target(changeset) end)
+
+      validate(
+        fn changeset, _context ->
+          case BindingFilters.validate_config(Ash.Changeset.get_attribute(changeset, :filters)) do
+            :ok -> :ok
+            {:error, reason} -> {:error, field: :filters, message: reason}
+          end
+        end,
+        where: [changing(:filters)],
+        only_when_valid?: true
+      )
+    end
+
+    in_tx_update :disable do
+      accept([])
+      change(set_attribute(:enabled, false))
+      change(set_attribute(:unavailable_reason, nil))
+    end
+
+    destroy :remove do
+      transaction?(false)
+      require_atomic?(false)
+      change(Ankole.Ash.RequireTransaction)
+    end
+  end
+
+  defp normalize_target(changeset) do
+    if Ash.Changeset.get_attribute(changeset, :adapter) == "cloudevents" do
+      target = Ash.Changeset.get_attribute(changeset, :target)
 
       case target do
         %{} when map_size(target) == 1 ->
           case ExecutionTarget.parse(target) do
             {:conversation, id} ->
-              put_change(changeset, :target, %{"conversation_id" => id})
+              Ash.Changeset.force_change_attribute(changeset, :target, %{"conversation_id" => id})
 
             {:session, key} ->
-              if Ankole.Sessions.Key.routable?(key),
-                do: changeset,
-                else: add_error(changeset, :target, "must name a conversation or a session")
+              if Ankole.Sessions.Key.routable?(key), do: changeset, else: target_error(changeset)
 
             :error ->
-              add_error(changeset, :target, "must name a conversation or a session")
+              target_error(changeset)
           end
 
         _ ->
-          add_error(changeset, :target, "must name a conversation or a session")
+          target_error(changeset)
       end
     else
       changeset
     end
   end
 
-  defp validate_filters(changeset, field) do
-    validate_change(changeset, field, fn ^field, value ->
-      case BindingFilters.validate_config(value) do
-        :ok -> []
-        {:error, reason} -> [{field, reason}]
-      end
-    end)
-  end
+  defp target_error(changeset),
+    do:
+      Ash.Changeset.add_error(changeset,
+        field: :target,
+        message: "must name a conversation or a session"
+      )
 end

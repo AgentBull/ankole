@@ -8,17 +8,19 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
   """
 
   alias Ankole.AIAgent.Library
+  alias Ankole.AIAgent.Library.AgentPlugins.Config
   alias Ankole.AgentWorkers.WorkerEnv
 
   @version 1
 
-  @spec capture(module(), String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def capture(repo, agent_uid, turn_start_spec)
-      when is_atom(repo) and is_binary(agent_uid) and is_map(turn_start_spec) do
+  @spec capture(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def capture(agent_uid, turn_start_spec)
+      when is_binary(agent_uid) and is_map(turn_start_spec) do
     with %{} = model_ref <- Map.get(turn_start_spec, :model_ref),
+         {:ok, defaults} <- Config.defaults_in_tx(),
          {:ok, %{"skills" => skills, "agent_plugins" => agent_plugins}} <-
-           Library.runtime_catalog_for_agent(agent_uid, repo: repo),
-         {:ok, worker_env} <- WorkerEnv.runtime_projection(agent_uid, repo: repo) do
+           Library.runtime_catalog_for_agent(agent_uid, agent_library_defaults: defaults),
+         {:ok, worker_env} <- WorkerEnv.runtime_projection(agent_uid) do
       request_context = Map.get(turn_start_spec, :request_context, %{})
 
       projection =

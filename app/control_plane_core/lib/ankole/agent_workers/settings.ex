@@ -18,7 +18,7 @@ defmodule Ankole.AgentWorkers.Settings do
         schema: Schema.new(&validate_seconds/1),
         default_value: @default_seconds,
         description:
-          "Seconds an observed Worker may stay not ready before its instance and cache are rebuilt."
+          "Worker readiness timeout in seconds for instance rebuilds and new task attempts."
       )
     ]
   end

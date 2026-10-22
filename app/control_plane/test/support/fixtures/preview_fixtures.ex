@@ -1,7 +1,6 @@
 defmodule Ankole.PreviewFixtures do
   @moduledoc false
   alias Ankole.Repo
-  alias Ankole.Signals.Signal
   alias Ankole.Conversations.Delivery.PreviewState
 
   def update!(signal, attrs) do
@@ -11,9 +10,17 @@ defmodule Ankole.PreviewFixtures do
     {:ok, updated} =
       Repo.transact(fn repo ->
         locked = Ankole.Signals.lock_signal_in_tx(repo, signal.id)
-        signal = locked |> Signal.changeset(signal_attrs) |> repo.update!()
+
+        action =
+          cond do
+            signal_attrs[:status] == :dead_letter -> :dead_letter
+            signal_attrs[:completed_at] -> :complete
+            true -> :update_metadata
+          end
+
+        {:ok, signal} = Ankole.Ash.update(locked, action, Map.delete(signal_attrs, :status))
         preview = PreviewState.lock_in_tx(repo, signal)
-        preview = preview |> PreviewState.changeset(preview_attrs) |> repo.update!()
+        {:ok, preview} = Ankole.Ash.update(preview, :update_preview, preview_attrs)
         {:ok, %{signal | preview: preview}}
       end)
 

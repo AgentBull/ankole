@@ -3,80 +3,144 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
   Durable execution ledger for one automation job trigger.
   """
 
-  use Ankole.Schema, tenancy: :tenant
-
-  import Ecto.Changeset
-
-  alias Ankole.AutomationJobs.Schemas.Job
-  alias Ankole.Ecto.JSONPayload
-
-  @primary_key {:id, :id, autogenerate: true}
-  @foreign_key_type :id
-  @timestamps_opts [type: :utc_datetime_usec]
-  @statuses ~w(queued running succeeded failed cancelled)
+  use Ankole.Ash.Resource,
+    extensions: [AshStateMachine],
+    tenancy: :tenant,
+    domain: Ankole.AutomationJobs.Domain
 
   @type t :: %__MODULE__{}
 
-  schema "automation_job_runs" do
-    belongs_to :automation_job, Job
+  postgres do
+    table("automation_job_runs")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:automation_job_id, "automation_job_runs_automation_job_id_fkey"}])
 
-    field :event, :map
-    field :status, :string, default: "queued"
-    field :attempts, :integer, default: 0
-    field :attempt_id, Ecto.UUID
-    field :started_at, :utc_datetime_usec
-    field :finished_at, :utc_datetime_usec
-    field :exit_code, :integer
-    field :error, :string
-    field :stdout, :string, default: ""
-    field :stderr, :string, default: ""
-    field :stdout_truncated, :boolean, default: false
-    field :stderr_truncated, :boolean, default: false
-
-    timestamps()
+    check_constraints do
+      check_constraint(:id, "automation_job_runs_id_range")
+      check_constraint(:status, "automation_job_runs_status_check")
+      check_constraint(:attempts, "automation_job_runs_attempts_nonnegative")
+      check_constraint(:event, "automation_job_runs_event_object")
+      check_constraint(:stdout, "automation_job_runs_logs_bounded")
+      check_constraint(:status, "automation_job_runs_lifecycle_check")
+    end
   end
 
-  @doc """
-  Builds a changeset for an automation job run.
-  """
-  @spec changeset(t(), map()) :: Ecto.Changeset.t()
-  def changeset(run, attrs) do
-    run
-    |> cast(attrs, [
-      :automation_job_id,
-      :event,
-      :status,
-      :attempts,
-      :attempt_id,
-      :started_at,
-      :finished_at,
-      :exit_code,
-      :error,
-      :stdout,
-      :stderr,
-      :stdout_truncated,
-      :stderr_truncated
-    ])
-    |> validate_required([
-      :automation_job_id,
-      :event,
-      :status,
-      :attempts,
-      :stdout_truncated,
-      :stderr_truncated
-    ])
-    |> validate_inclusion(:status, @statuses)
-    |> validate_number(:attempts, greater_than_or_equal_to: 0)
-    |> validate_length(:error, max: 65_536)
-    |> validate_length(:stdout, max: 65_536)
-    |> validate_length(:stderr, max: 65_536)
-    |> JSONPayload.validate_map(:event)
-    |> foreign_key_constraint(:automation_job_id)
-    |> check_constraint(:id, name: :automation_job_runs_id_range)
-    |> check_constraint(:status, name: :automation_job_runs_status_check)
-    |> check_constraint(:attempts, name: :automation_job_runs_attempts_nonnegative)
-    |> check_constraint(:event, name: :automation_job_runs_event_object)
-    |> check_constraint(:stdout, name: :automation_job_runs_logs_bounded)
-    |> check_constraint(:status, name: :automation_job_runs_lifecycle_check)
+  attributes do
+    attribute(:id, :integer,
+      primary_key?: true,
+      allow_nil?: false,
+      generated?: true,
+      public?: true
+    )
+
+    attribute(:automation_job_id, :integer, allow_nil?: false, public?: true)
+    attribute(:event, Ankole.Ash.Types.JSONMap, allow_nil?: false, public?: true)
+
+    attribute(:attempts, :integer,
+      default: 0,
+      allow_nil?: false,
+      constraints: [min: 0],
+      public?: true
+    )
+
+    attribute(:attempt_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:started_at, :utc_datetime_usec, public?: true)
+    attribute(:worker_wait_started_at, :utc_datetime_usec, public?: true)
+    attribute(:finished_at, :utc_datetime_usec, public?: true)
+    attribute(:exit_code, :integer, public?: true)
+
+    attribute(:error, :string,
+      constraints: [trim?: false, max_length: 65_536, length_count: :bytes],
+      public?: true
+    )
+
+    attribute(:stdout, :string,
+      default: "",
+      constraints: [trim?: false, allow_empty?: true, max_length: 65_536, length_count: :bytes],
+      public?: true
+    )
+
+    attribute(:stderr, :string,
+      default: "",
+      constraints: [trim?: false, allow_empty?: true, max_length: 65_536, length_count: :bytes],
+      public?: true
+    )
+
+    attribute(:stdout_truncated, :boolean, default: false, allow_nil?: false, public?: true)
+    attribute(:stderr_truncated, :boolean, default: false, allow_nil?: false, public?: true)
+    timestamps(type: :utc_datetime_usec)
+  end
+
+  state_machine do
+    state_attribute(:status)
+    initial_states([:queued, :failed])
+    default_initial_state(:queued)
+
+    transitions do
+      transition(:start, from: :queued, to: :running)
+      transition(:settle, from: [:queued, :running], to: :failed)
+      transition(:settle, from: :running, to: :succeeded)
+      transition(:retry, from: :running, to: :queued)
+      transition(:stop_human_work, from: :queued, to: :cancelled)
+    end
+  end
+
+  actions do
+    defaults([:read])
+
+    create :enqueue do
+      primary?(true)
+      transaction?(false)
+      accept([:automation_job_id, :event])
+      change(Ankole.Ash.RequireTransaction)
+    end
+
+    create :record_failed do
+      transaction?(false)
+      accept([:automation_job_id, :event, :finished_at, :error])
+      change(Ankole.Ash.RequireTransaction)
+      change(transition_state(:failed))
+    end
+
+    in_tx_update :wait_for_worker do
+      accept([:worker_wait_started_at])
+    end
+
+    in_tx_update :start do
+      accept([:attempt_id, :started_at, :finished_at, :error])
+      change(atomic_update(:attempts, expr(attempts + 1)))
+      change(transition_state(:running))
+    end
+
+    in_tx_update :settle do
+      argument(:status, :atom, allow_nil?: false, constraints: [one_of: [:failed, :succeeded]])
+      change(transition_state(arg(:status)))
+
+      accept([
+        :attempt_id,
+        :finished_at,
+        :exit_code,
+        :error,
+        :stdout,
+        :stderr,
+        :stdout_truncated,
+        :stderr_truncated
+      ])
+    end
+
+    in_tx_update :retry do
+      accept([:attempt_id, :error])
+      change(transition_state(:queued))
+    end
+
+    in_tx_update :record_error do
+      accept([:error])
+    end
+
+    atomic_in_tx_update :stop_human_work do
+      accept([:attempt_id, :finished_at, :error])
+      change(transition_state(:cancelled))
+    end
   end
 end

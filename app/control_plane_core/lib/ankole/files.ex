@@ -28,6 +28,7 @@ defmodule Ankole.Files do
   """
 
   import Ecto.Query
+  require Ash.Query
 
   alias Ankole.Files.Schemas.DriveFile
   alias Ankole.Files.Schemas.Blob
@@ -103,14 +104,12 @@ defmodule Ankole.Files do
     with {:ok, upserts} <- normalize_upserts(upserts),
          {:ok, deletes} <- normalize_paths(deletes),
          :ok <- lock_drive(repo, drive),
-         {:ok, sizes} <- reference_blobs(repo, Enum.map(upserts, & &1.sha256)),
-         deleted = deletes |> Enum.map(&delete_path_in_tx(repo, drive, &1)) |> Enum.sum(),
+         {:ok, sizes} <- reference_blobs(Enum.map(upserts, & &1.sha256)),
+         deleted = deletes |> Enum.map(&delete_path_in_tx(drive, &1)) |> Enum.sum(),
          :ok <- validate_path_tree(repo, drive, upserts) do
-      now = DateTime.utc_now()
-
       files =
         Enum.map(upserts, fn upsert ->
-          {:ok, file} = upsert_file(repo, drive, upsert, now)
+          {:ok, file} = upsert_file(drive, upsert)
           %{file | size: Map.fetch!(sizes, file.sha256)}
         end)
 
@@ -126,13 +125,13 @@ defmodule Ankole.Files do
   """
   @spec lock_drive(module(), drive()) :: :ok | {:error, term()}
   def lock_drive(repo, :pod) do
-    repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", ["pod-drive:#{Repo.tenant_id!()}"])
+    Ankole.AdvisoryLock.lock!(repo, "pod-drive:#{Repo.tenant_id!()}")
     :ok
   end
 
   def lock_drive(repo, drive) do
     with {:ok, drive} <- Principals.normalize_uid(drive) do
-      repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", ["agent-drive:#{drive}"])
+      Ankole.AdvisoryLock.lock!(repo, "agent-drive:#{drive}")
       :ok
     end
   end
@@ -141,7 +140,7 @@ defmodule Ankole.Files do
   @spec fetch(drive(), String.t()) :: {:ok, DriveFile.t()} | {:error, term()}
   def fetch(drive, path) when is_drive(drive) do
     with {:ok, path} <- normalize_path(path) do
-      case Repo.one(files_query(drive) |> where([file], file.path == ^path)) do
+      case files_query(drive) |> Ash.Query.filter(path == ^path) |> Ankole.Ash.read_one!() do
         %DriveFile{} = file -> {:ok, file}
         nil -> {:error, :not_found}
       end
@@ -152,7 +151,7 @@ defmodule Ankole.Files do
   @spec fetch_many(drive(), [String.t()]) :: {:ok, [DriveFile.t()]} | {:error, term()}
   def fetch_many(drive, paths) when is_drive(drive) and is_list(paths) do
     with {:ok, paths} <- normalize_paths(paths) do
-      {:ok, Repo.all(from(file in files_query(drive), where: file.path in ^paths))}
+      {:ok, files_query(drive) |> Ash.Query.filter(path in ^paths) |> Ankole.Ash.read!()}
     end
   end
 
@@ -217,21 +216,21 @@ defmodule Ankole.Files do
   @spec list(drive(), String.t(), keyword()) ::
           {:ok, %{files: [DriveFile.t()], next_after: String.t() | nil}} | {:error, term()}
   def list(drive, prefix \\ "", opts \\ []) when is_drive(drive) do
-    repo = Keyword.get(opts, :repo, Repo)
     limit = opts |> Keyword.get(:limit, @default_list_limit) |> min(@max_list_limit) |> max(1)
 
     if Keyword.get(opts, :snapshot, false) do
-      repo.transact(fn repo ->
+      Repo.transact(fn repo ->
         with :ok <- lock_drive(repo, drive),
              {:ok, query} <- prefix_query(files_query(drive), prefix),
              {:ok, page} <-
-               list(drive, prefix, Keyword.merge(opts, snapshot: false, repo: repo)) do
+               list(drive, prefix, Keyword.put(opts, :snapshot, false)) do
           manifest =
             query
-            |> exclude(:select)
-            |> order_by([file], asc: file.path)
-            |> select([file], {file.path, file.sha256, file.mode})
-            |> repo.all()
+            |> Ash.Query.unload([:size])
+            |> Ash.Query.select([:path, :sha256, :mode])
+            |> Ash.Query.sort(path: :asc)
+            |> Ankole.Ash.read!()
+            |> Enum.map(&{&1.path, &1.sha256, &1.mode})
 
           revision =
             :crypto.hash(:sha256, :erlang.term_to_binary(manifest)) |> Base.encode16(case: :lower)
@@ -240,18 +239,18 @@ defmodule Ankole.Files do
         end
       end)
     else
-      list_page(repo, drive, prefix, opts, limit)
+      list_page(drive, prefix, opts, limit)
     end
   end
 
-  defp list_page(repo, drive, prefix, opts, limit) do
+  defp list_page(drive, prefix, opts, limit) do
     with {:ok, query} <- prefix_query(files_query(drive), prefix),
          {:ok, query} <- after_query(query, Keyword.get(opts, :after)) do
       files =
         query
-        |> order_by([file], asc: file.path)
-        |> limit(^(limit + 1))
-        |> repo.all()
+        |> Ash.Query.sort(path: :asc)
+        |> Ash.Query.limit(limit + 1)
+        |> Ankole.Ash.read!()
 
       {page, rest} = Enum.split(files, limit)
       next_after = if rest == [], do: nil, else: List.last(page).path
@@ -292,11 +291,11 @@ defmodule Ankole.Files do
 
       files =
         files_query(drive)
-        |> where([file], like(file.path, ^like_pattern))
-        |> where([file], fragment("strpos(substr(?, ?), '/') = 0", file.path, ^offset))
-        |> order_by([file], asc: file.path)
-        |> limit(^(limit + 1))
-        |> Repo.all()
+        |> Ash.Query.filter(fragment("? LIKE ?", path, ^like_pattern))
+        |> Ash.Query.filter(fragment("strpos(substr(?, ?), '/') = 0", path, ^offset))
+        |> Ash.Query.sort(path: :asc)
+        |> Ash.Query.limit(limit + 1)
+        |> Ankole.Ash.read!()
 
       {:ok,
        %{
@@ -325,19 +324,13 @@ defmodule Ankole.Files do
         with :ok <- lock_drive(repo, drive) do
           # Remove the source paths before checking the final tree. A folder
           # can move up into its parent without conflicting with itself.
-          {_count, sources} =
-            from(file in DriveFile,
-              where: ^drive_scope(drive),
-              where: ^subtree(from_path),
-              select: file
-            )
-            |> repo.delete_all()
+          sources = remove_paths_in_tx(drive, from_path)
 
           moved = Enum.map(sources, &%{&1 | path: moved_path(&1.path, from_path, to_path)})
 
           with :ok <- require_sources(sources),
                :ok <- validate_path_tree(repo, drive, moved),
-               :ok <- insert_moved(repo, moved) do
+               :ok <- insert_moved(moved) do
             {:ok, length(moved)}
           end
         end
@@ -351,7 +344,7 @@ defmodule Ankole.Files do
     with {:ok, path} <- normalize_path(path) do
       Repo.transact(fn repo ->
         with :ok <- lock_drive(repo, drive) do
-          {:ok, delete_path_in_tx(repo, drive, path)}
+          {:ok, delete_path_in_tx(drive, path)}
         end
       end)
     end
@@ -545,17 +538,8 @@ defmodule Ankole.Files do
   end
 
   defp upsert_blob(digest, size) do
-    Repo.query!(
-      """
-      INSERT INTO files (sha256, size, deleting, created_at, last_referenced_at)
-      VALUES ($1, $2, false, now(), now())
-      ON CONFLICT (sha256) DO UPDATE
-        SET last_referenced_at = now(), deleting = false
-      """,
-      [digest, size]
-    )
-
-    :ok
+    with {:ok, _blob} <- Ankole.Ash.create(Blob, :store, %{sha256: digest, size: size}),
+         do: :ok
   end
 
   defp write_object(key, {:file, path}), do: ObjectStore.write_from_file(key, path)
@@ -614,7 +598,7 @@ defmodule Ankole.Files do
   A content already marked for collection is rejected.
   """
   @spec reference_contents_in_tx(module(), [sha256_hex()]) :: :ok | {:error, term()}
-  def reference_contents_in_tx(repo, references) do
+  def reference_contents_in_tx(_repo, references) do
     with {:ok, digests} <-
            Enum.reduce_while(references, {:ok, []}, fn reference, {:ok, digests} ->
              case decode_sha256(reference) do
@@ -622,19 +606,25 @@ defmodule Ankole.Files do
                error -> {:halt, error}
              end
            end),
-         {:ok, _sizes} <- reference_blobs(repo, digests) do
+         {:ok, _sizes} <- reference_blobs(digests) do
       :ok
     end
   end
 
   # Refreshes every referenced content with a row-locking update that skips
   # rows marked `deleting`, and returns the size of each content.
-  defp reference_blobs(repo, digests) do
+  defp reference_blobs(digests) do
     digests = Enum.uniq(digests)
 
-    {_count, rows} =
-      from(blob in Blob, where: blob.sha256 in ^digests and not blob.deleting, select: blob)
-      |> repo.update_all(set: [last_referenced_at: DateTime.utc_now()])
+    rows =
+      Blob
+      |> Ash.Query.filter(sha256 in ^digests)
+      |> Ankole.Ash.bulk_update(:reference, %{},
+        strategy: [:atomic],
+        return_records?: true,
+        return_errors?: true
+      )
+      |> bulk_records!()
 
     sizes = Map.new(rows, &{&1.sha256, &1.size})
 
@@ -644,8 +634,8 @@ defmodule Ankole.Files do
     end
   end
 
-  defp upsert_file(repo, drive, upsert, now) do
-    file = %DriveFile{
+  defp upsert_file(drive, upsert) do
+    Ankole.Ash.create(DriveFile, :commit, %{
       agent_uid: if(drive == :pod, do: nil, else: drive),
       path: upsert.path,
       sha256: upsert.sha256,
@@ -653,36 +643,20 @@ defmodule Ankole.Files do
       content_type: upsert.content_type,
       source: upsert.source,
       conversation_id: upsert.conversation_id,
-      message_id: upsert.message_id,
-      inserted_at: now,
-      updated_at: now
-    }
-
-    repo.insert(file,
-      on_conflict:
-        {:replace,
-         [
-           :sha256,
-           :mode,
-           :content_type,
-           :source,
-           :conversation_id,
-           :message_id,
-           :updated_at
-         ]},
-      conflict_target: [:tenant_id, :agent_uid, :path],
-      returning: true
-    )
+      message_id: upsert.message_id
+    })
   end
 
-  defp delete_path_in_tx(repo, drive, path) do
-    {count, _rows} =
-      DriveFile
-      |> where([file], ^drive_scope(drive))
-      |> where(^subtree(path))
-      |> repo.delete_all()
+  defp delete_path_in_tx(drive, path), do: length(remove_paths_in_tx(drive, path))
 
-    count
+  defp remove_paths_in_tx(drive, path) do
+    case Ankole.Ash.run_action(DriveFile, :remove_paths, %{
+           agent_uid: if(drive == :pod, do: nil, else: drive),
+           path: path
+         }) do
+      {:ok, files} -> files
+      {:error, error} -> raise Ash.Error.to_error_class(error)
+    end
   end
 
   defp validate_move_target(from_path, to_path) do
@@ -717,27 +691,26 @@ defmodule Ankole.Files do
   # The insert skips that row and the move fails in the same statement,
   # so a file that a concurrent commit put there stays. One statement takes at
   # most 65535 parameters; 1000 rows of the moved fields stay well below that.
-  defp insert_moved(repo, moved) do
-    now = DateTime.utc_now()
-
+  defp insert_moved(moved) do
     moved
-    |> Enum.map(
-      &(&1
-        |> Map.take(@move_fields)
-        |> Map.put(:tenant_id, Repo.tenant_id!())
-        |> Map.put(:updated_at, now))
-    )
+    |> Enum.map(&Map.take(&1, @move_fields))
     |> Enum.chunk_every(1000)
     |> Enum.reduce_while(:ok, fn rows, :ok ->
-      {count, _rows} =
-        repo.insert_all(DriveFile, rows,
-          on_conflict: :nothing,
-          conflict_target: [:tenant_id, :agent_uid, :path]
+      records =
+        Ankole.Ash.bulk_create(rows, DriveFile, :move,
+          return_records?: true,
+          return_errors?: true
         )
+        |> bulk_records!()
 
-      if count == length(rows), do: {:cont, :ok}, else: {:halt, {:error, :already_exists}}
+      if length(records) == length(rows),
+        do: {:cont, :ok},
+        else: {:halt, {:error, :already_exists}}
     end)
   end
+
+  defp bulk_records!(%Ash.BulkResult{status: :success, records: records}), do: records
+  defp bulk_records!(%Ash.BulkResult{errors: errors}), do: raise(Ash.Error.to_error_class(errors))
 
   defp children_scope(prefix) when prefix in ["", nil], do: {:ok, {"%", 1}}
 
@@ -753,28 +726,27 @@ defmodule Ankole.Files do
   defp drive_scope(drive), do: dynamic([file], file.agent_uid == ^drive)
 
   defp files_query(drive) do
-    from(file in DriveFile,
-      join: blob in assoc(file, :blob),
-      where: ^drive_scope(drive),
-      select_merge: %{size: blob.size}
-    )
-  end
+    query = Ash.Query.load(DriveFile, :size)
 
-  defp subtree(path),
-    do: dynamic([file], file.path == ^path or like(file.path, ^(Repo.escape_like(path) <> "/%")))
+    case drive do
+      :pod -> Ash.Query.filter(query, is_nil(agent_uid))
+      uid -> Ash.Query.filter(query, agent_uid == ^uid)
+    end
+  end
 
   defp prefix_query(query, prefix) when prefix in ["", nil], do: {:ok, query}
 
   defp prefix_query(query, prefix) do
     with {:ok, prefix} <- normalize_path(prefix) do
-      {:ok, where(query, ^subtree(prefix))}
+      pattern = Repo.escape_like(prefix) <> "/%"
+      {:ok, Ash.Query.filter(query, path == ^prefix or fragment("? LIKE ?", path, ^pattern))}
     end
   end
 
   defp after_query(query, nil), do: {:ok, query}
 
   defp after_query(query, after_path) when is_binary(after_path),
-    do: {:ok, where(query, [file], file.path > ^after_path)}
+    do: {:ok, Ash.Query.filter(query, path > ^after_path)}
 
   defp after_query(_query, after_path), do: {:error, {:invalid_path, after_path}}
 

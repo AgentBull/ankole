@@ -286,7 +286,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
       ) do
     case Jobs.get_result_window_for_agent(args["job_id"], run.agent_uid, offset) do
       %{
-        job: %Job{status: "succeeded"} = job,
+        job: %Job{status: :succeeded} = job,
         output_window: text,
         total_bytes: total,
         result_paths: paths
@@ -299,7 +299,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
           Map.merge(
             %{
               "title" => job.title,
-              "status" => job.status,
+              "status" => Atom.to_string(job.status),
               "result_ref" => %{"type" => "background_agent_job", "job_id" => job.id},
               "workspace_owner_job_id" => job.workspace_owner_job_id,
               "result" => %{"offset" => offset, "output_text" => text, "next_offset" => next}
@@ -325,9 +325,9 @@ defmodule Ankole.Sessions.Tools.Jobs do
 
       details = %{
         "title" => job.title,
-        "status" => job.status,
+        "status" => Atom.to_string(job.status),
         "result_ref" =>
-          if(job.status == "succeeded",
+          if(job.status == :succeeded,
             do: %{"type" => "background_agent_job", "job_id" => job.id}
           ),
         "continued_from_job_id" => job.continued_from_job_id,
@@ -350,7 +350,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
   end
 
   @impl true
-  def execute_in_tx(_repo, run, %{"name" => "create_background_job"} = call, args) do
+  def prepare_in_tx(repo, run, %{"name" => "create_background_job"} = call, args) do
     attrs =
       Map.take(args, ~w(title task model_profile workspace_template_id))
       |> Map.put("title", String.trim(args["title"]))
@@ -363,60 +363,73 @@ defmodule Ankole.Sessions.Tools.Jobs do
          ) do
       {:error, "no matching workspace template is available"}
     else
-      with {:ok, value} <- Jobs.create_with_dispatch(attrs),
-           do: {:ok, Tools.result(%{"job_id" => value.job.id, "status" => value.job.status}), []}
+      Ankole.BackgroundAgentJobs.Dispatch.prepare_create_in_tx(repo, attrs)
+      |> project_prepared(&job_result/1)
     end
   end
 
-  def execute_in_tx(_repo, run, %{"name" => "respawn_background_job"} = call, args) do
-    with {:ok, value} <-
-           Jobs.respawn_with_dispatch(
-             args["source_job_id"],
-             Map.merge(origin(run, call), %{"message" => args["message"]})
-           ),
-         do: {:ok, Tools.result(%{"job_id" => value.job.id, "status" => value.job.status}), []}
+  def prepare_in_tx(repo, run, %{"name" => "respawn_background_job"} = call, args) do
+    Ankole.BackgroundAgentJobs.Dispatch.prepare_respawn_in_tx(
+      repo,
+      args["source_job_id"],
+      Map.merge(origin(run, call), %{"message" => args["message"]})
+    )
+    |> project_prepared(&job_result/1)
   end
 
-  def execute_in_tx(_repo, run, %{"name" => "stop_background_job"}, args) do
-    with {:ok, value} <-
-           Jobs.request_stop(args["job_id"], %{
-             "agent_uid" => run.agent_uid,
-             "cancel_requested_by" => "agent:#{run.agent_uid}"
-           }),
-         do:
-           {:ok, Tools.result(%{"job_id" => value.job.id, "status" => value.job.status}),
-            [fn -> Ankole.Sessions.stop_job_turn(value.job, value.turn) end]}
+  def prepare_in_tx(repo, run, %{"name" => "stop_background_job"}, args) do
+    Ankole.BackgroundAgentJobs.Control.prepare_stop_in_tx(repo, args["job_id"], %{
+      "agent_uid" => run.agent_uid,
+      "cancel_requested_by" => "agent:#{run.agent_uid}"
+    })
+    |> project_prepared(fn value ->
+      {:ok, result, after_commit} = job_result(value)
+
+      {:ok, result,
+       after_commit ++ [fn -> Ankole.Sessions.stop_job_turn(value.job, value.turn) end]}
+    end)
   end
 
-  def execute_in_tx(_repo, run, %{"name" => "send_message_to_background_job"} = call, args) do
-    with {:ok, value} <-
-           Jobs.send_message(args["job_id"], %{
-             "agent_uid" => run.agent_uid,
-             "request_id" => Run.tool_identity(run, call),
-             "source_signal_id" => Route.current_input_signal_id(run),
-             "message" => args["message"]
-           }) do
-      details = %{"job_id" => value.job.id, "status" => value.job.status}
+  def prepare_in_tx(repo, run, %{"name" => "send_message_to_background_job"} = call, args) do
+    Ankole.BackgroundAgentJobs.Control.prepare_message_in_tx(repo, args["job_id"], %{
+      "agent_uid" => run.agent_uid,
+      "request_id" => Run.tool_identity(run, call),
+      "source_signal_id" => Route.current_input_signal_id(run),
+      "message" => args["message"]
+    })
+    |> project_prepared(fn value ->
+      details = %{"job_id" => value.job.id, "status" => Atom.to_string(value.job.status)}
 
       result =
-        if Map.get(args, "wait_reply", true),
-          do:
-            {:await,
-             %Ankole.Sessions.Wait{
-               kind: :job,
-               job_id: value.job.id,
-               command_event_id: value.command_event.id,
-               timeout_ms: args["wait_timeout_ms"] || 30_000
-             }},
-          else:
-            Tools.result(details,
-              text:
-                "Message stored for background job #{value.job.id}. Current job status: #{value.job.status}."
-            )
+        if Map.get(args, "wait_reply", true) do
+          {:await,
+           %Ankole.Sessions.Wait{
+             kind: :job,
+             job_id: value.job.id,
+             command_event_id: value.command_event.id,
+             timeout_ms: args["wait_timeout_ms"] || 30_000
+           }}
+        else
+          Tools.result(details,
+            text:
+              "Message stored for background job #{value.job.id}. Current job status: #{value.job.status}."
+          )
+        end
 
       {:ok, result, []}
-    end
+    end)
   end
+
+  defp job_result(value) do
+    {:ok, Tools.result(%{"job_id" => value.job.id, "status" => Atom.to_string(value.job.status)}),
+     []}
+  end
+
+  defp project_prepared({:ok, sessions, commit}, project) do
+    {:ok, sessions, fn -> with {:ok, value} <- commit.(), do: project.(value) end}
+  end
+
+  defp project_prepared({:error, _} = error, _project), do: error
 
   @impl true
   def observe(run, wait, steered?, expired?) do
@@ -427,7 +440,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
         id = observed[:successor_job_id] ->
           details = %{
             "job_id" => job.id,
-            "status" => observed.status,
+            "status" => Atom.to_string(observed.status),
             "successor_job_id" => id,
             "continues_running" => true,
             "reply_ready" => false,
@@ -442,11 +455,11 @@ defmodule Ankole.Sessions.Tools.Jobs do
 
         observed.ready ->
           trajectory = visible_trajectory(Ankole.JSON.plain(observed.last_turn_trajectory))
-          continues? = observed.status == "running"
+          continues? = observed.status == :running
 
           details = %{
             "job_id" => job.id,
-            "status" => observed.status,
+            "status" => Atom.to_string(observed.status),
             "last_turn_trajectory" => trajectory,
             "earlier_trajectory_omitted" => observed.earlier_trajectory_omitted,
             "continues_running" => continues?,
@@ -468,7 +481,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
           {:ready, Tools.result(details, text: text), List.wrap(observed.lifecycle_signal_id)}
 
         steered? or expired? ->
-          continues? = observed.status not in ~w(succeeded failed stopped)
+          continues? = observed.status not in [:succeeded, :failed, :stopped]
           outcome = if steered?, do: "steered", else: "timed_out"
 
           reason =
@@ -478,7 +491,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
 
           details = %{
             "job_id" => job.id,
-            "status" => observed.status,
+            "status" => Atom.to_string(observed.status),
             "continues_running" => continues?,
             "reply_ready" => false,
             "wait_outcome" => outcome

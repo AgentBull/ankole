@@ -1,72 +1,65 @@
 defmodule Ankole.Pod.PageChange do
-  @moduledoc """
-  One entry of a document's operational-transform log.
+  @moduledoc "An immutable document reset or editor batch, keyed by the resulting revision."
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Pod.Domain,
+    tenant_in_primary_key: true
 
-  A `change` entry carries the `ChangeSet` that one editor session submitted:
-  its client id, the batch number in that session, and the serialized change
-  set. A `reset` entry replaces the whole document, for example a whole-page
-  write from an Agent. The row is keyed by the revision after the entry.
-  """
+  postgres do
+    table("page_changes")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:page_id, "page_changes_tenant_id_page_id_fkey"}])
 
-  use Ankole.Schema, tenancy: :tenant, tenant_in_primary_key: true
+    unique_index_names([
+      {[:revision], "page_changes_pkey"},
+      {[:client_seq], "page_changes_tenant_id_page_id_client_id_client_seq_key"}
+    ])
 
-  import Ecto.Changeset
+    check_constraints do
+      check_constraint(:kind, "page_changes_kind_check")
+      check_constraint(:changes, "page_changes_entry_shape")
+    end
+  end
 
-  alias Ankole.Ecto.ActorRef
+  attributes do
+    attribute(:page_id, Ankole.Ash.Types.UUIDv7, primary_key?: true, allow_nil?: false)
+    attribute(:revision, :integer, primary_key?: true, allow_nil?: false, constraints: [min: 1])
+    attribute(:kind, :atom, allow_nil?: false, constraints: [one_of: [:change, :reset]])
+    attribute(:client_id, :string, constraints: [trim?: false])
+    attribute(:client_seq, :integer)
+    attribute(:changes, Ankole.Ash.Types.JSONList)
+    attribute(:author, Ankole.Ash.Types.ActorRef, allow_nil?: false)
+    attribute(:created_at, :utc_datetime_usec, allow_nil?: false)
+  end
 
-  @primary_key false
-  schema "page_changes" do
-    field :page_id, Ankole.Ecto.UUIDv7, primary_key: true
-    field :revision, :integer, primary_key: true
-    field :kind, Ecto.Enum, values: [:change, :reset]
-    field :client_id, :string
-    field :client_seq, :integer
-    field :changes, Ankole.Ecto.JSONList
-    field :author, ActorRef
-    field :created_at, :utc_datetime_usec
+  actions do
+    defaults([:read])
+
+    create :append do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+
+      accept([
+        :page_id,
+        :revision,
+        :kind,
+        :client_id,
+        :client_seq,
+        :changes,
+        :author,
+        :created_at
+      ])
+
+      validate(Ankole.Pod.Validations.PageChangeShape)
+    end
+
+    destroy :prune do
+      transaction?(false)
+      require_atomic?(true)
+      change(Ankole.Ash.RequireTransaction.Atomic)
+    end
   end
 
   @type t :: %__MODULE__{}
-
-  @spec changeset(t(), map()) :: Ecto.Changeset.t()
-  def changeset(change, attrs) do
-    change
-    |> cast(attrs, [
-      :page_id,
-      :revision,
-      :kind,
-      :client_id,
-      :client_seq,
-      :changes,
-      :author,
-      :created_at
-    ])
-    |> validate_required([:page_id, :revision, :kind, :author, :created_at])
-    |> validate_number(:revision, greater_than: 0)
-    |> validate_entry_shape()
-    |> foreign_key_constraint(:page_id, name: :page_changes_tenant_id_page_id_fkey)
-    |> unique_constraint(:revision, name: :page_changes_pkey)
-    |> unique_constraint(:client_seq,
-      name: :page_changes_tenant_id_page_id_client_id_client_seq_key
-    )
-    |> check_constraint(:kind, name: :page_changes_kind_check)
-    |> check_constraint(:changes, name: :page_changes_entry_shape)
-  end
-
-  defp validate_entry_shape(changeset) do
-    case get_field(changeset, :kind) do
-      :change ->
-        validate_required(changeset, [:client_id, :client_seq, :changes])
-
-      :reset ->
-        Enum.reduce([:client_id, :client_seq, :changes], changeset, fn field, result ->
-          if is_nil(get_field(result, field)),
-            do: result,
-            else: add_error(result, field, "is not part of a reset entry")
-        end)
-
-      _other ->
-        changeset
-    end
-  end
 end

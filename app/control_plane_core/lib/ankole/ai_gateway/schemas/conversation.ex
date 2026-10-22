@@ -1,58 +1,91 @@
 defmodule Ankole.AIGateway.Schemas.Conversation do
-  @moduledoc """
-  Durable conversation spine for one principal subject, owned by AIGateway.
+  @moduledoc "Durable subject-local conversation identity; response rows own continuation and liveness."
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIGateway.Domain
 
-  The conversation row owns only identity, scope, and metadata. It does not store
-  a run lease or continuation pointer: the authoritative base for an in-flight
-  run is the `ai_gateway_messages.previous_message_id` of the generating row.
-  """
+  postgres do
+    table("ai_gateway_conversations")
+    repo(Ankole.Repo)
+    migrate?(false)
+    identity_index_names(active_key: "ai_gateway_conversations_active_key_index")
+    identity_wheres_to_sql(active_key: "ended_at IS NULL")
+    foreign_key_names(subject_uid: "ai_gateway_conversations_subject_uid_fkey")
 
-  use Ankole.Schema, tenancy: :tenant
-
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
-
-  alias Ankole.Principals.Principal
-  alias Ankole.Ecto.JSONPayload
-
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
-
-  schema "ai_gateway_conversations" do
-    belongs_to(:subject, Principal,
-      foreign_key: :subject_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
-    )
-
-    field(:conversation_key, :string)
-    field(:ended_at, :utc_datetime_usec)
-    field(:metadata, :map, default: %{})
-
-    timestamps()
+    check_constraints do
+      check_constraint(:metadata, "ai_gateway_conversations_metadata_object")
+    end
   end
 
-  @doc """
-  Builds a changeset for conversation rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(conversation, attrs) do
-    conversation
-    |> cast(attrs, [:subject_uid, :conversation_key, :ended_at, :metadata])
-    |> normalize_blank([:subject_uid, :conversation_key])
-    |> validate_required([:subject_uid, :conversation_key, :metadata])
-    |> JSONPayload.validate_map(:metadata, allow_datetime: true)
-    |> foreign_key_constraint(:subject_uid)
-    # Only one *active* (not yet `ended_at`) conversation may exist per
-    # (subject, conversation_key). The backing index is partial on `ended_at IS
-    # NULL`, so an ended session can be superseded by a new one under the same
-    # key. This collision is what `Conversations.ensure_conversation_in_tx/4` relies on
-    # to make concurrent first-input safe: it inserts, and on conflict refetches
-    # the row the racing writer created.
-    |> unique_constraint([:subject_uid, :conversation_key],
-      name: :ai_gateway_conversations_active_key_index
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0
     )
-    |> check_constraint(:metadata, name: :ai_gateway_conversations_metadata_object)
+
+    attribute(:subject_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+    attribute(:conversation_key, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:ended_at, :utc_datetime_usec)
+
+    attribute(:metadata, Ankole.Ash.Types.JSONMap,
+      allow_nil?: false,
+      default: %{},
+      constraints: [allow_datetime?: true]
+    )
+
+    create_timestamp(:inserted_at, type: :utc_datetime_usec)
+    update_timestamp(:updated_at, type: :utc_datetime_usec)
   end
+
+  identities do
+    identity(:active_key, [:subject_uid, :conversation_key],
+      all_tenants?: true,
+      where: expr(is_nil(ended_at))
+    )
+  end
+
+  validations do
+    validate(
+      fn changeset, _context ->
+        case Ash.Changeset.get_attribute(changeset, :conversation_key) do
+          value when is_binary(value) ->
+            if String.trim(value) == "",
+              do: {:error, field: :conversation_key, message: "is required"},
+              else: :ok
+
+          _missing ->
+            :ok
+        end
+      end,
+      on: [:create]
+    )
+  end
+
+  actions do
+    defaults([:read])
+
+    create :open do
+      transaction?(false)
+      accept([:subject_uid, :conversation_key, :metadata])
+    end
+
+    create_if_absent :ensure, upsert_fields: [:metadata] do
+      transaction?(false)
+      accept([:subject_uid, :conversation_key, :metadata])
+      change(Ankole.Ash.RequireTransaction)
+      upsert_identity(:active_key)
+    end
+
+    atomic_in_tx_update :touch do
+      accept([])
+      change(set_attribute(:updated_at, &DateTime.utc_now/0))
+    end
+
+    in_tx_update :finish do
+      accept([:ended_at])
+      validate(present(:ended_at))
+      change(filter(expr(is_nil(ended_at))))
+    end
+  end
+
+  @type t :: %__MODULE__{}
 end

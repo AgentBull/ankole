@@ -8,8 +8,12 @@ defmodule Ankole.AgentWorkers.ProviderKind do
   """
 
   alias Ankole.AgentWorkers.ProviderKind.Definition
+  alias Ankole.AgentWorkers.Providers.Runtime
   alias Ankole.AgentWorkers.Providers.Provider
   alias Ankole.AgentWorkers.WorkerBootstrap.AgentWorkerSpec
+
+  @contract_id "agent_workers.provider_kind"
+  @cache_key {__MODULE__, :registry}
 
   @type observation :: %{
           optional(:instance_present?) => boolean(),
@@ -28,42 +32,114 @@ defmodule Ankole.AgentWorkers.ProviderKind do
   @callback instance_lifetime(map()) :: pos_integer()
   @optional_callbacks validate_credentials: 2, prepare_credentials: 3, instance_lifetime: 1
 
-  @callback check(Provider.t()) :: :ok | {:error, term()}
-  @callback prepare_image(Provider.t(), String.t()) :: :ok | {:pending, term()} | {:error, term()}
-  @callback prepare_storage(Provider.t(), String.t()) :: :ok | {:error, term()}
-  @callback create_instance(Provider.t(), AgentWorkerSpec.t()) ::
+  @callback check(Runtime.t()) :: :ok | {:error, term()}
+  @callback prepare_image(Runtime.t(), String.t()) :: :ok | {:pending, term()} | {:error, term()}
+  @callback prepare_storage(Runtime.t(), String.t()) :: :ok | {:error, term()}
+  @callback create_instance(Runtime.t(), AgentWorkerSpec.t()) ::
               {:ok, String.t() | nil} | {:rejected, term()} | {:error, term()}
-  @callback delete_instance(Provider.t(), observation(), :graceful | :now) ::
+  @callback delete_instance(Runtime.t(), observation(), :graceful | :now) ::
               :ok | {:error, term()}
-  @callback pause_instance(Provider.t(), observation()) :: :ok | {:error, term()}
-  @callback resume_instance(Provider.t(), observation()) :: :ok | {:error, term()}
-  @callback list_instances(Provider.t(), String.t() | :all) ::
+  @callback pause_instance(Runtime.t(), observation()) :: :ok | {:error, term()}
+  @callback resume_instance(Runtime.t(), observation()) :: :ok | {:error, term()}
+  @callback list_instances(Runtime.t(), String.t() | :all) ::
               {:ok, [observation()]} | {:error, term()}
-  @callback current_storage_ref(Provider.t(), String.t()) ::
+  @callback current_storage_ref(Runtime.t(), String.t()) ::
               {:ok, map() | nil, String.t() | nil} | {:error, term()}
-  @callback delete_cache(Provider.t(), String.t()) :: :ok | {:error, term()}
-  @callback delete_storage(Provider.t(), String.t(), map() | nil) ::
+  @callback delete_cache(Runtime.t(), String.t()) :: :ok | {:error, term()}
+  @callback delete_storage(Runtime.t(), String.t(), map() | nil) ::
               {:ok, map() | nil} | {:pending, map() | nil} | {:error, term()}
 
   @kinds %{
     "docker" => Ankole.AgentWorkers.Docker,
     "kubernetes" => Ankole.AgentWorkers.Kubernetes,
     "cloudflare" => Ankole.AgentWorkers.Cloudflare,
-    "vercel" => Ankole.AgentWorkers.Vercel,
-    "lambda" => Ankole.AgentWorkers.Lambda,
-    "function_compute" => Ankole.AgentWorkers.FunctionCompute
+    "lambda" => Ankole.AgentWorkers.Lambda
   }
 
-  @spec all() :: [module()]
-  def all, do: @kinds |> Enum.sort() |> Enum.map(&elem(&1, 1))
+  @doc false
+  def refresh_from_specs(discovered, active) do
+    active_ids = MapSet.new(active, & &1.id)
 
-  @spec fetch(String.t()) :: {:ok, module()} | {:error, :unknown_worker_provider_kind}
+    plugin_kinds =
+      for plugin <- Enum.sort_by(discovered, &MapSet.member?(active_ids, &1.id)),
+          %{contract_id: @contract_id, id: id, module: module} <- plugin.adapter_declarations,
+          into: %{},
+          do:
+            {id,
+             %{
+               module: module,
+               plugin_id: plugin.id,
+               active?: MapSet.member?(active_ids, plugin.id)
+             }}
+
+    builtins =
+      Map.new(@kinds, fn {id, module} ->
+        {id, %{module: module, plugin_id: nil, active?: true}}
+      end)
+
+    registry = Map.merge(plugin_kinds, builtins)
+    :persistent_term.put(@cache_key, registry)
+    registry
+  end
+
+  @doc false
+  def registry, do: :persistent_term.get(@cache_key)
+
+  @spec all() :: [module()]
+  def all do
+    for {_id, %{module: module, active?: true}} <- Enum.sort(registry()), do: module
+  end
+
+  @spec fetch(String.t()) :: {:ok, module()} | {:error, term()}
   def fetch(kind) do
-    case Map.fetch(@kinds, kind) do
-      {:ok, module} -> {:ok, module}
-      :error -> {:error, :unknown_worker_provider_kind}
+    case registry()[kind] do
+      %{module: module, active?: true} -> {:ok, module}
+      %{plugin_id: plugin_id} -> {:error, {:worker_provider_plugin_inactive, plugin_id}}
+      nil -> {:error, :unknown_worker_provider_kind}
     end
   end
+
+  @doc "Returns the Worker kinds removed by a change to the Plugin selection."
+  def disabled_kinds(registry, previous, selected) do
+    for {kind, %{plugin_id: plugin_id}} <- registry,
+        plugin_id != nil,
+        plugin_id in previous and plugin_id not in selected,
+        into: %{},
+        do: {kind, plugin_id}
+  end
+
+  @doc false
+  def validate_adapter_declaration(%{id: id, module: module})
+      when is_binary(id) and is_atom(module) do
+    with :ok <- validate_builtin_override(id),
+         :ok <- validate_module(module) do
+      validate_definition(id, module.definition())
+    end
+  end
+
+  def validate_adapter_declaration(declaration),
+    do: {:error, {:invalid_worker_provider_declaration, declaration}}
+
+  defp validate_builtin_override(id) do
+    if Map.has_key?(@kinds, id),
+      do: {:error, {:builtin_worker_provider_kind, id}},
+      else: :ok
+  end
+
+  defp validate_module(module) do
+    case Code.ensure_loaded(module) do
+      {:module, ^module} -> :ok
+      {:error, reason} -> {:error, {:worker_provider_module_unavailable, module, reason}}
+    end
+  end
+
+  defp validate_definition(id, %Definition{kind: id}), do: :ok
+
+  defp validate_definition(id, %Definition{kind: actual}),
+    do: {:error, {:worker_provider_kind_mismatch, id, actual}}
+
+  defp validate_definition(id, definition),
+    do: {:error, {:invalid_worker_provider_definition, id, definition}}
 
   @doc "The lifetime of a generation, from its saved instance settings."
   @spec instance_lifetime(module(), map()) :: pos_integer() | nil

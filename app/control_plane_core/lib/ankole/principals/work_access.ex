@@ -4,22 +4,18 @@ defmodule Ankole.Principals.WorkAccess do
   alias Ankole.Principals.Principal
   alias Ankole.Repo
   alias Ankole.Signals.Signal
+  alias Ankole.Work.Owner
 
   @fields [:authorization_kind, :human_uid, :human_access_version]
-  @owners %{
-    "signal" => Ankole.Signals.Signal,
-    "cron" => Ankole.Schedule.Schemas.CronSchedule,
-    "scheduled_event" => Ankole.Schedule.Schemas.ScheduledEvent,
-    "background_job" => Ankole.BackgroundAgentJobs.Schemas.Job,
-    "workflow" => Ankole.Workflow.Schemas.Run,
-    "automation_job" => Ankole.AutomationJobs.Schemas.Job
-  }
-
   def list_for_human(uid) do
-    Enum.flat_map(@owners, fn {kind, schema} ->
+    Enum.flat_map(Owner.entries(), fn {kind, schema} ->
       Repo.across_tenants(fn ->
         Repo.all(
-          from w in schema, where: w.human_uid == ^uid, order_by: [desc: w.inserted_at], limit: 50
+          from(w in schema,
+            where: w.human_uid == ^uid,
+            order_by: [desc: w.inserted_at],
+            limit: 50
+          )
         )
       end)
       |> Enum.map(&projection(kind, &1))
@@ -27,11 +23,11 @@ defmodule Ankole.Principals.WorkAccess do
   end
 
   def list_unresolved do
-    Enum.flat_map(@owners, fn {kind, schema} ->
+    Enum.flat_map(Owner.entries(), fn {kind, schema} ->
       # The work belongs to the selected tenant; its recorded Human can belong
       # to another tenant or no longer exist after that tenant was deleted.
       query =
-        from w in schema,
+        from(w in schema,
           left_join: human in Principal,
           on: human.uid == w.human_uid,
           where:
@@ -43,41 +39,23 @@ defmodule Ankole.Principals.WorkAccess do
           order_by: w.inserted_at,
           limit: 50,
           select: w
+        )
 
-      query =
-        case kind do
-          "signal" ->
-            from w in query, where: is_nil(w.completed_at)
-
-          "cron" ->
-            from w in query, where: w.status in ["active", "paused"]
-
-          "scheduled_event" ->
-            from w in query, where: w.status in ["scheduled", "failed", "cancelled"]
-
-          "background_job" ->
-            from w in query, where: w.status in ["queued", "waiting_on_user", "stopped"]
-
-          "workflow" ->
-            from w in query, where: w.status in ["running", "cancelled"]
-
-          "automation_job" ->
-            from w in query, where: w.status in ["active", "cancelled"]
-        end
+      query = Owner.unresolved_query(query, schema)
 
       tenant_id = Repo.tenant_id!()
 
       # The root must stay in the current tenant. The author join uses a global
       # UID because deleting or moving the author's tenant does not move work.
       Repo.across_tenants(fn ->
-        Repo.all(from w in query, where: w.tenant_id == ^tenant_id)
+        Repo.all(from(w in query, where: w.tenant_id == ^tenant_id))
       end)
       |> Enum.map(&projection(kind, &1))
     end)
   end
 
   def classify(kind, id, human_uid, actor_uid, reason) do
-    with schema when not is_nil(schema) <- Map.get(@owners, kind),
+    with schema when not is_nil(schema) <- Owner.schema(kind),
          {:ok, id} <- cast_id(schema, id),
          true <- is_binary(reason) and String.trim(reason) != "" do
       Ankole.Repo.transact(fn repo ->
@@ -91,32 +69,33 @@ defmodule Ankole.Principals.WorkAccess do
                is_nil(human_uid) or subject.tenant_id == Repo.tenant_id!() or
                  subject.uid == actor_uid.uid,
              :ok <- check_in_tx(repo, authorization),
-             %{} = work <- repo.one(from w in schema, where: w.id == ^id, lock: "FOR UPDATE"),
+             %{} = work <-
+               repo.one(from(w in schema, where: w.id == ^id, lock: "FOR UPDATE"),
+                 lock_identity: {schema.__schema__(:source), id}
+               ),
              true <- reauthorizable?(kind, work),
              true <- work.authorization_kind != "human" or not is_nil(human_uid),
              previous_authorization = fields(work),
-             {:ok, work} <- work |> Ecto.Changeset.change(authorization) |> repo.update(),
+             {:ok, work} <- Ankole.Ash.update(work, :reauthorize, authorization),
              {:ok, _} <-
                Repo.with_tenant(subject.tenant_id, fn ->
-                 repo.insert(
-                   Ecto.Changeset.change(%Ankole.Principals.AccessEvent{}, %{
-                     principal_uid: subject_uid,
-                     actor: actor_uid,
-                     operation_id: Ankole.Kernel.gen_uuid_v7(),
-                     source: "work_review",
-                     action: "classify_work",
-                     reason: reason,
-                     access_version: subject.access_version,
-                     previous_status: subject.status,
-                     status: subject.status,
-                     details: %{
-                       kind: kind,
-                       id: to_string(id),
-                       authorization_kind: authorization.authorization_kind,
-                       previous_authorization: previous_authorization
-                     }
-                   })
-                 )
+                 Ankole.Ash.create(Ankole.Principals.AccessEvent, :record_in_tx, %{
+                   principal_uid: subject_uid,
+                   actor: actor_uid,
+                   operation_id: Ankole.Kernel.gen_uuid_v7(),
+                   source: "work_review",
+                   action: "classify_work",
+                   reason: reason,
+                   access_version: subject.access_version,
+                   previous_status: subject.status,
+                   status: subject.status,
+                   details: %{
+                     kind: kind,
+                     id: to_string(id),
+                     authorization_kind: authorization.authorization_kind,
+                     previous_authorization: previous_authorization
+                   }
+                 })
                end) do
           {:ok, projection(kind, work)}
         else
@@ -130,24 +109,21 @@ defmodule Ankole.Principals.WorkAccess do
   end
 
   defp cast_id(schema, id) do
-    if schema.__schema__(:type, :id) == :id do
-      case Integer.parse(to_string(id)) do
-        {value, ""} when value > 0 -> {:ok, value}
-        _ -> :error
-      end
+    if Ecto.Type.type(schema.__schema__(:type, :id)) in [:id, :integer] do
+      Ankole.ModelIntegerID.parse(id)
     else
       Ecto.UUID.cast(id)
     end
   end
 
   defp projection(kind, work) do
+    status = to_string(work.status)
+
     %{
       kind: kind,
       id: to_string(work.id),
       agent_uid: work.agent_uid,
-      status:
-        Map.get(work, :status) ||
-          if(Map.get(work, :completed_at), do: "completed", else: work.input_state),
+      status: status,
       authorization_kind: work.authorization_kind,
       human_uid: work.human_uid,
       human_access_version: work.human_access_version,
@@ -156,20 +132,12 @@ defmodule Ankole.Principals.WorkAccess do
     }
   end
 
-  defp reauthorizable?(kind, %{authorization_kind: "review_required"} = work) do
-    case kind do
-      "signal" -> is_nil(work.completed_at)
-      "cron" -> work.status in ["active", "paused"]
-      "scheduled_event" -> work.status in ["scheduled", "failed"]
-      "background_job" -> work.status in ["queued", "waiting_on_user"]
-      "workflow" -> work.status == "running"
-      "automation_job" -> work.status == "active"
-    end
-  end
+  defp reauthorizable?(_kind, %{authorization_kind: "review_required"} = work),
+    do: Owner.reauthorizable_state?(work)
 
   # Reauthorization does not revive work. Cron retains a paused rule with a
   # separate resume operation; the other revoked work must be replaced.
-  defp reauthorizable?("cron", %{authorization_kind: "human", status: "paused"} = work),
+  defp reauthorizable?("cron", %{authorization_kind: "human", status: :paused} = work),
     do: not valid_subject_now?(work)
 
   defp reauthorizable?(_kind, _work), do: false
@@ -276,9 +244,35 @@ defmodule Ankole.Principals.WorkAccess do
   def check_in_tx(_repo, %{authorization_kind: "service"}), do: :ok
   def check_in_tx(_repo, _work), do: {:error, :work_authorization_review_required}
 
+  def lock_authorizers_in_tx(repo, works) do
+    uids =
+      works
+      |> Enum.flat_map(fn
+        %{authorization_kind: "human", human_uid: uid} when is_binary(uid) -> [uid]
+        _ -> []
+      end)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    Repo.across_tenants(fn ->
+      repo.all(
+        from(principal in Principal,
+          where: principal.uid in ^uids,
+          order_by: principal.uid,
+          lock: "FOR UPDATE"
+        ),
+        lock_identity: {"principals", uids}
+      )
+    end)
+
+    :ok
+  end
+
   defp lock_authorizer(repo, uid) do
     Repo.across_tenants(fn ->
-      repo.one(from p in Principal, where: p.uid == ^uid, lock: "FOR UPDATE")
+      repo.one(from(p in Principal, where: p.uid == ^uid, lock: "FOR UPDATE"),
+        lock_identity: {"principals", uid}
+      )
     end)
   end
 

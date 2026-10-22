@@ -27,7 +27,7 @@ defmodule Ankole.ConsoleReadiness do
     missing_profiles = missing_profiles(target, ready_provider_ids)
     agent_complete = valid_agent?(target)
     profiles_complete = agent_complete and missing_profiles == []
-    ready_worker_count = Enum.count(Ankole.AgentWorkers.list(), &(&1.state == "ready"))
+    ready_worker_count = Enum.count(Ankole.AgentWorkers.list(), &(&1.state == :ready))
     # A Worker runs only while its Agent needs one, so the step checks that
     # the default provider accepts requests.
     worker_provider_ready = AgentWorkers.provider_status() == :ok

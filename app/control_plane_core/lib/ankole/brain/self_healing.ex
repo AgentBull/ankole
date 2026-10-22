@@ -10,6 +10,7 @@ defmodule Ankole.Brain.SelfHealing do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.Brain.Chunks
   alias Ankole.Brain.Chunker
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Config
@@ -17,7 +18,6 @@ defmodule Ankole.Brain.SelfHealing do
   alias Ankole.Brain.Jobs.ProcessConversationSlice
   alias Ankole.Brain.LibraryKnowledge
   alias Ankole.Brain.Links
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.OIDCClientLearning
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
@@ -88,7 +88,7 @@ defmodule Ankole.Brain.SelfHealing do
     |> limit(@rechunk_batch_limit)
     |> Repo.all()
     |> Enum.count(fn object ->
-      match?({:ok, _object}, Objects.reconcile_chunks(object, chunking: chunking))
+      match?({:ok, _object}, Chunks.reconcile(object, chunking: chunking))
     end)
   end
 
@@ -137,8 +137,8 @@ defmodule Ankole.Brain.SelfHealing do
     )
     |> where(
       [claim],
-      (claim.claim_type == "fact" and is_nil(claim.expired_at)) or
-        (claim.claim_type == "take" and claim.active == true)
+      (claim.claim_type == :fact and is_nil(claim.expired_at)) or
+        (claim.claim_type == :take and claim.active == true)
     )
     |> order_by([claim], asc: fragment("? IS NOT NULL", claim.embedding_error))
     |> limit(@embed_batch_limit)
@@ -163,7 +163,7 @@ defmodule Ankole.Brain.SelfHealing do
             status != :stale
 
           {%Chunk{} = chunk, vector} ->
-            Objects.record_chunk_embedding(chunk, {:ok, vector, signature}, now: now) ==
+            Chunks.record_embedding(chunk, {:ok, vector, signature}, now: now) ==
               {:ok, :updated}
         end)
 
@@ -172,17 +172,10 @@ defmodule Ankole.Brain.SelfHealing do
 
         Enum.each(rows, fn
           %Chunk{} = chunk ->
-            Objects.record_chunk_embedding(chunk, {:error, error, target_signature}, now: now)
+            Chunks.record_embedding(chunk, {:error, error, target_signature}, now: now)
 
           %Claim{} = row ->
-            row
-            |> Ecto.Changeset.change(
-              embedding: nil,
-              embedding_signature: target_signature,
-              embedding_error: error,
-              embedded_at: nil
-            )
-            |> Repo.update!()
+            {:ok, _status} = Claims.record_embedding_error(row, error, target_signature)
         end)
 
         0

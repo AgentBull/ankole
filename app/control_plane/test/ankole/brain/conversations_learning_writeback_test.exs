@@ -15,7 +15,6 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
   alias Ankole.Repo
 
   setup do
-    allow_cache_database_access()
     AppConfigure.Cache.clear_for_test()
     on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
 
@@ -424,23 +423,19 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
         {kind, attrs} -> Map.put(attrs, :external_kind, kind)
       end
 
-    Repo.insert!(
-      Ankole.Conversations.Conversation.changeset(
-        %Ankole.Conversations.Conversation{},
-        Map.merge(
-          %{
-            id: Ecto.UUID.generate(),
-            kind: :external,
-            external_kind: :im_dm,
-            title: "Conversation",
-            provider_conversation_id: "test:writeback-#{System.unique_integer([:positive])}",
-            reply_mode: :entry,
-            last_activity_at: now,
-            first_seen_at: now,
-            last_seen_at: now
-          },
-          overrides
-        )
+    Ankole.ExternalConversationsFixtures.create_external_conversation!(
+      Map.merge(
+        %{
+          id: Ecto.UUID.generate(),
+          external_kind: :im_dm,
+          title: "Conversation",
+          provider_conversation_id: "test:writeback-#{System.unique_integer([:positive])}",
+          reply_mode: :entry,
+          last_activity_at: now,
+          first_seen_at: now,
+          last_seen_at: now
+        },
+        overrides
       )
     )
   end

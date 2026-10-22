@@ -1,85 +1,132 @@
 defmodule Ankole.Principals.Agent do
-  @moduledoc """
-  Agent-specific subtype row keyed by `principals.uid`.
-  """
+  @moduledoc false
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals.Domain
 
-  use Ankole.Schema, tenancy: :tenant
+  postgres do
+    table("agents")
+    repo(Ankole.Repo)
+    migrate?(false)
+    identity_index_names(handle: "agents_tenant_id_handle_index")
 
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2, normalize_lower: 2]
+    foreign_key_names([
+      {:uid, "agents_uid_fkey"},
+      {:owner_principal_uid, "agents_owner_principal_uid_fkey"}
+    ])
 
-  alias Ankole.Ecto.JSONPayload
-  alias Ankole.Principals.Principal
+    unique_index_names([{[:handle], "agents_tenant_id_handle_index"}])
 
-  @primary_key false
-  @timestamps_opts [type: :utc_datetime_usec]
+    check_constraints do
+      check_constraint(:handle, "agents_handle_format")
+      check_constraint(:role, "agents_role_present")
+      check_constraint(:options, "agents_options_object")
+      check_constraint(:group_memory_disclosure_mode, "agents_group_memory_disclosure_mode_check")
+    end
+  end
+
+  attributes do
+    attribute(:uid, Ankole.Ash.Types.PrincipalKey,
+      public?: true,
+      primary_key?: true,
+      allow_nil?: false
+    )
+
+    attribute(:handle, :string, public?: true, allow_nil?: false)
+
+    attribute(:type, :atom,
+      public?: true,
+      allow_nil?: false,
+      default: :ai_colleague,
+      constraints: [one_of: [:ai_colleague]]
+    )
+
+    attribute(:role, :string, public?: true, allow_nil?: false)
+    attribute(:options, Ankole.Ash.Types.JSONMap, public?: true, allow_nil?: false, default: %{})
+
+    attribute(:group_memory_disclosure_mode, :atom,
+      public?: true,
+      allow_nil?: false,
+      default: :strict,
+      constraints: [one_of: [:strict, :relaxed]]
+    )
+
+    attribute(:owner_principal_uid, Ankole.Ash.Types.PrincipalKey,
+      public?: true,
+      allow_nil?: false
+    )
+
+    attribute(:created_by, Ankole.Ash.Types.ActorRef, public?: true)
+    timestamps(type: :utc_datetime_usec)
+  end
+
+  identities do
+    identity(:handle, [:handle])
+  end
+
+  relationships do
+    belongs_to :principal, Ankole.Principals.Principal do
+      source_attribute(:uid)
+      destination_attribute(:uid)
+      define_attribute?(false)
+    end
+
+    belongs_to :owner_principal, Ankole.Principals.Principal do
+      source_attribute(:owner_principal_uid)
+      destination_attribute(:uid)
+      define_attribute?(false)
+    end
+  end
+
+  changes do
+    change(fn changeset, _context ->
+      case Ash.Changeset.get_attribute(changeset, :handle) do
+        value when is_binary(value) ->
+          Ash.Changeset.change_attribute(changeset, :handle, String.downcase(value))
+
+        _other ->
+          changeset
+      end
+    end)
+  end
+
+  validations do
+    validate(match(:handle, ~r/\A[a-z0-9][a-z0-9._-]{0,95}\z/))
+  end
+
+  actions do
+    defaults([:read])
+
+    create :create_in_tx do
+      accept([
+        :uid,
+        :handle,
+        :type,
+        :role,
+        :options,
+        :owner_principal_uid,
+        :group_memory_disclosure_mode,
+        :created_by
+      ])
+
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+    end
+
+    in_tx_update :profile_in_tx do
+      accept([
+        :handle,
+        :type,
+        :role,
+        :options,
+        :owner_principal_uid,
+        :group_memory_disclosure_mode,
+        :created_by
+      ])
+    end
+
+    in_tx_update :options_in_tx do
+      accept([:options])
+    end
+  end
 
   @type t :: %__MODULE__{}
-
-  schema "agents" do
-    belongs_to :principal, Principal,
-      foreign_key: :uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey,
-      primary_key: true
-
-    field :handle, :string
-    field :type, Ecto.Enum, values: [:ai_colleague], default: :ai_colleague
-    field :role, :string
-    field :options, :map, default: %{}
-
-    field :group_memory_disclosure_mode, Ecto.Enum,
-      values: [:strict, :relaxed],
-      default: :strict
-
-    belongs_to :owner_principal, Principal,
-      foreign_key: :owner_principal_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
-
-    field :created_by, Ankole.Ecto.ActorRef
-
-    timestamps()
-  end
-
-  @doc """
-  Builds a changeset for agent principal profile rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(agent, attrs) do
-    agent
-    |> cast(attrs, [
-      :uid,
-      :handle,
-      :type,
-      :role,
-      :options,
-      :owner_principal_uid,
-      :group_memory_disclosure_mode,
-      :created_by
-    ])
-    |> normalize_blank([:handle, :role, :owner_principal_uid])
-    |> normalize_lower(:handle)
-    |> validate_required([
-      :uid,
-      :handle,
-      :type,
-      :role,
-      :options,
-      :owner_principal_uid,
-      :group_memory_disclosure_mode
-    ])
-    |> JSONPayload.validate_map(:options)
-    |> foreign_key_constraint(:uid)
-    |> foreign_key_constraint(:owner_principal_uid)
-    |> unique_constraint(:uid, name: :agents_pkey)
-    |> unique_constraint(:handle, name: :agents_tenant_id_handle_index)
-    |> validate_format(:handle, ~r/\A[a-z0-9][a-z0-9._-]{0,95}\z/)
-    |> check_constraint(:handle, name: :agents_handle_format)
-    |> check_constraint(:role, name: :agents_role_present)
-    |> check_constraint(:options, name: :agents_options_object)
-    |> check_constraint(:group_memory_disclosure_mode,
-      name: :agents_group_memory_disclosure_mode_check
-    )
-  end
 end

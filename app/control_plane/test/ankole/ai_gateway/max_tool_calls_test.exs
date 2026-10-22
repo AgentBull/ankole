@@ -133,8 +133,8 @@ defmodule Ankole.AIGateway.MaxToolCallsTest do
 
     policy =
       policy
-      |> MaxToolCalls.reconcile_provider_items([program, provider_call], :single_response)
-      |> MaxToolCalls.admit_gateway_items([program, provider_call], :single_response)
+      |> MaxToolCalls.reconcile_provider_items([program, provider_call])
+      |> MaxToolCalls.admit_gateway_items([program, provider_call])
 
     refute MaxToolCalls.item_admitted?(policy, program)
     assert MaxToolCalls.item_admitted?(policy, provider_call)
@@ -173,7 +173,7 @@ defmodule Ankole.AIGateway.MaxToolCallsTest do
     first = program("prog_1", "return 1")
     second = program("prog_2", "return 2")
 
-    policy = MaxToolCalls.admit_gateway_items(policy, [first, second], :single_response)
+    policy = MaxToolCalls.admit_gateway_items(policy, [first, second])
 
     assert MaxToolCalls.item_admitted?(policy, first)
     refute MaxToolCalls.item_admitted?(policy, second)
@@ -202,7 +202,7 @@ defmodule Ankole.AIGateway.MaxToolCallsTest do
       "status" => "completed"
     }
 
-    policy = MaxToolCalls.admit_gateway_items(policy, [malformed, valid], :single_response)
+    policy = MaxToolCalls.admit_gateway_items(policy, [malformed, valid])
 
     assert MaxToolCalls.item_admitted?(policy, valid)
     assert MapSet.size(policy.started) == 1

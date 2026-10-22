@@ -10,6 +10,7 @@ defmodule Ankole.Brain.Promotion do
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.SchemaSuggestion
@@ -20,20 +21,20 @@ defmodule Ankole.Brain.Promotion do
   alias Ankole.Principals.Principal
   alias Ankole.Repo
 
-  @promoted_pack "promoted"
   @library_projection_type "agent-skills"
   @lazy_skill_prefix "lazyload-agent-skills/"
 
   @doc "Lists promotion suggestions for the Console read model."
-  @spec list_for_console(String.t(), keyword()) :: [SchemaSuggestion.t()]
+  @spec list_for_console(String.t(), keyword()) ::
+          {:ok, [SchemaSuggestion.t()]} | {:error, term()}
   def list_for_console(status, opts) when is_binary(status) and is_list(opts) do
     limit = Keyword.fetch!(opts, :limit)
 
     SchemaSuggestion
-    |> where([suggestion], suggestion.status == ^status)
-    |> order_by([suggestion], desc: suggestion.created_at)
-    |> limit(^limit)
-    |> Repo.all()
+    |> Ash.Query.filter(status == ^status)
+    |> Ash.Query.sort(created_at: :desc)
+    |> Ash.Query.limit(limit)
+    |> Ankole.Ash.read()
   end
 
   @doc """
@@ -45,13 +46,14 @@ defmodule Ankole.Brain.Promotion do
       with {:ok, suggestion} <- fetch_pending(repo, suggestion_id) do
         result =
           case suggestion.kind do
-            "new_type" -> materialize_type(repo, suggestion, attrs)
-            "new_subtype" -> materialize_subtype(repo, suggestion, attrs)
-            "alias" -> {:ok, %{status: :alias_noted}}
+            :new_type -> materialize_type(repo, suggestion, attrs)
+            :new_subtype -> materialize_subtype(repo, suggestion, attrs)
+            :alias -> {:ok, %{status: :alias_noted}}
           end
 
         with {:ok, outcome} <- result,
-             {:ok, _suggestion} <- decide(repo, suggestion, "approved", decided_by) do
+             {:ok, _suggestion} <-
+               Ankole.Ash.update(suggestion, :approve, %{decided_by: decided_by}) do
           {:ok, outcome}
         end
       end
@@ -67,7 +69,7 @@ defmodule Ankole.Brain.Promotion do
   def reject(suggestion_id, decided_by) do
     Repo.transact(fn repo ->
       with {:ok, suggestion} <- fetch_pending(repo, suggestion_id) do
-        decide(repo, suggestion, "rejected", decided_by)
+        Ankole.Ash.update(suggestion, :reject, %{decided_by: decided_by})
       end
     end)
   end
@@ -82,7 +84,8 @@ defmodule Ankole.Brain.Promotion do
 
     with :ok <- reject_reserved_type(term),
          :ok <- reject_reserved_prefix(prefix),
-         type = %SchemaType{
+         {:ok, pack} <- Ankole.Ash.create(Ankole.Brain.Schemas.SchemaPack, :ensure_promoted, %{}),
+         type = %{
            id: UUIDv7.autogenerate(),
            name: term,
            primitive: primitive,
@@ -90,27 +93,26 @@ defmodule Ankole.Brain.Promotion do
            subtypes: [],
            extractable: attrs[:extractable] == true,
            expert_routing: false,
-           pack_name: ensure_promoted_pack(repo),
+           pack_name: pack.name,
            created_at: DateTime.utc_now(:microsecond)
          },
-         {:ok, _type} <- repo.insert(type) do
+         {:ok, _type} <- Ankole.Ash.create(SchemaType, :register, type) do
       migrated = retype_tagged_objects(repo, term, prefix)
       {:ok, %{status: :type_created, type: term, migrated: migrated}}
     end
   end
 
-  defp materialize_subtype(repo, suggestion, attrs) do
+  defp materialize_subtype(_repo, suggestion, attrs) do
     target = attrs[:target_type] || suggestion.target_type || "note"
 
     with :ok <- reject_reserved_type(target) do
-      case repo.get_by(SchemaType, name: target) do
+      case Ankole.Ash.read_one!(Ash.Query.filter(SchemaType, name == ^target)) do
         nil ->
           {:error, {:unknown_target_type, target}}
 
         %SchemaType{} = type ->
-          subtypes = Enum.uniq(type.subtypes ++ [suggestion.term])
-
-          with {:ok, _type} <- repo.update(Ecto.Changeset.change(type, subtypes: subtypes)) do
+          with {:ok, _type} <-
+                 Ankole.Ash.update(type, :add_subtypes, %{subtypes: [suggestion.term]}) do
             {:ok, %{status: :subtype_added, type: target, subtype: suggestion.term}}
           end
       end
@@ -161,16 +163,10 @@ defmodule Ankole.Brain.Promotion do
 
         true ->
           {:ok, _object} =
-            repo.update(
-              Ecto.Changeset.change(object,
-                type: term,
-                slug: new_slug,
-                updated_at: DateTime.utc_now(:microsecond)
-              )
-            )
+            Ankole.Ash.update(object, :retype, %{type: term, slug: new_slug})
 
           {:ok, _alias} =
-            repo.insert(%SlugAlias{
+            Ankole.Ash.create(SlugAlias, :add, %{
               id: UUIDv7.autogenerate(),
               alias_slug: object.slug,
               canonical_slug: new_slug,
@@ -183,11 +179,9 @@ defmodule Ankole.Brain.Promotion do
     end)
   end
 
-  defp retype_only(repo, object, term) do
+  defp retype_only(_repo, object, term) do
     {:ok, _object} =
-      repo.update(
-        Ecto.Changeset.change(object, type: term, updated_at: DateTime.utc_now(:microsecond))
-      )
+      Ankole.Ash.update(object, :retype, %{type: term})
 
     true
   end
@@ -198,46 +192,15 @@ defmodule Ankole.Brain.Promotion do
 
   defp pluralized_prefix(term), do: term <> "s/"
 
-  # Promotions register under one synthetic pack record so the type table's
-  # pack ownership stays total.
-  defp ensure_promoted_pack(repo) do
-    case repo.get_by(Ankole.Brain.Schemas.SchemaPack, name: @promoted_pack) do
-      %Ankole.Brain.Schemas.SchemaPack{name: name} ->
-        name
-
-      nil ->
-        repo.insert!(%Ankole.Brain.Schemas.SchemaPack{
-          id: UUIDv7.autogenerate(),
-          name: @promoted_pack,
-          version: "0",
-          content_hash: "promoted",
-          manifest: %{"name" => @promoted_pack, "promoted" => true},
-          installed_at: DateTime.utc_now(:microsecond)
-        })
-
-        @promoted_pack
-    end
-  end
-
   defp fetch_pending(repo, suggestion_id) do
     SchemaSuggestion
     |> where([suggestion], suggestion.id == ^suggestion_id)
     |> lock("FOR UPDATE")
     |> repo.one()
     |> case do
-      %SchemaSuggestion{status: "pending"} = suggestion -> {:ok, suggestion}
+      %SchemaSuggestion{status: :pending} = suggestion -> {:ok, suggestion}
       %SchemaSuggestion{} -> {:error, :suggestion_not_pending}
       nil -> {:error, :not_found}
     end
-  end
-
-  defp decide(repo, suggestion, status, decided_by) do
-    suggestion
-    |> Ecto.Changeset.change(
-      status: status,
-      decided_by: decided_by,
-      decided_at: DateTime.utc_now(:microsecond)
-    )
-    |> repo.update()
   end
 end

@@ -2,8 +2,7 @@ defmodule Ankole.SubtractionUpgradeTest do
   use Ankole.DataCase, async: false
 
   alias Ecto.Adapters.SQL
-  alias Ankole.Pod.{DbRecord, DbTable, Page}
-  alias Ankole.Principals.Principal
+  alias Ankole.Pod.DbRecord
 
   defmodule UpgradeRepo do
     use Ecto.Repo, otp_app: :ankole, adapter: Ecto.Adapters.Postgres
@@ -24,43 +23,65 @@ defmodule Ankole.SubtractionUpgradeTest do
     now = DateTime.utc_now(:microsecond)
     author = Ankole.ActorRef.from_writer(uid, @tenant, [])
 
-    %Principal{tenant_id: @tenant}
-    |> Principal.changeset(%{uid: uid, type: :agent, display_name: "Upgrade Agent"})
-    |> UpgradeRepo.insert!()
+    SQL.query!(
+      UpgradeRepo,
+      """
+      INSERT INTO principals
+        (uid, tenant_id, type, status, display_name, access_version, inserted_at, updated_at)
+      VALUES ($1, $2, 'agent', 'active', 'Upgrade Agent', 1, $3, $3)
+      """,
+      [uid, Ecto.UUID.dump!(@tenant), now]
+    )
 
-    page =
-      UpgradeRepo.insert!(%Page{
-        id: Ankole.Ecto.UUIDv7.autogenerate(),
-        tenant_id: @tenant,
-        type: :database,
-        title: "Imported data",
-        position: "a",
-        created_by: author,
-        created_at: now,
-        updated_at: now
-      })
+    page = %{id: Ankole.Ecto.UUIDv7.autogenerate()}
 
-    table =
-      UpgradeRepo.insert!(%DbTable{
-        id: Ankole.Ecto.UUIDv7.autogenerate(),
-        tenant_id: @tenant,
-        page_id: page.id,
-        name: "Issues",
-        position: "a"
-      })
+    {1, nil} =
+      UpgradeRepo.insert_all("pages", [
+        %{
+          id: Ecto.UUID.dump!(page.id),
+          tenant_id: Ecto.UUID.dump!(@tenant),
+          type: "database",
+          title: "Imported data",
+          position: "a",
+          created_by: to_string(author),
+          created_at: now,
+          updated_at: now
+        }
+      ])
 
-    record =
-      UpgradeRepo.insert!(%DbRecord{
-        id: Ankole.Ecto.UUIDv7.autogenerate(),
-        tenant_id: @tenant,
-        table_id: table.id,
-        data: %{"title" => "Retained"},
-        versions: %{"title" => 3},
-        created_by: author,
-        updated_by: author,
-        created_at: now,
-        updated_at: now
-      })
+    table = %{id: Ankole.Ecto.UUIDv7.autogenerate()}
+
+    {1, nil} =
+      UpgradeRepo.insert_all("db_tables", [
+        %{
+          id: Ecto.UUID.dump!(table.id),
+          tenant_id: Ecto.UUID.dump!(@tenant),
+          page_id: Ecto.UUID.dump!(page.id),
+          name: "Issues",
+          position: "a"
+        }
+      ])
+
+    record = %{
+      id: Ankole.Ecto.UUIDv7.autogenerate(),
+      data: %{"title" => "Retained"},
+      versions: %{"title" => 3}
+    }
+
+    {1, nil} =
+      UpgradeRepo.insert_all("db_records", [
+        %{
+          id: Ecto.UUID.dump!(record.id),
+          tenant_id: Ecto.UUID.dump!(@tenant),
+          table_id: Ecto.UUID.dump!(table.id),
+          data: record.data,
+          versions: record.versions,
+          created_by: to_string(author),
+          updated_by: to_string(author),
+          created_at: now,
+          updated_at: now
+        }
+      ])
 
     SQL.query!(UpgradeRepo, """
     UPDATE db_records SET external_id = 'issue-1'
@@ -99,8 +120,7 @@ defmodule Ankole.SubtractionUpgradeTest do
   end
 
   test "Brain upgrade keeps timeline progress and tag content baselines" do
-    start_upgrade_repo!()
-    allow_cache_database_access()
+    pid = start_upgrade_repo!()
     Ecto.Migrator.run(UpgradeRepo, @migrations, :up, to: @brain_split - 1, log: false)
 
     created_at = ~N[2026-10-18 10:00:00.000000]
@@ -182,28 +202,35 @@ defmodule Ankole.SubtractionUpgradeTest do
              [version_id]
            ).rows == [["Historical body", %{"historical" => true}, []]]
 
-    Repo.with_tenant(@tenant, fn ->
-      # A no-content-change save computes the runtime baseline from the real
-      # stored tags. It must agree with the frozen migration encoding.
-      assert {:ok, object} =
-               Ankole.Brain.Objects.update_object(
-                 "notes/tagged-upgrade",
-                 %{expected_content_hash: tagged_hash},
-                 :system,
-                 repo: UpgradeRepo
-               )
+    previous = Repo.get_dynamic_repo()
 
-      assert object.content_hash == tagged_hash
+    try do
+      Repo.put_dynamic_repo(pid)
 
-      assert SQL.query!(
-               UpgradeRepo,
-               """
-               SELECT tags FROM brain_object_versions
-               WHERE object_id = $1::text::uuid AND id <> $2::text::uuid
-               """,
-               [tagged_id, version_id]
-             ).rows == [[["AI", "研究"]]]
-    end)
+      Repo.with_tenant(@tenant, fn ->
+        # A no-content-change save computes the runtime baseline from the real
+        # stored tags. It must agree with the frozen migration encoding.
+        assert {:ok, object} =
+                 Ankole.Brain.Objects.update_object(
+                   "notes/tagged-upgrade",
+                   %{expected_content_hash: tagged_hash},
+                   :system
+                 )
+
+        assert object.content_hash == tagged_hash
+
+        assert SQL.query!(
+                 UpgradeRepo,
+                 """
+                 SELECT tags FROM brain_object_versions
+                 WHERE object_id = $1::text::uuid AND id <> $2::text::uuid
+                 """,
+                 [tagged_id, version_id]
+               ).rows == [[["AI", "研究"]]]
+      end)
+    after
+      Repo.put_dynamic_repo(previous)
+    end
 
     assert Ecto.Migrator.run(UpgradeRepo, @migrations, :up, to: @brain_tags, log: false) == []
   end
@@ -231,5 +258,7 @@ defmodule Ankole.SubtractionUpgradeTest do
       if Process.alive?(pid), do: Supervisor.stop(pid)
       assert :ok = Ecto.Adapters.Postgres.storage_down(config)
     end)
+
+    pid
   end
 end

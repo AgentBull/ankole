@@ -83,7 +83,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     if ReplyPresentation.terminal_state?(presentation) do
       presentation
     else
-      ReplyPresentation.terminal(presentation, "completed", presentation["answer"])
+      ReplyPresentation.terminal(
+        presentation,
+        presentation["state"],
+        presentation["answer"]
+      )
     end
   end
 

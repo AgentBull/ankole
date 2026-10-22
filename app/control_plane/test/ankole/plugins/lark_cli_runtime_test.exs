@@ -636,12 +636,10 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     disabled_primary = Repo.get_by!(Binding, agent_uid: agent.uid, name: "lark-primary")
 
     assert {:ok, _unavailable} =
-             disabled_primary
-             |> Binding.changeset(%{
+             Ankole.SignalsFixtures.raw_binding_fixture(disabled_primary, %{
                enabled: true,
                unavailable_reason: "credentials revoked"
              })
-             |> Repo.update()
 
     assert {:ok, unavailable_route_env} =
              Ankole.SessionsCase.effective_worker_env(agent.uid, binding_name: "lark-primary")
@@ -721,9 +719,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
            )
 
     assert {:ok, _binding} =
-             binding
-             |> Binding.changeset(%{enabled: false})
-             |> Repo.update()
+             Ankole.SignalsFixtures.raw_binding_fixture(binding, %{enabled: false})
 
     assert {:ok, effective_env} = Ankole.SessionsCase.effective_worker_env(agent.uid)
     assert effective_env["LARKSUITE_CLI_APP_ID"] == "operator-override"
@@ -840,9 +836,24 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     |> where([row], row.scope == "global" and row.key == ^key)
     |> Repo.delete_all()
 
-    %SiteConfig{}
-    |> SiteConfig.changeset(%{scope: "global", key: key, value: envelope})
-    |> Repo.insert!()
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    {1, [row]} =
+      Repo.insert_all(
+        SiteConfig,
+        [
+          %{
+            scope: "global",
+            key: key,
+            value: envelope,
+            inserted_at: now,
+            updated_at: now
+          }
+        ],
+        returning: true
+      )
+
+    row
   end
 
   defp insert_legacy_agent!(uid) do

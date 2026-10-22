@@ -205,7 +205,10 @@ defmodule Ankole.Sessions.Presentation do
   def stop(run), do: Preview.stop(run.event)
 
   @impl true
-  def execute_in_tx(_repo, run, %{"name" => "reply_attachment"}, args) do
+  def prepare_in_tx(repo, run, call, args),
+    do: {:ok, [], fn -> commit_tool_in_tx(repo, run, call, args) end}
+
+  defp commit_tool_in_tx(_repo, run, %{"name" => "reply_attachment"}, args) do
     with {:ok, file} <- Ankole.Files.fetch(run.agent_uid, args["drive_path"]),
          :ok <- Ankole.Files.verify_delivery(file.path, run.event.conversation_id),
          digest = Base.encode16(file.sha256, case: :lower),

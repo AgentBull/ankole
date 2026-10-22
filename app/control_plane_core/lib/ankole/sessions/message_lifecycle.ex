@@ -14,8 +14,7 @@ defmodule Ankole.Sessions.MessageLifecycle do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      with :ok <- Queue.lock_session_in_tx(repo, input.agent_uid, input.session_id),
-           %Signal{} = input <- Ankole.Signals.lock_signal_in_tx(repo, input.id),
+      with %Signal{} = input <- repo.get(Signal, input.id),
            {:ok, cancelled_checkbacks} <-
              Schedule.cancel_checkbacks_for_provider_entry_in_tx(
                repo,
@@ -27,6 +26,8 @@ defmodule Ankole.Sessions.MessageLifecycle do
                },
                now
              ),
+           :ok <- Queue.lock_session_in_tx(repo, input.agent_uid, input.session_id),
+           %Signal{} = input <- Ankole.Signals.lock_signal_in_tx(repo, input.id),
            {:ok, superseded_interactions} <-
              Interactions.supersede_removed_source_in_tx(repo, input, now) do
         ignore_lifecycle_event(

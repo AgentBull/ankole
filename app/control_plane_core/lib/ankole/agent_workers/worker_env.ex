@@ -7,7 +7,7 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
   Secret values are decrypted only for execution or an authorized reveal.
   """
 
-  import Ecto.Query
+  require Ash.Query
 
   alias Ankole.Principals
   alias Ankole.Repo
@@ -37,8 +37,8 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
   end
 
   @doc "Builds the non-secret WorkerEnv part of a BackgroundAgentJob runtime projection."
-  def runtime_projection(agent_uid, opts \\ []) do
-    with {:ok, items} <- console_list_for_agent(agent_uid, opts) do
+  def runtime_projection(agent_uid) do
+    with {:ok, items} <- console_list_for_agent(agent_uid) do
       present = Enum.filter(items, & &1.present)
 
       {:ok,
@@ -51,7 +51,7 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
 
   def console_list_global, do: {:ok, list_rows(rows_by_name(@global_scope))}
 
-  def console_list_for_agent(agent_uid, _opts \\ []) do
+  def console_list_for_agent(agent_uid) do
     with {:ok, scope} <- agent_scope(agent_uid),
          :ok <- ensure_agent(agent_uid) do
       rows =
@@ -65,14 +65,14 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
 
   def console_put_global(name, attrs) when is_map(attrs) do
     with :ok <- validate_name(name),
-         do: upsert_custom(@global_scope, name, attrs, custom_row(@global_scope, name))
+         do: upsert_custom(@global_scope, name, attrs)
   end
 
   def console_put_for_agent(agent_uid, name, attrs) when is_map(attrs) do
     with {:ok, scope} <- agent_scope(agent_uid),
          :ok <- ensure_agent(agent_uid),
          :ok <- validate_name(name),
-         do: upsert_custom(scope, name, attrs, effective_row(scope, name))
+         do: upsert_custom(scope, name, attrs)
   end
 
   def console_delete_global(name) do
@@ -176,124 +176,37 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
 
   defp custom_rows(scope) do
     schema_for_scope(scope)
-    |> where([row], row.scope == ^scope)
-    |> Repo.all()
+    |> Ash.Query.filter(scope == ^scope)
+    |> Ankole.Ash.read!()
   end
 
   defp rows_by_name(scope), do: scope |> custom_rows() |> Map.new(&{&1.name, &1})
 
   defp custom_row(scope, name) do
     schema_for_scope(scope)
-    |> where([row], row.scope == ^scope and row.name == ^name)
-    |> Repo.one()
+    |> Ash.Query.filter(scope == ^scope and name == ^name)
+    |> Ankole.Ash.read_one!()
   end
 
-  defp row_value(%{secret: false, value: value}), do: {:ok, value}
+  @doc false
+  def row_value(%{secret: false, value: value}), do: {:ok, value}
 
-  defp row_value(%{secret: true} = row),
+  def row_value(%{secret: true} = row),
     do: Ankole.SecretKeyBase.unseal(row.value, "worker_env", [row.scope, row.name])
 
-  defp upsert_custom(scope, name, attrs, existing) do
-    with {:ok, secret} <- custom_secret(attrs, existing),
-         {:ok, description} <- custom_description(attrs, existing),
-         {:ok, stored_value} <- custom_stored_value(attrs, existing, secret, scope, name),
-         {:ok, row} <- upsert_row(scope, name, secret, stored_value, description) do
+  defp upsert_custom(scope, name, attrs) do
+    with {:ok, row} <-
+           Ankole.Ash.create(schema_for_scope(scope), :put, %{
+             scope: scope,
+             name: name,
+             input: attrs
+           }) do
       {:ok, custom_item(row, custom_source(row))}
     end
   end
 
-  defp custom_stored_value(attrs, existing, secret, scope, name) do
-    case Map.fetch(attrs, "value") do
-      {:ok, value} when is_binary(value) -> stored_value(value, secret, scope, name)
-      {:ok, _value} -> {:error, :invalid_worker_env_value}
-      :error -> preserve_custom_stored_value(existing, secret, scope, name)
-    end
-  end
-
-  defp preserve_custom_stored_value(nil, _secret, _scope, _name),
-    do: {:error, :invalid_worker_env_value}
-
-  defp preserve_custom_stored_value(
-         %{secret: secret, value: value, scope: scope, name: name},
-         secret,
-         scope,
-         name
-       ),
-       do: {:ok, value}
-
-  defp preserve_custom_stored_value(%{scope: _} = existing, secret, scope, name) do
-    with {:ok, value} <- row_value(existing) do
-      stored_value(value, secret, scope, name)
-    end
-  end
-
-  # Flipping secret on an existing row re-seals or re-exposes on this write;
-  # an absent flag keeps the stored state instead of silently decrypting.
-  defp custom_secret(attrs, existing) do
-    case Map.fetch(attrs, "secret") do
-      {:ok, secret} when is_boolean(secret) -> {:ok, secret}
-      {:ok, _secret} -> {:error, :invalid_worker_env_secret}
-      :error -> {:ok, if(existing, do: existing.secret, else: false)}
-    end
-  end
-
-  defp custom_description(attrs, existing) do
-    case Map.fetch(attrs, "description") do
-      {:ok, nil} -> {:ok, nil}
-      {:ok, description} when is_binary(description) -> {:ok, description}
-      {:ok, _description} -> {:error, :invalid_worker_env_description}
-      :error -> {:ok, if(existing, do: existing.description, else: nil)}
-    end
-  end
-
-  defp stored_value(value, false, _scope, _name), do: {:ok, value}
-
-  defp stored_value(value, true, scope, name),
-    do: Ankole.SecretKeyBase.seal(value, "worker_env", [scope, name])
-
-  defp upsert_row(scope, name, secret, stored_value, description) do
-    now = DateTime.utc_now(:second)
-
-    schema = schema_for_scope(scope)
-
-    row =
-      if scope == @global_scope,
-        do: struct!(schema),
-        else: struct!(schema, tenant_id: Repo.tenant_id!())
-
-    changeset =
-      schema.changeset(
-        row,
-        %{
-          scope: scope,
-          name: name,
-          secret: secret,
-          value: stored_value,
-          description: description,
-          inserted_at: now,
-          updated_at: now
-        }
-      )
-
-    case Repo.insert(changeset,
-           on_conflict: [
-             set: [secret: secret, value: stored_value, description: description, updated_at: now]
-           ],
-           conflict_target:
-             if(scope == @global_scope, do: [:scope, :name], else: [:tenant_id, :scope, :name]),
-           returning: true
-         ) do
-      {:ok, row} -> {:ok, row}
-      {:error, changeset} -> {:error, changeset}
-    end
-  end
-
-  defp delete_row(%{scope: _} = row) do
-    schema_for_scope(row.scope)
-    |> where([r], r.scope == ^row.scope and r.name == ^row.name)
-    |> Repo.delete_all()
-
-    :ok
+  defp delete_row(row) do
+    with {:ok, _row} <- Ankole.Ash.destroy(row, :remove), do: :ok
   end
 
   defp decrypt_row(%{secret: false}), do: {:error, :not_encrypted}
@@ -330,7 +243,9 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
   defp deleted_detail(nil, name), do: {:ok, deleted_item(name)}
   defp deleted_detail(row, _name), do: detail(row)
 
-  defp effective_row(scope, name), do: custom_row(scope, name) || tenant_row(name)
+  @doc false
+  def effective_row(@global_scope, name), do: custom_row(@global_scope, name)
+  def effective_row(scope, name), do: custom_row(scope, name) || tenant_row(name)
   defp tenant_row(name), do: custom_row(tenant_scope(), name) || custom_row(@global_scope, name)
 
   defp deleted_item(name) do
@@ -345,8 +260,13 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
 
   @doc false
   def delete_agent_rows_in_tx(repo, uid) do
-    repo.delete_all(from row in EnvVar, where: row.scope == ^("agent:" <> uid))
-    :ok
+    EnvVar
+    |> Ash.Query.filter(scope == ^("agent:" <> uid))
+    |> Ankole.Ash.bulk_destroy(:remove, %{}, strategy: [:atomic], return_errors?: true)
+    |> case do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: errors} -> repo.rollback(errors)
+    end
   end
 
   def console_list_tenant do
@@ -355,13 +275,15 @@ defmodule Ankole.AgentWorkers.WorkerEnv do
 
   def console_put_tenant(name, attrs) when is_map(attrs) do
     with :ok <- validate_name(name),
-         do: upsert_custom(tenant_scope(), name, attrs, tenant_row(name))
+         do: upsert_custom(tenant_scope(), name, attrs)
   end
 
   def console_delete_tenant(name) do
     with :ok <- validate_name(name) do
-      if row = custom_row(tenant_scope(), name), do: delete_row(row)
-      deleted_detail(tenant_row(name), name)
+      case custom_row(tenant_scope(), name) do
+        nil -> deleted_detail(tenant_row(name), name)
+        row -> with :ok <- delete_row(row), do: deleted_detail(tenant_row(name), name)
+      end
     end
   end
 

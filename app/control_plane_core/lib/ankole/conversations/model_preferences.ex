@@ -57,13 +57,13 @@ defmodule Ankole.Conversations.ModelPreferences do
   # Retrying the original create must not reset a later, explicitly saved preference.
   def initialize(_repo, conversation, _agent_uid, _profile), do: {:ok, conversation}
 
-  def put(repo, conversation, profile) do
+  def put(_repo, conversation, profile) do
     metadata =
       if is_nil(profile),
         do: Map.delete(conversation.metadata, "model_profile"),
         else: Map.put(conversation.metadata, "model_profile", profile)
 
-    conversation |> Conversation.changeset(%{metadata: metadata}) |> repo.update()
+    Ankole.Ash.update(conversation, :put_metadata, %{metadata: metadata})
   end
 
   def authorize_input(_repo, _conversation, _agent_uid, _mode, false), do: :ok

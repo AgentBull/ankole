@@ -122,7 +122,7 @@ defmodule Ankole.Plugins.Registry do
     with {:ok, state} <- snapshot(opts),
          active_specs <- sorted_active_specs(state),
          :ok <- register_plugin_config(active_specs) do
-      maybe_refresh_ai_gateway_provider_cache(opts, active_specs)
+      maybe_refresh_provider_caches(opts, state, active_specs)
       {:ok, state}
     else
       {:error, reason} ->
@@ -272,6 +272,9 @@ defmodule Ankole.Plugins.Registry do
         "ai_gateway.provider" ->
           Ankole.AIGateway.Providers.validate_adapter_declaration(declaration)
 
+        "agent_workers.provider_kind" ->
+          Ankole.AgentWorkers.ProviderKind.validate_adapter_declaration(declaration)
+
         _other_contract ->
           :ok
       end
@@ -312,12 +315,17 @@ defmodule Ankole.Plugins.Registry do
     end
   end
 
-  defp maybe_refresh_ai_gateway_provider_cache(opts, active_specs) do
+  defp maybe_refresh_provider_caches(opts, state, active_specs) do
     case Keyword.get(opts, :name, __MODULE__) do
       __MODULE__ ->
         active_specs
         |> Enum.flat_map(& &1.adapter_declarations)
         |> Ankole.AIGateway.Providers.refresh_from_adapter_declarations()
+
+        Ankole.AgentWorkers.ProviderKind.refresh_from_specs(
+          Map.values(state.discovered),
+          active_specs
+        )
 
         :ok
 

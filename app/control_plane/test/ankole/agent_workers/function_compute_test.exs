@@ -3,12 +3,12 @@ defmodule Ankole.AgentWorkers.FunctionComputeTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AgentWorkers.Config
-  alias Ankole.AgentWorkers.FunctionCompute
+  alias Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute
   alias Ankole.AgentWorkers.Providers
   alias Ankole.AgentWorkers.ProviderKind
 
-  alias Ankole.AgentWorkers.FunctionCompute.Images
-  alias Ankole.AgentWorkers.FunctionCompute.Signature
+  alias Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute.Images
+  alias Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute.Signature
   alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.AgentWorkers.WorkerBootstrap
 
@@ -19,6 +19,7 @@ defmodule Ankole.AgentWorkers.FunctionComputeTest do
   @uid "agent-fc"
 
   setup do
+    {:ok, _} = Ankole.Plugins.put_configured_enabled("china-market-ai-providers", true)
     {:ok, runtime} = Config.fetch()
     previous = Application.get_env(:ankole, :function_compute_req_options)
     Application.put_env(:ankole, :function_compute_req_options, plug: {Req.Test, __MODULE__})
@@ -201,7 +202,7 @@ defmodule Ankole.AgentWorkers.FunctionComputeTest do
 
     Repo.update_all(from(w in AgentWorker, where: w.agent_uid == ^uid),
       set: [
-        state: "starting",
+        state: :starting,
         generation: "gen0000001",
         instance_ref: "sandbox-selected",
         token_digest: <<1>>,
@@ -671,7 +672,10 @@ defmodule Ankole.AgentWorkers.FunctionComputeTest do
   } do
     alias Ankole.AgentWorkers.Providers.Configuration
     schema = FunctionCompute.definition().schema
-    yaml = String.replace(provider.config, "    fileCountLimit: 100000\n", "")
+
+    yaml =
+      String.replace(FunctionCompute.definition().example, "    fileCountLimit: 100000\n", "")
+
     assert {:error, {:invalid_worker_provider_config, errors}} = Configuration.parse(schema, yaml)
     assert Enum.any?(errors, &(&1.path == "storage.agenticFs.fileCountLimit"))
     updated = put_in(provider.settings["vpc"]["vpcId"], "vpc-replacement")

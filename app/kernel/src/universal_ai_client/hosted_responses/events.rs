@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 
-pub(super) fn terminal_stream_events(sequence: &mut u64, response: &Value) -> Vec<Value> {
-    let response = strip_internal_output_fields(response.clone());
+pub(super) fn terminal_stream_events(sequence: &mut u64, response: Value) -> Vec<Value> {
+    let response = strip_internal_output_fields(response);
     let terminal_event = match response.get("status").and_then(Value::as_str) {
         Some("incomplete") => "response.incomplete",
         Some("failed") => "response.failed",

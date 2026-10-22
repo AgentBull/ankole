@@ -14,7 +14,6 @@ defmodule AnkoleWeb.AuthControllerTest do
 
   setup %{tenant: tenant} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
@@ -52,9 +51,8 @@ defmodule AnkoleWeb.AuthControllerTest do
 
     conn =
       conn
-      |> Map.merge(%{host: "ankole.example.com", port: 80})
+      |> forwarded_https_conn()
       |> init_test_session(%{})
-      |> put_req_header("x-forwarded-proto", "https")
       |> start_console_login(%{"return_to" => "/site-admin-console/agents"})
       |> then(fn conn ->
         get(conn, "/sessions/oidc/lark-main/authorization", %{"flow" => conn.private.login_flow})
@@ -68,7 +66,7 @@ defmodule AnkoleWeb.AuthControllerTest do
     assert query["state"] == oidc_state.upstream_state
 
     assert query["redirect_uri"] ==
-             "https://ankole.example.com/sessions/oidc/lark-main/callback"
+             "https://#{conn.host}/sessions/oidc/lark-main/callback"
 
     assert oidc_state.request["return_to"] == "/site-admin-console/agents"
   end
@@ -239,7 +237,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       assert %{"status" => "ok", "returnTo" => "/"} =
                AnkoleWeb.InternalAPIContract.json_response(conn, 200)
 
-      conn = get(conn, ~p"/.internal-apis/session")
+      conn = get(recycle(conn), ~p"/.internal-apis/session")
 
       assert %{"authenticated" => true, "providerID" => "local-main"} =
                AnkoleWeb.InternalAPIContract.json_response(conn, 200)
@@ -362,7 +360,7 @@ defmodule AnkoleWeb.AuthControllerTest do
       assert %{"returnTo" => "/site-admin-console/agents"} =
                AnkoleWeb.InternalAPIContract.json_response(conn, 200)
 
-      conn = get(conn, ~p"/.internal-apis/session")
+      conn = get(recycle(conn), ~p"/.internal-apis/session")
       assert %{"authenticated" => true} = AnkoleWeb.InternalAPIContract.json_response(conn, 200)
 
       :ok = WebSession.put_privileged_tenant()
@@ -579,7 +577,7 @@ defmodule AnkoleWeb.AuthControllerTest do
   defp post_change(conn, params) do
     post(
       conn,
-      "/.internal-apis/sessions/local-password/change",
+      AnkoleWeb.Plugs.RequestHost.origin(conn) <> "/.internal-apis/sessions/local-password/change",
       Map.put(params, "flow", conn.private[:login_flow])
     )
     |> Plug.Conn.put_private(:login_flow, conn.private[:login_flow])

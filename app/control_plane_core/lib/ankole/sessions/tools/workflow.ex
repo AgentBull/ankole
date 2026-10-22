@@ -252,9 +252,7 @@ defmodule Ankole.Sessions.Tools.Workflow do
   def normalize("sleep", args), do: Map.put_new(args, "attention", false)
   def normalize(_name, args), do: args
 
-  alias Ankole.Sessions.Run
   alias Ankole.Sessions.Tools
-  alias Ankole.Conversations.Route
   alias Ankole.Workflow
 
   @impl true
@@ -271,7 +269,7 @@ defmodule Ankole.Sessions.Tools.Workflow do
       job = value.run
 
       if Map.has_key?(args, "result_offset") do
-        if job.status != "completed" do
+        if job.status != :completed do
           {:error,
            "Workflow #{job.id} has status #{job.status}; only completed Workflows have result output"}
         else
@@ -283,7 +281,7 @@ defmodule Ankole.Sessions.Tools.Workflow do
               %{
                 "run_id" => job.id,
                 "title" => job.title,
-                "status" => job.status,
+                "status" => Atom.to_string(job.status),
                 "result" => %{
                   "offset" => args["result_offset"],
                   "output_text" => text,
@@ -298,7 +296,7 @@ defmodule Ankole.Sessions.Tools.Workflow do
          Tools.result(%{
            "run_id" => job.id,
            "title" => job.title,
-           "status" => job.status,
+           "status" => Atom.to_string(job.status),
            "counts" => Ankole.JSON.plain(value.counts),
            "live_tasks" => Ankole.JSON.plain(value.live_tasks),
            "failure_summaries" => Ankole.JSON.plain(value.failure_summaries),
@@ -314,93 +312,60 @@ defmodule Ankole.Sessions.Tools.Workflow do
            Workflow.list(run.agent_uid, status: args["status"] || "live", cursor: cursor) do
       {:ok,
        Tools.result(
-         %{
-           "runs" =>
-             Enum.map(value.runs, &Map.update!(&1, "run_id", fn id -> String.to_integer(id) end))
-         },
+         %{"runs" => value.runs},
          cursor: {"Workflow", value.next_cursor}
        )}
     end
   end
 
   @impl true
-  def execute_in_tx(_repo, run, %{"name" => "workflow"} = call, args) do
-    attrs =
-      args
-      |> Map.take(~w(title script args concurrency max_agent_calls model_profile))
-      |> Map.put("title", String.trim(args["title"]))
-      |> Map.merge(%{
-        "agent_uid" => run.agent_uid,
-        "owner_session_id" => run.session_id,
-        "source_signal_id" => run.signal_id,
-        "source_tool_call_id" => Run.tool_identity(run, call),
-        "reply_route" => Route.snapshot(run)
-      })
-
-    with {:ok, value} <- Workflow.create_with_dispatch(attrs),
-         do: {:ok, Tools.result(%{"run_id" => value.run.id, "status" => value.run.status}), []}
-  end
-
-  def execute_in_tx(_repo, run, %{"name" => "send_message_to_workflow_task"} = call, args) do
-    with {:ok, value} <-
-           Workflow.send_task_message(
-             args["run_id"],
-             args["call_seq"],
-             run.agent_uid,
-             args["message"],
-             Run.tool_identity(run, call)
-           ) do
-      {:ok,
-       Tools.result(%{
-         "run_id" => value.run.id,
-         "call_seq" => value.call.call_seq,
-         "task_status" => value.call.status
-       }), []}
+  def prepare_in_tx(repo, run, call, args) do
+    with {:ok, sessions, commit} <-
+           Ankole.Workflow.ToolAdmission.prepare_in_tx(repo, run, call, args) do
+      {:ok, sessions,
+       fn ->
+         with {:ok, value} <- commit.(), do: prepared_result(call["name"], value)
+       end}
     end
   end
 
-  def execute_in_tx(repo, run, %{"name" => "cancel_workflow"}, args) do
-    with {:ok, value} <- Workflow.cancel_in_tx(repo, args["run_id"], run.agent_uid) do
-      {:ok, Tools.result(%{"run_id" => value.run.id, "status" => value.run.status}),
-       [fn -> Workflow.cleanup_terminal_transition({:ok, value}) end]}
-    end
+  defp prepared_result(name, value) when name in ["workflow", "cancel_workflow"] do
+    actions =
+      if name == "cancel_workflow",
+        do: [fn -> Workflow.cleanup_terminal_transition({:ok, value}) end],
+        else: []
+
+    {:ok, Tools.result(%{"run_id" => value.run.id, "status" => Atom.to_string(value.run.status)}),
+     actions}
   end
 
-  def execute_in_tx(repo, run, %{"name" => "submit_result"}, args) do
-    with {:ok, value} <-
-           Workflow.submit_result_in_tx(
-             repo,
-             run.spec.request_context["call_id"],
-             run.agent_uid,
-             run.session_id,
-             %{"ok" => true, "value" => args["result"]}
-           ) do
-      {:ok,
-       Tools.result(%{"accepted" => value.accepted, "task_status" => value.call.status},
-         terminate: true,
-         outcome: :submitted
-       ), [fn -> Workflow.cleanup_terminal_transition({:ok, value}) end]}
-    end
+  defp prepared_result("send_message_to_workflow_task", value) do
+    {:ok,
+     Tools.result(%{
+       "run_id" => value.run.id,
+       "call_seq" => value.call.call_seq,
+       "task_status" => Atom.to_string(value.call.status)
+     }), []}
   end
 
-  def execute_in_tx(repo, run, %{"name" => "sleep"}, args) do
-    with {:ok, value} <-
-           Workflow.sleep_task_in_tx(
-             repo,
-             run.spec.request_context["call_id"],
-             run.agent_uid,
-             run.session_id,
-             %{
-               wake_after_ms: args["wake_after_ms"],
-               note: args["note"],
-               attention: args["attention"] == true
-             }
-           ) do
-      {:ok,
-       Tools.result(%{"task_status" => value.call.status, "wake_count" => value.call.wake_count},
-         terminate: true,
-         outcome: :sleeping
-       ), []}
-    end
+  defp prepared_result("submit_result", value) do
+    {:ok,
+     Tools.result(
+       %{"accepted" => value.accepted, "task_status" => Atom.to_string(value.call.status)},
+       terminate: true,
+       outcome: :submitted
+     ), [fn -> Workflow.cleanup_terminal_transition({:ok, value}) end]}
+  end
+
+  defp prepared_result("sleep", value) do
+    {:ok,
+     Tools.result(
+       %{
+         "task_status" => Atom.to_string(value.call.status),
+         "wake_count" => value.call.wake_count
+       },
+       terminate: true,
+       outcome: :sleeping
+     ), [fn -> Workflow.cleanup_terminal_transition({:ok, value}) end]}
   end
 end

@@ -1,64 +1,55 @@
 defmodule Ankole.Principals.LocalCredential do
-  @moduledoc """
-  Local email-and-password sign-in credential for one human user.
+  @moduledoc false
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals.Domain
 
-  The row stores an Argon2id hash in PHC string format. Only a human user can
-  hold a local credential; the table keys on `human_users.principal_uid`.
-  """
+  postgres do
+    table("human_user_local_credentials")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:principal_uid, "human_user_local_credentials_principal_uid_fkey"}])
+  end
 
-  use Ankole.Schema, tenancy: :tenant
+  attributes do
+    attribute(:principal_uid, Ankole.Ash.Types.PrincipalKey,
+      public?: true,
+      primary_key?: true,
+      allow_nil?: false
+    )
 
-  import Ecto.Changeset
+    attribute(:password_hash, :string, public?: true, allow_nil?: false, sensitive?: true)
+    attribute(:must_change_password, :boolean, public?: true, allow_nil?: false, default: false)
+    timestamps(type: :utc_datetime_usec)
+  end
 
-  alias Ankole.Principals.HumanUser
+  relationships do
+    belongs_to :human_user, Ankole.Principals.HumanUser do
+      source_attribute(:principal_uid)
+      destination_attribute(:principal_uid)
+      define_attribute?(false)
+    end
+  end
 
-  @primary_key false
-  @timestamps_opts [type: :utc_datetime_usec]
+  actions do
+    defaults([:read])
 
-  # A-Z without I and O, a-z without l, and 2-9. The set avoids characters
-  # that read alike when an operator sends the password to a user by hand.
-  @initial_password_alphabet ~c"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
-  @initial_password_length 16
+    create :create_in_tx do
+      accept([:principal_uid, :password_hash, :must_change_password])
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+    end
 
-  schema "human_user_local_credentials" do
-    belongs_to :human_user, HumanUser,
-      foreign_key: :principal_uid,
-      references: :principal_uid,
-      type: Ankole.Ecto.PrincipalKey,
-      primary_key: true
-
-    field :password_hash, :string
-    field :must_change_password, :boolean, default: false
-
-    timestamps()
+    in_tx_update :set_password_in_tx do
+      accept([:password_hash, :must_change_password])
+    end
   end
 
   @type t :: %__MODULE__{}
+  @initial_password_alphabet ~c"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+  @initial_password_length 16
 
-  @doc """
-  Builds a changeset for local credential rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(local_credential, attrs) do
-    local_credential
-    |> cast(attrs, [:principal_uid, :password_hash, :must_change_password])
-    |> validate_required([:principal_uid, :password_hash, :must_change_password])
-    |> foreign_key_constraint(:principal_uid)
-    |> unique_constraint(:principal_uid, name: :human_user_local_credentials_pkey)
-  end
+  def version(%{__struct__: __MODULE__, updated_at: %DateTime{} = updated_at}),
+    do: DateTime.to_unix(updated_at, :microsecond)
 
-  @doc """
-  Returns the version of one stored local credential.
-  """
-  @spec version(t()) :: non_neg_integer()
-  def version(%__MODULE__{updated_at: %DateTime{} = updated_at}) do
-    DateTime.to_unix(updated_at, :microsecond)
-  end
-
-  @doc """
-  Generates one random 16-character initial password.
-  """
-  @spec generate_initial_password() :: String.t()
   def generate_initial_password do
     alphabet_size = length(@initial_password_alphabet)
 

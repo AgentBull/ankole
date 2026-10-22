@@ -1,9 +1,6 @@
 defmodule Ankole.SessionRuntimeRenameIntegrationTest do
   use ExUnit.Case, async: false
 
-  alias Ankole.AIGateway.Schemas.Conversation
-  alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.Principals.Principal
   alias Ecto.Adapters.SQL
 
   defmodule UpgradeRepo do
@@ -40,18 +37,24 @@ defmodule Ankole.SessionRuntimeRenameIntegrationTest do
     Ecto.Migrator.run(UpgradeRepo, migrations, :up, to: 20_261_012_000_400, log: false)
 
     uid = Ankole.Kernel.gen_uuid_v7()
+    now = DateTime.utc_now(:microsecond)
 
-    UpgradeRepo.insert!(%Principal{
-      uid: uid,
-      tenant_id: @default_tenant,
-      type: :agent,
-      display_name: "Session rename Agent",
-      status: :active,
-      access_version: 1
-    })
+    {1, nil} =
+      UpgradeRepo.insert_all("principals", [
+        %{
+          uid: uid,
+          tenant_id: Ecto.UUID.dump!(@default_tenant),
+          type: "agent",
+          display_name: "Session rename Agent",
+          status: "active",
+          access_version: 1,
+          inserted_at: now,
+          updated_at: now
+        }
+      ])
 
     conversation =
-      UpgradeRepo.insert!(%Conversation{
+      insert_legacy("ai_gateway_conversations", %{
         tenant_id: @default_tenant,
         subject_uid: uid,
         conversation_key: "session-rename"
@@ -60,12 +63,12 @@ defmodule Ankole.SessionRuntimeRenameIntegrationTest do
     messages =
       for iteration <- 1..2 do
         message =
-          UpgradeRepo.insert!(%Message{
+          insert_legacy("ai_gateway_messages", %{
             tenant_id: @default_tenant,
             subject_uid: uid,
             conversation_id: conversation.id,
-            type: "message",
-            status: "complete",
+            type: :message,
+            status: :complete,
             content: [%{"type" => "output_text", "text" => "round #{iteration}"}]
           })
 
@@ -195,10 +198,25 @@ defmodule Ankole.SessionRuntimeRenameIntegrationTest do
       "session_tool_receipts_agent_uid_fkey"
     )
 
-    UpgradeRepo.delete!(hd(messages))
+    assert %{num_rows: 1} =
+             SQL.query!(
+               UpgradeRepo,
+               "DELETE FROM ai_gateway_messages WHERE tenant_id = $1 AND id = $2",
+               [
+                 Ecto.UUID.dump!(@default_tenant),
+                 Ecto.UUID.dump!(hd(messages).id)
+               ]
+             )
+
     assert length(table_rows("session_round_states")) == 1
     assert length(table_rows("session_tool_receipts")) == 2
-    UpgradeRepo.delete!(UpgradeRepo.get!(Principal, uid))
+
+    assert %{num_rows: 1} =
+             SQL.query!(UpgradeRepo, "DELETE FROM principals WHERE tenant_id = $1 AND uid = $2", [
+               Ecto.UUID.dump!(@default_tenant),
+               uid
+             ])
+
     assert table_rows("session_round_states") == []
     assert table_rows("session_tool_receipts") == []
     assert table_rows("oban_jobs") == migrated_jobs
@@ -241,5 +259,33 @@ defmodule Ankole.SessionRuntimeRenameIntegrationTest do
   defp assert_constraint(sql, code, name) do
     assert {:error, %Postgrex.Error{postgres: %{code: ^code, constraint: ^name}}} =
              SQL.query(UpgradeRepo, sql)
+  end
+
+  defp insert_legacy(table, attrs) do
+    now = DateTime.utc_now(:microsecond)
+
+    attrs =
+      Map.merge(
+        %{
+          id: Ankole.Ecto.UUIDv7.autogenerate(),
+          metadata: %{},
+          inserted_at: now,
+          updated_at: now
+        },
+        attrs
+      )
+
+    row =
+      Enum.reduce([:id, :tenant_id, :conversation_id], attrs, fn key, row ->
+        if Map.has_key?(row, key), do: Map.update!(row, key, &Ecto.UUID.dump!/1), else: row
+      end)
+
+    row =
+      Enum.reduce([:type, :status], row, fn key, row ->
+        if Map.has_key?(row, key), do: Map.update!(row, key, &Atom.to_string/1), else: row
+      end)
+
+    {1, nil} = UpgradeRepo.insert_all(table, [row])
+    attrs
   end
 end

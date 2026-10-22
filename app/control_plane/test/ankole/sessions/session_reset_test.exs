@@ -59,8 +59,21 @@ defmodule Ankole.Sessions.SessionResetTest do
     end
 
     test "daily reset never enumerates BackgroundAgentJob execution sessions" do
-      %{principal: agent} = agent_fixture()
-      session_id = Ankole.BackgroundAgentJobs.job_session_id(1000)
+      %{principal: agent} = Ankole.AIGatewayCase.background_agent_fixture()
+      source = Ankole.WorkFixtures.service_source(agent.uid)
+
+      assert {:ok, %{job: job}} =
+               Ankole.BackgroundAgentJobs.create_with_dispatch(%{
+                 "source_signal_id" => source.id,
+                 "agent_uid" => agent.uid,
+                 "owner_session_id" => source.session_id,
+                 "source_tool_call_id" => "daily-reset-exclusion",
+                 "title" => "Keep the Job session outside daily reset",
+                 "task" => "Complete the background work.",
+                 "reply_route" => %{"binding_name" => "control-plane:test"}
+               })
+
+      session_id = Ankole.BackgroundAgentJobs.job_session_id(job.id)
 
       assert {:ok, _workspace} = Ankole.SessionsCase.ensure_workspace(agent.uid, session_id)
 
@@ -437,8 +450,8 @@ defmodule Ankole.Sessions.SessionResetTest do
       refute Ankole.Sessions.Commands.injectable?(reset_event)
       assert Queue.next_ready_event(agent.uid, session_id).id == first_input.id
 
-      assert Repo.get!(Signal, reset_event.id).input_state == "open"
-      assert Repo.get!(Signal, later_input.id).input_state == "open"
+      assert Repo.get!(Signal, reset_event.id).status == :queued
+      assert Repo.get!(Signal, later_input.id).status == :queued
 
       assert {:ok, cron_run} =
                Admission.admit(execution_actor, cron_input,
@@ -492,7 +505,7 @@ defmodule Ankole.Sessions.SessionResetTest do
       assert next_conversation.id != closed_conversation.id
       assert Repo.get!(Conversation, first_conversation.id).ended_at
       assert Repo.get(Signal, reset_event.id)
-      assert Repo.get!(Signal, later_input.id).input_state == "open"
+      assert Repo.get!(Signal, later_input.id).status == :queued
 
       # The channel reset never touched the execution session's conversation.
       assert Repo.get!(Conversation, cron_conversation.id).ended_at == nil

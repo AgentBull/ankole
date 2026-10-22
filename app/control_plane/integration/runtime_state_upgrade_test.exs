@@ -10,7 +10,6 @@ defmodule Ankole.RuntimeStateUpgradeIntegrationTest do
   alias Ankole.AppConfigure.SiteConfig
   alias Ankole.AuthZ.Grant
   alias Ankole.Sessions.RoundState
-  alias Ankole.Principals.Principal
   alias Ankole.AgentWorkers.WorkerEnv.SiteEnvVar
 
   defmodule UpgradeRepo do
@@ -46,16 +45,20 @@ defmodule Ankole.RuntimeStateUpgradeIntegrationTest do
 
     uid = Ankole.Kernel.gen_uuid_v7()
 
-    UpgradeRepo.insert!(%Principal{
-      uid: uid,
-      tenant_id: @default_tenant,
-      type: :human,
-      status: :active,
-      access_version: 1
-    })
+    UpgradeRepo.insert_all("principals", [
+      %{
+        uid: uid,
+        tenant_id: Ecto.UUID.dump!(@default_tenant),
+        type: "human",
+        status: "active",
+        access_version: 1,
+        inserted_at: DateTime.utc_now(:microsecond),
+        updated_at: DateTime.utc_now(:microsecond)
+      }
+    ])
 
     conversation =
-      UpgradeRepo.insert!(%Conversation{
+      insert_legacy("ai_gateway_conversations", %{
         tenant_id: @default_tenant,
         subject_uid: uid,
         conversation_key: "upgrade"
@@ -69,12 +72,12 @@ defmodule Ankole.RuntimeStateUpgradeIntegrationTest do
       Map.update!(original, "content", &[%{"type" => "input_text", "text" => block} | &1])
 
     legacy =
-      UpgradeRepo.insert!(%Message{
+      insert_legacy("ai_gateway_messages", %{
         tenant_id: @default_tenant,
         subject_uid: uid,
         conversation_id: conversation.id,
-        type: "message",
-        status: "complete",
+        type: :message,
+        status: :complete,
         content: [message("Earlier caller input"), pack, injected],
         metadata: %{
           "request_item_count" => 3,
@@ -101,17 +104,21 @@ defmodule Ankole.RuntimeStateUpgradeIntegrationTest do
 
     agent_uid = Ankole.Kernel.gen_uuid_v7()
 
-    UpgradeRepo.insert!(%Principal{
-      uid: agent_uid,
-      tenant_id: @default_tenant,
-      type: :agent,
-      display_name: "Legacy Agent",
-      status: :active,
-      access_version: 1
-    })
+    UpgradeRepo.insert_all("principals", [
+      %{
+        uid: agent_uid,
+        tenant_id: Ecto.UUID.dump!(@default_tenant),
+        type: "agent",
+        display_name: "Legacy Agent",
+        status: "active",
+        access_version: 1,
+        inserted_at: DateTime.utc_now(:microsecond),
+        updated_at: DateTime.utc_now(:microsecond)
+      }
+    ])
 
     agent_conversation =
-      UpgradeRepo.insert!(%Conversation{
+      insert_legacy("ai_gateway_conversations", %{
         tenant_id: @default_tenant,
         subject_uid: agent_uid,
         conversation_key: "legacy-agent",
@@ -122,12 +129,12 @@ defmodule Ankole.RuntimeStateUpgradeIntegrationTest do
       })
 
     legacy_agent =
-      UpgradeRepo.insert!(%Message{
+      insert_legacy("ai_gateway_messages", %{
         tenant_id: @default_tenant,
         subject_uid: agent_uid,
         conversation_id: agent_conversation.id,
-        type: "message",
-        status: "complete",
+        type: :message,
+        status: :complete,
         content: [pack, original],
         metadata: %{"request_item_count" => 2}
       })
@@ -145,12 +152,16 @@ defmodule Ankole.RuntimeStateUpgradeIntegrationTest do
       }
     ])
 
-    UpgradeRepo.insert!(%AppConfig{
-      tenant_id: @default_tenant,
-      scope: "tenant:" <> @default_tenant,
-      key: "__test.upgrade",
-      value: %{"type" => "plaintext", "value" => "tenant value"}
-    })
+    UpgradeRepo.insert_all("app_configurations", [
+      %{
+        tenant_id: Ecto.UUID.dump!(@default_tenant),
+        scope: "tenant:" <> @default_tenant,
+        key: "__test.upgrade",
+        value: %{"type" => "plaintext", "value" => "tenant value"},
+        inserted_at: DateTime.utc_now(),
+        updated_at: DateTime.utc_now()
+      }
+    ])
 
     assert {:ok, env_cipher} =
              Ankole.SecretKeyBase.seal("shell secret", "worker_env", ["global", "UPGRADE_SECRET"])
@@ -167,12 +178,19 @@ defmodule Ankole.RuntimeStateUpgradeIntegrationTest do
     ])
 
     for resource <- ["agent_computer_workers:*", "agent_workers:*", "agentXcomputer_workers:*"] do
-      UpgradeRepo.insert!(%Grant{
-        tenant_id: @default_tenant,
-        principal_uid: uid,
-        resource_pattern: resource,
-        action: "read"
-      })
+      UpgradeRepo.insert_all("permission_grants", [
+        %{
+          id: Ecto.UUID.dump!(Ankole.Ecto.UUIDv7.autogenerate()),
+          tenant_id: Ecto.UUID.dump!(@default_tenant),
+          principal_uid: uid,
+          resource_pattern: resource,
+          action: "read",
+          condition: "true",
+          metadata: %{},
+          inserted_at: DateTime.utc_now(:microsecond),
+          updated_at: DateTime.utc_now(:microsecond)
+        }
+      ])
     end
 
     pending =
@@ -230,4 +248,32 @@ defmodule Ankole.RuntimeStateUpgradeIntegrationTest do
       "role" => "user",
       "content" => [%{"type" => "input_text", "text" => text}]
     }
+
+  defp insert_legacy(table, attrs) do
+    now = DateTime.utc_now(:microsecond)
+
+    attrs =
+      Map.merge(
+        %{
+          id: Ankole.Ecto.UUIDv7.autogenerate(),
+          metadata: %{},
+          inserted_at: now,
+          updated_at: now
+        },
+        attrs
+      )
+
+    row =
+      Enum.reduce([:id, :tenant_id, :conversation_id], attrs, fn key, row ->
+        if Map.has_key?(row, key), do: Map.update!(row, key, &Ecto.UUID.dump!/1), else: row
+      end)
+
+    row =
+      Enum.reduce([:type, :status], row, fn key, row ->
+        if Map.has_key?(row, key), do: Map.update!(row, key, &Atom.to_string/1), else: row
+      end)
+
+    {1, nil} = UpgradeRepo.insert_all(table, [row])
+    attrs
+  end
 end

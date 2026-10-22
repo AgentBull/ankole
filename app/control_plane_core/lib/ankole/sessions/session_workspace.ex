@@ -1,52 +1,81 @@
 defmodule Ankole.Sessions.SessionWorkspace do
   @moduledoc """
-  Stable Agent Home workspace identity for one Session.
+  Owns the typed Session identity and its stable Agent Home workspace.
 
-  The Session key remains `{agent_uid, session_id}`. The numeric primary key is
-  only the model-visible directory name under the Agent's `sessions` tree.
+  PostgreSQL derives the transport key from the typed owner. The numeric ID
+  remains the directory name under the Agent's `sessions` tree.
   """
 
-  use Ankole.Schema, tenancy: :tenant
-
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
-  import Ecto.Changeset
-
-  alias Ankole.Principals.Principal
-
-  @primary_key {:id, :id, autogenerate: true}
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Sessions.Domain
 
   @type t :: %__MODULE__{}
 
-  schema "sessions" do
-    belongs_to :agent, Principal,
-      foreign_key: :agent_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
+  postgres do
+    table("sessions")
+    repo(Ankole.Repo)
+    migrate?(false)
 
-    field :session_id, :string
-    field :conversation_id, Ankole.Ecto.UUIDv7
-    field :epoch, :integer, default: 0
+    foreign_key_names([
+      {:agent_uid, "sessions_agent_uid_fkey"},
+      {:conversation_id, "sessions_conversation_id_fkey"},
+      {:background_job_id, "sessions_background_job_owner_fkey"},
+      {:workflow_agent_call_id, "sessions_workflow_call_owner_fkey"},
+      {:cron_schedule_id, "sessions_cron_schedule_owner_fkey"}
+    ])
 
-    timestamps()
+    unique_index_names([{[:agent_uid, :session_id], "sessions_session_index"}])
+
+    check_constraints do
+      check_constraint(:id, "sessions_id_range")
+      check_constraint(:kind, "sessions_owner_check")
+      check_constraint(:session_id, "sessions_session_id_present")
+      check_constraint(:epoch, "sessions_epoch_non_negative")
+    end
   end
 
-  @doc """
-  Builds a changeset for a Session workspace.
-  """
-  @spec changeset(t(), map()) :: Ecto.Changeset.t()
-  def changeset(workspace, attrs) do
-    workspace
-    |> cast(attrs, [:agent_uid, :session_id, :conversation_id])
-    |> normalize_blank([:agent_uid, :session_id])
-    |> validate_required([:agent_uid, :session_id])
-    |> foreign_key_constraint(:agent_uid)
-    |> foreign_key_constraint(:conversation_id)
-    |> unique_constraint([:agent_uid, :session_id],
-      name: :sessions_session_index
+  attributes do
+    attribute(:id, :integer, primary_key?: true, generated?: true, allow_nil?: false)
+    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+    attribute(:session_id, :string, generated?: true, writable?: false, allow_nil?: false)
+
+    attribute(:kind, :atom,
+      constraints: [one_of: [:named, :conversation, :background_job, :workflow_task, :cron]],
+      allow_nil?: false
     )
-    |> check_constraint(:id, name: :sessions_id_range)
-    |> check_constraint(:session_id, name: :sessions_session_id_present)
+
+    attribute(:name, :string, constraints: [trim?: false])
+    attribute(:conversation_id, Ankole.Ash.Types.UUIDv7)
+    attribute(:background_job_id, :integer)
+    attribute(:workflow_agent_call_id, :integer)
+    attribute(:cron_schedule_id, Ankole.Ash.Types.UUIDv7)
+    attribute(:epoch, :integer, allow_nil?: false, default: 0, writable?: false)
+    timestamps(type: :utc_datetime_usec)
+  end
+
+  actions do
+    defaults([:read])
+
+    create :allocate do
+      primary?(true)
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+
+      accept([
+        :agent_uid,
+        :kind,
+        :name,
+        :conversation_id,
+        :background_job_id,
+        :workflow_agent_call_id,
+        :cron_schedule_id
+      ])
+    end
+
+    in_tx_update :advance_epoch do
+      accept([])
+      change(atomic_update(:epoch, expr(epoch + 1)))
+    end
   end
 end

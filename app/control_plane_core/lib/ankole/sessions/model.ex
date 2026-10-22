@@ -11,8 +11,8 @@ defmodule Ankole.Sessions.Model do
   @spec prepare(Run.t()) :: {:ok, {atom(), Run.t()}} | {:error, term()}
   def prepare(run) do
     with {:ok, context} <- Context.resolve(run.agent_uid, run.session_id),
-         {:ok, {state, run}} <- Run.type(run).prepare(%{run | context: context}) do
-      if state == :ambient_skip, do: {:ok, {state, run}}, else: prepare_main(run)
+         {:ok, {_state, run}} <- Run.type(run).prepare(%{run | context: context}) do
+      prepare_main(run)
     end
   end
 

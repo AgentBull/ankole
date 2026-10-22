@@ -1,6 +1,7 @@
 defmodule Ankole.Pod.Database do
   @moduledoc "Owns logical Database tables, schema changes, and record commits."
   import Ecto.Query
+  require Ash.Query
   alias Ankole.Repo
 
   alias Ankole.Pod.{
@@ -23,7 +24,10 @@ defmodule Ankole.Pod.Database do
            {:ok,
             %{
               tables:
-                Repo.all(from t in DbTable, where: t.page_id == ^page_id, order_by: t.position)
+                DbTable
+                |> Ash.Query.filter(page_id == ^page_id)
+                |> Ash.Query.sort(:position)
+                |> Ankole.Ash.read!()
             }},
          else: (
            {:ok, _} -> {:error, :invalid_page_type}
@@ -35,32 +39,26 @@ defmodule Ankole.Pod.Database do
     transaction(authority, fn ->
       with {:ok, %{type: :database}} <- Pages.authorize(uid, page_id, "page_edit"),
            {:ok, table} <-
-             Repo.insert(
-               DbTable.changeset(%DbTable{}, %{
-                 page_id: page_id,
-                 name: Ankole.Attrs.get(attrs, :name, "Table"),
-                 position: Ankole.Attrs.get(attrs, :position, Ankole.Ecto.UUIDv7.autogenerate())
-               })
-             ),
+             Ankole.Ash.create(DbTable, :create_in_tx, %{
+               page_id: page_id,
+               name: Ankole.Attrs.get(attrs, :name, "Table"),
+               position: Ankole.Attrs.get(attrs, :position, Ankole.Ecto.UUIDv7.autogenerate())
+             }),
            {:ok, _} <-
-             Repo.insert(
-               DbField.changeset(%DbField{}, %{
-                 table_id: table.id,
-                 name: "Name",
-                 type: :text,
-                 is_primary: true,
-                 position: "U"
-               })
-             ),
+             Ankole.Ash.create(DbField, :create_in_tx, %{
+               table_id: table.id,
+               name: "Name",
+               type: :text,
+               is_primary: true,
+               position: "U"
+             }),
            {:ok, _} <-
-             Repo.insert(
-               DbView.changeset(%DbView{}, %{
-                 table_id: table.id,
-                 name: "Grid",
-                 type: :grid,
-                 position: "U"
-               })
-             ) do
+             Ankole.Ash.create(DbView, :create_in_tx, %{
+               table_id: table.id,
+               name: "Grid",
+               type: :grid,
+               position: "U"
+             }) do
         {:ok, table}
       else
         {:ok, _} -> {:error, :invalid_page_type}
@@ -81,7 +79,11 @@ defmodule Ankole.Pod.Database do
        %{
          table: table,
          fields: definitions,
-         views: Repo.all(from v in DbView, where: v.table_id == ^id, order_by: v.position),
+         views:
+           DbView
+           |> Ash.Query.filter(table_id == ^id)
+           |> Ash.Query.sort(:position)
+           |> Ankole.Ash.read!(),
          mode: mode,
          timezone: timezone,
          local_query: query_capabilities(),
@@ -173,7 +175,7 @@ defmodule Ankole.Pod.Database do
 
   def table_access(uid, id, action) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         %DbTable{} = table <- Repo.get(DbTable, id),
+         %DbTable{} = table <- Ankole.Ash.read_one!(Ash.Query.filter(DbTable, id == ^id)),
          {:ok, _} <- Pages.authorize(uid, table.page_id, action),
          do: {:ok, table},
          else: (
@@ -183,7 +185,12 @@ defmodule Ankole.Pod.Database do
          )
   end
 
-  def fields(id), do: Repo.all(from f in DbField, where: f.table_id == ^id, order_by: f.position)
+  def fields(id),
+    do:
+      DbField
+      |> Ash.Query.filter(table_id == ^id)
+      |> Ash.Query.sort(:position)
+      |> Ankole.Ash.read!()
 
   defp query_transaction(uid, id, fun) do
     with {:ok, limits} <- Config.limits() do

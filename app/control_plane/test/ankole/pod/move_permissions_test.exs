@@ -1,5 +1,5 @@
 defmodule Ankole.Pod.MovePermissionsTest do
-  use Ankole.DataCase, async: false
+  use Ankole.DataCase, async: true
   import Ankole.PrincipalsFixtures
   alias Ankole.AuthZ
   alias Ankole.Pod.{Access, Page, Pages}

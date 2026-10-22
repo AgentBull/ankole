@@ -1,7 +1,6 @@
 defmodule Ankole.AuthZ.Grants do
   @moduledoc false
 
-  alias Ecto.Changeset
   alias Ankole.AuthZ.Grant
   alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Input
@@ -15,9 +14,7 @@ defmodule Ankole.AuthZ.Grants do
     Ankole.Pod.Pages.lock_tree()
 
     with {:ok, attrs} <- grant_attrs(repo, attrs) do
-      %Grant{}
-      |> Grant.changeset(attrs)
-      |> repo.insert()
+      Ankole.Ash.create(Grant, :create_in_tx, attrs)
     end
   end
 
@@ -25,13 +22,9 @@ defmodule Ankole.AuthZ.Grants do
     :ok = Ankole.Repo.require_transaction(repo)
     Ankole.Pod.Pages.lock_tree()
 
-    with {:ok, attrs} <- grant_attrs(repo, attrs),
-         changeset <- Grant.changeset(%Grant{}, attrs),
-         {:ok, normalized} <- Changeset.apply_action(changeset, :insert) do
-      repo.insert(changeset,
-        on_conflict: permission_grant_upsert_update(normalized),
-        conflict_target: permission_grant_upsert_target(normalized),
-        returning: true
+    with {:ok, attrs} <- grant_attrs(repo, attrs) do
+      Ankole.Ash.create(Grant, :upsert_in_tx, attrs,
+        upsert_identity: permission_grant_identity(attrs)
       )
     end
   end
@@ -41,9 +34,7 @@ defmodule Ankole.AuthZ.Grants do
     Ankole.Pod.Pages.lock_tree()
 
     with {:ok, attrs} <- grant_attrs(repo, attrs) do
-      grant
-      |> Grant.changeset(attrs)
-      |> repo.update()
+      Ankole.Ash.update(grant, :update_in_tx, attrs)
     end
   end
 
@@ -80,24 +71,10 @@ defmodule Ankole.AuthZ.Grants do
     end
   end
 
-  defp permission_grant_upsert_update(%Grant{} = grant) do
-    [
-      set: [
-        description: grant.description,
-        metadata: grant.metadata,
-        updated_at: DateTime.utc_now(:microsecond)
-      ]
-    ]
-  end
-
-  defp permission_grant_upsert_target(%Grant{principal_uid: principal_uid})
-       when is_binary(principal_uid) do
-    {:unsafe_fragment,
-     "(principal_uid, resource_pattern, action, condition) WHERE principal_uid IS NOT NULL"}
-  end
-
-  defp permission_grant_upsert_target(%Grant{group_id: group_id}) when is_binary(group_id) do
-    {:unsafe_fragment,
-     "(group_id, resource_pattern, action, condition) WHERE group_id IS NOT NULL"}
+  defp permission_grant_identity(attrs) do
+    case Ankole.PrincipalKey.normalize_optional(Map.get(attrs, :principal_uid)) do
+      {:ok, uid} when is_binary(uid) -> :principal_rule
+      _not_principal_owned -> :group_rule
+    end
   end
 end

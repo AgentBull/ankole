@@ -111,24 +111,19 @@ defmodule Ankole.Pod.ContentUserFlowTest do
     {:ok, database} = Pages.create(ctx.owner.uid, %{parent_id: root.id, type: "database"})
 
     table =
-      Repo.insert!(
-        DbTable.changeset(%DbTable{}, %{
-          page_id: database.id,
-          name: "Orders",
-          position: "U",
-          record_count: 1005
-        })
-      )
-
-    Repo.insert!(
-      DbField.changeset(%DbField{}, %{
-        table_id: table.id,
-        name: "Title",
-        position: "U",
-        type: :text,
-        is_primary: true
+      Ankole.Pod.PagesFixtures.create_record!(DbTable, :create_in_tx, %{
+        page_id: database.id,
+        name: "Orders",
+        position: "U"
       })
-    )
+
+    Ankole.Pod.PagesFixtures.create_record!(DbField, :create_in_tx, %{
+      table_id: table.id,
+      name: "Title",
+      position: "U",
+      type: :text,
+      is_primary: true
+    })
 
     now = DateTime.utc_now(:microsecond)
     actor = Ankole.ActorRef.from_principal(ctx.owner)
@@ -148,9 +143,10 @@ defmodule Ankole.Pod.ContentUserFlowTest do
           }
 
     Repo.insert_all(DbRecord, rows)
+    Ankole.Pod.PagesFixtures.update_record!(table, :commit_write, %{delta: 1005, inserted: 1005})
     {:ok, _} = Pages.delete(ctx.owner.uid, root.id)
     root = Repo.get!(Page, root.id)
-    Repo.update!(Page.changeset(root, %{purge_started_at: now}))
+    Ankole.Pod.PagesFixtures.update_record!(root, :begin_purge)
 
     Repo.query!("""
     CREATE FUNCTION test_pod_purge_interrupt() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -162,9 +158,17 @@ defmodule Ankole.Pod.ContentUserFlowTest do
     )
 
     try do
-      assert_raise Postgrex.Error, ~r/injected purge interruption/, fn ->
-        PurgePage.perform(%Oban.Job{args: %{"tenant_id" => ctx.tenant.id, "page_id" => root.id}})
-      end
+      error =
+        assert_raise Ash.Error.Unknown, fn ->
+          PurgePage.perform(%Oban.Job{
+            args: %{"tenant_id" => ctx.tenant.id, "page_id" => root.id}
+          })
+        end
+
+      assert [%Ash.Error.Unknown.UnknownError{error: native_error}] = error.errors
+
+      assert native_error ==
+               "** (Postgrex.Error) ERROR P0001 (raise_exception) injected purge interruption after record batches"
 
       assert Repo.aggregate(DbRecord, :count) == 0
       assert Repo.get(Page, root.id)

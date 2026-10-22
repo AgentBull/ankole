@@ -15,9 +15,9 @@ defmodule Ankole.AIGateway.ResponseChainReadTest do
     old_match = row(ctx, nil, caller("current"))
     boundary = row(ctx, old_match, caller("previous"))
     early = row(ctx, boundary, caller("current"))
-    error = row(ctx, early, caller("other"), status: "error")
-    retracted = row(ctx, error, caller("other"), status: "retracted")
-    checkpoint = row(ctx, retracted, caller("other"), type: "checkpoint")
+    error = row(ctx, early, caller("other"), status: :error)
+    retracted = row(ctx, error, caller("other"), status: :retracted)
+    checkpoint = row(ctx, retracted, caller("other"), type: :checkpoint)
     missing = row(ctx, checkpoint, %{"tool_result_journal" => true})
     unmatched = row(ctx, missing, Map.put(caller("other"), "tool_result_journal", true))
     latest = row(ctx, unmatched, caller("current"))
@@ -54,8 +54,8 @@ defmodule Ankole.AIGateway.ResponseChainReadTest do
     first = row(ctx, nil, caller("first"))
     _sibling = row(ctx, first, caller("unselected"))
     selected = row(ctx, first, caller("selected"))
-    failed = row(ctx, selected, caller("failed"), status: "error")
-    checkpoint = row(ctx, failed, caller("checkpoint"), type: "checkpoint")
+    failed = row(ctx, selected, caller("failed"), status: :error)
+    checkpoint = row(ctx, failed, caller("checkpoint"), type: :checkpoint)
     _last = row(ctx, checkpoint, %{"request_metadata" => "invalid"})
 
     assert {:ok, metadata} =
@@ -66,7 +66,7 @@ defmodule Ankole.AIGateway.ResponseChainReadTest do
 
   test "only a complete checkpoint stops history and all reads protect against cycles", ctx do
     oldest = row(ctx, nil, caller("current"))
-    incomplete = row(ctx, oldest, caller("current"), type: "checkpoint", status: "error")
+    incomplete = row(ctx, oldest, caller("current"), type: :checkpoint, status: :error)
     final = row(ctx, incomplete, caller("current"))
 
     assert Enum.map(ResponseChain.expand_history(ctx.conversation.id), & &1.id) == [
@@ -172,7 +172,7 @@ defmodule Ankole.AIGateway.ResponseChainReadTest do
           row(ctx, previous, caller("old"), content: [%{"text" => String.duplicate("x", 4096)}])
         end)
 
-      checkpoint = row(ctx, old, caller("old"), type: "checkpoint")
+      checkpoint = row(ctx, old, caller("old"), type: :checkpoint)
 
       Enum.reduce(1..3, checkpoint, fn _, previous ->
         row(ctx, previous, caller("current"), content: [%{"text" => "current"}])
@@ -242,8 +242,8 @@ defmodule Ankole.AIGateway.ResponseChainReadTest do
           tenant_id: ctx.conversation.tenant_id,
           subject_uid: ctx.subject.uid,
           conversation_id: ctx.conversation.id,
-          type: "message",
-          status: if(index == 10_000, do: "complete", else: "error"),
+          type: :message,
+          status: if(index == 10_000, do: :complete, else: :error),
           previous_message_id: previous,
           content: [],
           metadata: caller("current"),
@@ -287,20 +287,20 @@ defmodule Ankole.AIGateway.ResponseChainReadTest do
 
   defp row(ctx, previous, metadata, opts \\ []) do
     id = Ankole.Ecto.UUIDv7.autogenerate()
-    type = Keyword.get(opts, :type, "message")
+    type = Keyword.get(opts, :type, :message)
 
     content =
-      if type == "checkpoint",
+      if type == :checkpoint,
         do: [Ankole.AIGateway.CompactionArtifacts.ref_item(id)],
         else: Keyword.get(opts, :content, [])
 
     %Message{id: id}
-    |> Message.changeset(%{
+    |> Ecto.Changeset.change(%{
       subject_uid: ctx.subject.uid,
       conversation_id: ctx.conversation.id,
       previous_message_id: previous && previous.id,
       type: type,
-      status: Keyword.get(opts, :status, "complete"),
+      status: Keyword.get(opts, :status, :complete),
       metadata: metadata,
       content: content
     })
@@ -325,7 +325,7 @@ defmodule Ankole.AIGateway.ResponseChainReadTest do
       |> Enum.reverse()
       |> Enum.reduce_while([], fn row, rows ->
         cond do
-          row.type == "checkpoint" -> {:cont, rows}
+          row.type == :checkpoint -> {:cont, rows}
           ResponseChain.response_metadata(row)["run"] == value -> {:cont, [row | rows]}
           row.metadata["tool_result_journal"] == true -> {:cont, rows}
           true -> {:halt, rows}

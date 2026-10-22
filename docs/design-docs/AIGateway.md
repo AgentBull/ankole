@@ -247,6 +247,19 @@ selection, or secret handling.
 
 ## Configure Provider Rows and Credential Pools
 
+`ProviderConfigs.Provider` is a site-owned Ash resource. Its actions own endpoint
+configuration, credential writes, disable/delete checks, enablement, and cooldown
+persistence. Configuration input cannot set stored ciphertext directly. The
+resource's declared row ID is available before a credential is sealed.
+
+`ProviderConfigs.Credentials` owns pure encrypted-pool value transformations.
+`CredentialPool` keeps selection, affinity, and runtime health. ProviderConfigs
+locks the durable row around each read-modify-write and retains that lock across
+an automatic token-refresh callback. The refresh action preserves the credential
+revision; explicit replacement changes it. A stale cooldown action returns the
+existing record without a database write. API controllers authorize and project
+these domain results; they do not choose a persistence path.
+
 `ai_gateway_providers` stores operator-configured provider rows. Each row
 contains:
 
@@ -787,6 +800,22 @@ ends that Conversation when its work ends.
 
 `ai_gateway_messages` stores each Response run, tool-result journal, or compaction checkpoint.
 
+Conversation and Message are Ash resources. Conversation actions own the active
+subject/key identity and preserve the first metadata on an `ensure` retry.
+Message actions own initial facts and the `generating` to `complete`, `error`,
+or `retracted` transitions. Elixir records use atoms; PostgreSQL and public
+Responses keep their existing strings. Stream completion appends output and
+merges metadata in the same conditional database update as the terminal state.
+Progress-only writes do not renew the response lease.
+
+Tool journals use the existing partial expression index over
+`metadata.tool_result_idempotency_key`. An immutable upsert returns the first
+journal on retry. The lookup must use that index and remain tenant-scoped;
+an identity collision in another tenant returns a stale-record error. A
+checkpoint is one immutable insert and also participates in the caller's
+transaction when response admission creates it with a generating row.
+
+
 Message row types are:
 
 - `message`
@@ -890,9 +919,19 @@ can subscribe and use its own metadata to select relevant events.
 
 ## Run Tool Search and Program Calls
 
-`HostedTools.StreamLoop` coordinates search, Brain, and program effects over
-one public Response. It owns continuation rounds and their shared budgets.
-Each tool keeps its own plan and execution rules.
+`HostedTools.StreamLoop` coordinates the provider rounds and public item
+projection of every Response. A Response without hosted tools runs a single
+round with zero gateway effects and does not retain continuation history. When
+Tool Search, Brain, or Programmatic Tool Calling is active, the loop executes
+those effects, owns continuation rounds and their shared budgets, and exposes
+round and item-rewrite queries through its module interface. Each tool keeps
+its own plan and execution rules.
+
+An ordinary response keeps the provider's terminal event shape. It does not
+add item-completion events for items present only in the terminal snapshot.
+If that snapshot has no output, only admitted public items supply its output;
+raw round items must not restore calls rejected by the tool budget. Hosted
+tools admit terminal-only provider items before publishing their local output.
 
 AIGateway normalizes the executable tool contract before the first provider
 round. One descriptor keeps `namespace` and `name` as the canonical tool
@@ -1000,13 +1039,13 @@ Provider alias. No earlier AIGateway layer flattens the identity.
 
 `ResponseStream` remains the sole owner of public events, sequence numbers,
 loop advancement, and durable commit. Program execution runs under a bounded
-`Task.Supervisor`, so a dirty native call cannot block the stream owner. The
-Rust registers only a program that has started running. Cancellation addresses
-that running entry and then stops its BEAM task. If an owner is killed in the
-short interval before registration, cancellation can miss and one native slot
-can remain occupied until the 30-second watchdog ends that run. This bounded
-loss replaces a separate reservation and guardian protocol. The same lifecycle
-owner serves SSE, WebSocket, and collected non-streaming Responses.
+`Task.Supervisor`. V8 execution and request decoding run on native threads. A
+ResourceArc handle owns each execution before its BEAM task starts. Cancellation
+uses that handle. Exit of the Response owner or execution task terminates the
+same native execution, including a batch that has not entered V8. Admission
+has four slots, separate from the four Applet slots. No program occupies a dirty
+CPU scheduler. The same lifecycle owner serves SSE, WebSocket, and collected
+non-streaming Responses.
 
 One public `max_tool_calls` budget covers all internal rounds. A zero budget
 removes every built-in tool before the first provider call. Every provider
@@ -1463,6 +1502,18 @@ boundary fits, the request returns `context_overflow`.
 
 `ai_gateway_artifacts` stores uploaded vision files and generated images.
 
+Artifact actions derive byte size and SHA-256 from the stored payload. Callers
+cannot set those derived facts or select an artifact kind through input fields.
+Ordinary resource reads omit payload bytes; image and file adapters explicitly
+select them when they need the bytes. Collection uses the same resource's
+atomic expiry and failed-response predicates.
+
+CompactionArtifact has one create action and no update action. UsageRecord is
+an append-only resource with nonnegative token counts. The usage window sums
+its input and output columns in one tenant-scoped aggregate query. Usage
+normalization remains the existing pure `Usage` contract.
+
+
 Uploaded files require `purpose=vision`.
 Generated images can link to the message that produced them.
 
@@ -1529,6 +1580,8 @@ Unexpected replay recovery and program cancellation failures emit warnings
 with the failure class and stack locations. Logs omit exception messages and
 function arguments. Recovery keeps the original Provider failure, and
 cancellation keeps its existing best-effort result.
+Codex vision fallback crashes use the same diagnostics before the existing
+fallback removes image parts.
 
 One failure diagnostic owner normalizes synchronous, streaming, and hosted-tool
 failures. Provider 4xx rejections and explicit consumer cancellations use
@@ -1803,6 +1856,11 @@ body in such a failure are Provider evidence. `invalid_provider_event` and
 `provider_terminal_rejected` are non-retryable Provider protocol rejections
 unless the failure declares a retryability value. This rule applies to native
 `StreamError` and canonical `response.failed` errors.
+Hosted image errors also carry `details_json.stage`, including errors without
+an HTTP status. A hosted Provider 403 is not retryable and does not enter
+capacity backoff. HTTP 429 and 5xx failures keep their retry classification.
+The public `upstream_timeout` code remains a timeout when no HTTP status is
+available; it does not become a Provider capacity failure.
 An AWS eventstream frame can
 report an error after the HTTP 200 response starts. For an exception frame, the
 kernel reports the `:exception-type` header as the Provider error type, and the

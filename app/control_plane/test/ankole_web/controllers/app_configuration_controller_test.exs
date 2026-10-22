@@ -9,7 +9,6 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
   alias Ankole.Setup.Config, as: SetupConfig
 
   setup do
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
@@ -339,6 +338,43 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
     assert {:ok, true} = SetupConfig.completed?()
     assert {:ok, "ABCDEFGH"} = SetupConfig.bootstrap_activation_code()
+  end
+
+  test "Plugin selection stays readable but writes use the Plugin controls", %{conn: conn} do
+    enabled = ["china-market-ai-providers", "vercel-worker-provider"]
+    assert {:ok, ^enabled} = Ankole.Plugins.put_enabled_ids(enabled)
+    conn = console_conn(conn)
+
+    entries =
+      conn
+      |> get(~p"/api/v1/site/app-configurations")
+      |> json_response(200)
+      |> Map.fetch!("app_configurations")
+
+    assert %{"editable" => false, "value" => ^enabled} = entry(entries, "plugins.enabled_ids")
+
+    for rejected <- [
+          conn
+          |> recycle_api()
+          |> put(~p"/api/v1/site/app-configurations/plugins.enabled_ids", %{"value" => []}),
+          conn
+          |> recycle_api()
+          |> delete(~p"/api/v1/site/app-configurations/plugins.enabled_ids")
+        ] do
+      assert %{"error" => %{"code" => "not_editable"}} = json_response(rejected, 422)
+    end
+
+    assert {:ok, ^enabled} = Ankole.Plugins.enabled_ids()
+
+    conn
+    |> recycle_api()
+    |> put(~p"/api/v1/site/control-plane-plugins", %{
+      "id" => "vercel-worker-provider",
+      "enabled" => false
+    })
+    |> json_response(200)
+
+    assert {:ok, ["china-market-ai-providers"]} = Ankole.Plugins.enabled_ids()
   end
 
   test "Installation-owned AppConfigure keys stay readable while their owner keeps writing them",

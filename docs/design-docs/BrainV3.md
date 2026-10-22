@@ -25,7 +25,7 @@ generated UUIDv7; the database never generates a random UUID for these tables.
 | `brain_schema_calibration_domains` | Named calibration domains for Take scorecards |
 | `brain_sources` | Registered learning Sources and shipped-library projection sets with their revision fingerprints |
 | `brain_objects` | One page per slug: type, subtype, title, Markdown body and optional Brain Source body owner |
-| `brain_object_versions` | Append-only page history with author and content hash |
+| `brain_object_versions` | Append-only body, metadata, tag, and author snapshots |
 | `brain_chunks` | Retrieval chunks of page bodies, with BM25 text and vector columns |
 | `brain_claims` | Atomic assertions: bitemporal Facts and calibratable Takes |
 | `brain_timelines` | Dated events attached to entity pages |
@@ -64,6 +64,17 @@ field. Embedded line breaks and literal backslashes stay inside that tag.
 Version rollback retains its body-and-meta contract and does not restore tags.
 Historical versions have no recoverable tag history. The upgrade refreshes
 baselines for existing tagged pages, so an open draft can require a reload.
+
+`ObjectVersion.snapshot` owns immutable body, metadata, tag, and author snapshots.
+It requires the object writer's existing transaction, so a failed edit cannot
+leave history without the corresponding page change. `Ankole.Brain.Chunks`
+reconciles positions under the current Object row lock. Its resource actions
+create, replace, or remove projection rows; replacement clears the full vector
+state. An unchanged position retains its row and vector. Embedding results use
+one atomic action that compares the input text, embedding timestamp, and model
+signature before it commits. PostgreSQL checks the complete vector state and
+rejects partial success or failure records. The shared vector type uses the
+existing Pgvector codec and preserves the native vector representation.
 
 ## Scope and Disclosure
 
@@ -165,6 +176,13 @@ Fact writes run semantic dedup inside the same parent, holder, and audience
 scope: the top cosine neighbor at or above 0.95 merges as a duplicate or
 supersedes when the text changed. Takes never enter dedup.
 
+Claim resource actions own insertion, expiry, consolidation, calibration, and
+resolution. A stored Take can resolve once; a stale snapshot cannot replace its
+decision. Source withdrawal commits Fact expiry and Take deactivation together.
+Embedding results compare the prior vector state before they write, so a late
+failure cannot erase a successful rebuild. Late Fact dedup clears the complete
+failed vector state while it links the historical assertion to the current one.
+
 ## Schema Packs
 
 A schema pack seeds the instance ontology: page types with slug prefixes and
@@ -174,6 +192,22 @@ materializes the manifests into the `brain_schema_*` tables, which are
 authoritative afterwards. Packs merge by name: a type registered by an
 earlier install keeps its row, and a later pack can only widen subtype
 suggestions. Conflicting declarations fail the install.
+
+The pack, type, relation, calibration-domain, and Take-assignment rows are Ash
+resources in `Ankole.Brain.Domain`. Register actions keep the first declaring
+pack and core type facts immutable. Subtype additions use one SQL union that
+preserves first-seen order and cannot lose a concurrent addition. Take/domain
+assignment retries return the first stored provenance and confidence. Native
+checks enforce the string-array and confidence contracts. A composite tenant
+foreign key prevents a Take assignment from referencing another tenant's claim.
+
+Vocabulary and merge proposals, and contradiction findings, have resource-owned
+state machines. A review changes the stored state once; an old snapshot cannot
+reverse a decision. Proposal retries preserve the first evidence. The vocabulary
+identity index covers both pending and rejected rows, so a concurrent suggestion
+cannot reopen a rejected term. Approved rows remain audit records. Contradiction
+recording classifies negative or low-confidence model verdicts as dismissed;
+only open findings accept an operator decision.
 
 ## Retrieval
 
@@ -515,3 +549,22 @@ history and rollback, claim listing with take resolution, source management
 search preview as any Principal, and health counters. The implementation in
 [`BrainMarkdoc.md`](BrainMarkdoc.md) includes a full-page Object source editor
 with segment preview, diagnostics, and server-authoritative save validation.
+
+### Resource write contracts
+
+All Brain rows use Ash resources in `Ankole.Brain.Domain`. Object actions keep
+content edits, Source projections, ownership changes, and maintenance stamps
+separate. Content edits compare the stored content hash. Projection writes check
+the stored Source owner. Maintenance stamps do not advance the content clock.
+Source actions keep upstream identity immutable and reject sync and extraction
+writes after archive. Registration retries keep the first Source facts.
+
+Brain aggregates, Ash actions, row locks, and native queries use `Ankole.Repo`
+in the same process transaction. The process tenant and dynamic repository apply
+to the whole operation. Brain options cannot select a second Repo.
+
+Links, tags, names, and timeline events retain their native retry keys. Merge
+reparent actions own the native deduplication and foreign-key updates while the
+merge holds both Object locks. The merge, redirect, and review decision commit
+in one transaction. Native vector and full-text queries retain their storage
+and query operators.

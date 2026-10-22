@@ -395,15 +395,7 @@ defmodule Ankole.ConversationsTest do
     on_exit(fn ->
       Repo.with_tenant(tenant.id, fn ->
         delete_agent_fixture_rows(agent.uid)
-
-        Repo.delete_all(
-          from j in Oban.Job, where: fragment("?->>'tenant_id' = ?", j.args, ^tenant.id)
-        )
-
-        # Space initialization owns rows beyond this test's Agent fixture.
-        Repo.delete_all(Ankole.AuthZ.Grant)
-        Repo.delete_all(Ankole.AuthZ.Group)
-        Repo.delete!(tenant)
+        cleanup_tenant!(tenant)
       end)
     end)
 
@@ -489,10 +481,12 @@ defmodule Ankole.ConversationsTest do
     assert message.session_id == event.session_id
     assert message.reply_to_message_id == attrs.message_id
 
-    assert {:ok, %{messages: [^message]}} =
+    assert {:ok, %{messages: [repeated]}} =
              in_tx(fn ->
                Ankole.ConversationsFixtures.post_statement_in_tx(Repo, event, "Answer")
              end)
+
+    assert_persisted_equal(repeated, message)
 
     assert {:error, :conversation_conflict} =
              in_tx(fn ->
@@ -526,8 +520,13 @@ defmodule Ankole.ConversationsTest do
     }
 
     assert {:error, changeset} =
-             %Message{}
-             |> Message.changeset(message_attrs)
+             %Message{attachments: [], links: [], mentions: []}
+             |> AshPostgres.DataLayer.to_ecto()
+             |> Ecto.Changeset.change(message_attrs)
+             |> Ecto.Changeset.check_constraint(:signal_id,
+               name: :conversation_messages_provenance_check
+             )
+             |> Ecto.Changeset.foreign_key_constraint(:author_uid)
              |> Repo.insert(mode: :savepoint)
 
     assert "is invalid" in errors_on(changeset).signal_id
@@ -543,8 +542,13 @@ defmodule Ankole.ConversationsTest do
     }
 
     assert {:error, changeset} =
-             %Message{}
-             |> Message.changeset(message_attrs)
+             %Message{attachments: [], links: [], mentions: []}
+             |> AshPostgres.DataLayer.to_ecto()
+             |> Ecto.Changeset.change(message_attrs)
+             |> Ecto.Changeset.check_constraint(:signal_id,
+               name: :conversation_messages_provenance_check
+             )
+             |> Ecto.Changeset.foreign_key_constraint(:author_uid)
              |> Repo.insert(mode: :savepoint)
 
     assert "does not exist" in errors_on(changeset).author_uid

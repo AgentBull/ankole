@@ -9,8 +9,11 @@ defmodule Ankole.WorkerProviderTransactionsTest do
   alias Ankole.AgentWorkers.Providers.Provider
   alias Ankole.AgentWorkers.Providers.Seed
   alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.Plugins.Config, as: PluginConfig
+  alias Ankole.Plugins.VercelWorkerProvider.Provider, as: Vercel
 
   setup %{tenant: tenant} do
+    {:ok, original_enabled} = PluginConfig.enabled_ids()
     suffix = System.unique_integer([:positive])
     first = "provider-tx-first-#{suffix}"
     second = "provider-tx-second-#{suffix}"
@@ -24,7 +27,8 @@ defmodule Ankole.WorkerProviderTransactionsTest do
       Sandbox.unboxed_run(Repo, fn ->
         Repo.delete_all(from w in AgentWorker, where: w.agent_uid == ^uid)
         Repo.delete_all(from p in Provider, where: p.provider_id in ^[first, second])
-        Repo.delete!(tenant)
+        {:ok, _} = PluginConfig.put_enabled_ids(original_enabled)
+        cleanup_tenant!(tenant)
       end)
     end)
 
@@ -93,6 +97,90 @@ defmodule Ankole.WorkerProviderTransactionsTest do
            ]
   end
 
+  test "Plugin disable waits for assignment, then rejects the committed reference", context do
+    plugin_provider!(context)
+    legacy!(context.uid)
+    assignment = hold(fn -> Providers.assign(context.uid, context.first) end)
+
+    disable =
+      start(fn -> PluginConfig.put_configured_enabled("vercel-worker-provider", false) end)
+
+    assert_blocked_by(disable, assignment)
+    release(assignment)
+    assert {:ok, _worker} = finish(assignment)
+
+    assert {:error, {:worker_provider_plugin_in_use, "vercel-worker-provider", id}} =
+             finish(disable)
+
+    assert id == context.first
+  end
+
+  test "assignment waits for Plugin disable, then reads the committed next-start policy",
+       context do
+    plugin_provider!(context)
+    legacy!(context.uid)
+    disable = hold(fn -> PluginConfig.put_configured_enabled("vercel-worker-provider", false) end)
+    assignment = start(fn -> Providers.assign(context.uid, context.first) end)
+    assert_blocked_by(assignment, disable)
+    release(disable)
+    assert {:ok, _ids} = finish(disable)
+
+    assert {:error, {:worker_provider_plugin_inactive, "vercel-worker-provider"}} =
+             finish(assignment)
+
+    assert Repo.get!(AgentWorker, context.uid).provider_id == nil
+  end
+
+  test "enabling a Worker Plugin and changing other Plugins do not wait for the provider lock",
+       context do
+    plugin_provider!(context)
+    assert {:ok, _} = PluginConfig.put_configured_enabled("vercel-worker-provider", false)
+    update = hold(fn -> Providers.update(context.first, %{display_name: "Held update"}) end)
+    slack = Ankole.Plugins.SlackAdapter.plugin_id()
+
+    try do
+      for {id, enabled} <- [{"vercel-worker-provider", true}, {slack, true}, {slack, false}] do
+        operation = start(fn -> PluginConfig.put_configured_enabled(id, enabled) end)
+        assert {:ok, _} = finish(operation)
+      end
+    after
+      release(update)
+      assert {:ok, _provider} = finish(update)
+    end
+  end
+
+  test "concurrent Plugin edits keep both choices under the AppConfigure key lock" do
+    slack = Ankole.Plugins.SlackAdapter.plugin_id()
+    telegram = Ankole.Plugins.TelegramAdapter.plugin_id()
+    assert {:ok, _} = PluginConfig.put_configured_enabled(slack, false)
+    assert {:ok, _} = PluginConfig.put_configured_enabled(telegram, false)
+    first = hold(fn -> PluginConfig.put_configured_enabled(slack, true) end)
+    second = start(fn -> PluginConfig.put_configured_enabled(telegram, true) end)
+    assert_blocked_by(second, first)
+    release(first)
+    assert {:ok, _} = finish(first)
+    assert {:ok, _} = finish(second)
+
+    assert {:ok, enabled} =
+             Ankole.AppConfigure.get_in_tx(Repo, PluginConfig.enabled_ids_definition())
+
+    assert slack in enabled
+    assert telegram in enabled
+  end
+
+  defp plugin_provider!(context) do
+    assert {:ok, _} = PluginConfig.put_configured_enabled("vercel-worker-provider", true)
+
+    assert {:ok, _} =
+             Providers.create(%{
+               provider_id: context.first,
+               kind: "vercel",
+               display_name: "Vercel",
+               config: Vercel.definition().example,
+               credentials: %{"token" => "test"}
+             })
+  end
+
   defp attrs(id),
     do: %{provider_id: id, kind: "docker", display_name: id, config: "network: bridge\n"}
 
@@ -100,7 +188,7 @@ defmodule Ankole.WorkerProviderTransactionsTest do
     Sandbox.unboxed_run(Repo, fn ->
       Repo.insert!(%AgentWorker{
         agent_uid: uid,
-        state: "absent",
+        state: :absent,
         state_changed_at: DateTime.utc_now(:microsecond)
       })
     end)

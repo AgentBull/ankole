@@ -1,5 +1,17 @@
 defmodule Ankole.TimeZone do
   @moduledoc false
+  use Ash.Resource.Validation
+
+  @impl true
+  def validate(changeset, _opts, _context) do
+    case validate(Ash.Changeset.get_attribute(changeset, :timezone)) do
+      {:ok, _timezone} ->
+        :ok
+
+      {:error, _reason} ->
+        {:error, field: :timezone, message: "is not a valid timezone"}
+    end
+  end
 
   @utc_timezone "Etc/UTC"
 

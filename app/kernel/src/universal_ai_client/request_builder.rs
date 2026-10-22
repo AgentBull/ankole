@@ -15,7 +15,7 @@ pub fn prepare_stream_spec(mut spec: StreamSpec) -> Result<StreamSpec, StreamErr
         }
         UpstreamKind::HTTPSSE | UpstreamKind::HTTPEventstream => {
             let resolver = APIResolver::new(spec.api_resolver, spec.response_context.clone());
-            spec.upstream.body = Some(encode_json(Value::Object(resolver.build_body()?))?);
+            spec.upstream.body = Some(encode_json(&Value::Object(resolver.build_body()?))?);
             put_default_model_headers(&mut spec.upstream);
         }
     }
@@ -26,7 +26,7 @@ pub fn prepare_stream_spec(mut spec: StreamSpec) -> Result<StreamSpec, StreamErr
 pub fn prepare_model_upstream(spec: &ModelRequestSpec) -> Result<UpstreamSpec, StreamError> {
     let mut upstream = spec.stream_upstream();
     let resolver = APIResolver::new(spec.api_resolver, spec.response_context.clone());
-    upstream.body = Some(encode_json(Value::Object(resolver.build_body()?))?);
+    upstream.body = Some(encode_json(&Value::Object(resolver.build_body()?))?);
     put_default_json_headers(&mut upstream);
     Ok(upstream)
 }
@@ -63,8 +63,8 @@ fn put_new_header(headers: &mut Vec<(String, String)>, name: &str, value: &str) 
     headers.push((name.to_string(), value.to_string()));
 }
 
-fn encode_json(value: Value) -> Result<String, StreamError> {
-    sonic_rs::to_string(&value).map_err(|reason| {
+fn encode_json(value: &Value) -> Result<String, StreamError> {
+    sonic_rs::to_string(value).map_err(|reason| {
         StreamError::new(
             "request_encode_failed",
             "request_builder",
@@ -85,7 +85,7 @@ mod tests {
 
     fn protocol_body(kind: APIResolverKind, context: ResponseContext) -> Value {
         let resolver = APIResolver::new(kind, context);
-        sonic_rs::from_str(&encode_json(Value::Object(resolver.build_body().unwrap())).unwrap())
+        sonic_rs::from_str(&encode_json(&Value::Object(resolver.build_body().unwrap())).unwrap())
             .unwrap()
     }
 

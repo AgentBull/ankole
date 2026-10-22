@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.20
 
 ARG ELIXIR_IMAGE=elixir:1.20.4-otp-29-slim
-ARG BUN_IMAGE=oven/bun:1.4.2
+ARG BUN_IMAGE=oven/bun:1.4.4
 ARG RUNNER_IMAGE=debian:trixie-slim
 ARG ANKOLE_EDITION=foss
 
@@ -40,6 +40,7 @@ RUN sed -i \
     ca-certificates \
     curl \
     git \
+    patch \
     pkg-config \
     protobuf-compiler \
   && rm -rf /var/lib/apt/lists/*

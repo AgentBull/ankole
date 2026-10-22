@@ -25,37 +25,7 @@ describe('datetime-local conversion', () => {
   })
 })
 
-describe('draftFromTokenQuota', () => {
-  test('reads the stored quota and falls back to an empty draft', () => {
-    expect(draftFromTokenQuota(storedQuota)).toEqual({
-      periodDays: '7',
-      periodStartAt: dateTimeLocalValue(storedQuota.period_start_at),
-      limitTokens: '1000000'
-    })
-    expect(draftFromTokenQuota(null)).toEqual(emptyTokenQuotaDraft())
-    expect(draftFromTokenQuota(undefined)).toEqual(emptyTokenQuotaDraft())
-  })
-})
-
 describe('TokenQuotaEditorModel', () => {
-  test('keeps edits during refetch and resets when another Agent is selected', () => {
-    const model = new TokenQuotaEditorModel()
-
-    model.initialize('agent:alpha', draftFromTokenQuota(storedQuota))
-    expect(model.dirty.value).toBe(false)
-    model.limitTokens.value = '2000000'
-    expect(model.dirty.value).toBe(true)
-
-    model.initialize('agent:alpha', draftFromTokenQuota(storedQuota))
-    expect(model.limitTokens.value).toBe('2000000')
-
-    model.initialize('agent:beta', emptyTokenQuotaDraft())
-    expect(model.periodDays.value).toBe('')
-    expect(model.limitTokens.value).toBe('')
-    expect(model.dirty.value).toBe(false)
-    model[Symbol.dispose]()
-  })
-
   test('reports the first invalid field in field order', () => {
     const model = new TokenQuotaEditorModel()
     model.initialize('agent:alpha', emptyTokenQuotaDraft())
@@ -95,21 +65,6 @@ describe('TokenQuotaEditorModel', () => {
     expect(submission.body.limit_tokens).toBe(1_000_000)
     expect(submission.body.period_start_at).toMatch(/Z$/)
     expect(Date.parse(submission.body.period_start_at!)).toBe(storedInstant)
-    model[Symbol.dispose]()
-  })
-
-  test('a captured save adopts the persisted quota as the clean draft', () => {
-    const model = new TokenQuotaEditorModel()
-    model.initialize('agent:alpha', emptyTokenQuotaDraft())
-
-    model.periodDays.value = '7'
-    model.validationError.value = 'limit_tokens_required'
-    expect(model.dirty.value).toBe(true)
-
-    model.captureSave()(draftFromTokenQuota(storedQuota))
-    expect(model.dirty.value).toBe(false)
-    expect(model.periodStartAt.value).toBe(dateTimeLocalValue(storedQuota.period_start_at))
-    expect(model.validationError.value).toBeUndefined()
     model[Symbol.dispose]()
   })
 

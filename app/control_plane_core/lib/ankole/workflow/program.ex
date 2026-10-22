@@ -3,7 +3,7 @@ defmodule Ankole.Workflow.Program do
 
   alias Ankole.Workflow.Schemas.Run
 
-  @terminal_call_statuses ~w(succeeded failed)
+  @terminal_call_statuses [:succeeded, :failed]
 
   @type pending_call :: %{
           required(:namespace) => String.t() | nil,

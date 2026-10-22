@@ -11,6 +11,7 @@ defmodule Ankole.Signals.Types do
     "background_agent_job.completed" => false,
     "background_agent_job.dispatch" => true,
     "background_agent_job.failed" => false,
+    "background_agent_job.input_undeliverable" => false,
     "background_agent_job.waiting" => false,
     "check_back_later.wakeup" => false,
     "command.compress" => true,

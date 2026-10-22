@@ -3,7 +3,7 @@ defmodule Ankole.Sessions.ReplyDeletionTest do
   # Retraction asks the adapter that owns the checkpoint which provider entries
   # the preview surface holds, so a page ledger and a card chain both produce
   # deletion intents without the host reading provider keys.
-  use Ankole.DataCase, async: false
+  use Ankole.DataCase, async: true
 
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsFixtures

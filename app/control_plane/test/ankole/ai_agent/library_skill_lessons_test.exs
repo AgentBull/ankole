@@ -1,5 +1,5 @@
 defmodule Ankole.AIAgent.LibrarySkillLessonsTest do
-  use Ankole.DataCase, async: false
+  use Ankole.DataCase, async: true
 
   import Ankole.PrincipalsFixtures
 
@@ -35,6 +35,32 @@ defmodule Ankole.AIAgent.LibrarySkillLessonsTest do
 
   defp apply_adds(agent, adds, context \\ @context) do
     Library.apply_skill_lesson_adds(agent.uid, adds, context)
+  end
+
+  test "a stale resource action cannot renew or replace Human retirement" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, %{accepted: [lesson], rejected: []}} =
+             apply_adds(agent, [
+               add("pdf", "Render the page before retrying extraction.", [1001, 1002])
+             ])
+
+    assert {:ok, retired} = Library.retire_skill_lesson(agent.uid, lesson.id)
+
+    for {action, attrs} <- [
+          renew: %{
+            review_after: DateTime.add(DateTime.utc_now(), 7, :day),
+            checked_release: "stale",
+            checked_skill_hash: "stale"
+          },
+          retire: %{retired_at: DateTime.utc_now(), retire_reason: :obsolete}
+        ] do
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+               Repo.transact(fn -> Ankole.Ash.update(lesson, action, attrs) end)
+
+      assert Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+      Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentSkillLesson, lesson.id), retired)
+    end
   end
 
   describe "apply_skill_lesson_adds/4" do
@@ -150,7 +176,7 @@ defmodule Ankole.AIAgent.LibrarySkillLessonsTest do
 
       assert {:ok, lesson} = Library.create_skill_lesson(agent.uid, "pdf", content, author)
       assert lesson.content == String.trim(content)
-      assert lesson.author_kind == "human"
+      assert lesson.author_kind == :human
 
       assert {:error, :content_contains_url} =
                Library.create_skill_lesson(agent.uid, "pdf", "Read https://example.com", author)
@@ -306,7 +332,7 @@ defmodule Ankole.AIAgent.LibrarySkillLessonsTest do
                )
 
       assert result.obsoleted == 1
-      assert Repo.get!(AgentSkillLesson, lesson.id).retire_reason == "obsolete"
+      assert Repo.get!(AgentSkillLesson, lesson.id).retire_reason == :obsolete
     end
 
     test "human lessons never accept verdicts", %{agent: agent} do

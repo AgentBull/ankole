@@ -55,6 +55,7 @@ impl StreamError {
         }
     }
 
+    #[must_use]
     pub fn provider_status(mut self, status: u16) -> Self {
         self.provider_status = Some(status);
         self
@@ -62,11 +63,13 @@ impl StreamError {
 
     /// Records the error type that the Provider names outside the error body,
     /// for example in an AWS eventstream frame header.
+    #[must_use]
     pub fn provider_error_type(mut self, error_type: &str) -> Self {
         self.provider_error_type = Some(error_type.into());
         self
     }
 
+    #[must_use]
     pub fn provider_body_excerpt(mut self, body: impl AsRef<[u8]>) -> Self {
         let bytes = body.as_ref();
         let limit = bytes.len().min(PROVIDER_BODY_EXCERPT_LIMIT);
@@ -78,16 +81,14 @@ impl StreamError {
         self
     }
 
+    #[must_use]
     pub fn provider_headers(mut self, headers: &[(String, String)]) -> Self {
         self.provider_headers = super::transport::safe_response_headers(headers).into_boxed_slice();
         self
     }
 
     pub fn to_json(&self) -> Value {
-        sonic_rs::to_string(self)
-            .ok()
-            .and_then(|encoded| sonic_rs::from_str::<Value>(&encoded).ok())
-            .unwrap_or_else(error_encoding_failed)
+        serde_json::to_value(self).unwrap_or_else(|_| error_encoding_failed())
     }
 
     pub fn to_openai_error_json(&self) -> Value {
@@ -161,6 +162,8 @@ impl std::fmt::Display for StreamError {
         write!(formatter, "{}: {}", self.stage, self.message)
     }
 }
+
+impl std::error::Error for StreamError {}
 
 impl From<StreamError> for KernelError {
     fn from(error: StreamError) -> Self {

@@ -68,7 +68,7 @@ defmodule Ankole.Logging.JSONFormatterTest do
   test "a Phoenix endpoint request emits one completion log" do
     log =
       capture_log([format: "$metadata$message\n", metadata: [:event]], fn ->
-        conn = Phoenix.ConnTest.build_conn()
+        conn = AnkoleWeb.ConnCase.build_conn()
 
         response =
           Phoenix.ConnTest.dispatch(conn, AnkoleWeb.Endpoint, :get, "/api/v1/agents", nil)

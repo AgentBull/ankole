@@ -78,7 +78,7 @@ defmodule Ankole.KubernetesWorkerUserFlowTest do
       start_lark_connections!(ctx.fake_feishu, connections: 3)
       uid = domain.agent.uid
 
-      assert %AgentWorker{state: "absent", wanted_until: %DateTime{}} =
+      assert %AgentWorker{state: :absent, wanted_until: %DateTime{}} =
                Repo.get!(AgentWorker, uid)
 
       handle = %{kind: :kubernetes, agent_uid: uid}
@@ -258,7 +258,7 @@ defmodule Ankole.KubernetesWorkerUserFlowTest do
                assert :ok = reconcile(uid)
 
                case Repo.get!(AgentWorker, uid) do
-                 %AgentWorker{state: "ready", generation: generation} = worker
+                 %AgentWorker{state: :ready, generation: generation} = worker
                  when generation != previous ->
                    worker
 

@@ -315,24 +315,36 @@ defmodule Ankole.Sessions.ConsoleQueriesTest do
           {key, attrs}
       end
 
-    %Conversation{}
-    |> Conversation.changeset(
-      Map.merge(%{subject_uid: subject_uid, conversation_key: key, metadata: %{}}, Map.new(attrs))
-    )
-    |> Repo.insert!()
+    attrs = Map.new(attrs)
+
+    {:ok, conversation} =
+      Ankole.Ash.create(
+        Conversation,
+        :open,
+        Map.merge(
+          %{subject_uid: subject_uid, conversation_key: key, metadata: %{}},
+          Map.drop(attrs, [:updated_at])
+        )
+      )
+
+    case Map.fetch(attrs, :updated_at) do
+      {:ok, at} -> conversation |> Ecto.Changeset.change(updated_at: at) |> Repo.update!()
+      :error -> conversation
+    end
   end
 
   defp message_fixture(conversation) do
-    %Message{}
-    |> Message.changeset(%{
-      subject_uid: conversation.subject_uid,
-      conversation_id: conversation.id,
-      type: "message",
-      status: "complete",
-      content: [%{"type" => "text", "text" => "hi"}],
-      metadata: %{}
-    })
-    |> Repo.insert!()
+    {:ok, message} =
+      Repo.transact(fn ->
+        Ankole.Ash.create(Message, :journal, %{
+          subject_uid: conversation.subject_uid,
+          conversation_id: conversation.id,
+          content: [%{"type" => "text", "text" => "hi"}],
+          metadata: %{}
+        })
+      end)
+
+    message
   end
 
   defp channel_fixture(provider_id, attrs) do
@@ -341,11 +353,9 @@ defmodule Ankole.Sessions.ConsoleQueriesTest do
     title = attrs[:name] || provider_id
     kind = attrs[:kind] || :im_group
 
-    %PublicConversation{}
-    |> PublicConversation.changeset(
+    Ankole.ExternalConversationsFixtures.create_external_conversation!(
       Map.merge(Map.drop(attrs, [:kind, :name]), %{
         id: Ecto.UUID.generate(),
-        kind: :external,
         external_kind: kind,
         title: title,
         provider_conversation_id: provider_id,
@@ -355,6 +365,5 @@ defmodule Ankole.Sessions.ConsoleQueriesTest do
         last_seen_at: now
       })
     )
-    |> Repo.insert!()
   end
 end

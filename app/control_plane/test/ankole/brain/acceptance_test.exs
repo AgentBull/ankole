@@ -158,9 +158,8 @@ defmodule Ankole.Brain.AcceptanceTest do
       old = DateTime.add(DateTime.utc_now(:microsecond), -2 * 86_400, :second)
 
       insert_fact = fn text, scope, vector ->
-        Repo.insert!(%Claim{
+        insert_fact!(%{
           id: UUIDv7.autogenerate(),
-          claim_type: "fact",
           object_slug: object.slug,
           claim: text,
           kind: "preference",
@@ -194,7 +193,7 @@ defmodule Ankole.Brain.AcceptanceTest do
 
       takes =
         Claim
-        |> where([claim], claim.claim_type == "take" and claim.holder == "brain")
+        |> where([claim], claim.claim_type == :take and claim.holder == "brain")
         |> Repo.all()
 
       assert [take] = takes
@@ -216,7 +215,7 @@ defmodule Ankole.Brain.AcceptanceTest do
 
       takes_after =
         Claim
-        |> where([claim], claim.claim_type == "take" and claim.holder == "brain")
+        |> where([claim], claim.claim_type == :take and claim.holder == "brain")
         |> Repo.aggregate(:count)
 
       assert takes_after == 1
@@ -234,9 +233,8 @@ defmodule Ankole.Brain.AcceptanceTest do
             {"Signature A fact two", "model-a"},
             {"Signature B fact one", "model-b"}
           ] do
-        Repo.insert!(%Claim{
+        insert_fact!(%{
           id: UUIDv7.autogenerate(),
-          claim_type: "fact",
           object_slug: object.slug,
           claim: text,
           kind: "preference",
@@ -264,9 +262,8 @@ defmodule Ankole.Brain.AcceptanceTest do
       old = DateTime.add(DateTime.utc_now(:microsecond), -2 * 86_400, :second)
 
       for index <- 1..3 do
-        Repo.insert!(%Claim{
+        insert_fact!(%{
           id: UUIDv7.autogenerate(),
-          claim_type: "fact",
           object_slug: object.slug,
           claim: "Forgotten consolidation fact #{index}",
           kind: "preference",
@@ -390,7 +387,6 @@ defmodule Ankole.Brain.AcceptanceTest do
 
   describe "source archive fence" do
     test "an archived signal channel source stops learning before extraction" do
-      allow_cache_database_access()
       Ankole.AppConfigure.Cache.clear_for_test()
       on_exit(fn -> Ankole.AppConfigure.Cache.clear_for_test() end)
 
@@ -468,7 +464,7 @@ defmodule Ankole.Brain.AcceptanceTest do
       assert Ankole.Brain.SelfHealing.reconcile_body_links() == 0
 
       links =
-        Repo.all(from l in Ankole.Brain.Schemas.Link, where: l.from_object_slug == ^object.slug)
+        Repo.all(from(l in Ankole.Brain.Schemas.Link, where: l.from_object_slug == ^object.slug))
 
       assert Enum.sort(Enum.map(links, & &1.link_source)) == ["markdown", "mentions"]
 
@@ -477,7 +473,7 @@ defmodule Ankole.Brain.AcceptanceTest do
       assert MapSet.new(links, & &1.id) ==
                MapSet.new(
                  Repo.all(
-                   from l in Ankole.Brain.Schemas.Link, where: l.from_object_slug == ^object.slug
+                   from(l in Ankole.Brain.Schemas.Link, where: l.from_object_slug == ^object.slug)
                  ),
                  & &1.id
                )
@@ -507,7 +503,7 @@ defmodule Ankole.Brain.AcceptanceTest do
 
       assert [%{link_source: "manual"}] =
                Repo.all(
-                 from l in Ankole.Brain.Schemas.Link, where: l.from_object_slug == ^object.slug
+                 from(l in Ankole.Brain.Schemas.Link, where: l.from_object_slug == ^object.slug)
                )
     end
   end
@@ -516,21 +512,17 @@ defmodule Ankole.Brain.AcceptanceTest do
     now = DateTime.utc_now(:microsecond)
     kind = attrs[:kind] || :im_group
 
-    Repo.insert!(
-      Ankole.Conversations.Conversation.changeset(
-        %Ankole.Conversations.Conversation{},
-        Map.merge(Map.drop(attrs, [:kind]), %{
-          id: Ecto.UUID.generate(),
-          kind: :external,
-          external_kind: kind,
-          provider_conversation_id: "test:acceptance-#{System.unique_integer([:positive])}",
-          title: "Conversation",
-          reply_mode: :entry,
-          last_activity_at: now,
-          first_seen_at: now,
-          last_seen_at: now
-        })
-      )
+    Ankole.ExternalConversationsFixtures.create_external_conversation!(
+      Map.merge(Map.drop(attrs, [:kind]), %{
+        id: Ecto.UUID.generate(),
+        external_kind: kind,
+        provider_conversation_id: "test:acceptance-#{System.unique_integer([:positive])}",
+        title: "Conversation",
+        reply_mode: :entry,
+        last_activity_at: now,
+        first_seen_at: now,
+        last_seen_at: now
+      })
     )
   end
 
@@ -551,5 +543,16 @@ defmodule Ankole.Brain.AcceptanceTest do
       )
 
     result
+  end
+
+  defp insert_fact!(attrs) do
+    {created_at, attrs} = Map.pop(attrs, :created_at)
+    {:ok, claim} = Repo.transact(fn _repo -> Ankole.Ash.create(Claim, :record_fact, attrs) end)
+
+    # Historical consolidation input must predate the configured age window.
+    claim
+    |> AshPostgres.DataLayer.to_ecto()
+    |> Ecto.Changeset.change(created_at: created_at)
+    |> Repo.update!()
   end
 end

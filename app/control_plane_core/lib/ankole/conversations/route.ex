@@ -184,6 +184,7 @@ defmodule Ankole.Conversations.Route do
                "background_agent_job.dispatch",
                "background_agent_job.completed",
                "background_agent_job.failed",
+               "background_agent_job.input_undeliverable",
                "background_agent_job.waiting"
              ] ->
           source_message([%{job_id: job_id, agent_uid: uid} | rest], visited, mode)

@@ -429,6 +429,41 @@ defmodule FeishuOpenAPI.UserTokenManagerTest do
     assert {:ok, "u-after-retry"} = Task.await(second, 1_000)
   end
 
+  test "refresh crashes preserve the private cause without exposing it or wedging retries", %{
+    client: client,
+    user_key: user_key
+  } do
+    secret = "private-refresh-body-should-not-escape"
+
+    :ok =
+      UserTokenManager.put(client, user_key, %{
+        access_token: "u-old",
+        refresh_token: secret,
+        expires_in: 1,
+        refresh_expires_in: 2_592_000,
+        raw: %{}
+      })
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      assert conn.request_path == "/open-apis/authen/v1/oidc/refresh_access_token"
+      raise secret
+    end)
+
+    :ok = Req.Test.allow(__MODULE__, self(), Process.whereis(UserTokenManager))
+
+    for _ <- 1..2 do
+      assert {:error,
+              %FeishuOpenAPI.Error{
+                code: :user_refresh_crashed,
+                msg: "managed user_access_token refresh crashed",
+                details: {:error, %RuntimeError{message: ^secret}}
+              } = error} = UserTokenManager.get(client, user_key)
+
+      refute inspect(error) =~ secret
+      refute Exception.message(error) =~ secret
+    end
+  end
+
   test "concurrent refreshes on different keys proceed in parallel", %{client: client} do
     parent = self()
     keys = for i <- 1..5, do: "user_par_#{i}"

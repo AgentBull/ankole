@@ -3,18 +3,15 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
   Oban wake edge that dispatches one durable automation job run to the
   Worker of the job's Agent.
 
-  The run waits while that Worker is not ready: the job requests the Worker
-  and snoozes, which does not consume an attempt, and the attempt starts when
-  the Worker can take it. A Worker that is still not ready
-  `agent_computer.worker.ready_timeout` after the run became queued counts as
-  one infrastructure failure, so a Worker that cannot start fails the run
-  within the attempt budget. A run that finished or was cancelled meanwhile
-  ends the job without a Worker.
+  Automation Jobs persists the AgentWorkers readiness decision during admission.
+  A wait requests an unavailable Worker and snoozes without an attempt. A timeout
+  counts as an infrastructure failure. Each new attempt starts its own script
+  execution budget. A finished or cancelled run ends the job without a Worker.
   """
 
   use Ankole.Job,
     tenancy: :tenant,
-    queue: :default,
+    queue: :automation_jobs,
     max_attempts: 5,
     unique: [
       fields: [:worker, :args],
@@ -26,7 +23,6 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
   alias Ankole.AutomationJobs
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AgentWorkers
-  alias Ankole.AgentWorkers.Settings, as: WorkerSettings
   alias Ankole.AgentWorkers.RPCWire
   alias Ankole.AgentWorkers.WorkerRoute
 
@@ -41,7 +37,7 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
   def run(%Oban.Job{args: %{"automation_job_run_id" => run_id}} = oban_job)
       when is_integer(run_id) and run_id > 0 do
     case AutomationJobs.pending_run(run_id) do
-      {:ok, %{run: %{status: "running"} = run}} -> await_running_attempt(run, oban_job)
+      {:ok, %{run: %{status: :running} = run}} -> await_running_attempt(run, oban_job)
       {:ok, pending} -> start_when_ready(run_id, pending, oban_job)
       {:error, :automation_job_run_finished} -> :ok
       {:error, :automation_job_run_not_found} -> {:cancel, :automation_job_run_not_found}
@@ -61,34 +57,20 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
   end
 
   defp start_when_ready(run_id, pending, oban_job) do
-    case AgentWorkers.ready_worker(pending.agent_uid) do
-      {:ok, _worker} = ready ->
-        start_attempt(run_id, ready, oban_job)
-
-      {:error, :agent_worker_unavailable} = unavailable ->
-        :ok = AgentWorkers.request(pending.agent_uid)
-
-        if waited_out?(pending.waiting_since),
-          do: start_attempt(run_id, unavailable, oban_job),
-          else: {:snooze, @worker_wait_seconds}
-    end
-  end
-
-  defp waited_out?(waiting_since) do
-    DateTime.diff(DateTime.utc_now(), waiting_since, :millisecond) >=
-      WorkerSettings.current().ready_timeout_ms
-  end
-
-  defp start_attempt(run_id, worker, oban_job) do
     case AutomationJobs.start_attempt(run_id) do
       {:ok, :noop} ->
         :ok
 
-      {:ok, %{automation_job: job, run: run}} ->
-        case worker do
-          {:ok, worker} -> dispatch_attempt(worker, job, run, oban_job)
-          {:error, reason} -> handle_infrastructure_failure(run, reason, oban_job)
-        end
+      {:ok, %{status: :waiting_for_worker, worker: worker}} ->
+        if is_nil(worker), do: AgentWorkers.request(pending.agent_uid)
+        {:snooze, @worker_wait_seconds}
+
+      {:ok, %{worker: nil, run: run}} ->
+        :ok = AgentWorkers.request(pending.agent_uid)
+        handle_infrastructure_failure(run, :agent_worker_unavailable, oban_job)
+
+      {:ok, %{worker: worker, automation_job: job, run: run}} ->
+        dispatch_attempt(worker, job, run, oban_job)
 
       {:error, :automation_job_run_not_found} ->
         {:cancel, :automation_job_run_not_found}

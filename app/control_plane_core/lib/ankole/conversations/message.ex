@@ -1,34 +1,122 @@
 defmodule Ankole.Conversations.Message do
   @moduledoc "A committed statement. External observations follow provider edits and removals."
-  use Ankole.Schema, tenancy: :tenant, tenant_in_primary_key: true
-  import Ecto.Changeset
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    tenant_in_primary_key: true,
+    domain: Ankole.Conversations.Domain
 
-  @primary_key {:id, Ankole.Ecto.UUIDv7, []}
   @type t :: %__MODULE__{}
 
-  schema "conversation_messages" do
-    field :conversation_id, Ankole.Ecto.UUIDv7
-    field :seq, :integer
-    field :author_type, Ecto.Enum, values: [:human, :agent, :unknown]
-    field :author_uid, Ankole.Ecto.PrincipalKey
-    field :kind, Ecto.Enum, values: [:message, :notice], default: :message
-    field :text, :string
-    field :attachments, {:array, :map}, default: []
-    field :links, {:array, :map}, default: []
-    field :mentions, {:array, :map}, default: []
-    field :rich_content, :map
-    field :reply_to_message_id, Ankole.Ecto.UUIDv7
-    field :origin, Ecto.Enum, values: [:native, :external], default: :native
-    field :session_id, :string
-    field :signal_id, Ankole.Ecto.UUIDv7
-    field :created_at, :utc_datetime_usec
+  postgres do
+    table("conversation_messages")
+    repo(Ankole.Repo)
+    migrate?(false)
+
+    unique_index_names([
+      {[:tenant_id, :id], "conversation_messages_pkey"},
+      {[:tenant_id, :conversation_id, :seq], "conversation_messages_sequence_index"},
+      {[:tenant_id, :conversation_id, :signal_id], "conversation_messages_signal_index"}
+    ])
+
+    foreign_key_names([
+      {:conversation_id, "conversation_messages_conversation_id_fkey"},
+      {:author_uid, "conversation_messages_author_uid_fkey"},
+      {:signal_id, "conversation_messages_signal_id_fkey"},
+      {:reply_to_message_id, "conversation_messages_reply_to_message_id_fkey"}
+    ])
+
+    check_constraints do
+      check_constraint(:text, "conversation_messages_text_present")
+      check_constraint(:author_type, "conversation_messages_author_type_check")
+      check_constraint(:kind, "conversation_messages_kind_check")
+      check_constraint(:origin, "conversation_messages_origin_check")
+      check_constraint(:signal_id, "conversation_messages_provenance_check")
+      check_constraint(:seq, "conversation_messages_sequence_positive")
+    end
   end
 
-  def changeset(message, attrs) do
-    message
-    |> cast(
-      attrs,
-      [
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7, primary_key?: true, allow_nil?: false, public?: true)
+    attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false, public?: true)
+    attribute(:seq, :integer, allow_nil?: false, constraints: [min: 1], public?: true)
+
+    attribute(:author_type, :atom,
+      constraints: [one_of: [:human, :agent, :unknown]],
+      allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:author_uid, Ankole.Ash.Types.PrincipalKey, public?: true)
+
+    attribute(:kind, :atom,
+      constraints: [one_of: [:message, :notice]],
+      default: :message,
+      allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:text, :string, constraints: [trim?: false, allow_empty?: true], public?: true)
+
+    attribute(:attachments, {:array, Ankole.Ash.Types.JSONMap},
+      default: [],
+      allow_nil?: false,
+      constraints: [items: [allow_datetime?: true]],
+      public?: true
+    )
+
+    attribute(:links, {:array, Ankole.Ash.Types.JSONMap},
+      default: [],
+      allow_nil?: false,
+      constraints: [items: [allow_datetime?: true]],
+      public?: true
+    )
+
+    attribute(:mentions, {:array, Ankole.Ash.Types.JSONMap},
+      default: [],
+      allow_nil?: false,
+      constraints: [items: [allow_datetime?: true]],
+      public?: true
+    )
+
+    attribute(:rich_content, Ankole.Ash.Types.JSONMap, public?: true)
+    attribute(:reply_to_message_id, Ankole.Ash.Types.UUIDv7, public?: true)
+
+    attribute(:origin, :atom,
+      constraints: [one_of: [:native, :external]],
+      default: :native,
+      allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:session_id, :string,
+      constraints: [trim?: false, allow_empty?: true],
+      public?: true
+    )
+
+    attribute(:signal_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:created_at, :utc_datetime_usec, allow_nil?: false, public?: true)
+  end
+
+  validations do
+    validate(present(:author_uid), where: [attribute_equals(:origin, :native)])
+
+    validate(present(:text),
+      where: [attribute_equals(:origin, :native), attribute_equals(:attachments, [])]
+    )
+
+    validate(match(:text, ~r/\S/u),
+      where: [attribute_equals(:origin, :native), attribute_equals(:attachments, [])]
+    )
+  end
+
+  actions do
+    defaults([:read])
+
+    create :record do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+
+      accept([
         :id,
         :conversation_id,
         :seq,
@@ -45,51 +133,64 @@ defmodule Ankole.Conversations.Message do
         :session_id,
         :signal_id,
         :created_at
-      ],
-      empty_values: []
-    )
-    |> validate_required([
-      :id,
-      :conversation_id,
-      :seq,
-      :author_type,
-      :kind,
-      :attachments,
-      :origin,
-      :created_at
-    ])
-    |> validate_native_statement()
-    |> Ankole.Ecto.JSONPayload.validate_list(:attachments, allow_datetime: true)
-    |> Ankole.Ecto.JSONPayload.validate_list(:links, allow_datetime: true)
-    |> Ankole.Ecto.JSONPayload.validate_list(:mentions, allow_datetime: true)
-    |> validate_number(:seq, greater_than: 0)
-    |> unique_constraint([:tenant_id, :id], name: :conversation_messages_pkey)
-    |> unique_constraint([:tenant_id, :conversation_id, :seq],
-      name: :conversation_messages_sequence_index
-    )
-    |> unique_constraint([:tenant_id, :conversation_id, :signal_id],
-      name: :conversation_messages_signal_index
-    )
-    |> foreign_key_constraint(:conversation_id)
-    |> foreign_key_constraint(:author_uid)
-    |> foreign_key_constraint(:signal_id)
-    |> foreign_key_constraint(:reply_to_message_id)
-    |> check_constraint(:text, name: :conversation_messages_text_present)
-    |> check_constraint(:author_type, name: :conversation_messages_author_type_check)
-    |> check_constraint(:kind, name: :conversation_messages_kind_check)
-    |> check_constraint(:origin, name: :conversation_messages_origin_check)
-    |> check_constraint(:signal_id, name: :conversation_messages_provenance_check)
-  end
+      ])
+    end
 
-  defp validate_native_statement(changeset) do
-    if get_field(changeset, :origin) == :native do
-      changeset = validate_required(changeset, [:author_uid])
+    create_if_absent :record_once do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
 
-      if get_field(changeset, :attachments, []) == [],
-        do: validate_required(changeset, [:text]),
-        else: changeset
-    else
-      changeset
+      accept([
+        :id,
+        :conversation_id,
+        :seq,
+        :author_type,
+        :author_uid,
+        :kind,
+        :text,
+        :attachments,
+        :links,
+        :mentions,
+        :rich_content,
+        :reply_to_message_id,
+        :origin,
+        :session_id,
+        :signal_id,
+        :created_at
+      ])
+    end
+
+    in_tx_update :edit do
+      accept([:text, :links])
+      validate(attribute_equals(:origin, :native))
+    end
+
+    in_tx_update :observe do
+      accept([
+        :author_type,
+        :author_uid,
+        :kind,
+        :text,
+        :attachments,
+        :links,
+        :mentions,
+        :rich_content,
+        :reply_to_message_id,
+        :session_id,
+        :signal_id
+      ])
+
+      validate(attribute_equals(:origin, :external))
+    end
+
+    in_tx_update :resolve_attachments do
+      accept([:attachments])
+    end
+
+    destroy :remove do
+      transaction?(false)
+      require_atomic?(true)
+      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 end

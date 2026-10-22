@@ -4,7 +4,6 @@ defmodule Ankole.Pod.DatabaseReviewTest do
   alias Ankole.Pod.{Config, Database, DbField, DbRecord, DbTable, Pages}
 
   setup do
-    allow_cache_database_access()
     Ankole.AppConfigure.Cache.clear_for_test()
     uid = human_fixture().principal.uid
     {:ok, page} = Pages.create(uid, %{type: "database", title: "Review"})

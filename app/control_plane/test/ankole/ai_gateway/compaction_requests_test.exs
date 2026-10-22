@@ -186,7 +186,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
       |> Enum.filter(&(get_in(&1.metadata, ["request_metadata", "signal_id"]) == signal.id))
 
     assert run.previous_message_id == compaction.id
-    assert run.status == "error"
+    assert run.status == :error
     assert run.content == current_input
     assert run.metadata["error"]["stage"] == "socket_open"
     assert is_nil(Repo.get!(Signal, signal.id).completed_at)
@@ -383,14 +383,14 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
 
     [compaction] =
       Repo.all(Message)
-      |> Enum.filter(&(&1.type == "checkpoint"))
+      |> Enum.filter(&(&1.type == :checkpoint))
 
     assert compaction.previous_message_id == m3.id
     assert compaction.metadata["auto"] == true
     assert get_in(compaction.metadata, ["summarizer", "usage", "total_tokens"]) == 18
 
     run = stateful_context.message
-    assert run.status == "generating"
+    assert run.status == :generating
     assert run.previous_message_id == compaction.id
 
     assert get_in(run.metadata, ["auto_compaction", "response_id"]) ==
@@ -531,7 +531,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
 
     checkpoint =
       Repo.all(Message)
-      |> Enum.find(&(&1.type == "checkpoint" and &1.previous_message_id == tail.id))
+      |> Enum.find(&(&1.type == :checkpoint and &1.previous_message_id == tail.id))
 
     artifact = Repo.get!(CompactionArtifact, checkpoint.id)
 
@@ -591,7 +591,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
     assert_receive {:gateway_request, summarizer_request}
     assert summarizer_request.body["input"] =~ "completed report"
 
-    [compaction] = Repo.all(Message) |> Enum.filter(&(&1.type == "checkpoint"))
+    [compaction] = Repo.all(Message) |> Enum.filter(&(&1.type == :checkpoint))
     assert compaction.previous_message_id == latest.id
     assert compaction.metadata["auto"] == true
     assert compaction.metadata["covered_message_count"] == 1
@@ -677,7 +677,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
 
     [next_checkpoint] =
       Repo.all(Message)
-      |> Enum.filter(&(&1.type == "checkpoint" and &1.id != previous_checkpoint.id))
+      |> Enum.filter(&(&1.type == :checkpoint and &1.id != previous_checkpoint.id))
 
     assert next_checkpoint.previous_message_id == latest.id
     assert next_checkpoint.metadata["covered_message_count"] == 1
@@ -726,8 +726,8 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
       |> Enum.map(fn content ->
         %Message{
           id: UUIDv7.autogenerate(),
-          type: "message",
-          status: "complete",
+          type: :message,
+          status: :complete,
           content: content,
           metadata: %{}
         }
@@ -810,8 +810,8 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
       |> Enum.map(fn content ->
         %Message{
           id: UUIDv7.autogenerate(),
-          type: "message",
-          status: "complete",
+          type: :message,
+          status: :complete,
           content: content,
           metadata: %{}
         }
@@ -973,7 +973,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
 
     [compaction] =
       Repo.all(Message)
-      |> Enum.filter(&(&1.type == "checkpoint"))
+      |> Enum.filter(&(&1.type == :checkpoint))
 
     assert compaction.previous_message_id == m4.id
     assert compaction.metadata["auto"] == true
@@ -1107,7 +1107,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
     refute Ankole.JSON.encode!(provider_input) =~ "PROGRAM_RESULT_SENTINEL"
     refute Ankole.JSON.encode!(provider_input) =~ "FINAL_RESPONSE_SENTINEL"
 
-    [checkpoint] = Repo.all(Message) |> Enum.filter(&(&1.type == "checkpoint"))
+    [checkpoint] = Repo.all(Message) |> Enum.filter(&(&1.type == :checkpoint))
     assert checkpoint.metadata["covered_message_count"] == 4
 
     assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, checkpoint.id)
@@ -1314,7 +1314,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
              })
 
     assert history_usage_tokens > 10
-    refute Enum.any?(Repo.all(Message), &(&1.type == "checkpoint"))
+    refute Enum.any?(Repo.all(Message), &(&1.type == :checkpoint))
     refute_receive {:gateway_request, _request}
   end
 
@@ -1447,7 +1447,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
     provider_input = request.response_context.request["input"]
     assert List.last(provider_input) == List.last(current_input)
     assert length(provider_input) == 16
-    refute Enum.any?(Repo.all(Message), &(&1.type == "checkpoint"))
+    refute Enum.any?(Repo.all(Message), &(&1.type == :checkpoint))
   end
 
   test "auto truncation returns context overflow for an unsettled client Tool Search call" do
@@ -1458,8 +1458,8 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
     history = [
       %Message{
         id: UUIDv7.autogenerate(),
-        type: "message",
-        status: "complete",
+        type: :message,
+        status: :complete,
         content: [
           %{
             "type" => "tool_search_call",
@@ -1473,8 +1473,8 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
       },
       %Message{
         id: UUIDv7.autogenerate(),
-        type: "message",
-        status: "complete",
+        type: :message,
+        status: :complete,
         content: [
           text_message("assistant", "latest response")
         ],
@@ -1532,15 +1532,15 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
     history = [
       %Message{
         id: UUIDv7.autogenerate(),
-        type: "message",
-        status: "complete",
+        type: :message,
+        status: :complete,
         content: [search_call, search_output],
         metadata: camel_usage(20)
       },
       %Message{
         id: UUIDv7.autogenerate(),
-        type: "message",
-        status: "complete",
+        type: :message,
+        status: :complete,
         content: [
           text_message("assistant", "latest response")
         ],
@@ -1637,7 +1637,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
     )
 
     assert stable_input == call.content ++ tail.content ++ current_input
-    assert Enum.count(Repo.all(Message), &(&1.type == "checkpoint")) == 1
+    assert Enum.count(Repo.all(Message), &(&1.type == :checkpoint)) == 1
   end
 
   test "websocket stateful truncation keeps a program call with its output" do
@@ -1864,11 +1864,11 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
 
     stable_tail = tail.content ++ current_input
     assert Enum.take(provider_request["input"], -length(stable_tail)) == stable_tail
-    assert Enum.count(Repo.all(Message), &(&1.type == "checkpoint")) == 2
+    assert Enum.count(Repo.all(Message), &(&1.type == :checkpoint)) == 2
 
     first_truncation =
       Repo.all(Message)
-      |> Enum.find(&(&1.type == "checkpoint" and &1.previous_message_id == tail.id))
+      |> Enum.find(&(&1.type == :checkpoint and &1.previous_message_id == tail.id))
 
     assert %Message{} = first_truncation
     assert run.previous_message_id == first_truncation.id
@@ -1907,7 +1907,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
 
     next_stable_tail = next_tail.content ++ next_input
     assert Enum.take(next_provider_input, -length(next_stable_tail)) == next_stable_tail
-    assert Enum.count(Repo.all(Message), &(&1.type == "checkpoint")) == 3
+    assert Enum.count(Repo.all(Message), &(&1.type == :checkpoint)) == 3
   end
 
   test "websocket stateful truncation checkpoints the safe tail and keeps opaque audit" do
@@ -1976,7 +1976,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
 
     assert retained_input == m2.content ++ current_input
     assert provider_request["truncation"] == "auto"
-    [checkpoint] = Enum.filter(Repo.all(Message), &(&1.type == "checkpoint"))
+    [checkpoint] = Enum.filter(Repo.all(Message), &(&1.type == :checkpoint))
     assert checkpoint.previous_message_id == m2.id
     refute_receive {:gateway_request, _request}
 
@@ -2005,7 +2005,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
     assert Enum.drop(artifact.content["output"], 1) == m2.content
 
     run = stateful_context.message
-    assert run.status == "generating"
+    assert run.status == :generating
     assert run.previous_message_id == checkpoint.id
     assert run.content == current_input
     assert run.metadata["truncation"] == "auto"
@@ -2191,7 +2191,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
     refute Enum.any?(provider_request["input"], &(&1 in m1.content))
     assert Enum.take(provider_request["input"], -2) == m3.content ++ current_input
 
-    [checkpoint] = Enum.filter(Repo.all(Message), &(&1.type == "checkpoint"))
+    [checkpoint] = Enum.filter(Repo.all(Message), &(&1.type == :checkpoint))
     assert checkpoint.metadata["strategy"] == "stable_tail"
     assert checkpoint.metadata["auto_truncation"]["reason"] == "empty_compaction_summary"
     assert %CompactionArtifact{} = Repo.get!(CompactionArtifact, checkpoint.id)
@@ -2280,7 +2280,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
     assert [first_cap, retry_cap] = Agent.get(caps, & &1)
     assert retry_cap > first_cap
 
-    [checkpoint] = Enum.filter(Repo.all(Message), &(&1.type == "checkpoint"))
+    [checkpoint] = Enum.filter(Repo.all(Message), &(&1.type == :checkpoint))
     refute checkpoint.metadata["strategy"] == "stable_tail"
     assert %CompactionArtifact{content: content} = Repo.get!(CompactionArtifact, checkpoint.id)
     assert content["summary"]["text"] =~ "Retried summary."
@@ -2376,7 +2376,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
     # continues from it.
     assert body["id"] == "resp_#{artifact_id}"
 
-    assert %Message{type: "checkpoint", conversation_id: ^conversation_id} =
+    assert %Message{type: :checkpoint, conversation_id: ^conversation_id} =
              Repo.get!(Message, artifact_id)
 
     assert Repo.get!(CompactionArtifact, artifact_id).content["summary"] ==
@@ -2386,11 +2386,11 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
     # pre-compaction rows stay readable, which is what lets a later binding
     # change rebuild the history from raw predecessors.
     for original <- [m1, m2, m3] do
-      assert %Message{status: "complete"} = Repo.get!(Message, original.id)
+      assert %Message{status: :complete} = Repo.get!(Message, original.id)
     end
 
     visible = ResponseChain.expand_history(conversation_id)
-    assert Enum.map(visible, & &1.type) == ["checkpoint"]
+    assert Enum.map(visible, & &1.type) == [:checkpoint]
 
     raw =
       ResponseChain.expand_history(conversation_id,
@@ -2457,7 +2457,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
 
     artifact = Repo.get!(CompactionArtifact, artifact_id)
     refute Ankole.JSON.encode!(artifact.content) =~ "UNRELATED_NEWER_BRANCH"
-    assert Repo.get!(Message, newer.id).status == "complete"
+    assert Repo.get!(Message, newer.id).status == :complete
   end
 
   test "a stored compaction trigger rejects an anchor from another owned conversation" do
@@ -2571,7 +2571,7 @@ defmodule Ankole.AIGateway.CompactionRequestsTest do
              Enum.filter(events, &(&1["type"] == "response.output_item.done"))
 
     assert List.last(events)["response"]["id"] == "resp_#{artifact_id}"
-    assert %Message{type: "checkpoint"} = Repo.get!(Message, artifact_id)
+    assert %Message{type: :checkpoint} = Repo.get!(Message, artifact_id)
   end
 
   test "local standalone compact uses the request model context budget" do

@@ -1,104 +1,102 @@
 defmodule Ankole.Sessions.AmbientJudgment do
   @moduledoc """
-  Durable record of one ambient recognizer decision.
+  Stores the canonical ambient route and this Agent's conversation progress.
 
-  One row per `im.message.may_intervene` Signal. A worker retry for the
-  same event returns this canonical row, so retries cannot select a different
-  route or HANDOFF target. `judged_until` records this Agent's progress in the
-  shared conversation; `asked_by_state` records whether a proposed
-  attribution passed worker validation (`accepted`) or failed it (`degraded`).
+  A retry returns the same decision. Removal of an accepted message anchor
+  degrades its attribution but preserves the decision and progress.
   """
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Sessions.Domain
 
-  use Ankole.Schema, tenancy: :tenant
+  postgres do
+    table("session_ambient_judgments")
+    repo(Ankole.Repo)
+    migrate?(false)
 
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
-
-  alias Ankole.Principals.Principal
-  alias Ankole.Signals.Signal
-
-  @primary_key false
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
-  @actions ~w(NOOP FOREGROUND_REPLY NEW_WORK HANDOFF)
-  @authorities ~w(NONE EXPLICIT_REQUEST STANDING_ORDER)
-  @asked_by_states ~w(accepted degraded)
-
-  @type t :: %__MODULE__{}
-
-  schema "session_ambient_judgments" do
-    belongs_to :signal, Signal, type: Ankole.Ecto.UUIDv7, primary_key: true
-
-    belongs_to :agent, Principal,
-      foreign_key: :agent_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
-
-    field :conversation_id, Ecto.UUID
-    field :action, :string
-    field :authority, :string
-    field :handoff_job_id, :integer
-    field :reason, :string, default: ""
-    field :asked_by_message_id, Ecto.UUID
-    field :asked_by_state, :string
-    field :judged_until, :utc_datetime_usec
-
-    timestamps()
-  end
-
-  @doc """
-  Builds a changeset for ambient judgment rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(judgment, attrs) do
-    judgment
-    |> cast(attrs, [
-      :signal_id,
-      :agent_uid,
-      :conversation_id,
-      :action,
-      :authority,
-      :handoff_job_id,
-      :reason,
-      :asked_by_message_id,
-      :asked_by_state,
-      :judged_until
+    foreign_key_names([
+      {:signal_id, "session_ambient_judgments_signal_id_fkey"},
+      {:agent_uid, "session_ambient_judgments_agent_uid_fkey"}
     ])
-    |> normalize_blank([:asked_by_message_id, :asked_by_state])
-    |> update_change(:reason, &String.slice(&1 || "", 0, 2_000))
-    |> validate_required([:signal_id, :agent_uid, :conversation_id, :action, :authority])
-    |> validate_inclusion(:action, @actions)
-    |> validate_inclusion(:authority, @authorities)
-    |> validate_number(:handoff_job_id, greater_than: 0)
-    |> validate_action_contract()
-    |> validate_inclusion(:asked_by_state, @asked_by_states, allow_nil: true)
-    |> foreign_key_constraint(:signal_id)
-    |> foreign_key_constraint(:agent_uid)
-    |> check_constraint(:asked_by_state,
-      name: :session_ambient_judgments_asked_by_state_check
-    )
-    |> check_constraint(:action,
-      name: :session_ambient_judgments_action_contract_check
-    )
+
+    check_constraints do
+      check_constraint(:asked_by_state, "session_ambient_judgments_asked_by_state_check")
+      check_constraint(:asked_by_state, "session_ambient_judgments_asked_by_shape_check")
+      check_constraint(:action, "session_ambient_judgments_action_contract_check")
+    end
   end
 
-  defp validate_action_contract(changeset) do
-    action = get_field(changeset, :action)
-    authority = get_field(changeset, :authority)
-    handoff_job_id = get_field(changeset, :handoff_job_id)
+  attributes do
+    attribute(:signal_id, Ankole.Ash.Types.UUIDv7, primary_key?: true, allow_nil?: false)
+    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+    attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+    attribute(:action, :string, allow_nil?: false)
+    attribute(:authority, :string, allow_nil?: false)
+    attribute(:handoff_job_id, :integer, constraints: [min: 1])
 
-    cond do
-      action != "NEW_WORK" and authority != "NONE" ->
-        add_error(changeset, :authority, "must be NONE unless action is NEW_WORK")
+    attribute(:reason, :string,
+      default: "",
+      allow_nil?: false,
+      constraints: [trim?: false, allow_empty?: true]
+    )
 
-      action == "HANDOFF" and is_nil(handoff_job_id) ->
-        add_error(changeset, :handoff_job_id, "is required for HANDOFF")
+    attribute(:asked_by_message_id, Ankole.Ash.Types.UUIDv7)
+    attribute(:asked_by_state, :string)
+    attribute(:judged_until, :utc_datetime_usec)
+    timestamps(type: :utc_datetime_usec)
+  end
 
-      action != "HANDOFF" and not is_nil(handoff_job_id) ->
-        add_error(changeset, :handoff_job_id, "is only valid for HANDOFF")
+  actions do
+    defaults([:read])
 
-      true ->
-        changeset
+    create :record do
+      primary?(true)
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+
+      accept([
+        :signal_id,
+        :agent_uid,
+        :conversation_id,
+        :action,
+        :authority,
+        :handoff_job_id,
+        :reason,
+        :asked_by_message_id,
+        :asked_by_state,
+        :judged_until
+      ])
+
+      change(fn changeset, _context ->
+        Ash.Changeset.change_attribute(
+          changeset,
+          :reason,
+          String.slice(Ash.Changeset.get_attribute(changeset, :reason) || "", 0, 2_000)
+        )
+      end)
+
+      validate(attribute_in(:action, ~w(NOOP FOREGROUND_REPLY NEW_WORK HANDOFF)))
+      validate(attribute_in(:authority, ~w(NONE EXPLICIT_REQUEST STANDING_ORDER)))
+      validate(attribute_in(:asked_by_state, [nil, "accepted", "degraded"]))
+
+      validate(attribute_equals(:authority, "NONE"),
+        where: [attribute_does_not_equal(:action, "NEW_WORK")]
+      )
+
+      validate(present(:handoff_job_id), where: [attribute_equals(:action, "HANDOFF")])
+      validate(absent(:handoff_job_id), where: [attribute_does_not_equal(:action, "HANDOFF")])
+
+      validate(present(:asked_by_message_id),
+        where: [attribute_equals(:asked_by_state, "accepted")]
+      )
+
+      validate(absent(:asked_by_message_id),
+        where: [attribute_does_not_equal(:asked_by_state, "accepted")]
+      )
+    end
+
+    atomic_in_tx_update :degrade_anchor do
+      accept([])
+      change(set_attribute(:asked_by_state, "degraded"))
+      change(set_attribute(:asked_by_message_id, nil))
     end
   end
 end

@@ -437,6 +437,12 @@ The adapter converts provider events, runs connections, renders CardKit, and
 classifies provider errors. Agent Computer never receives the application
 secret.
 
+Callback failure logs keep the failure class and source locations. They omit
+exception messages, function arguments, and callback data. Token fetch and
+refresh errors keep fixed public messages; their original causes stay in the
+redacted `details` field. A failed card callback returns a fixed HTTP 500
+response so that the provider can retry without receiving private error data.
+
 A control-plane restart rebuilds long connections. The startup job refreshes
 stored IM groups, and a full directory sync repairs identity drift. CardKit
 checkpoints and Delivery intents in PostgreSQL let provider delivery continue. If a

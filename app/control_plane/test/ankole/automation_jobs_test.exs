@@ -26,14 +26,20 @@ defmodule Ankole.AutomationJobsTest do
     run = enqueue!(job, trigger_event("first"))
 
     assert_enqueued(worker: ExecuteRun, args: %{"automation_job_run_id" => run.id})
-    assert run.status == "queued"
+    assert run.status == :queued
     assert run.attempts == 0
+
+    assert {:ok, _worker} =
+             Ankole.SessionsCase.admit_worker("automation-test-#{agent.uid}", %{
+               worker_id: agent.uid
+             })
 
     assert {:ok, %{run: first_attempt}} =
              AutomationJobs.start_attempt(run.id, now: @now)
 
-    assert first_attempt.status == "running"
+    assert first_attempt.status == :running
     assert first_attempt.attempts == 1
+    assert first_attempt.started_at == @now
     assert Ecto.UUID.cast(first_attempt.attempt_id) != :error
 
     assert {:ok, replayable} =
@@ -45,7 +51,7 @@ defmodule Ankole.AutomationJobsTest do
                now: DateTime.add(@now, 1, :second)
              )
 
-    assert replayable.status == "queued"
+    assert replayable.status == :queued
     assert replayable.attempt_id == nil
     assert replayable.attempts == 1
 
@@ -68,6 +74,7 @@ defmodule Ankole.AutomationJobsTest do
              AutomationJobs.start_attempt(run.id, now: DateTime.add(@now, 2, :second))
 
     assert second_attempt.attempts == 2
+    assert second_attempt.started_at == DateTime.add(@now, 2, :second)
     refute second_attempt.attempt_id == first_attempt.attempt_id
 
     assert {:ok, emitted} =
@@ -92,7 +99,7 @@ defmodule Ankole.AutomationJobsTest do
                now: DateTime.add(@now, 4, :second)
              )
 
-    assert failed.status == "failed"
+    assert failed.status == :failed
     assert failed.attempts == 2
     assert failed.error =~ "worker_replay_exhausted"
 
@@ -111,7 +118,7 @@ defmodule Ankole.AutomationJobsTest do
     run = enqueue!(job, trigger_event("waits-for-worker"))
 
     assert {:snooze, 10} = execute(run, attempt: 1)
-    assert %Run{status: "queued", attempts: 0} = Repo.get!(Run, run.id)
+    assert %Run{status: :queued, attempts: 0} = Repo.get!(Run, run.id)
     assert %AgentWorker{wanted_until: %DateTime{}} = Repo.get!(AgentWorker, agent.uid)
     assert_enqueued(worker: ReconcileJob, args: %{"agent_uid" => agent.uid})
 
@@ -133,16 +140,17 @@ defmodule Ankole.AutomationJobsTest do
     wait_past_ready_timeout(run)
     assert {:error, :agent_worker_unavailable} = execute(run, attempt: 1)
 
-    assert %Run{status: "queued", attempts: 1, attempt_id: nil, error: error} =
+    assert %Run{status: :queued, attempts: 1, attempt_id: nil, error: error} =
              Repo.get!(Run, run.id)
 
     assert error =~ "agent_worker_unavailable"
 
-    assert {:snooze, 10} = execute(run, attempt: 2)
+    waiting_since = Repo.get!(Run, run.id).worker_wait_started_at
+    assert {:error, :agent_worker_unavailable} = execute(run, attempt: 2)
+    assert Repo.get!(Run, run.id).worker_wait_started_at == waiting_since
 
-    wait_past_ready_timeout(run)
     assert :ok = execute(run, attempt: 5)
-    assert %Run{status: "failed", attempts: 2} = Repo.get!(Run, run.id)
+    assert %Run{status: :failed, attempts: 3} = Repo.get!(Run, run.id)
 
     assert %Signal{type: "automation_job.run_failed"} =
              Repo.get_by!(Signal,
@@ -150,6 +158,151 @@ defmodule Ankole.AutomationJobsTest do
                session_id: source.session_id,
                type: "automation_job.run_failed"
              )
+  end
+
+  test "a ready Worker clears its wait budget while Agent capacity is full" do
+    assert {:ok, 1} =
+             Ankole.AppConfigure.put_tenant_by_key("automation_jobs.max_running_per_agent", 1)
+
+    %{principal: agent} = agent_fixture()
+    source = source_event!(agent.uid)
+    job = job!(source)
+    waiting = enqueue!(job, trigger_event("capacity-waiting"))
+
+    assert {:ok, %{status: :waiting_for_worker, worker: nil}} =
+             AutomationJobs.start_attempt(waiting.id, now: @now)
+
+    assert Repo.reload!(waiting).worker_wait_started_at == @now
+
+    wait_past_ready_timeout(waiting)
+    expired_wait = Repo.reload!(waiting).worker_wait_started_at
+
+    route = "automation-capacity-#{agent.uid}"
+    :ok = Ankole.AgentWorkers.WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> Ankole.AgentWorkers.WorkerRoute.unregister_local_worker(route) end)
+    assert {:ok, _} = Ankole.SessionsCase.admit_worker(route, %{worker_id: agent.uid})
+
+    blocker = enqueue!(job, trigger_event("capacity-running"))
+    assert {:ok, %{run: running}} = AutomationJobs.start_attempt(blocker.id)
+
+    assert {:snooze, 10} = execute(waiting, attempt: 1)
+
+    assert %Run{
+             status: :queued,
+             attempts: 0,
+             attempt_id: nil,
+             started_at: nil,
+             worker_wait_started_at: nil
+           } = Repo.reload!(waiting)
+
+    refute_receive {:actor_lane, %{body: {:rpc_request, _}}}
+
+    assert {:ok, :marked_stale} =
+             Ankole.AgentWorkers.WorkerAdmission.mark_route_unusable(route, :socket_closed)
+
+    assert {:error, :agent_worker_unavailable} = Ankole.AgentWorkers.ready_worker(agent.uid)
+    assert {:snooze, 10} = execute(waiting, attempt: 1)
+    assert Repo.reload!(waiting).worker_wait_started_at == nil
+
+    assert {:ok, %Run{status: :succeeded}} =
+             AutomationJobs.finish_attempt(running.id, running.attempt_id, %{status: "succeeded"})
+
+    before_probe = DateTime.utc_now(:microsecond)
+    assert {:snooze, 10} = execute(waiting, attempt: 1)
+
+    assert %Run{
+             status: :queued,
+             attempts: 0,
+             attempt_id: nil,
+             started_at: nil,
+             worker_wait_started_at: %DateTime{} = fresh_wait
+           } = Repo.reload!(waiting)
+
+    assert DateTime.compare(fresh_wait, before_probe) in [:gt, :eq]
+
+    assert DateTime.diff(fresh_wait, expired_wait, :millisecond) >
+             Settings.current().ready_timeout_ms
+
+    assert {:snooze, 10} = execute(waiting, attempt: 1)
+    assert %Run{attempts: 0, worker_wait_started_at: ^fresh_wait} = Repo.reload!(waiting)
+  end
+
+  test "full capacity preserves an expired Worker wait until admission can resume" do
+    assert {:ok, 1} =
+             Ankole.AppConfigure.put_tenant_by_key("automation_jobs.max_running_per_agent", 1)
+
+    %{principal: agent} = agent_fixture()
+    job = agent.uid |> source_event!() |> job!()
+    waiting = enqueue!(job, trigger_event("expired-capacity-wait"))
+
+    assert {:ok, %{status: :waiting_for_worker, worker: nil}} =
+             AutomationJobs.start_attempt(waiting.id, now: @now)
+
+    route = "automation-expired-#{agent.uid}"
+    assert {:ok, _} = Ankole.SessionsCase.admit_worker(route, %{worker_id: agent.uid})
+    blocker = enqueue!(job, trigger_event("expired-capacity-blocker"))
+    assert {:ok, %{run: running}} = AutomationJobs.start_attempt(blocker.id)
+
+    assert {:ok, :marked_stale} =
+             Ankole.AgentWorkers.WorkerAdmission.mark_route_unusable(route, :socket_closed)
+
+    for _probe <- 1..2 do
+      assert {:snooze, 10} = execute(waiting, attempt: 1)
+
+      assert %Run{status: :queued, attempts: 0, worker_wait_started_at: @now} =
+               Repo.reload!(waiting)
+    end
+
+    assert {:ok, %Run{status: :succeeded}} =
+             AutomationJobs.finish_attempt(running.id, running.attempt_id, %{status: "succeeded"})
+
+    assert {:error, :agent_worker_unavailable} = execute(waiting, attempt: 1)
+
+    assert %Run{status: :queued, attempts: 1, worker_wait_started_at: @now} =
+             Repo.reload!(waiting)
+  end
+
+  test "an infrastructure retry starts a new execution budget for adoption" do
+    %{principal: agent} = agent_fixture()
+
+    run =
+      agent.uid |> source_event!() |> job!() |> enqueue!(trigger_event("fresh-attempt-budget"))
+
+    first_started_at = DateTime.add(DateTime.utc_now(:microsecond), -611, :second)
+
+    assert {:ok, _worker} =
+             Ankole.SessionsCase.admit_worker("automation-test-#{agent.uid}", %{
+               worker_id: agent.uid
+             })
+
+    assert {:ok, %{run: first}} =
+             AutomationJobs.start_attempt(run.id, now: first_started_at)
+
+    assert {:ok, %Run{status: :queued, started_at: ^first_started_at}} =
+             AutomationJobs.infrastructure_failure(
+               run.id,
+               first.attempt_id,
+               :socket_closed,
+               :retry
+             )
+
+    retry_started_at = DateTime.utc_now(:microsecond)
+
+    assert {:ok, %{run: retry}} =
+             AutomationJobs.start_attempt(run.id, now: retry_started_at)
+
+    assert retry.started_at == retry_started_at
+    assert Repo.reload!(retry).started_at == retry_started_at
+    assert retry.attempts == 2
+    refute retry.attempt_id == first.attempt_id
+    assert DateTime.diff(retry.started_at, first.started_at, :millisecond) >= 611_000
+
+    assert {:snooze, 10} = execute(retry, attempt: 3)
+
+    assert %Run{status: :running, attempts: 2, attempt_id: attempt_id, error: nil} =
+             Repo.reload!(run)
+
+    assert attempt_id == retry.attempt_id
   end
 
   test "a lost Worker connection after dispatch records unknown outcome without automatic replay" do
@@ -169,7 +322,7 @@ defmodule Ankole.AutomationJobsTest do
     assert_receive {:actor_lane, %{body: {:rpc_request, %{method: "automation_job.run"}}}}, 2_000
     :ok = Ankole.AgentWorkers.WorkerRoute.unregister_local_worker(route)
     assert :ok = Task.await(pending)
-    assert %Run{status: "failed", attempts: 1, error: error} = Repo.get!(Run, run.id)
+    assert %Run{status: :failed, attempts: 1, error: error} = Repo.get!(Run, run.id)
     assert error =~ "execution outcome unknown"
     assert :ok = execute(run, attempt: 2)
     refute_receive {:actor_lane, %{body: {:rpc_request, _}}}
@@ -199,7 +352,7 @@ defmodule Ankole.AutomationJobsTest do
       })
 
     assert {:error, %{"code" => "automation_preparation_failed"}} = Task.await(pending)
-    assert %Run{status: "queued", attempts: 1, attempt_id: nil} = Repo.get!(Run, run.id)
+    assert %Run{status: :queued, attempts: 1, attempt_id: nil} = Repo.get!(Run, run.id)
     retried = Task.async(Repo.bind_tenant(fn -> execute(run, attempt: 2) end))
     assert_receive {:actor_lane, %{body: {:rpc_request, next}}}, 2_000
 
@@ -219,7 +372,7 @@ defmodule Ankole.AutomationJobsTest do
       })
 
     assert :ok = Task.await(retried)
-    assert %Run{status: "succeeded", attempts: 2} = Repo.get!(Run, run.id)
+    assert %Run{status: :succeeded, attempts: 2} = Repo.get!(Run, run.id)
   end
 
   test "a replayed wake preserves an in-flight attempt and eventually reports unknown outcome" do
@@ -227,10 +380,16 @@ defmodule Ankole.AutomationJobsTest do
     source = source_event!(agent.uid)
     job = job!(source)
     run = enqueue!(job, trigger_event("wake-after-node-loss"))
+
+    assert {:ok, _worker} =
+             Ankole.SessionsCase.admit_worker("automation-test-#{agent.uid}", %{
+               worker_id: agent.uid
+             })
+
     assert {:ok, %{run: attempt}} = AutomationJobs.start_attempt(run.id)
     assert {:error, :automation_job_attempt_in_progress} = AutomationJobs.start_attempt(run.id)
     assert {:snooze, 10} = execute(run, attempt: 2)
-    assert %Run{status: "running", attempts: 1, attempt_id: id} = Repo.get!(Run, run.id)
+    assert %Run{status: :running, attempts: 1, attempt_id: id} = Repo.get!(Run, run.id)
     assert id == attempt.attempt_id
 
     Repo.update_all(where(Run, id: ^run.id),
@@ -238,7 +397,7 @@ defmodule Ankole.AutomationJobsTest do
     )
 
     assert :ok = execute(run, attempt: 3)
-    assert %Run{status: "failed", attempts: 1, error: error} = Repo.get!(Run, run.id)
+    assert %Run{status: :failed, attempts: 1, error: error} = Repo.get!(Run, run.id)
     assert error =~ "execution outcome unknown"
     assert error =~ "verify external effects"
     assert :ok = execute(run, attempt: 4)
@@ -258,6 +417,11 @@ defmodule Ankole.AutomationJobsTest do
     source = source_event!(agent.uid)
     job = job!(source)
     run = enqueue!(job, trigger_event("script-failure"))
+
+    assert {:ok, _worker} =
+             Ankole.SessionsCase.admit_worker("automation-test-#{agent.uid}", %{
+               worker_id: agent.uid
+             })
 
     assert {:ok, %{run: attempt}} = AutomationJobs.start_attempt(run.id, now: @now)
     oversized = String.duplicate("a", 70_000)
@@ -281,7 +445,7 @@ defmodule Ankole.AutomationJobsTest do
                now: DateTime.add(@now, 1, :second)
              )
 
-    assert failed.status == "failed"
+    assert failed.status == :failed
     assert failed.exit_code == 17
     assert is_binary(failed.error)
     assert byte_size(failed.error) <= 65_536
@@ -299,6 +463,11 @@ defmodule Ankole.AutomationJobsTest do
     running = enqueue!(job, trigger_event("running"))
     queued = enqueue!(job, trigger_event("queued"))
 
+    assert {:ok, _worker} =
+             Ankole.SessionsCase.admit_worker("automation-test-#{agent.uid}", %{
+               worker_id: agent.uid
+             })
+
     assert {:ok, %{run: attempt}} = AutomationJobs.start_attempt(running.id, now: @now)
 
     assert {:ok, %{status: :cancelled, automation_job: cancelled}} =
@@ -309,9 +478,9 @@ defmodule Ankole.AutomationJobsTest do
                now: DateTime.add(@now, 1, :second)
              )
 
-    assert cancelled.status == "cancelled"
-    assert Repo.get!(Run, queued.id).status == "cancelled"
-    assert Repo.get!(Run, running.id).status == "running"
+    assert cancelled.status == :cancelled
+    assert Repo.get!(Run, queued.id).status == :cancelled
+    assert Repo.get!(Run, running.id).status == :running
 
     assert {:ok, %Signal{type: "automation_job.emitted"}} =
              AutomationJobs.emit_event(
@@ -330,9 +499,9 @@ defmodule Ankole.AutomationJobsTest do
                now: DateTime.add(@now, 3, :second)
              )
 
-    assert succeeded.status == "succeeded"
+    assert succeeded.status == :succeeded
 
-    assert {:error, {:automation_job_not_active, "cancelled"}} =
+    assert {:error, {:automation_job_not_active, :cancelled}} =
              AutomationJobs.validate_bindable_in_tx(Repo, job.id, agent.uid)
   end
 
@@ -412,7 +581,7 @@ defmodule Ankole.AutomationJobsTest do
              Schedule.fire_due_event(scheduled.id, now: due_at)
 
     assert run.automation_job_id == job.id
-    assert run.status == "queued"
+    assert run.status == :queued
     assert run.event["specversion"] == "1.0"
     assert run.event["type"] == "check_back_later.wakeup"
     assert run.event["id"] == "check_back_later:#{scheduled.id}:wakeup"
@@ -421,7 +590,7 @@ defmodule Ankole.AutomationJobsTest do
              "Read the source and compare the value."
 
     fired = Repo.get!(ScheduledEvent, scheduled.id)
-    assert fired.status == "fired"
+    assert fired.status == :fired
     assert fired.automation_job_run_id == run.id
     assert fired.signal_id == nil
 
@@ -580,8 +749,75 @@ defmodule Ankole.AutomationJobsTest do
 
     assert {:ok, %{automation_job_run: run}} = Schedule.fire_cron(rule.id, now: slot)
     Repo.update!(Ecto.Changeset.change(Repo.reload!(rule), next_fire_at: slot))
-    assert {:error, %Ecto.Changeset{}} = Schedule.fire_cron(rule.id, now: slot)
-    assert Repo.all(from r in Run, where: r.automation_job_id == ^job.id) == [run]
+    assert {:error, %Ash.Error.Invalid{errors: errors}} = Schedule.fire_cron(rule.id, now: slot)
+
+    assert Enum.any?(errors, fn error ->
+             error.field == :cron_schedule_id and
+               error.private_vars[:constraint] == "scheduled_events_cron_slot_index" and
+               error.private_vars[:constraint_type] == :unique
+           end)
+
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.all(from(r in Run, where: r.automation_job_id == ^job.id)),
+      [run]
+    )
+  end
+
+  test "Ash actions own initial state, attempt increments and terminal immutability" do
+    %{principal: agent} = agent_fixture()
+    job = agent.uid |> source_event!() |> job!()
+    attrs = %{automation_job_id: job.id, event: trigger_event("state-owner")}
+
+    for forbidden <- [%{status: :running}, %{attempts: 99}] do
+      assert {:error, %Ash.Error.Invalid{}} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.create(Run, :enqueue, Map.merge(attrs, forbidden))
+               end)
+    end
+
+    refute Repo.exists?(from(run in Run, where: run.automation_job_id == ^job.id))
+
+    run = enqueue!(job, attrs.event)
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.update(run, :settle, %{status: :succeeded, finished_at: @now})
+             end)
+
+    assert Repo.reload!(run).status == :queued
+
+    assert {:ok, _worker} =
+             Ankole.SessionsCase.admit_worker("automation-test-#{agent.uid}", %{
+               worker_id: agent.uid
+             })
+
+    assert {:ok, %{run: running}} = AutomationJobs.start_attempt(run.id, now: @now)
+    assert running.attempts == 1
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.update(running, :start, %{
+                 attempt_id: Ecto.UUID.generate(),
+                 started_at: @now
+               })
+             end)
+
+    assert Repo.reload!(running).attempts == 1
+
+    assert {:ok, finished} =
+             AutomationJobs.finish_attempt(
+               running.id,
+               running.attempt_id,
+               %{status: "succeeded", exit_code: 0},
+               now: @now
+             )
+
+    assert {:error, %Ash.Error.Invalid{}} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.update(finished, :retry, %{attempt_id: nil, error: "cannot resurrect"})
+             end)
+
+    Ankole.DataCase.assert_persisted_equal(Repo.reload!(finished), finished)
   end
 
   defp execute(run, opts) do
@@ -592,7 +828,7 @@ defmodule Ankole.AutomationJobsTest do
     waiting_since =
       DateTime.add(DateTime.utc_now(), -Settings.current().ready_timeout_ms - 1_000, :millisecond)
 
-    Repo.update_all(where(Run, id: ^run.id), set: [updated_at: waiting_since])
+    Repo.update_all(where(Run, id: ^run.id), set: [worker_wait_started_at: waiting_since])
   end
 
   defp job!(source, opts \\ []) do

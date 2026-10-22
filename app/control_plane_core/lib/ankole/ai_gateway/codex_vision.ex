@@ -91,10 +91,11 @@ defmodule Ankole.AIGateway.CodexVision do
     Logging.error(
       "ai_gateway.codex_vision.fallback_crashed",
       "Codex vision fallback crashed",
-      %{
-        model_selector: fallback["selector"],
-        reason: Exception.format(kind, reason, stacktrace)
-      }
+      Map.put(
+        Logging.failure_fields(kind, reason, stacktrace),
+        :model_selector,
+        fallback["selector"]
+      )
     )
   end
 

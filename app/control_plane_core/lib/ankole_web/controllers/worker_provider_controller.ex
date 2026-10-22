@@ -184,6 +184,9 @@ defmodule AnkoleWeb.WorkerProviderController do
   defp render_provider_error(conn, {:invalid, message, details}, _reason),
     do: ConsoleErrors.render(conn, 422, "invalid_worker_provider", message, details)
 
+  defp render_provider_error(conn, {:conflict, message, details}, _reason),
+    do: ConsoleErrors.render(conn, 409, "worker_provider_plugin_in_use", message, details)
+
   defp render_provider_error(conn, :unknown, reason),
     do: ConsoleErrors.unexpected(conn, "worker_provider.api_failed", reason)
 end

@@ -23,7 +23,6 @@ defmodule Ankole.ObservabilityTest do
   end
 
   setup do
-    allow_cache_database_access()
     clear_app_configure()
 
     on_exit(fn ->

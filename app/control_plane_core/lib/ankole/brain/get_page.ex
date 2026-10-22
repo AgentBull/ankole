@@ -99,7 +99,7 @@ defmodule Ankole.Brain.GetPage do
   defp admin_facts(object) do
     Claim
     |> where([claim], claim.object_slug == ^object.slug)
-    |> where([claim], claim.claim_type == "fact")
+    |> where([claim], claim.claim_type == :fact)
     |> order_by([claim], desc: claim.valid_from)
     |> Repo.all()
     |> Enum.map(fn claim ->
@@ -124,7 +124,7 @@ defmodule Ankole.Brain.GetPage do
   defp admin_takes(object) do
     Claim
     |> where([claim], claim.object_slug == ^object.slug)
-    |> where([claim], claim.claim_type == "take")
+    |> where([claim], claim.claim_type == :take)
     |> order_by([claim], desc: claim.created_at)
     |> Repo.all()
     |> Enum.map(fn claim ->
@@ -238,7 +238,7 @@ defmodule Ankole.Brain.GetPage do
 
       contradictions =
         Contradiction
-        |> where([contradiction], contradiction.status == "open")
+        |> where([contradiction], contradiction.status == :open)
         |> where(
           [contradiction],
           (contradiction.a_claim_id in ^claim_ids and
@@ -287,7 +287,7 @@ defmodule Ankole.Brain.GetPage do
               id: contradiction.id,
               verdict: contradiction.verdict,
               axis: contradiction.axis,
-              severity: contradiction.severity,
+              severity: Atom.to_string(contradiction.severity),
               claim_id: own_id,
               counterpart: %{
                 id: counterpart.id,
@@ -322,7 +322,7 @@ defmodule Ankole.Brain.GetPage do
 
     Claim
     |> where([claim], claim.object_slug == ^object.slug)
-    |> where([claim], claim.claim_type == "fact" and is_nil(claim.expired_at))
+    |> where([claim], claim.claim_type == :fact and is_nil(claim.expired_at))
     |> Access.filter_claims(access)
     |> order_by([claim], desc: claim.valid_from)
     |> Repo.all()
@@ -347,7 +347,7 @@ defmodule Ankole.Brain.GetPage do
   defp page_takes(object, access, disclosure) do
     Claim
     |> where([claim], claim.object_slug == ^object.slug)
-    |> where([claim], claim.claim_type == "take" and claim.active == true)
+    |> where([claim], claim.claim_type == :take and claim.active == true)
     |> Access.filter_claims(access)
     |> order_by([claim], desc: claim.weight)
     |> Repo.all()

@@ -83,7 +83,7 @@ defmodule Ankole.Sessions.DriverTest do
               Repo.with_tenant(tenant.id, fn ->
                 Repo.one!(
                   from(m in Message,
-                    where: m.subject_uid == ^agent.uid and m.status == "generating",
+                    where: m.subject_uid == ^agent.uid and m.status == :generating,
                     order_by: [desc: m.inserted_at, desc: m.id],
                     limit: 1,
                     select: fragment("?->'request_metadata'->>'signal_id'", m.metadata)
@@ -225,6 +225,94 @@ defmodule Ankole.Sessions.DriverTest do
     assert Agent.get(script, & &1.requests) == 2
   end
 
+  @tag :fenced_tool_exit
+  test "a fenced tool stops its Driver before the next sequential call", %{
+    key: key,
+    script: script
+  } do
+    Agent.update(
+      script,
+      &%{
+        &1
+        | calls: [
+            tool_call("before-takeover", "workflow", %{
+              "title" => "First",
+              "script" => "return 1;"
+            }),
+            tool_call("after-takeover", "workflow", %{
+              "title" => "Second",
+              "script" => "return 2;"
+            })
+          ]
+      }
+    )
+
+    parent = self()
+    handler = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ankole, :sessions, :receipt, :execute],
+        fn _, _, metadata, _ ->
+          if metadata.agent_uid == key.agent_uid do
+            send(parent, {:tool_started, metadata.call_id, self()})
+
+            receive do
+              :continue_tool -> :ok
+            after
+              10000 -> raise "the fenced tool was not released"
+            end
+          end
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    assert {:ok, input} = Ankole.Signals.accept(attrs(key))
+    _ = await_request(key)
+    assert_receive {:tool_started, "before-takeover", tool_pid}, 10000
+    driver = Ankole.Sessions.driver_pid(key)
+    monitor = Process.monitor(driver)
+    old_epoch = session_workspace(key).epoch
+    # Take ownership through the real admission transaction while the old task
+    # is outside its receipt transaction.
+    assert {:ok, %Run{} = replacement} = Admission.admit(key, Repo.reload!(input))
+    assert replacement.epoch > old_epoch
+    send(tool_pid, :continue_tool)
+
+    assert_receive {:DOWN, ^monitor, :process, ^driver, :normal}, 10000
+    refute_receive {:tool_started, "after-takeover", _}
+    refute_receive {:model_request, _}
+    assert session_workspace(key).epoch == replacement.epoch
+    assert Repo.reload!(input).completed_at == nil
+
+    refute Repo.exists?(
+             from r in Ankole.Workflow.Schemas.Run, where: r.agent_uid == ^key.agent_uid
+           )
+
+    refute Repo.exists?(from r in Receipts, where: r.agent_uid == ^key.agent_uid)
+  end
+
+  test "an external ambient type stays ordinary input instead of entering triage", %{key: key} do
+    assert {:ok, event} =
+             Ankole.Signals.accept(%{
+               attrs(key)
+               | producer: :external,
+                 type: "im.message.may_intervene"
+             })
+
+    request = await_request(key)
+    assert request.body["stream"] == true
+    assert wait_for_completion(event.id).turn_outcome == "loop_finished"
+
+    assert Repo.get_by!(SessionWorkspace, agent_uid: key.agent_uid, session_id: key.session_id).epoch ==
+             1
+
+    refute Repo.get(Ankole.Sessions.AmbientJudgment, event.id)
+  end
+
   test("a gateway HTTP 503 preserves the capacity deadline through driver restart", %{
     key: key,
     script: script
@@ -306,7 +394,7 @@ defmodule Ankole.Sessions.DriverTest do
         assert DateTime.diff(retried.available_at, now) == delay
         assert retried.provider_capacity_attempt_count == retried.attempt_count
         assert {:ok, same} = Run.defer_retry(run, error, now)
-        assert same == retried
+        assert_persisted_equal(same, retried)
         assert {:ok, :idle} = Run.rebuild(key, DateTime.add(retried.available_at, -1))
         assert {:ok, %{delay_ms: 0}} = Run.rebuild(key, retried.available_at)
         {retried, DateTime.add(retried.available_at, 1)}
@@ -495,7 +583,7 @@ defmodule Ankole.Sessions.DriverTest do
   }) do
     Repo.update!(
       change(worker,
-        state: "absent",
+        state: :absent,
         state_changed_at: DateTime.add(DateTime.utc_now(:microsecond), -3600),
         last_error: "fixture start failure",
         last_error_kind: "rejected",
@@ -591,10 +679,10 @@ defmodule Ankole.Sessions.DriverTest do
       assert current.incarnation_id == original.incarnation_id
 
       if reason in [:unknown_route, :socket_closed] do
-        assert current.state == "stale"
+        assert current.state == :stale
         assert current.transport_route == nil
       else
-        assert current.state == "ready"
+        assert current.state == :ready
         assert current.transport_route == route
       end
 
@@ -735,9 +823,9 @@ defmodule Ankole.Sessions.DriverTest do
         end
 
       wait_for_worker_request(key)
-      assert eventually(fn -> Repo.get!(AgentWorker, key.agent_uid).state == "stale" end)
+      assert eventually(fn -> Repo.get!(AgentWorker, key.agent_uid).state == :stale end)
       stale = Repo.get!(AgentWorker, key.agent_uid)
-      assert stale.state == "stale"
+      assert stale.state == :stale
       assert stale.transport_route == nil
       assert stale.generation == original.generation
       assert stale.incarnation_id == original.incarnation_id
@@ -905,7 +993,7 @@ defmodule Ankole.Sessions.DriverTest do
       assert {:error, _} =
                perform_job(Ankole.AgentWorkers.ReconcileJob, %{agent_uid: key.agent_uid})
 
-      assert %{state: "absent", last_error_kind: "rejected"} =
+      assert %{state: :absent, last_error_kind: "rejected"} =
                Repo.get!(AgentWorker, key.agent_uid)
 
       next = await_request(key, 5000)
@@ -1180,7 +1268,7 @@ defmodule Ankole.Sessions.DriverTest do
              )
            ) == messages
 
-    assert Repo.get!(AgentWorker, key.agent_uid) == worker
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
   end
 
   @tag :cluster
@@ -1329,10 +1417,10 @@ defmodule Ankole.Sessions.DriverTest do
     assert Enum.map(retry.body["tools"], &get_in(&1, ["function", "name"])) == names
     assert wait_for_completion(event.id).completed_at
     stored = Repo.get!(Ankole.Workflow.Schemas.AgentCall, call.id)
-    assert stored.status == "succeeded"
+    assert stored.status == :succeeded
     assert stored.attempts == 2
     assert stored.result == %{"ok" => true, "value" => true}
-    assert Repo.get!(AgentWorker, key.agent_uid) == worker
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
     refute_receive {:model_request, _}, 100
   end
 
@@ -1346,22 +1434,22 @@ defmodule Ankole.Sessions.DriverTest do
     _first = await_request(key)
     assert_receive {:model_waiting, first_model}, 10000
     stale_at = DateTime.add(DateTime.utc_now(:microsecond), -7200)
-    Repo.update!(Ecto.Changeset.change(Repo.reload!(call), updated_at: stale_at))
+    Repo.update!(Ecto.Changeset.change(Repo.reload!(call), progress_at: stale_at))
     send(first_model, :release_model)
     second = await_request(key)
     assert_receive {:model_waiting, second_model}, 10000
     assert Enum.any?(second.body["messages"], &(&1["role"] == "tool"))
-    assert DateTime.after?(Repo.reload!(call).updated_at, stale_at)
+    assert DateTime.after?(Repo.reload!(call).progress_at, stale_at)
     now = DateTime.utc_now(:microsecond)
 
     assert {:ok, %{reconciled: 0}} =
              Ankole.Workflow.reconcile_stale_tasks(call.run_id, DateTime.add(now, -3600), now)
 
-    assert %AgentCall{status: "running", attempts: 1} = Repo.reload!(call)
+    assert %AgentCall{status: :running, attempts: 1} = Repo.reload!(call)
     send(second_model, :release_model)
     assert wait_for_completion(event.id).completed_at
-    assert %AgentCall{status: "succeeded", attempts: 1} = Repo.reload!(call)
-    assert Repo.get!(AgentWorker, key.agent_uid) == worker
+    assert %AgentCall{status: :succeeded, attempts: 1} = Repo.reload!(call)
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
     refute_receive {:model_request, _}, 100
   end
 
@@ -1388,12 +1476,12 @@ defmodule Ankole.Sessions.DriverTest do
 
     assert_blocked_by(backend)
     send(driver, :continue_workflow_progress)
-    assert {:ok, %{run: %{status: "cancelled"}} = cancelled} = Task.await(cancel, 10000)
+    assert {:ok, %{run: %{status: :cancelled}} = cancelled} = Task.await(cancel, 10000)
     :telemetry.detach(handler)
-    assert Repo.reload!(call).status == "cancelled"
+    assert Repo.reload!(call).status == :cancelled
     assert {:ok, _} = Ankole.Workflow.cleanup_terminal_transition({:ok, cancelled})
     assert wait_for_completion(event.id).completed_at
-    assert Repo.reload!(call).status == "cancelled"
+    assert Repo.reload!(call).status == :cancelled
   end
 
   @tag :b17_progress
@@ -1405,7 +1493,7 @@ defmodule Ankole.Sessions.DriverTest do
     _first = await_request(key)
     assert_receive {:model_waiting, first_model}, 10000
     now = DateTime.utc_now(:microsecond)
-    Repo.update!(Ecto.Changeset.change(Repo.reload!(call), updated_at: DateTime.add(now, -7200)))
+    Repo.update!(Ecto.Changeset.change(Repo.reload!(call), progress_at: DateTime.add(now, -7200)))
     parent = self()
 
     reclaim =
@@ -1442,8 +1530,8 @@ defmodule Ankole.Sessions.DriverTest do
     second = await_request(key)
     assert_receive {:model_waiting, second_model}, 10000
     assert Enum.any?(second.body["messages"], &(&1["role"] == "tool"))
-    assert Repo.reload!(call) == reclaimed
-    assert reclaimed.status == "running"
+    Ankole.DataCase.assert_persisted_equal(Repo.reload!(call), reclaimed)
+    assert reclaimed.status == :running
     assert reclaimed.attempts == 2
     assert :ok = DynamicSupervisor.terminate_child(Ankole.Sessions.Drivers, driver)
     send(second_model, :release_model)
@@ -1520,7 +1608,7 @@ defmodule Ankole.Sessions.DriverTest do
     _ = await_request(key)
     assert wait_for_completion(event.id).completed_at
 
-    assert %AgentCall{status: "succeeded", result: %{"ok" => true, "value" => true}} =
+    assert %AgentCall{status: :succeeded, result: %{"ok" => true, "value" => true}} =
              Repo.reload!(call)
   end
 
@@ -1542,7 +1630,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert wait_for_completion(event.id).completed_at
     wake_committed_session!(owner)
     _ = await_request(owner)
-    assert %AgentCall{status: "sleeping", attention: true} = Repo.reload!(call)
+    assert %AgentCall{status: :sleeping, attention: true} = Repo.reload!(call)
 
     attention =
       Repo.get_by!(Signal,
@@ -1565,7 +1653,7 @@ defmodule Ankole.Sessions.DriverTest do
     _ = await_request(key)
     assert wait_for_completion(event.id).completed_at
     stored = Repo.get!(Ankole.Workflow.Schemas.AgentCall, call.id)
-    assert stored.status == "failed"
+    assert stored.status == :failed
     assert stored.attempts == 1
     assert stored.error["code"] == "schema_noncompliance"
     refute_receive {:model_request, _}, 100
@@ -1640,8 +1728,8 @@ defmodule Ankole.Sessions.DriverTest do
         assert {:ok, %{kind: :workflow_task}} =
                  Admission.admit(%{key | session_id: input.session_id}, input)
 
-        assert %AgentCall{status: "running", attempts: 1} = Repo.reload!(sibling)
-        assert Repo.reload!(call) == stored_call
+        assert %AgentCall{status: :running, attempts: 1} = Repo.reload!(sibling)
+        Ankole.DataCase.assert_persisted_equal(Repo.reload!(call), stored_call)
       end
     end
   end
@@ -1785,8 +1873,8 @@ defmodule Ankole.Sessions.DriverTest do
   defp assert_workflow_ending(key, event, stored_call, tool, script, worker) do
     completed = wait_for_completion(event.id, 600)
     assert completed.attempt_count == 1
-    assert Repo.reload!(stored_call) == stored_call
-    assert Repo.get!(AgentWorker, key.agent_uid) == worker
+    Ankole.DataCase.assert_persisted_equal(Repo.reload!(stored_call), stored_call)
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
     id = event.id
     assert Agent.get(script, &Map.get(&1.requests_by_event, id, 0)) == 1
 
@@ -1797,7 +1885,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert Repo.aggregate(from(r in Receipts, where: r.agent_uid == ^key.agent_uid), :count) == 0
 
     assert Repo.aggregate(
-             from(c in AgentCall, where: c.agent_uid == ^key.agent_uid and c.status == "running"),
+             from(c in AgentCall, where: c.agent_uid == ^key.agent_uid and c.status == :running),
              :count
            ) == 0
 
@@ -1822,7 +1910,7 @@ defmodule Ankole.Sessions.DriverTest do
     case tool do
       "sleep" ->
         assert details["task_status"] == "sleeping"
-        assert stored_call.status == "sleeping"
+        assert stored_call.status == :sleeping
         assert stored_call.attempts == 0
         assert stored_call.attention
         assert stored_call.wake_count == 1
@@ -1833,16 +1921,16 @@ defmodule Ankole.Sessions.DriverTest do
             source_event_id: "workflow:call:#{stored_call.id}:wake:1"
           )
 
-        assert wake.available_at == stored_call.sleeping_until
+        assert wake.available_at == stored_call.wake_at
         assert DateTime.compare(wake.available_at, DateTime.utc_now(:microsecond)) == :gt
-        assert wake.input_state == "open"
+        assert wake.status == :queued
         refute wake.completed_at
         "sleeping"
 
       "submit_result" ->
         assert details["accepted"]
         assert details["task_status"] == "succeeded"
-        assert stored_call.status == "succeeded"
+        assert stored_call.status == :succeeded
         assert stored_call.result == %{"ok" => true, "value" => true}
         "submitted"
     end
@@ -1861,9 +1949,9 @@ defmodule Ankole.Sessions.DriverTest do
     refute Map.has_key?(result, :run)
     refute Map.has_key?(result, :outcome)
     assert replayed == completed
-    assert Repo.reload!(completed) == completed
-    assert Repo.reload!(stored_call) == stored_call
-    assert Repo.reload!(workspace) == workspace
+    Ankole.DataCase.assert_persisted_equal(Repo.reload!(completed), completed)
+    Ankole.DataCase.assert_persisted_equal(Repo.reload!(stored_call), stored_call)
+    Ankole.DataCase.assert_persisted_equal(Repo.reload!(workspace), workspace)
     refute_receive {:model_request, %{signal_id: ^id}}, 100
   end
 
@@ -1884,44 +1972,31 @@ defmodule Ankole.Sessions.DriverTest do
         end
       )
 
-    create = fn repo ->
-      with {:ok, source} <- Ankole.Signals.accept_in_tx(repo, attrs(owner)),
-           {:ok, source} <-
-             Ankole.Sessions.Queue.mark_event_completed_in_tx(
-               repo,
-               source,
-               DateTime.utc_now(:microsecond)
-             ),
-           {:ok, %{run: workflow}} <-
-             Ankole.Workflow.create_with_dispatch(%{
-               "agent_uid" => owner.agent_uid,
-               "owner_session_id" => owner.session_id,
-               "source_signal_id" => source.id,
-               "source_tool_call_id" => Ecto.UUID.generate(),
-               "reply_route" => %{"binding_name" => "control-plane:test"},
-               "title" => "Verify the answer",
-               "script" => "return await agent('Verify the answer');",
-               "concurrency" => Keyword.get(opts, :concurrency, 8),
-               "args" => %{}
-             }) do
-        {:ok, workflow}
-      end
-    end
-
-    dispatch = fn workflow -> Ankole.Workflow.commit_replay_pending(workflow.id, arguments, 0) end
-
-    result =
-      if Keyword.get(opts, :deliver_after_commit?, false) do
-        with {:ok, workflow} <- Repo.transact(create) do
-          dispatch.(workflow)
+    {:ok, source} =
+      Repo.transact(fn repo ->
+        with {:ok, source} <- Ankole.Signals.accept_in_tx(repo, attrs(owner)) do
+          Ankole.Sessions.Queue.mark_event_completed_in_tx(
+            repo,
+            source,
+            DateTime.utc_now(:microsecond)
+          )
         end
-      else
-        Repo.transact(fn repo ->
-          with {:ok, workflow} <- create.(repo) do
-            dispatch.(workflow)
-          end
-        end)
-      end
+      end)
+
+    {:ok, %{run: workflow}} =
+      Ankole.Workflow.create_with_dispatch(%{
+        "agent_uid" => owner.agent_uid,
+        "owner_session_id" => owner.session_id,
+        "source_signal_id" => source.id,
+        "source_tool_call_id" => Ecto.UUID.generate(),
+        "reply_route" => %{"binding_name" => "control-plane:test"},
+        "title" => "Verify the answer",
+        "script" => "return await agent('Verify the answer');",
+        "concurrency" => Keyword.get(opts, :concurrency, 8),
+        "args" => %{}
+      })
+
+    result = Ankole.Workflow.commit_replay_pending(workflow.id, arguments, 0)
 
     {:ok, %{new_calls: [call | _]}} = result
 
@@ -1950,7 +2025,7 @@ defmodule Ankole.Sessions.DriverTest do
         handler,
         [:ankole, :repo, :query],
         fn _, _, metadata, parent ->
-          if String.starts_with?(metadata.query, "UPDATE \"sessions\" SET") do
+          if updates_field?(metadata.query, "sessions", "epoch") do
             send(parent, {:admission_before_commit, self()})
 
             receive do
@@ -1982,7 +2057,7 @@ defmodule Ankole.Sessions.DriverTest do
     request = await_request(key)
     assert Ankole.JSON.encode!(request.body["messages"]) =~ "Fresh task"
     assert wait_for_completion(event.id).attempt_count == 1
-    assert Repo.get!(AgentWorker, key.agent_uid) == worker
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
     refute_receive {:model_request, _}, 100
   end
 
@@ -2003,8 +2078,7 @@ defmodule Ankole.Sessions.DriverTest do
         handler,
         [:ankole, :repo, :query],
         fn _, _, metadata, parent ->
-          if String.starts_with?(metadata.query, "UPDATE \"signals\" SET") and
-               String.contains?(metadata.query, "\"completed_at\"") do
+          if updates_field?(metadata.query, "signals", "completed_at") do
             send(parent, {:finalizing_before_commit, self()})
 
             receive do
@@ -2038,11 +2112,11 @@ defmodule Ankole.Sessions.DriverTest do
     assert wait_for_completion(stop.id).completed_at
     assert wait_for_completion(event.id).completed_at
     send(provider, :release_model)
-    assert Repo.get!(AgentWorker, key.agent_uid) == worker
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
 
     assert Repo.aggregate(
              from(m in Message,
-               where: m.subject_uid == ^key.agent_uid and m.status == "generating"
+               where: m.subject_uid == ^key.agent_uid and m.status == :generating
              ),
              :count
            ) == 0
@@ -2141,7 +2215,7 @@ defmodule Ankole.Sessions.DriverTest do
 
       assert Repo.exists?(
                from(m in Message,
-                 where: m.subject_uid == ^key.agent_uid and m.status == "generating"
+                 where: m.subject_uid == ^key.agent_uid and m.status == :generating
                )
              )
 
@@ -2223,7 +2297,7 @@ defmodule Ankole.Sessions.DriverTest do
 
     assert Repo.aggregate(
              from(m in Message,
-               where: m.subject_uid == ^key.agent_uid and m.status == "generating"
+               where: m.subject_uid == ^key.agent_uid and m.status == :generating
              ),
              :count
            ) == 0
@@ -2282,8 +2356,7 @@ defmodule Ankole.Sessions.DriverTest do
     [called] =
       Repo.all(
         from(m in Message,
-          where:
-            m.subject_uid == ^key.agent_uid and m.type == "message" and m.status == "complete"
+          where: m.subject_uid == ^key.agent_uid and m.type == :message and m.status == :complete
         )
       )
       |> Enum.filter(fn message ->
@@ -2293,7 +2366,7 @@ defmodule Ankole.Sessions.DriverTest do
         )
       end)
 
-    assert called.status == "complete"
+    assert called.status == :complete
     refute_receive {:model_request, _}, 100
   end
 
@@ -2309,7 +2382,7 @@ defmodule Ankole.Sessions.DriverTest do
     _ = await_request(key, 15000)
     assert wait_for_completion(event.id).completed_at
     stored = Repo.get!(Ankole.Workflow.Schemas.AgentCall, call.id)
-    assert stored.status == "failed"
+    assert stored.status == :failed
     assert stored.attempts == 3
     assert stored.error["code"] == "upstream_response_failed"
     refute_receive {:model_request, _}, 100
@@ -2338,7 +2411,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert Enum.at(results, 1)["content"] =~ "Invalid arguments"
     assert Enum.at(results, 2)["content"] =~ "Check the result"
     assert wait_for_completion(event.id).turn_outcome == "loop_finished"
-    assert Repo.get!(AgentWorker, key.agent_uid) == worker
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
     assert Repo.aggregate(from(r in Receipts, where: r.agent_uid == ^key.agent_uid), :count) == 0
   end
 
@@ -2364,7 +2437,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert Enum.at(results, 0)["content"] =~ "Unknown tool"
     assert Enum.at(results, 1)["content"] =~ "Invalid arguments"
     assert wait_for_completion(event.id).turn_outcome == "loop_finished"
-    assert Repo.get!(AgentWorker, key.agent_uid) == worker
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
   end
 
   test(
@@ -2410,7 +2483,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert {:ok, _, "operator revision"} = Ankole.Files.read(key.agent_uid, "reports/q3.txt")
     completed = wait_for_completion(event.id)
     assert completed.attempt_count == 2
-    assert Repo.get!(AgentWorker, key.agent_uid) == worker
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
     assert Repo.aggregate(from(r in Receipts, where: r.agent_uid == ^key.agent_uid), :count) == 0
     response_id = String.replace_prefix(completed.final_response_id, "resp_", "")
     conversation_id = Repo.get!(Message, response_id).conversation_id
@@ -2626,7 +2699,7 @@ defmodule Ankole.Sessions.DriverTest do
         assert completed.turn_outcome == "loop_finished"
       end
 
-      assert Repo.get!(AgentWorker, key.agent_uid) == worker
+      Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
 
       assert Repo.aggregate(from(r in Receipts, where: r.agent_uid == ^key.agent_uid), :count) ==
                0
@@ -2658,7 +2731,7 @@ defmodule Ankole.Sessions.DriverTest do
   end
 
   defp persistence_cut?(:admitted, query) do
-    String.starts_with?(query, "UPDATE \"signals\"") and String.contains?(query, "attempt_count")
+    updates_field?(query, "signals", "attempt_count")
   end
 
   defp persistence_cut?(:response_created, query) do
@@ -2674,7 +2747,15 @@ defmodule Ankole.Sessions.DriverTest do
   end
 
   defp persistence_cut?(:finalized, query) do
-    String.starts_with?(query, "UPDATE \"signals\"") and String.contains?(query, "completed_at")
+    updates_field?(query, "signals", "completed_at")
+  end
+
+  defp updates_field?(query, table, field) do
+    # RETURNING can list fields that the statement did not change.
+    assignments = query |> String.split(" WHERE ", parts: 2) |> hd()
+
+    String.starts_with?(query, "UPDATE \"#{table}\"") and
+      String.contains?(assignments, "\"#{field}\" =")
   end
 
   test("a scheduled turn sends its reply contract in the first model request (G1, G4)", %{
@@ -2723,7 +2804,7 @@ defmodule Ankole.Sessions.DriverTest do
     refute Map.has_key?(request.body, "response_format")
     assert wait_for_completion(event.id).turn_outcome == "silent"
     assert Agent.get(script, & &1.requests) == 1
-    assert Repo.get!(AgentWorker, key.agent_uid) == worker
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
   end
 
   test("a scheduled ordinary reply reaches the channel without a terminal tool", %{
@@ -2840,7 +2921,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert result["terminate"] == true
     assert result["final_text"] == "The check needs your attention."
     assert Agent.get(script, & &1.requests) == 2
-    assert Repo.get!(AgentWorker, key.agent_uid) == worker
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
     refute_receive {:model_request, _}, 100
   end
 
@@ -2854,11 +2935,11 @@ defmodule Ankole.Sessions.DriverTest do
     completed = wait_for_completion(event.id)
     assert completed.turn_outcome == "loop_finished"
     assert is_binary(completed.final_response_id)
-    assert Repo.get!(AgentWorker, key.agent_uid) == worker
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
     refute_receive {:model_request, _}, 100
 
     # The conversation loop spends the Agent token quota like an Agent token.
-    assert [%UsageRecord{origin: "agent"}] =
+    assert [%UsageRecord{origin: :agent}] =
              Repo.all(from(r in UsageRecord, where: r.subject_uid == ^key.agent_uid))
   end
 
@@ -2881,7 +2962,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert Enum.any?(response.content, &(&1["type"] == "brain_call"))
     assert Enum.any?(response.content, &(&1["type"] == "brain_output"))
     refute Enum.any?(response.content, &(&1["type"] == "function_call_output"))
-    assert Repo.get!(AgentWorker, key.agent_uid) == worker
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
     refute_receive {:model_request, _}, 100
   end
 
@@ -3044,11 +3125,12 @@ defmodule Ankole.Sessions.DriverTest do
     before_history =
       Repo.all(from(m in Message, where: m.subject_uid == ^key.agent_uid, select: m.id))
 
-    Repo.update!(
-      Signal.changeset(Repo.get!(Signal, event.id), %{
-        completed_at: DateTime.utc_now(:microsecond)
-      })
-    )
+    assert {:ok, _closed} =
+             Repo.transact(fn _ ->
+               Ankole.Ash.update(Repo.get!(Signal, event.id), :complete, %{
+                 completed_at: DateTime.utc_now(:microsecond)
+               })
+             end)
 
     assert :ok =
              SessionLane.handle(
@@ -3272,6 +3354,158 @@ defmodule Ankole.Sessions.DriverTest do
     end
   end
 
+  for blocked_stage <- [:resolve, :open], continuation <- [:tool, :final] do
+    @tag :worker_acquisition_round_recovery
+    test "a recovered result before Worker #{blocked_stage} completes permits #{continuation} continuation",
+         %{
+           key: key,
+           script: script
+         } do
+      next_rounds =
+        case unquote(continuation) do
+          :tool ->
+            [
+              calls: [
+                tool_call("after-recovery", "read_file", %{"path" => "/workspace/report.txt"})
+              ],
+              text: "The original command and the later read both completed."
+            ]
+
+          :final ->
+            [text: "The original command completed before the final answer."]
+        end
+
+      Agent.update(
+        script,
+        &(%{
+            &1
+            | block_first?: true,
+              rounds: [
+                {:calls,
+                 [tool_call("recovery-command", "command", %{"command" => "printf done"})]}
+                | next_rounds
+              ]
+          }
+          |> Map.put(:block_at, 1))
+      )
+
+      owner = self()
+      route = RuntimeCase.unique_route()
+      :ok = WorkerRoute.register_local_worker(route, self())
+      on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
+      assert {:ok, _} = RuntimeCase.admit_worker(route, %{worker_id: key.agent_uid})
+      assert {:ok, event} = Ankole.Signals.accept(attrs(key))
+      _ = await_request(key)
+      ready_workspace(key)
+      assert_receive {:actor_lane, %Proto.Envelope{body: {:tool_call, original}}}, 5_000
+      assert original.call_id == "recovery-command"
+      assert original.mode == "execute"
+      old_driver = Ankole.Sessions.driver_pid(key)
+      assert :ok = DynamicSupervisor.terminate_child(Ankole.Sessions.Drivers, old_driver)
+
+      case unquote(blocked_stage) do
+        :resolve ->
+          handler = {__MODULE__, :blocked_worker_resolve, event.id}
+          :ok = Ankole.AppConfigure.Cache.clear_for_test()
+
+          :ok =
+            :telemetry.attach(
+              handler,
+              [:ankole, :repo, :query],
+              fn _, _, metadata, parent ->
+                if self() != parent and
+                     String.contains?(metadata.query, "FROM \"site_app_configurations\"") and
+                     "worker.rendered_fetch_idle_ttl_ms" in metadata.params do
+                  refute Repo.in_transaction?()
+                  send(parent, {:acquisition_blocked, self()})
+
+                  receive do
+                    :release_acquisition -> :ok
+                  after
+                    10_000 -> raise "the test did not release Worker resolution"
+                  end
+                end
+              end,
+              owner
+            )
+
+          on_exit(fn -> :telemetry.detach(handler) end)
+
+        :open ->
+          :ok =
+            WorkerRoute.register_local_worker(route, fn envelope ->
+              if elem(envelope.body, 0) == :workspace_open do
+                send(owner, {:acquisition_blocked, self()})
+
+                receive do
+                  :release_acquisition -> :ok
+                after
+                  10_000 -> raise "the test did not release Worker open"
+                end
+              else
+                send(owner, {:actor_lane, envelope})
+              end
+            end)
+      end
+
+      refunded = Repo.reload!(event)
+      recovery_timeout = Run.retry_delay_ms(refunded, DateTime.utc_now(:microsecond)) + 5_000
+      assert {:ok, driver} = Ankole.Sessions.ensure_driver(key)
+      assert_receive {:acquisition_blocked, acquisition_task}, recovery_timeout
+      assert {:executing_tools, %{tasks: tasks}} = :sys.get_state(driver)
+
+      expected_kind =
+        if unquote(blocked_stage) == :resolve, do: :worker_resolve, else: :worker_open
+
+      assert Enum.any?(tasks, fn {_, {kind, pid}} ->
+               kind == expected_kind and pid == acquisition_task
+             end)
+
+      if unquote(blocked_stage) == :resolve do
+        :ok = :telemetry.detach({__MODULE__, :blocked_worker_resolve, event.id})
+      end
+
+      # The preserved Worker can replay this result before a new workspace
+      # request has finished. It must never execute the command a second time.
+      complete_worker_call(key, original)
+      second = await_request(key)
+      assert_receive {:model_waiting, provider}, 5_000
+
+      assert Enum.any?(
+               second.body["messages"],
+               &(&1["role"] == "tool" and &1["content"] == "done")
+             )
+
+      assert {:requesting_model, %{turn: %{acquisition: {:idle, :requested}}}} =
+               :sys.get_state(driver)
+
+      refute Process.alive?(acquisition_task)
+      :ok = WorkerRoute.register_local_worker(route, self())
+      send(provider, :release_model)
+
+      if unquote(continuation) == :tool do
+        ready_workspace(key)
+        assert_receive {:actor_lane, %Proto.Envelope{body: {:tool_call, later}}}, 5_000
+        assert later.call_id == "after-recovery"
+        assert later.name == "read_file"
+        assert later.mode == "execute"
+        complete_worker_call(key, later)
+        final = await_request(key)
+        assert Enum.count(final.body["messages"], &(&1["role"] == "tool")) == 2
+        assert Agent.get(script, & &1.requests) == 3
+      else
+        assert Agent.get(script, & &1.requests) == 2
+      end
+
+      assert wait_for_completion(event.id).turn_outcome == "loop_finished"
+      assert_receive {:actor_lane, %Proto.Envelope{body: {:workspace_close, closed}}}, 5_000
+      assert closed.run == original.run
+      assert closed.run.signal_id == event.id
+      refute_receive {:actor_lane, %Proto.Envelope{body: {:workspace_open, _}}}, 100
+      refute_receive {:actor_lane, %Proto.Envelope{body: {:tool_call, _}}}, 100
+    end
+  end
+
   test(
     "capacity notices and tool results before transport receipts keep one execution (G2, G3)",
     %{key: key, script: script}
@@ -3420,9 +3654,74 @@ defmodule Ankole.Sessions.DriverTest do
     }
   end
 
+  test "Worker readiness wakes a Job after a simultaneous capacity wait", %{key: key} do
+    assert {:ok, 1} =
+             Ankole.AppConfigure.put_tenant_by_key(
+               "agent_computer.background_agent_job.max_running_per_agent",
+               1
+             )
+
+    route = RuntimeCase.unique_route()
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
+    assert {:ok, _} = RuntimeCase.admit_worker(route, %{worker_id: key.agent_uid})
+
+    [blocker, waiting] =
+      for suffix <- ["capacity-blocker", "capacity-wait"] do
+        assert {:ok, result} =
+                 Ankole.BackgroundAgentJobs.create_with_dispatch(%{
+                   "source_signal_id" => Ankole.WorkFixtures.service_source(key.agent_uid).id,
+                   "agent_uid" => key.agent_uid,
+                   "owner_session_id" => key.session_id,
+                   "source_tool_call_id" => suffix,
+                   "title" => "Capacity wait",
+                   "task" => "Start when capacity and the Worker are ready.",
+                   "reply_route" => job_reply_route(key, suffix)
+                 })
+
+        Map.put(result, :key, %{
+          key
+          | session_id: Ankole.BackgroundAgentJobs.job_session_id(result.job.id)
+        })
+      end
+
+    assert {:ok, %Ankole.Sessions.CodexJob.Attempt{}} =
+             Admission.admit(blocker.key, blocker.dispatch_event)
+
+    assert {:ok, :marked_stale} =
+             Ankole.AgentWorkers.WorkerAdmission.mark_route_unusable(route, :socket_closed)
+
+    assert {:ok, driver} = Ankole.Sessions.ensure_driver(waiting.key)
+
+    assert eventually(fn ->
+             match?(
+               {:deferred, %{deferred_reason: :agent_worker_unavailable}},
+               :sys.get_state(driver)
+             )
+           end)
+
+    assert %{status: :queued, attempts: 0, worker_wait_started_at: nil} =
+             Repo.reload!(waiting.job)
+
+    assert {:ok, %{job: %{status: :stopped}}} =
+             Ankole.BackgroundAgentJobs.request_stop(blocker.job.id, %{
+               "agent_uid" => key.agent_uid
+             })
+
+    assert {:ok, _} = RuntimeCase.admit_worker(route, %{worker_id: key.agent_uid})
+    assert_receive {:actor_lane, %Proto.Envelope{body: {:turn_start, start}}}, 2000
+    assert start.turn.job_id == waiting.job.id
+    assert start.turn.signal_id == waiting.dispatch_event.id
+
+    assert %{status: :running, attempts: 1, worker_wait_started_at: nil} =
+             Repo.reload!(waiting.job)
+
+    assert Ankole.Sessions.driver_pid(waiting.key) == driver
+  end
+
   @tag timeout: 120_000
   test(
-    "a deferred Job starts at its deadline and job observations retain the acceptance timer (G2, G4)",
+    "Worker readiness starts a waiting Job immediately and observations retain its acceptance timer (G2, G4)",
     %{key: key}
   ) do
     {:ok, %{job: job, dispatch_event: event}} =
@@ -3442,8 +3741,11 @@ defmodule Ankole.Sessions.DriverTest do
     assert {:ok, driver} = Ankole.Sessions.ensure_driver(job_key)
 
     assert eventually(fn ->
-             DateTime.compare(Repo.reload!(event).available_at, DateTime.utc_now()) == :gt
+             Repo.reload!(job).worker_wait_started_at != nil
            end)
+
+    assert Repo.reload!(event).available_at == event.available_at
+    assert {:deferred, %{deferred_reason: :agent_worker_unavailable}} = :sys.get_state(driver)
 
     assert Repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, job.id).attempts == 0
     assert Repo.get!(AgentWorker, key.agent_uid).wanted_until
@@ -3451,12 +3753,12 @@ defmodule Ankole.Sessions.DriverTest do
     :ok = WorkerRoute.register_local_worker(route, self())
     on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
     assert {:ok, _worker} = RuntimeCase.admit_worker(route, %{worker_id: key.agent_uid})
-    assert_receive {:actor_lane, %Proto.Envelope{body: {:turn_start, start}}}, 35000
+    assert_receive {:actor_lane, %Proto.Envelope{body: {:turn_start, start}}}, 2000
     assert start.turn.signal_id == event.id
     assert start.turn.job_id == job.id
     assert start.turn.attempt == 1
     assert Ankole.Sessions.driver_pid(job_key) == driver
-    assert Repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, job.id).status == "running"
+    assert Repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, job.id).status == :running
     send(driver, {:job_turn, job.id, 1})
     assert_receive {:actor_lane, %Proto.Envelope{body: {:turn_start, observed}}}, 2000
     assert observed.turn == start.turn
@@ -3477,7 +3779,7 @@ defmodule Ankole.Sessions.DriverTest do
                %{worker_id: key.agent_uid}
              )
 
-    assert Repo.reload!(job).status == "running"
+    assert Repo.reload!(job).status == :running
 
     assert {:ok, %{job: stopped, turn: turn}} =
              Ankole.BackgroundAgentJobs.request_stop(job.id, %{"agent_uid" => key.agent_uid})
@@ -3487,7 +3789,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert control.command == "stop"
     assert control.turn == start.turn
     assert %DateTime{} = wait_for_completion(event.id).completed_at
-    assert Repo.reload!(job).status == "stopped"
+    assert Repo.reload!(job).status == :stopped
     assert Repo.reload!(job).attempts == 1
     refute_receive {:actor_lane, %Proto.Envelope{body: {:turn_start, _}}}, 100
   end
@@ -3504,7 +3806,7 @@ defmodule Ankole.Sessions.DriverTest do
                "details_json" => %{"retryable" => true, "runtime" => "bun"}
              })
 
-    assert Repo.reload!(job).status == "queued"
+    assert Repo.reload!(job).status == :queued
 
     assert DateTime.compare(Repo.reload!(event).available_at, DateTime.utc_now(:microsecond)) ==
              :gt
@@ -3784,7 +4086,7 @@ defmodule Ankole.Sessions.DriverTest do
       assert Repo.get_by!(Ankole.Conversations.Conversation, provider_conversation_id: channel_id).ambient_standing_orders ==
                "Keep the completed channel orders."
 
-      assert Repo.reload!(journal) == journal
+      Ankole.DataCase.assert_persisted_equal(Repo.reload!(journal), journal)
     end
   end
 
@@ -3970,7 +4272,7 @@ defmodule Ankole.Sessions.DriverTest do
           Repo.all(
             from(e in Signal,
               where: e.agent_uid == ^key.agent_uid and e.session_id == ^key.session_id,
-              select: {e.id, e.input_state, e.completed_at, e.available_at}
+              select: {e.id, e.status, e.completed_at, e.available_at}
             )
           )
 
@@ -3989,7 +4291,7 @@ defmodule Ankole.Sessions.DriverTest do
       %Signal{completed_at: %DateTime{}} = event ->
         event
 
-      %Signal{input_state: "dead_letter"} = event ->
+      %Signal{status: :dead_letter} = event ->
         flunk("input failed: #{inspect(event.dead_letter_reason)}")
 
       _open ->

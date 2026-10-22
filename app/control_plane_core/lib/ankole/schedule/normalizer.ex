@@ -58,13 +58,12 @@ defmodule Ankole.Schedule.Normalizer do
          {:ok, agent_uid} <- Attrs.required_text(attrs, "agent_uid"),
          {:ok, session_id} <- Attrs.required_text(attrs, "session_id"),
          binding_name = Attrs.map_text(attrs, "binding_name"),
-         {:ok, automation_job_id} <- optional_positive_integer(attrs, "automation_job_id") do
+         {:ok, automation_job_id} <- automation_job_id(attrs) do
       reply_route = Attrs.map_value(attrs, "reply_route") || %{}
 
       {:ok,
        %{
          kind: "check_back_later",
-         status: "scheduled",
          agent_uid: agent_uid,
          session_id: session_id,
          binding_name: binding_name,
@@ -147,7 +146,7 @@ defmodule Ankole.Schedule.Normalizer do
          {:ok, delivery} <-
            Delivery.normalize(Attrs.map_value(attrs, "delivery"), binding_name),
          {:ok, status} <- normalize_cron_status(Attrs.map_text(attrs, "status") || "active"),
-         {:ok, automation_job_id} <- optional_positive_integer(attrs, "automation_job_id"),
+         {:ok, automation_job_id} <- automation_job_id(attrs),
          payload = Attrs.map_value(attrs, "payload") || %{},
          :ok <- validate_cron_task(payload, automation_job_id),
          {:ok, next_fire_at} <- Planner.next_fire_after(schedule, timezone, now),
@@ -181,7 +180,7 @@ defmodule Ankole.Schedule.Normalizer do
          {:ok, schedule, timezone} <- normalize_updated_schedule(existing, attrs, opts),
          {:ok, delivery} <- normalize_updated_delivery(existing, attrs),
          {:ok, payload} <- normalize_updated_payload(attrs),
-         {:ok, automation_job_id} <- normalize_updated_automation_job_id(attrs),
+         {:ok, automation_job_id} <- automation_job_id(attrs),
          :ok <-
            validate_cron_task(
              effective_updated_value(attrs, "payload", payload, existing.payload),
@@ -211,7 +210,7 @@ defmodule Ankole.Schedule.Normalizer do
     Map.put(changes, :binding_name, hd(delivery["targets"])["binding_name"])
   end
 
-  defp next_fire_at_for_status("active", %DateTime{} = next_fire_at), do: next_fire_at
+  defp next_fire_at_for_status(:active, %DateTime{} = next_fire_at), do: next_fire_at
   defp next_fire_at_for_status(_status, _next_fire_at), do: nil
 
   # A schedule whose cutoff precedes its first occurrence would complete without
@@ -228,7 +227,8 @@ defmodule Ankole.Schedule.Normalizer do
     end
   end
 
-  defp normalize_cron_status(status) when status in ["active", "paused"], do: {:ok, status}
+  defp normalize_cron_status("active"), do: {:ok, :active}
+  defp normalize_cron_status("paused"), do: {:ok, :paused}
   defp normalize_cron_status(_status), do: {:error, :invalid_cron_status}
 
   # A cron execution session cannot own schedules: its turns see only the
@@ -322,10 +322,6 @@ defmodule Ankole.Schedule.Normalizer do
     end
   end
 
-  defp normalize_updated_automation_job_id(attrs) do
-    optional_positive_integer(attrs, "automation_job_id")
-  end
-
   defp maybe_put_automation_job_id(changes, attrs, automation_job_id) do
     if Map.has_key?(attrs, "automation_job_id"),
       do: Map.put(changes, :automation_job_id, automation_job_id),
@@ -350,15 +346,16 @@ defmodule Ankole.Schedule.Normalizer do
     end
   end
 
-  defp optional_positive_integer(attrs, key) do
-    case Map.get(attrs, key) do
+  @spec automation_job_id(map()) :: {:ok, pos_integer() | nil} | {:error, term()}
+  def automation_job_id(attrs) do
+    case attrs |> Ankole.Attrs.normalize_external_attrs() |> Map.get("automation_job_id") do
       nil ->
         {:ok, nil}
 
       value ->
         case Ankole.ModelIntegerID.parse(value) do
           {:ok, id} -> {:ok, id}
-          :error -> {:error, {:invalid_positive_integer, key}}
+          :error -> {:error, {:invalid_positive_integer, "automation_job_id"}}
         end
     end
   end

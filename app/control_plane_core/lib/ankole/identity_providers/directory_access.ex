@@ -3,6 +3,7 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
   Durable provider events and reviewed directory removal evidence.
   """
   import Ecto.Query
+  require Ash.Query
   alias Ankole.IdentityProviders.DirectoryEvent
   alias Ankole.IdentityProviders.DirectoryState
   alias Ankole.IdentityProviders.Jobs.ProcessDirectoryEvent
@@ -10,21 +11,13 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
   alias Ankole.Principals.HumanAccess
   alias Ankole.Repo
 
-  def state(provider_id), do: Repo.get_by(DirectoryState, provider_id: provider_id)
+  def state(provider_id),
+    do: DirectoryState |> Ash.Query.filter(provider_id == ^provider_id) |> Ankole.Ash.read_one!()
 
-  def configuration_changed_in_tx(repo, provider_id) do
-    repo.update_all(from(s in DirectoryState, where: s.provider_id == ^provider_id),
-      inc: [revision: 1],
-      set: [
-        approved_scope_fingerprint: nil,
-        snapshot_fingerprint: nil,
-        status: :review_required,
-        last_error: "Provider configuration changed; run and review a new directory sync",
-        updated_at: DateTime.utc_now()
-      ]
-    )
-
-    :ok
+  def configuration_changed_in_tx(_repo, provider_id) do
+    DirectoryState
+    |> Ash.Query.filter(provider_id == ^provider_id)
+    |> update_states(:configuration_changed_in_tx, %{})
   end
 
   def recovery_current?(provider_id, uid, verified_at) do
@@ -46,20 +39,20 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
 
   def events(provider_id),
     do:
-      Repo.all(
-        from e in DirectoryEvent,
-          where: e.provider_id == ^provider_id,
-          order_by: [desc: e.inserted_at],
-          limit: 100
-      )
+      DirectoryEvent
+      |> Ash.Query.filter(provider_id == ^provider_id)
+      |> Ash.Query.sort(inserted_at: :desc)
+      |> Ash.Query.limit(100)
+      |> Ankole.Ash.read!()
 
   def guard_subject(repo, provider_id, external_ids) do
     if repo.exists?(
-         from e in DirectoryEvent,
+         from(e in DirectoryEvent,
            where:
              e.provider_id == ^provider_id and not is_nil(e.reason) and
                e.status in [:pending, :review_required] and
                fragment("? && ?::text[]", e.external_ids, ^external_ids)
+         )
        ), do: {:error, :provider_identity_requires_review}, else: :ok
   end
 
@@ -72,20 +65,19 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
 
           nil ->
             with {:ok, event} <-
-                   %DirectoryEvent{}
-                   |> Ecto.Changeset.change(Map.put(attrs, :provider_id, provider_id))
-                   |> repo.insert(),
+                   Ankole.Ash.create(
+                     DirectoryEvent,
+                     :receive_in_tx,
+                     Map.put(attrs, :provider_id, provider_id)
+                   ),
                  {:ok, _} <-
-                   state
-                   |> Ecto.Changeset.change(
-                     revision: state.revision + 1,
+                   Ankole.Ash.update(state, :receive_event_in_tx, %{
                      approved_scope_fingerprint:
                        if(attrs.event_type == "contact.scope.updated_v3",
                          do: nil,
                          else: state.approved_scope_fingerprint
                        )
-                   )
-                   |> repo.update() do
+                   }) do
               dispatch_directory_event(repo, event)
             end
         end
@@ -103,7 +95,7 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
   end
 
   def process_event(id) do
-    case Repo.get(DirectoryEvent, id) do
+    case get_event(id) do
       nil ->
         :ok
 
@@ -122,61 +114,61 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
       event ->
         case Ankole.IdentityProviders.DirectorySync.sync_provider(event.provider_id) do
           {:ok, _} ->
-            event
-            |> Ecto.Changeset.change(
-              status: :processed,
-              processed_at: DateTime.utc_now(),
-              last_error: nil
-            )
-            |> Repo.update!()
-
-            :ok
+            with {:ok, _event} <- update_open_event(event, :process_in_tx, %{}), do: :ok
 
           {:error, reason} ->
-            event |> Ecto.Changeset.change(last_error: error_label(reason)) |> Repo.update!()
-            {:error, error_label(reason)}
+            with {:ok, _event} <-
+                   update_open_event(event, :fail_in_tx, %{last_error: error_label(reason)}),
+                 do: {:error, error_label(reason)}
         end
     end
   end
 
   def review_event(id, actor_uid, reason, action) when action in [:retry, :dismiss] do
     with true <- is_binary(reason) and String.trim(reason) != "",
-         %DirectoryEvent{} = event <- Repo.get(DirectoryEvent, id) do
-      case action do
-        :retry ->
-          with {:ok, _} <-
-                 event
-                 |> Ecto.Changeset.change(reviewed_by: actor_uid, review_reason: reason)
-                 |> Repo.update(),
-               do: process_event(id)
+         %DirectoryEvent{} = event <- get_event(id) do
+      result =
+        Repo.transact(fn repo ->
+          with {:ok, _state} <- lock_state(repo, event.provider_id) do
+            current = repo.get!(DirectoryEvent, id)
 
-        :dismiss ->
-          event
-          |> Ecto.Changeset.change(
-            status: :dismissed,
-            reviewed_by: actor_uid,
-            review_reason: reason,
-            processed_at: DateTime.utc_now()
-          )
-          |> Repo.update()
+            Ankole.Ash.update(
+              current,
+              if(action == :retry, do: :review_in_tx, else: :dismiss_in_tx),
+              %{reviewed_by: actor_uid, review_reason: reason}
+            )
+          end
+        end)
+
+      case {action, result} do
+        {:retry, {:ok, _event}} -> process_event(id)
+        {_action, result} -> result
       end
     else
       _ -> {:error, :invalid_review}
     end
   end
 
+  def get_event(id),
+    do: DirectoryEvent |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!()
+
+  defp update_open_event(event, action, attrs) do
+    Repo.transact(fn repo ->
+      with {:ok, _state} <- lock_state(repo, event.provider_id) do
+        current = repo.get!(DirectoryEvent, event.id)
+
+        if current.status in [:processed, :dismissed],
+          do: {:ok, current},
+          else: Ankole.Ash.update(current, action, attrs)
+      end
+    end)
+  end
+
   def begin_sync(provider_id, expected_config \\ nil) do
     Repo.transact(fn repo ->
       with {:ok, state} <- lock_state(repo, provider_id),
            :ok <- current_configuration(repo, provider_id, expected_config) do
-        state
-        |> Ecto.Changeset.change(
-          revision: state.revision + 1,
-          last_started_at: DateTime.utc_now(),
-          status: :syncing,
-          last_error: nil
-        )
-        |> repo.update()
+        Ankole.Ash.update(state, :begin_sync_in_tx, %{})
       end
     end)
   end
@@ -236,7 +228,6 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
             scope_fingerprint: fingerprint,
             snapshot_fingerprint: fingerprint({ticket.revision, fingerprint, members, missing}),
             last_success_at: DateTime.utc_now(),
-            status: if(review, do: :review_required, else: :healthy),
             last_error:
               if(review,
                 do: "Review the admission scope and missing people before automatic removal",
@@ -244,7 +235,7 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
               )
           }
 
-          commit_sync_result(repo, state, attrs, review)
+          commit_sync_result(state, attrs, review)
         end
       else
         false -> {:ok, :superseded}
@@ -253,18 +244,27 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
     end)
   end
 
-  defp commit_sync_result(repo, state, attrs, review) do
-    with {:ok, updated} <- state |> Ecto.Changeset.change(attrs) |> repo.update() do
+  defp commit_sync_result(state, attrs, review) do
+    action = if(review, do: :review_snapshot_in_tx, else: :complete_sync_in_tx)
+
+    with {:ok, updated} <- Ankole.Ash.update(state, action, attrs) do
       if review, do: log_review(updated)
       {:ok, updated}
     end
   end
 
   def fail_sync(ticket, reason) do
-    Repo.update_all(
-      from(s in DirectoryState, where: s.id == ^ticket.id and s.revision == ^ticket.revision),
-      set: [status: :failed, last_error: error_label(reason), updated_at: DateTime.utc_now()]
-    )
+    case Repo.transact(fn _repo ->
+           :ok =
+             DirectoryState
+             |> Ash.Query.filter(id == ^ticket.id and revision == ^ticket.revision)
+             |> update_states(:fail_sync_in_tx, %{last_error: error_label(reason)})
+
+           {:ok, :ok}
+         end) do
+      {:ok, :ok} -> :ok
+      {:error, error} -> raise Ash.Error.to_error_class(error)
+    end
 
     Ankole.Logging.warning(
       "identity_providers.directory.sync_failed",
@@ -289,17 +289,11 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
                "review:" <> fingerprint,
                state.last_started_at
              ) do
-        state
-        |> Ecto.Changeset.change(
+        Ankole.Ash.update(state, :approve_snapshot_in_tx, %{
           approved_scope_fingerprint: state.scope_fingerprint,
           reviewed_by: actor_uid,
-          reviewed_at: DateTime.utc_now(),
-          review_reason: reason,
-          missing_uids: [],
-          status: :healthy,
-          last_error: nil
-        )
-        |> repo.update()
+          review_reason: reason
+        })
       else
         false -> {:error, :directory_review_changed}
         error -> error
@@ -309,23 +303,33 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
 
   defp lock_state(repo, provider_id) do
     with {:ok, _} <-
-           %DirectoryState{}
-           |> Ecto.Changeset.change(provider_id: provider_id)
-           |> repo.insert(on_conflict: :nothing, conflict_target: [:tenant_id, :provider_id]) do
+           Ankole.Ash.create(DirectoryState, :ensure_in_tx, %{provider_id: provider_id}) do
       {:ok,
        repo.one!(
-         from s in DirectoryState, where: s.provider_id == ^provider_id, lock: "FOR UPDATE"
+         from(s in DirectoryState, where: s.provider_id == ^provider_id, lock: "FOR UPDATE")
        )}
     end
   end
 
+  defp update_states(query, action, attrs) do
+    case Ankole.Ash.bulk_update(query, action, attrs, strategy: [:atomic], return_errors?: true) do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+    end
+  end
+
+  defp apply_restriction(_repo, %{status: status} = event)
+       when status in [:processed, :dismissed],
+       do: {:ok, event}
+
   defp apply_restriction(repo, event) do
     uids =
       repo.all(
-        from i in ExternalIdentity,
+        from(i in ExternalIdentity,
           where: i.provider == ^event.provider_id and i.external_id in ^event.external_ids,
           select: i.principal_uid,
           distinct: true
+        )
       )
 
     case uids do
@@ -338,13 +342,7 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
                  event.event_id,
                  event.provider_time
                ) do
-          event
-          |> Ecto.Changeset.change(
-            status: :processed,
-            processed_at: DateTime.utc_now(),
-            last_error: nil
-          )
-          |> repo.update()
+          Ankole.Ash.update(event, :process_in_tx, %{})
         end
 
       _ ->
@@ -354,22 +352,20 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
           %{provider_id: event.provider_id, event_id: event.event_id}
         )
 
-        event
-        |> Ecto.Changeset.change(
-          status: :review_required,
+        Ankole.Ash.update(event, :require_review_in_tx, %{
           last_error: "Provider identity is missing or ambiguous; review the stored aliases"
-        )
-        |> repo.update()
+        })
     end
   end
 
   defp known_members(repo, provider_id),
     do:
       repo.all(
-        from i in ExternalIdentity,
+        from(i in ExternalIdentity,
           where: i.provider == ^provider_id,
           select: i.principal_uid,
           distinct: true
+        )
       )
 
   defp apply_observations(provider_id, observations, ticket) do

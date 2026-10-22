@@ -12,7 +12,7 @@ use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message};
 use super::core::{EventSink, StreamCommand, StreamEvent};
 use super::delivery::{Delivery, finish_after_ready_error, ingest_resolver_event, summary};
 use crate::universal_ai_client::downstream::DownstreamEncoder;
-use crate::universal_ai_client::error::StreamError;
+use crate::universal_ai_client::error::{PROVIDER_BODY_EXCERPT_LIMIT, StreamError};
 use crate::universal_ai_client::spec::{StreamSpec, UpstreamKind};
 use crate::universal_ai_client::transport::SemanticIdle;
 use crate::universal_ai_client::{
@@ -54,18 +54,18 @@ async fn run_http_stream(
     sink: EventSink,
     aborted_sent: Arc<AtomicBool>,
 ) {
-    let mut http_stream =
+    let (mut http_stream, command_rx) =
         match wait_for_open_http(&spec, command_rx, sink.clone(), aborted_sent.clone()).await {
             OpenResult::Opened { stream, command_rx } => (stream, command_rx),
             OpenResult::Finished => return,
         };
 
-    if !(200..300).contains(&http_stream.0.status) {
+    if !(200..300).contains(&http_stream.status) {
         let error = provider_status_error(
             &spec,
-            http_stream.0.status,
-            &http_stream.0.headers,
-            &mut http_stream.0.body,
+            http_stream.status,
+            &http_stream.headers,
+            &mut http_stream.body,
         )
         .await;
         sink(StreamEvent::Error(error.to_json()));
@@ -76,7 +76,7 @@ async fn run_http_stream(
     let mut resolver =
         api_resolver::APIResolver::new(spec.api_resolver, spec.response_context.clone());
     let mut delivery = Delivery::new(
-        http_stream.1,
+        command_rx,
         sink.clone(),
         encoder,
         aborted_sent,
@@ -84,8 +84,8 @@ async fn run_http_stream(
     );
 
     sink(StreamEvent::Ready(json!({
-        "status": http_stream.0.status,
-        "headers": transport::safe_response_headers(&http_stream.0.headers),
+        "status": http_stream.status,
+        "headers": transport::safe_response_headers(&http_stream.headers),
         "upstream_kind": spec.upstream.kind.as_str(),
         "api_resolver": spec.api_resolver.as_str(),
     })));
@@ -100,7 +100,7 @@ async fn run_http_stream(
                 }
 
                 let Some(next) = delivery
-                    .wait_upstream(idle.wait(http_stream.0.body.next()))
+                    .wait_upstream(idle.wait(http_stream.body.next()))
                     .await
                 else {
                     return;
@@ -205,7 +205,7 @@ async fn run_http_stream(
                 }
 
                 let Some(next) = delivery
-                    .wait_upstream(idle.wait(http_stream.0.body.next()))
+                    .wait_upstream(idle.wait(http_stream.body.next()))
                     .await
                 else {
                     return;
@@ -676,10 +676,10 @@ async fn provider_status_error(
 ) -> StreamError {
     let mut excerpt = Vec::new();
 
-    while excerpt.len() < 4096 {
+    while excerpt.len() < PROVIDER_BODY_EXCERPT_LIMIT {
         match timeout(spec.upstream.timeout.idle_duration(), body.next()).await {
             Ok(Some(Ok(bytes))) => {
-                let remaining = 4096 - excerpt.len();
+                let remaining = PROVIDER_BODY_EXCERPT_LIMIT - excerpt.len();
                 excerpt.extend_from_slice(&bytes[..bytes.len().min(remaining)]);
             }
             _ => break,

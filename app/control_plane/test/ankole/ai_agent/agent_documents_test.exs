@@ -79,7 +79,7 @@ defmodule Ankole.AIAgent.AgentDocumentsTest do
 
     assert updated["content"] == "Materialized mission"
 
-    assert %AgentLibraryContainerEntry{source_kind: "mission", content: "Materialized mission"} =
+    assert %AgentLibraryContainerEntry{source_kind: :mission, content: "Materialized mission"} =
              Repo.get_by!(AgentLibraryContainerEntry,
                agent_uid: agent.uid,
                path: "MISSION.md"

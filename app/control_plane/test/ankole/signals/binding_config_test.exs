@@ -13,7 +13,6 @@ defmodule Ankole.Signals.BindingConfigTest do
   alias Ankole.Conversations.Delivery.Intent
 
   setup do
-    allow_cache_database_access()
     %{principal: agent} = agent_fixture()
     binding = binding_fixture(agent.uid, "config-owner", :ignore, adapter: "line")
     key = Config.binding_config_key(agent.uid, binding.name)

@@ -11,25 +11,29 @@ defmodule Ankole.Schedule.Store do
   @spec insert_idempotent_event_and_wake_in_tx(module(), map(), keyword()) ::
           {:ok, %{status: :scheduled | :already_scheduled, scheduled_event: ScheduledEvent.t()}}
           | {:error, term()}
-  def insert_idempotent_event_and_wake_in_tx(repo, attrs, opts) do
-    changeset = ScheduledEvent.changeset(%ScheduledEvent{}, attrs)
-
-    with {:ok, attempted} <-
-           repo.insert(changeset,
-             on_conflict: :nothing,
-             conflict_target: [:kind, :agent_uid, :session_id, :idempotency_key],
-             returning: true
-           ),
-         {:ok, persisted} <- fetch_event_by_idempotency(repo, attrs) do
-      case attempted.id == persisted.id do
-        true ->
+  def insert_idempotent_event_and_wake_in_tx(_repo, attrs, opts) do
+    with {:ok, persisted} <- create_event(attrs, :schedule_event) do
+      case Ash.Resource.get_metadata(persisted, :upsert_action) do
+        :insert ->
           with {:ok, _job} <- insert_wake_job(persisted, opts) do
             {:ok, %{status: :scheduled, scheduled_event: persisted}}
           end
 
-        false ->
+        :update ->
           {:ok, %{status: :already_scheduled, scheduled_event: persisted}}
       end
+    end
+  end
+
+  def create_event(attrs, action \\ :create_event),
+    do: Ankole.Ash.create(ScheduledEvent, action, attrs, touch_update_defaults?: false)
+
+  def cancel_matching_in_tx(repo, query, now, reason) do
+    events = query |> lock("FOR UPDATE") |> repo.lock_all("scheduled_events")
+
+    case cancel_scheduled_events(repo, events, now, reason) do
+      {:ok, rows} -> {length(rows), rows}
+      {:error, reason} -> repo.rollback(reason)
     end
   end
 
@@ -40,9 +44,9 @@ defmodule Ankole.Schedule.Store do
       ScheduledEvent
       |> where([event], event.kind == "cron_fire")
       |> where([event], event.cron_schedule_id == ^schedule.id)
-      |> where([event], event.status == "scheduled")
+      |> where([event], event.status == :scheduled)
       |> lock("FOR UPDATE")
-      |> repo.all()
+      |> repo.lock_all("scheduled_events")
 
     cancel_scheduled_events(repo, events, now, "cron_schedule_deleted")
   end
@@ -51,16 +55,13 @@ defmodule Ankole.Schedule.Store do
           {:ok, [ScheduledEvent.t()]} | {:error, term()}
   defp cancel_scheduled_events(_repo, [], _now, _reason), do: {:ok, []}
 
-  defp cancel_scheduled_events(repo, events, now, reason) do
+  defp cancel_scheduled_events(_repo, events, now, reason) do
     events
     |> Enum.map(fn event ->
-      event
-      |> ScheduledEvent.changeset(%{
-        status: "cancelled",
+      Ankole.Ash.update(event, :cancel, %{
         cancelled_at: now,
         last_fire_error: %{"reason" => reason}
       })
-      |> repo.update()
     end)
     |> Attrs.collect_results()
   end
@@ -73,34 +74,50 @@ defmodule Ankole.Schedule.Store do
       |> where([schedule], schedule.agent_uid == ^attrs.agent_uid)
       |> where([schedule], schedule.owner_session_id == ^attrs.owner_session_id)
       |> where([schedule], schedule.idempotency_key == ^attrs.idempotency_key)
-      |> lock("FOR UPDATE")
 
-    case repo.one(query) do
-      %CronSchedule{} = schedule -> {:ok, schedule}
+    with %CronSchedule{id: id} <- repo.one(query),
+         %CronSchedule{} = schedule <- lock_cron_schedule(repo, id, attrs.automation_job_id) do
+      {:ok, schedule}
+    else
       nil -> {:error, :cron_schedule_not_found}
     end
   end
 
-  @spec fetch_event_by_idempotency(module(), map()) ::
-          {:ok, ScheduledEvent.t()} | {:error, :scheduled_event_not_found}
-  defp fetch_event_by_idempotency(repo, attrs) do
-    case repo.get_by(ScheduledEvent,
-           kind: attrs.kind,
-           agent_uid: attrs.agent_uid,
-           session_id: attrs.session_id,
-           idempotency_key: attrs.idempotency_key
-         ) do
-      %ScheduledEvent{} = event -> {:ok, event}
-      nil -> {:error, :scheduled_event_not_found}
+  @doc """
+  Locks the operation's consumer before the rule.
+
+  The default uses the current binding. An explicit consumer is the target of
+  a binding edit or a retained event, whose binding can differ from the rule.
+  """
+  @spec lock_cron_schedule(module(), Ecto.UUID.t(), :current | pos_integer() | nil) ::
+          CronSchedule.t() | nil
+  def lock_cron_schedule(repo, cron_schedule_id, automation_job_id \\ :current) do
+    case repo.get(CronSchedule, cron_schedule_id) do
+      nil ->
+        nil
+
+      %CronSchedule{} = snapshot ->
+        consumer =
+          if automation_job_id == :current,
+            do: snapshot.automation_job_id,
+            else: automation_job_id
+
+        if consumer, do: Ankole.AutomationJobs.lock_job_in_tx(repo, consumer)
+        schedule = lock_cron_row(repo, cron_schedule_id)
+
+        if automation_job_id == :current and not is_nil(schedule) and
+             schedule.automation_job_id != snapshot.automation_job_id,
+           do: repo.rollback(:cron_schedule_changed)
+
+        schedule
     end
   end
 
-  @spec lock_cron_schedule(module(), Ecto.UUID.t()) :: CronSchedule.t() | nil
-  def lock_cron_schedule(repo, cron_schedule_id) do
+  defp lock_cron_row(repo, cron_schedule_id) do
     CronSchedule
     |> where([schedule], schedule.id == ^cron_schedule_id)
     |> lock("FOR UPDATE")
-    |> repo.one()
+    |> repo.one(lock_identity: {"cron_schedules", cron_schedule_id})
   end
 
   @spec lock_scheduled_event(module(), pos_integer()) :: ScheduledEvent.t() | nil
@@ -108,13 +125,13 @@ defmodule Ankole.Schedule.Store do
     ScheduledEvent
     |> where([event], event.id == ^scheduled_event_id)
     |> lock("FOR UPDATE")
-    |> repo.one()
+    |> repo.one(lock_identity: {"scheduled_events", scheduled_event_id})
   end
 
   @spec reject_terminal(CronSchedule.t()) ::
           :ok | {:error, :cron_schedule_deleted | :cron_schedule_completed}
-  def reject_terminal(%CronSchedule{status: "deleted"}), do: {:error, :cron_schedule_deleted}
-  def reject_terminal(%CronSchedule{status: "completed"}), do: {:error, :cron_schedule_completed}
+  def reject_terminal(%CronSchedule{status: :deleted}), do: {:error, :cron_schedule_deleted}
+  def reject_terminal(%CronSchedule{status: :completed}), do: {:error, :cron_schedule_completed}
   def reject_terminal(%CronSchedule{}), do: :ok
 
   @doc """
@@ -130,7 +147,7 @@ defmodule Ankole.Schedule.Store do
     ScheduledEvent
     |> where([event], event.kind == "cron_fire")
     |> where([event], event.cron_schedule_id == ^cron_schedule_id)
-    |> where([event], event.status in ["fired", "failed"])
+    |> where([event], event.status in [:fired, :failed])
     |> where(
       [event],
       fragment("COALESCE(?->>'trigger', 'scheduled') = 'scheduled'", event.wake_payload)

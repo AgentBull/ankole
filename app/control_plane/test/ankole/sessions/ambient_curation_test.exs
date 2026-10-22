@@ -11,15 +11,24 @@ defmodule Ankole.Sessions.AmbientCurationTest do
 
   @channel_id "lark:chat:group-a"
 
+  setup do
+    {:ok, now: DateTime.utc_now(:microsecond)}
+  end
+
   defp ambient_event!(agent_uid, overrides, opts) do
     assert {:ok, %{signal: event}} =
-             emit_entry(agent_uid, "bot", group_entry(overrides), opts)
+             emit_entry(
+               agent_uid,
+               "bot",
+               group_entry(Map.put_new(overrides, :provider_time, Keyword.fetch!(opts, :now))),
+               opts
+             )
 
     assert event.type == "im.message.may_intervene"
     event
   end
 
-  defp record_judgment(agent_uid, signal_id, attrs, now \\ @base_time) do
+  defp record_judgment(agent_uid, signal_id, attrs) do
     event = Repo.get(Signal, signal_id)
 
     key = %{
@@ -32,10 +41,46 @@ defmodule Ankole.Sessions.AmbientCurationTest do
       |> Map.put_new(:handoff_job_id, nil)
       |> Map.put_new(:asked_by_state, if(attrs[:asked_by_message_id], do: "accepted"))
 
-    AmbientCuration.record_judgment(key, signal_id, attrs, now: now)
+    AmbientCuration.record_judgment(key, signal_id, attrs)
   end
 
-  test "a silent judgment persists the reason and advances the channel cursor" do
+  test "the judgment resource rejects contradictory routes and attribution before storage", %{
+    now: now
+  } do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :may_intervene)
+    event = ambient_event!(agent.uid, %{provider_message_id: "invalid-judgment"}, now: now)
+
+    base = %{
+      signal_id: event.id,
+      agent_uid: agent.uid,
+      conversation_id: event.conversation_id,
+      action: "NOOP",
+      authority: "NONE"
+    }
+
+    for {changes, field} <- [
+          {%{action: "unknown"}, "action"},
+          {%{authority: "EXPLICIT_REQUEST"}, "authority"},
+          {%{action: "HANDOFF"}, "handoff_job_id"},
+          {%{handoff_job_id: 1}, "handoff_job_id"},
+          {%{asked_by_state: "accepted"}, "asked_by_message_id"},
+          {%{asked_by_state: "degraded", asked_by_message_id: Ecto.UUID.generate()},
+           "asked_by_message_id"},
+          {%{asked_by_message_id: Ecto.UUID.generate()}, "asked_by_message_id"},
+          {%{asked_by_state: "unknown"}, "asked_by_state"}
+        ] do
+      assert {:error, %Ash.Error.Invalid{} = error} =
+               Repo.transact(fn _repo ->
+                 Ankole.Ash.create(AmbientJudgment, :record, Map.merge(base, changes))
+               end)
+
+      assert Enum.any?(Ankole.Ash.validation_details(error), &(&1.path == field))
+      refute Repo.get(AmbientJudgment, event.id)
+    end
+  end
+
+  test "a silent judgment persists the reason and advances the channel cursor", %{now: now} do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
 
@@ -43,7 +88,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
       ambient_event!(
         agent.uid,
         %{provider_message_id: "msg-silent", text: "morning chatter"},
-        now: @base_time
+        now: now
       )
 
     assert {:ok, %{action: "NOOP", asked_by_state: nil, judged_until: judged_until}} =
@@ -53,7 +98,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
                reason: "small talk between colleagues"
              })
 
-    assert DateTime.compare(judged_until, @base_time) == :eq
+    assert DateTime.compare(judged_until, now) == :eq
 
     judgment = Repo.get!(AmbientJudgment, event.id)
     assert judgment.action == "NOOP"
@@ -64,13 +109,13 @@ defmodule Ankole.Sessions.AmbientCurationTest do
 
     assert DateTime.compare(
              AmbientCuration.judged_until(agent.uid, event.conversation_id),
-             @base_time
+             now
            ) == :eq
 
     assert is_nil(Repo.get!(Signal, event.id).ambient_asked_message_id)
   end
 
-  test "an accepted asked_by becomes the reply anchor" do
+  test "an accepted asked_by becomes the reply anchor", %{now: now} do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
 
@@ -78,7 +123,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
       ambient_event!(
         agent.uid,
         %{provider_message_id: "msg-ask", text: "Bot, which benchmark should we use?"},
-        now: @base_time
+        now: now
       )
 
     assert {:ok, %{asked_by_state: "accepted"}} =
@@ -96,7 +141,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
     assert Repo.get!(AmbientJudgment, event.id).asked_by_state == "accepted"
   end
 
-  test "host deletion of an accepted asked_by preserves the judgment progress" do
+  test "host deletion of an accepted asked_by preserves the judgment progress", %{now: now} do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
 
@@ -104,15 +149,8 @@ defmodule Ankole.Sessions.AmbientCurationTest do
       ambient_event!(
         agent.uid,
         %{provider_message_id: "msg-removed-ask", text: "Bot, which benchmark should we use?"},
-        now: @base_time
+        now: now
       )
-
-    assert {:ok, %Ankole.Sessions.Run{}} =
-             Ankole.Sessions.Admission.admit(
-               %{agent_uid: agent.uid, session_id: event.session_id},
-               event,
-               now: @base_time
-             )
 
     assert {:ok, %{asked_by_state: "accepted"}} =
              record_judgment(agent.uid, event.id, %{
@@ -121,6 +159,13 @@ defmodule Ankole.Sessions.AmbientCurationTest do
                reason: "Alice is asking the agent directly",
                asked_by_message_id: message_id("msg-removed-ask")
              })
+
+    assert {:ok, %Ankole.Sessions.Run{}} =
+             Ankole.Sessions.Admission.admit(
+               %{agent_uid: agent.uid, session_id: event.session_id},
+               event,
+               now: now
+             )
 
     judgment = Repo.get!(AmbientJudgment, event.id)
     cursor = AmbientCuration.judged_until(agent.uid, event.conversation_id)
@@ -135,7 +180,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
                agent.uid,
                "bot",
                lifecycle_entry(%{provider_message_id: "msg-removed-ask"}),
-               now: DateTime.add(@base_time, 1, :second)
+               now: DateTime.add(now, 1, :second)
              )
 
     refute Repo.get_by(Ankole.Conversations.Message, id: asked_id)
@@ -151,7 +196,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
            |> Map.take([:authorization_kind, :human_uid, :human_access_version]) == authorization
   end
 
-  test "asked_by degrades when the entry is not mirrored in the channel" do
+  test "asked_by degrades when the entry is not mirrored in the channel", %{now: now} do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
 
@@ -159,7 +204,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
       ambient_event!(
         agent.uid,
         %{provider_message_id: "msg-real", text: "anyone?"},
-        now: @base_time
+        now: now
       )
 
     assert {:ok, %{asked_by_state: "degraded"}} =
@@ -179,7 +224,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
     assert judgment.asked_by_state == "degraded"
   end
 
-  test "a recognizer-degraded asked_by stays degraded even when the entry exists" do
+  test "a recognizer-degraded asked_by stays degraded even when the entry exists", %{now: now} do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
 
@@ -187,7 +232,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
       ambient_event!(
         agent.uid,
         %{provider_message_id: "msg-stale", text: "old question"},
-        now: @base_time
+        now: now
       )
 
     assert {:ok, %{asked_by_state: "degraded"}} =
@@ -202,7 +247,9 @@ defmodule Ankole.Sessions.AmbientCurationTest do
     assert is_nil(Repo.get!(Signal, event.id).ambient_asked_message_id)
   end
 
-  test "a retried judgment returns the first canonical route and keeps the cursor monotonic" do
+  test "a retried judgment returns the first canonical route and keeps the cursor monotonic", %{
+    now: now
+  } do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
 
@@ -210,7 +257,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
       ambient_event!(
         agent.uid,
         %{provider_message_id: "msg-retry", text: "retry me"},
-        now: @base_time
+        now: now
       )
 
     assert {:ok, _result} =
@@ -233,11 +280,11 @@ defmodule Ankole.Sessions.AmbientCurationTest do
 
     assert DateTime.compare(
              AmbientCuration.judged_until(agent.uid, event.conversation_id),
-             @base_time
+             now
            ) == :eq
   end
 
-  test "record_judgment rejects unknown events and foreign agents" do
+  test "record_judgment rejects unknown events and foreign agents", %{now: now} do
     %{principal: agent} = agent_fixture()
     %{principal: other_agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
@@ -246,7 +293,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
       ambient_event!(
         agent.uid,
         %{provider_message_id: "msg-guard", text: "guard case"},
-        now: @base_time
+        now: now
       )
 
     assert {:error, :signal_not_found} =
@@ -259,24 +306,23 @@ defmodule Ankole.Sessions.AmbientCurationTest do
              record_judgment(other_agent.uid, event.id, %{action: "NOOP", authority: "NONE"})
   end
 
-  test "judgment cannot lock an event from another Session" do
+  test "judgment cannot lock an event from another Session", %{now: now} do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
-    event = ambient_event!(agent.uid, %{text: "Which benchmark?"}, now: @base_time)
+    event = ambient_event!(agent.uid, %{text: "Which benchmark?"}, now: now)
 
     assert {:error, :ambient_event_unavailable} =
              AmbientCuration.record_judgment(
                %{agent_uid: agent.uid, session_id: "another-session"},
                event.id,
-               %{action: "NOOP", authority: "NONE", handoff_job_id: nil},
-               now: @base_time
+               %{action: "NOOP", authority: "NONE", handoff_job_id: nil}
              )
 
     assert is_nil(Repo.get(AmbientJudgment, event.id))
     assert is_nil(AmbientCuration.judged_until(agent.uid, event.conversation_id))
   end
 
-  test "new routes persist action and authority without starting work" do
+  test "new routes persist action and authority without starting work", %{now: now} do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
 
@@ -284,7 +330,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
       ambient_event!(
         agent.uid,
         %{provider_message_id: "msg-new-work", text: "This investigation may be useful."},
-        now: @base_time
+        now: now
       )
 
     assert {:ok, %{action: "NEW_WORK", authority: "NONE", handoff_job_id: nil}} =
@@ -301,7 +347,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
     refute Repo.exists?(from row in Signal, where: row.type == "background_agent_job.dispatch")
   end
 
-  test "explicit-request authority requires an accepted human row from this batch" do
+  test "explicit-request authority requires an accepted human row from this batch", %{now: now} do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
 
@@ -309,7 +355,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
       ambient_event!(
         agent.uid,
         %{provider_message_id: "msg-current-request", text: "Please investigate this failure."},
-        now: @base_time
+        now: now
       )
 
     assert {:ok,
@@ -325,7 +371,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
                reason: "The current human message assigns the work."
              })
 
-    later = DateTime.add(@base_time, 30, :second)
+    later = DateTime.add(now, 30, :second)
 
     next =
       ambient_event!(
@@ -347,21 +393,21 @@ defmodule Ankole.Sessions.AmbientCurationTest do
                  authority: "EXPLICIT_REQUEST",
                  asked_by_message_id: message_id("msg-current-request"),
                  reason: "The proposed requester is only in channel history."
-               },
-               later
+               }
              )
 
     assert Repo.get!(AmbientJudgment, next.id).authority == "NONE"
   end
 
-  test "standing-order authority requires the current channel text to match the event snapshot" do
+  test "standing-order authority requires the current channel text to match the event snapshot",
+       %{now: now} do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
 
     ambient_event!(
       agent.uid,
       %{provider_message_id: "msg-orders-seed", text: "seed the channel"},
-      now: @base_time
+      now: now
     )
 
     assert {:ok, %{orders: "Investigate every failed deploy."}} =
@@ -371,7 +417,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
                "operator"
              )
 
-    unchanged_at = DateTime.add(@base_time, 30, :second)
+    unchanged_at = DateTime.add(now, 30, :second)
 
     unchanged =
       ambient_event!(
@@ -392,11 +438,10 @@ defmodule Ankole.Sessions.AmbientCurationTest do
                  action: "NEW_WORK",
                  authority: "STANDING_ORDER",
                  reason: "The unchanged order authorizes this investigation."
-               },
-               unchanged_at
+               }
              )
 
-    changed_at = DateTime.add(@base_time, 60, :second)
+    changed_at = DateTime.add(now, 60, :second)
 
     changed =
       ambient_event!(
@@ -427,14 +472,15 @@ defmodule Ankole.Sessions.AmbientCurationTest do
                  action: "NEW_WORK",
                  authority: "STANDING_ORDER",
                  reason: "The model saw the superseded standing order."
-               },
-               changed_at
+               }
              )
 
     assert Repo.get!(AmbientJudgment, changed.id).authority == "NONE"
   end
 
-  test "HANDOFF prelocks one target, appends one steer, and keeps the canonical target" do
+  test "HANDOFF prelocks one target, appends one steer, and keeps the canonical target", %{
+    now: now
+  } do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
 
@@ -442,7 +488,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
       ambient_event!(
         agent.uid,
         %{provider_message_id: "msg-handoff", text: "The failed pod reports a database timeout."},
-        now: @base_time
+        now: now
       )
 
     job = create_job!(agent.uid, event, "handoff")
@@ -548,7 +594,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
              )
   end
 
-  test "the next ambient batch shows judged rows as backdrop, not delta" do
+  test "the next ambient batch shows judged rows as backdrop, not delta", %{now: now} do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
 
@@ -556,7 +602,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
       ambient_event!(
         agent.uid,
         %{provider_message_id: "msg-old", text: "old question"},
-        now: @base_time
+        now: now
       )
 
     assert {:ok, _result} =
@@ -566,7 +612,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
                reason: "nothing owed"
              })
 
-    later = DateTime.add(@base_time, 60, :second)
+    later = DateTime.add(now, 60, :second)
 
     second =
       ambient_event!(
@@ -614,7 +660,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
     end
   end
 
-  test "standing orders set from a turn record the asking author and activation" do
+  test "standing orders set from a turn record the asking author and activation", %{now: now} do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
 
@@ -622,7 +668,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
       ambient_event!(
         agent.uid,
         %{provider_message_id: "msg-orders", text: "only speak when CI turns red"},
-        now: @base_time
+        now: now
       )
 
     assert {:ok, %{orders: "Only speak when CI turns red.", set_by: "Alice", active: true}} =
@@ -647,14 +693,14 @@ defmodule Ankole.Sessions.AmbientCurationTest do
              AmbientCuration.set_standing_orders(agent.uid, event.id, too_long)
   end
 
-  test "active standing orders travel in may_intervene envelope payloads" do
+  test "active standing orders travel in may_intervene envelope payloads", %{now: now} do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
 
     ambient_event!(
       agent.uid,
       %{provider_message_id: "msg-seed", text: "seed the channel"},
-      now: @base_time
+      now: now
     )
 
     assert {:ok, %{orders: "Post a daily summary at 18:00."}} =
@@ -664,7 +710,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
                "operator"
              )
 
-    later = DateTime.add(@base_time, 30, :second)
+    later = DateTime.add(now, 30, :second)
 
     event =
       ambient_event!(
@@ -677,14 +723,14 @@ defmodule Ankole.Sessions.AmbientCurationTest do
              "Post a daily summary at 18:00."
   end
 
-  test "console standing orders round-trip by channel id" do
+  test "console standing orders round-trip by channel id", %{now: now} do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :may_intervene)
 
     ambient_event!(
       agent.uid,
       %{provider_message_id: "msg-console", text: "seed"},
-      now: @base_time
+      now: now
     )
 
     assert {:error, :channel_not_found} =

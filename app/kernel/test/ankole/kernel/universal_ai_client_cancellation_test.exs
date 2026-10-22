@@ -1,5 +1,5 @@
 defmodule Ankole.Kernel.UniversalAIClientCancellationTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   alias Ankole.Kernel.UniversalAIClient
 
   for mode <- [:raw, :model] do

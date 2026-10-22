@@ -1,13 +1,13 @@
 defmodule AnkoleWeb.PodReviewControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  @moduletag host: :pod
   import OpenApiSpex.TestAssertions
-  import Phoenix.ConnTest, except: [json_response: 2]
+  import Phoenix.ConnTest, except: [json_response: 2, build_conn: 0]
   import AnkoleWeb.InternalAPIContract, only: [json_response: 2]
   alias Ankole.Pod.{Files, Pages}
   alias Ankole.Repo
 
   setup do
-    allow_cache_database_access()
     Ankole.AppConfigure.Cache.clear_for_test()
     :ok
   end

@@ -18,7 +18,6 @@ defmodule Ankole.Brain.MemoryReasoningRealLLMTest do
   @model System.get_env("ANKOLE_REAL_LLM_MODEL", "z-ai/glm-5.3-flash")
 
   setup do
-    allow_cache_database_access()
     AppConfigure.Cache.clear_for_test()
     on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
     {:ok, _result} = SchemaPacks.install_packs([])

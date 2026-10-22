@@ -68,9 +68,9 @@ fn layout(value: &str) -> bool {
 }
 fn name_valid(name: &str, attribute: bool) -> bool {
     static ELEMENT: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^\p{L}[\p{L}\p{N}_-]*$").unwrap());
+        LazyLock::new(|| Regex::new(r"^\p{L}[\p{L}\p{N}_-]*$").expect("valid static regex"));
     static ATTRIBUTE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^[\p{L}_][\p{L}\p{N}_-]*$").unwrap());
+        LazyLock::new(|| Regex::new(r"^[\p{L}_][\p{L}\p{N}_-]*$").expect("valid static regex"));
     // Intersect the Markdown name grammar with XML 1.0 NameChar (the editor uses xmlchars).
     let xml_name = name.chars().all(|c| {
         matches!(c as u32,
@@ -614,22 +614,28 @@ fn neighbour(atoms: &[Atom], index: usize, own: &str, direction: isize) -> Optio
     None
 }
 fn convert_line_breaks(atoms: &mut [Atom]) {
-    static BREAK: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"[ \t]*(?:\r\n|\r|\n)[ \t\r\n]*").unwrap());
-    static CODE_BREAK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\r\n|\r|\n").unwrap());
+    static BREAK: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"[ \t]*(?:\r\n|\r|\n)[ \t\r\n]*").expect("valid static regex")
+    });
+    static CODE_BREAK: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\r\n|\r|\n").expect("valid static regex"));
     static CLOSE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r"[\p{Han}\p{Hiragana}\p{Katakana}\u3000-\u303f\u30fc\ufe30-\ufe4f\uff00-\uffef]",
         )
-        .unwrap()
+        .expect("valid static regex")
     });
     for i in 0..atoms.len() {
+        if !atoms[i]
+            .value
+            .as_deref()
+            .is_some_and(|v| v.contains(['\r', '\n']))
+        {
+            continue;
+        }
         let Some(value) = atoms[i].value.clone() else {
             continue;
         };
-        if !value.contains(['\r', '\n']) {
-            continue;
-        }
         let result = if atoms[i].context.marks.iter().any(|m| m == "code") {
             CODE_BREAK.replace_all(&value, " ").into_owned()
         } else {
@@ -639,12 +645,14 @@ fn convert_line_breaks(atoms: &mut [Atom]) {
                 out.push_str(&value[offset..found.start()]);
                 let before = neighbour(atoms, i, &value[..found.start()], -1);
                 let after = neighbour(atoms, i, &value[found.end()..], 1);
-                if before.is_some()
-                    && after.is_some()
-                    && !(CLOSE.is_match(&before.unwrap().to_string())
-                        && CLOSE.is_match(&after.unwrap().to_string()))
-                {
-                    out.push(' ');
+                if let (Some(before), Some(after)) = (before, after) {
+                    let mut before_buf = [0u8; 4];
+                    let mut after_buf = [0u8; 4];
+                    if !(CLOSE.is_match(before.encode_utf8(&mut before_buf))
+                        && CLOSE.is_match(after.encode_utf8(&mut after_buf)))
+                    {
+                        out.push(' ');
+                    }
                 }
                 offset = found.end();
             }
@@ -849,21 +857,19 @@ fn leaf(unit: &Unit, applied: &[&str]) -> Node {
 }
 
 pub fn print(root: &Element) -> String {
-    fn escape(value: &str, attribute: bool) -> String {
-        let mut result = String::new();
+    fn escape_into(value: &str, attribute: bool, out: &mut String) {
         for c in value.chars() {
             match c {
-                '&' => result.push_str("&amp;"),
-                '<' => result.push_str("&lt;"),
-                '>' => result.push_str("&gt;"),
-                '\r' => result.push_str("&#13;"),
-                '"' if attribute => result.push_str("&quot;"),
-                '\t' if attribute => result.push_str("&#9;"),
-                '\n' if attribute => result.push_str("&#10;"),
-                c => result.push(c),
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                '\r' => out.push_str("&#13;"),
+                '"' if attribute => out.push_str("&quot;"),
+                '\t' if attribute => out.push_str("&#9;"),
+                '\n' if attribute => out.push_str("&#10;"),
+                c => out.push(c),
             }
         }
-        result
     }
     fn write(node: &Element, out: &mut String) {
         out.push('<');
@@ -872,7 +878,7 @@ pub fn print(root: &Element) -> String {
             out.push(' ');
             out.push_str(key);
             out.push_str("=\"");
-            out.push_str(&escape(value, true));
+            escape_into(value, true, out);
             out.push('"');
         }
         if node.children.is_empty() {
@@ -882,7 +888,7 @@ pub fn print(root: &Element) -> String {
         out.push('>');
         for child in &node.children {
             match child {
-                Node::Text(t) => out.push_str(&escape(t, false)),
+                Node::Text(t) => escape_into(t, false, out),
                 Node::Element(n) => write(n, out),
             }
         }
@@ -895,11 +901,15 @@ pub fn print(root: &Element) -> String {
     result
 }
 pub fn text_of(node: &Element) -> String {
-    node.children
-        .iter()
-        .map(|c| match c {
-            Node::Text(t) => t.clone(),
-            Node::Element(e) => text_of(e),
-        })
-        .collect()
+    fn append(node: &Element, out: &mut String) {
+        for child in &node.children {
+            match child {
+                Node::Text(t) => out.push_str(t),
+                Node::Element(e) => append(e, out),
+            }
+        }
+    }
+    let mut out = String::new();
+    append(node, &mut out);
+    out
 }

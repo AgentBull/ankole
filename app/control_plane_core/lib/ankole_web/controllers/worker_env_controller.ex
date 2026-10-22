@@ -5,7 +5,8 @@ defmodule AnkoleWeb.WorkerEnvController do
   Console REST API for Agent Computer shell environment variables.
 
   Site, tenant, and Agent endpoints edit their own operator-variable tier.
-  The WorkerEnv context owns value validation, encryption, and inheritance.
+  Resource actions own value validation, encryption, and durable changes.
+  The WorkerEnv context owns tier inheritance and safe response projections.
 
   Every action follows the AppConfigure controller shape: authorize the
   principal for this exact resource/action via `ConsolePolicy`, call the
@@ -286,11 +287,11 @@ defmodule AnkoleWeb.WorkerEnvController do
     ConsoleErrors.render(conn, 422, "validation_failed", "agent_uid is required")
   end
 
-  defp error(conn, reason) do
-    ConsoleErrors.render(conn, 422, "invalid_value", "worker env value is invalid", [
-      %{reason: inspect(reason)}
-    ])
-  end
+  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid],
+    do: ConsoleErrors.changeset(conn, error, "worker env value is invalid")
+
+  defp error(conn, reason),
+    do: ConsoleErrors.unexpected(conn, "worker_env.api.unexpected_error", reason)
 
   operation(:index_tenant,
     operation_id: "AnkoleWeb.WorkerEnvController.index_tenant",

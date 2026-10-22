@@ -59,9 +59,9 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
 
     assert report =~ "Aurora's approved budget is 10 units."
     assert report =~ "approved"
-    assert job.status == "succeeded"
+    assert job.status == :succeeded
     assert is_binary(job.result["output_text"])
-    assert terminal_turn.status == "completed"
+    assert terminal_turn.status == :completed
     assert terminal_turn.trajectory["format"] == "ankole_chatml"
     assert terminal_turn.trajectory["version"] == 1
     assert job_turn_trajectory_messages(terminal_turn) != []
@@ -195,7 +195,7 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
     assert details_result.arguments == %{"job_id" => job_id, "result_offset" => 0}
     refute tool_result_error?(details_result)
 
-    if settled.status == "failed" do
+    if settled.status == :failed do
       flunk("""
       Deep Research #{mode} job failed.
       error=#{inspect(settled.error, limit: :infinity, printable_limit: 12_000)}
@@ -210,10 +210,10 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
     assert {:ok, %Job{} = completed} =
              wait_until(overall_deadline, fn ->
                case Repo.get(Job, job_id) do
-                 %Job{status: status} = completed when status in ["succeeded", "failed"] ->
+                 %Job{status: status} = completed when status in [:succeeded, :failed] ->
                    completed
 
-                 %Job{status: "stopped"} = stopped ->
+                 %Job{status: :stopped} = stopped ->
                    flunk("""
                    Deep Research #{mode} job was explicitly stopped.
                    error=#{inspect(stopped.error, limit: :infinity, printable_limit: 12_000)}
@@ -230,7 +230,7 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
 
   defp settlement_wakeup!(agent_uid, session_id, job_id, status, attempt, overall_deadline) do
     event_type =
-      if status == "succeeded",
+      if status == :succeeded,
         do: "background_agent_job.completed",
         else: "background_agent_job.failed"
 
@@ -256,7 +256,7 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
 
   defp process_if_open!(id, _worker_recovery_deadline) do
     case Repo.get!(Signal, id) do
-      %Signal{completed_at: %DateTime{}} ->
+      %Signal{status: :completed, completed_at: %DateTime{}} ->
         :ok
 
       %Signal{} = event ->

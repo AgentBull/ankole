@@ -10,7 +10,6 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
   alias Ankole.Repo
 
   setup do
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 

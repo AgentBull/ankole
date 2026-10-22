@@ -7,6 +7,7 @@ defmodule Ankole.Brain.Patterns do
   """
 
   import Ecto.Query
+  require Ash.Query
 
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Config
@@ -125,9 +126,9 @@ defmodule Ankole.Brain.Patterns do
          {:ok, patterns} <- validate_output(output, scope, prefix, facts) do
       existing = Map.new(existing, &{&1.slug, &1})
 
-      Repo.transact(fn repo ->
+      Repo.transact(fn _repo ->
         Enum.reduce_while(patterns, {:ok, 0}, fn pattern, {:ok, count} ->
-          case write_pattern(repo, pattern, Map.get(existing, pattern.slug)) do
+          case write_pattern(pattern, Map.get(existing, pattern.slug)) do
             {:ok, _object} -> {:cont, {:ok, count + 1}}
             {:error, _reason} = error -> {:halt, error}
           end
@@ -180,7 +181,7 @@ defmodule Ankole.Brain.Patterns do
 
   defp validate_pattern(_item, _scope, _prefix, _evidence), do: {:error, :invalid_pattern_output}
 
-  defp write_pattern(repo, pattern, existing) do
+  defp write_pattern(pattern, existing) do
     attrs = %{title: pattern.title, body: pattern.body}
 
     result =
@@ -188,16 +189,14 @@ defmodule Ankole.Brain.Patterns do
         nil ->
           Objects.create_object(
             Map.merge(attrs, %{slug: pattern.slug, type: "analysis"}),
-            :system,
-            repo: repo
+            :system
           )
 
         %Object{type: "analysis"} = object ->
           Objects.update_object(
             pattern.slug,
             Map.put(attrs, :expected_content_hash, object.content_hash),
-            :system,
-            repo: repo
+            :system
           )
 
         %Object{} ->
@@ -205,21 +204,26 @@ defmodule Ankole.Brain.Patterns do
       end
 
     with {:ok, object} <- result do
-      Link
-      |> where([link], link.from_object_slug == ^object.slug and link.link_source == "dreaming")
-      |> where([link], link.link_type == "derived_from")
-      |> repo.delete_all()
+      removed =
+        Link
+        |> Ash.Query.filter(
+          from_object_slug == ^object.slug and link_source == "dreaming" and
+            link_type == "derived_from"
+        )
+        |> Ankole.Ash.bulk_destroy(:remove, %{}, strategy: [:atomic], return_errors?: true)
+
+      case removed do
+        %Ash.BulkResult{status: :success} -> :ok
+        %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+      end
 
       Enum.reduce_while(pattern.evidence, {:ok, object}, fn slug, result ->
-        case Links.upsert_link(
-               %{
-                 from_object_slug: object.slug,
-                 to_object_slug: slug,
-                 link_type: "derived_from",
-                 link_source: "dreaming"
-               },
-               repo: repo
-             ) do
+        case Links.upsert_link(%{
+               from_object_slug: object.slug,
+               to_object_slug: slug,
+               link_type: "derived_from",
+               link_source: "dreaming"
+             }) do
           {:ok, _link} -> {:cont, result}
           {:error, _reason} = error -> {:halt, error}
         end

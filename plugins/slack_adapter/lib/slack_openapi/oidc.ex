@@ -16,6 +16,7 @@ defmodule SlackOpenAPI.OIDC do
         state: Keyword.fetch!(opts, :state)
       }
       |> maybe_put(:team, Keyword.get(opts, :team))
+      |> maybe_put(:nonce, Keyword.get(opts, :nonce))
 
     Keyword.get(opts, :authorize_url, @authorize_url) <> "?" <> URI.encode_query(params)
   end

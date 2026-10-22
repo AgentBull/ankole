@@ -155,8 +155,8 @@ defmodule FeishuOpenAPI.UserTokenManager do
       {nil, _fetch_tasks} ->
         {:noreply, state}
 
-      {{key, user_key, revision}, fetch_tasks} ->
-        result = {:error, crash_error(user_key, :exit, reason, [])}
+      {{key, revision}, fetch_tasks} ->
+        result = {:error, crash_error(:exit, reason)}
         {:noreply, finish_refresh(%{state | fetch_tasks: fetch_tasks}, key, revision, result)}
     end
   end
@@ -219,13 +219,13 @@ defmodule FeishuOpenAPI.UserTokenManager do
         %{
           state
           | fetches: fetches,
-            fetch_tasks: Map.put(state.fetch_tasks, ref, {key, user_key, revision})
+            fetch_tasks: Map.put(state.fetch_tasks, ref, {key, revision})
         }
 
       {:error, reason} ->
         send(
           parent,
-          {:refresh_done, key, revision, {:error, refresh_start_failed_error(user_key, reason)}}
+          {:refresh_done, key, revision, {:error, refresh_start_failed_error(reason)}}
         )
 
         %{state | fetches: fetches}
@@ -239,9 +239,9 @@ defmodule FeishuOpenAPI.UserTokenManager do
                try do
                  refresh_entry(client, user_key, existing)
                rescue
-                 exception -> {:error, crash_error(user_key, :error, exception, __STACKTRACE__)}
+                 exception -> {:error, crash_error(:error, exception)}
                catch
-                 kind, reason -> {:error, crash_error(user_key, kind, reason, __STACKTRACE__)}
+                 kind, reason -> {:error, crash_error(kind, reason)}
                end
 
              send(parent, {:refresh_done, key, existing.revision, result})
@@ -255,33 +255,30 @@ defmodule FeishuOpenAPI.UserTokenManager do
   end
 
   defp drop_fetch_task_monitor(state, key) do
-    case Enum.find(state.fetch_tasks, fn {_ref, {task_key, _user_key, _revision}} ->
+    case Enum.find(state.fetch_tasks, fn {_ref, {task_key, _revision}} ->
            task_key == key
          end) do
       nil ->
         state
 
-      {ref, {^key, _user_key, _revision}} ->
+      {ref, {^key, _revision}} ->
         Process.demonitor(ref, [:flush])
         %{state | fetch_tasks: Map.delete(state.fetch_tasks, ref)}
     end
   end
 
-  defp crash_error(user_key, kind, reason, stacktrace) do
+  defp crash_error(kind, reason) do
     %Error{
       code: :user_refresh_crashed,
-      msg:
-        "managed user_access_token #{inspect(user_key)} refresh crashed: " <>
-          Exception.format(kind, reason, stacktrace),
+      msg: "managed user_access_token refresh crashed",
       details: {kind, reason}
     }
   end
 
-  defp refresh_start_failed_error(user_key, reason) do
+  defp refresh_start_failed_error(reason) do
     %Error{
       code: :user_refresh_start_failed,
-      msg:
-        "managed user_access_token #{inspect(user_key)} refresh could not start: #{inspect(reason)}",
+      msg: "managed user_access_token refresh could not start",
       details: reason
     }
   end

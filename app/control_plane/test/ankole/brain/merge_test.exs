@@ -17,7 +17,6 @@ defmodule Ankole.Brain.MergeTest do
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.Schemas.Timeline
   alias Ankole.Brain.Timelines
-  alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
 
   setup do
@@ -34,24 +33,23 @@ defmodule Ankole.Brain.MergeTest do
 
   defp pending_pairs do
     MergeSuggestion
-    |> where([suggestion], suggestion.status == "pending")
+    |> where([suggestion], suggestion.status == :pending)
     |> select([suggestion], {suggestion.a_slug, suggestion.b_slug})
     |> Repo.all()
     |> MapSet.new()
   end
 
   defp mark_managed!(object) do
-    source =
-      %Source{id: UUIDv7.autogenerate()}
-      |> Source.changeset(%{
+    {:ok, source} =
+      Ankole.Ash.create(Source, :register, %{
         upstream_id: "merge-managed-#{System.unique_integer([:positive])}",
         kind: "library",
         name: "Managed merge test",
         default_audience_scope: "world"
       })
-      |> Repo.insert!()
 
     object
+    |> AshPostgres.DataLayer.to_ecto()
     |> Ecto.Changeset.change(managed_by_source_id: source.id)
     |> Repo.update!()
   end
@@ -95,7 +93,7 @@ defmodule Ankole.Brain.MergeTest do
       assert [suggestion] = Repo.all(MergeSuggestion)
       assert suggestion.a_slug == "companies/ac-holdings"
       assert suggestion.b_slug == "companies/acme"
-      assert suggestion.status == "pending"
+      assert suggestion.status == :pending
       assert suggestion.reason =~ ~s(shared alias "the acme account")
 
       # A judged pair never re-suggests: the rerun records nothing new.
@@ -180,7 +178,7 @@ defmodule Ankole.Brain.MergeTest do
       assert %{suggested: 1} = Merge.run_phase()
       assert [suggestion] = Repo.all(MergeSuggestion)
 
-      assert {:ok, %MergeSuggestion{status: "rejected"}} =
+      assert {:ok, %MergeSuggestion{status: :rejected}} =
                Merge.reject(suggestion.id, Ankole.ActorRef.from_principal(human))
 
       assert %{suggested: 0} = Merge.run_phase()
@@ -247,7 +245,7 @@ defmodule Ankole.Brain.MergeTest do
         })
 
       assert %{suggested: 1} = Merge.run_phase()
-      suggestion = Repo.get_by!(MergeSuggestion, status: "pending")
+      suggestion = Repo.get_by!(MergeSuggestion, status: :pending)
 
       %{canonical: canonical, duplicate: duplicate, suggestion: suggestion}
     end
@@ -284,7 +282,7 @@ defmodule Ankole.Brain.MergeTest do
 
       assert Chunk
              |> where([chunk], chunk.object_id == ^canonical.id)
-             |> where([chunk], chunk.content_kind == "timeline")
+             |> where([chunk], chunk.content_kind == :timeline)
              |> Repo.exists?()
 
       links = Repo.all(Ankole.Brain.Schemas.Link)
@@ -293,7 +291,7 @@ defmodule Ankole.Brain.MergeTest do
       assert edge.to_object_slug == "companies/other"
       refute Enum.any?(links, &(&1.link_type == "relates_to"))
 
-      assert Repo.get!(MergeSuggestion, suggestion.id).status == "approved"
+      assert Repo.get!(MergeSuggestion, suggestion.id).status == :approved
     end
 
     test "approval needs a direction and refuses a duplicate with a written body",
@@ -322,7 +320,7 @@ defmodule Ankole.Brain.MergeTest do
                })
 
       # The refused suggestion stays pending for a later approval.
-      assert Repo.get!(MergeSuggestion, suggestion.id).status == "pending"
+      assert Repo.get!(MergeSuggestion, suggestion.id).status == :pending
     end
 
     test "approval rejects a managed page in either direction",
@@ -339,7 +337,7 @@ defmodule Ankole.Brain.MergeTest do
                  canonical_slug: duplicate.slug
                })
 
-      assert Repo.get!(MergeSuggestion, suggestion.id).status == "pending"
+      assert Repo.get!(MergeSuggestion, suggestion.id).status == :pending
     end
   end
 
@@ -353,7 +351,7 @@ defmodule Ankole.Brain.MergeTest do
     {:ok, _alias} = Links.add_alias("people/alice-doe", "alice doe")
 
     assert %{suggested: 1} = Merge.run_phase()
-    suggestion = Repo.get_by!(MergeSuggestion, status: "pending")
+    suggestion = Repo.get_by!(MergeSuggestion, status: :pending)
 
     assert {:error, {:principal_canonical_page, ^canonical_slug}} =
              Merge.approve(suggestion.id, Ankole.ActorRef.from_principal(human), %{

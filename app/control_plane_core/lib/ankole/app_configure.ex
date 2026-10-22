@@ -3,9 +3,8 @@ defmodule Ankole.AppConfigure do
   Database-backed runtime configuration for Ankole.
   """
 
-  import Ecto.Query
+  require Ash.Query
 
-  alias Ecto.Adapters.SQL
   alias Ankole.AppConfigure.AppConfig
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Codec
@@ -218,7 +217,7 @@ defmodule Ankole.AppConfigure do
           {:ok, term()} | :error | {:error, term()}
   def get_global_by_key_in_tx(repo, key) when is_atom(repo) and is_binary(key) do
     with {:ok, registered} <- Registry.require_key(key) do
-      case repo.get_by(AppConfig.for_scope(@global_scope), scope: @global_scope, key: key) do
+      case read_row(@global_scope, key) do
         %{value: envelope} ->
           case Codec.load(registered, @global_scope, key, envelope) do
             {:ok, value} -> {:ok, value}
@@ -362,21 +361,22 @@ defmodule Ankole.AppConfigure do
   defp storage_scope(:tenant), do: tenant_scope()
 
   defp scope_rows(scope) do
-    AppConfig.for_scope(storage_scope(scope))
-    |> where([row], row.scope == ^storage_scope(scope))
-    |> Repo.all()
+    value = storage_scope(scope)
+
+    AppConfig.for_scope(value)
+    |> Ash.Query.filter(scope == ^value)
+    |> Ankole.Ash.read!()
     |> Map.new(&{&1.key, &1})
   end
 
-  defp scope_row(scope, key),
-    do:
-      Repo.get_by(AppConfig.for_scope(storage_scope(scope)),
-        scope: storage_scope(scope),
-        key: key
-      )
+  defp scope_row(scope, key), do: read_row(storage_scope(scope), key)
 
-  # Pattern definitions use their pattern id for default generation, but reads
-  # and writes must validate the concrete runtime key selected by the caller.
+  defp read_row(scope, key) do
+    AppConfig.for_scope(scope)
+    |> Ash.Query.filter(scope == ^scope and key == ^key)
+    |> Ankole.Ash.read_one!()
+  end
+
   defp resolve_registered(definition, opts) do
     key = Keyword.get(opts, :runtime_key, definition_key(definition))
 
@@ -423,10 +423,10 @@ defmodule Ankole.AppConfigure do
   defp resolve_scopes_in_tx({:error, reason}, _repo, _definition, _key),
     do: {:error, reason}
 
-  defp resolve_scopes_in_tx(scopes, repo, definition, key) do
+  defp resolve_scopes_in_tx(scopes, _repo, definition, key) do
     scopes
     |> Enum.reduce_while(:error, fn scope, :error ->
-      case repo.get_by(AppConfig.for_scope(scope), scope: scope, key: key) do
+      case read_row(scope, key) do
         %{value: envelope} ->
           result =
             case Codec.load(definition, scope, key, envelope) do
@@ -496,50 +496,34 @@ defmodule Ankole.AppConfigure do
     end
   end
 
-  defp put_row(repo, scope, key, definition, value) do
-    with :ok <- ensure_scope(definition, scope),
-         {:ok, envelope, parsed} <- Codec.dump(definition, scope, key, value),
-         :ok <- upsert_row(repo, scope, key, envelope) do
+  defp put_row(_repo, scope, key, definition, value) do
+    with {:ok, row} <-
+           Ankole.Ash.create(AppConfig.for_scope(scope), :put, %{
+             scope: scope,
+             key: key,
+             input: value
+           }),
+         {:ok, parsed} <- Codec.load(definition, scope, key, row.value) do
       {:ok, {parsed, scope, key}}
     end
   end
 
-  defp upsert_row(repo, scope, key, envelope) do
-    now = DateTime.utc_now(:second)
-
-    schema = AppConfig.for_scope(scope)
-
-    row =
-      if scope == @global_scope,
-        do: struct!(schema),
-        else: struct!(schema, tenant_id: scope_tenant_id(scope))
-
-    changeset =
-      schema.changeset(row, %{
-        scope: scope,
-        key: key,
-        value: envelope,
-        inserted_at: now,
-        updated_at: now
-      })
-
-    case repo.insert(changeset,
-           on_conflict: [set: [value: envelope, updated_at: now]],
-           conflict_target:
-             if(scope == @global_scope, do: [:scope, :key], else: [:tenant_id, :scope, :key])
-         ) do
-      {:ok, _row} -> :ok
-      {:error, changeset} -> {:error, changeset}
-    end
-  end
-
   defp delete(scope, key) do
-    AppConfig.for_scope(scope)
-    |> where([row], row.scope == ^scope and row.key == ^key)
-    |> Repo.delete_all()
+    result =
+      Repo.transact(fn _repo ->
+        case read_row(scope, key) do
+          nil ->
+            {:ok, :deleted}
 
-    refresh_cache_after_commit(scope, key)
-    :ok
+          row ->
+            with {:ok, _deleted} <- Ankole.Ash.destroy(row, :remove), do: {:ok, :deleted}
+        end
+      end)
+
+    with {:ok, :deleted} <- result do
+      refresh_cache_after_commit(scope, key)
+      :ok
+    end
   end
 
   defp refresh_cache_after_commit(scope, key) do
@@ -566,10 +550,12 @@ defmodule Ankole.AppConfigure do
     end
   end
 
-  defp lock_global_key(repo, key) do
+  @doc false
+  @spec lock_global_key(module(), String.t()) :: :ok | {:error, term()}
+  def lock_global_key(repo, key) do
     lock_key = "app_configure:#{@global_scope}:#{key}"
 
-    case SQL.query(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [lock_key]) do
+    case Ankole.AdvisoryLock.lock(repo, lock_key) do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, reason}
     end
@@ -614,10 +600,11 @@ defmodule Ankole.AppConfigure do
   defp definition_key(%Definition{key: key}), do: key
   defp definition_key(%PatternDefinition{id: id}), do: id
 
-  defp ensure_scope(%{scope: :global} = definition, scope) when scope != @global_scope,
+  @doc false
+  def ensure_scope(%{scope: :global} = definition, scope) when scope != @global_scope,
     do: {:error, {:global_scope_only, definition_key(definition)}}
 
-  defp ensure_scope(_definition, _scope), do: :ok
+  def ensure_scope(_definition, _scope), do: :ok
 
   # A tenant does not see a global-scope pattern that its owner manages. A
   # concrete pattern key is visible while a row backs it.
@@ -723,9 +710,9 @@ defmodule Ankole.AppConfigure do
     with {:ok, registered} <- Registry.require_definition(definition),
          :ok <- ensure_scope(registered, scope),
          {:ok, _} <-
-           SQL.query(repo, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-             "app_configure:#{scope}:#{registered.key}"
-           ]),
+           Ankole.AdvisoryLock.lock(repo, "app_configure:#{scope}:#{registered.key}",
+             hash: :extended
+           ),
          {:ok, current} <- get_tenant_by_key_in_tx(repo, registered.key),
          {:ok, next} <- run_global_updater(updater, current) do
       put_row(repo, scope, registered.key, registered, next)
@@ -740,9 +727,6 @@ defmodule Ankole.AppConfigure do
   end
 
   defp tenant_scope, do: @tenant_scope_prefix <> Repo.tenant_id!()
-  defp scope_tenant_id(@global_scope), do: nil
-  defp scope_tenant_id(@tenant_scope_prefix <> tenant_id), do: tenant_id
-  defp scope_tenant_id(@agent_scope_prefix <> _), do: Repo.tenant_id!()
 
   defp agent_scope(agent_uid) when is_binary(agent_uid) and agent_uid != "" do
     case Ankole.Principals.get_agent(agent_uid) do

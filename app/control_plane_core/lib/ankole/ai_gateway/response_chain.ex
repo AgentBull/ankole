@@ -1,5 +1,6 @@
 defmodule Ankole.AIGateway.ResponseChain do
   @moduledoc "Tenant-scoped Response chain queries, checkpoints and visible suffix changes."
+  require Ash.Query
   import Ecto.Query
   alias Ecto.Adapters.SQL
   alias Ankole.AIGateway.CompactionArtifacts
@@ -242,7 +243,7 @@ defmodule Ankole.AIGateway.ResponseChain do
   def latest_visible_leaf_for_uuid(repo, conversation_id) do
     Message
     |> where([message], message.conversation_id == ^conversation_id)
-    |> where([message], message.status == "complete")
+    |> where([message], message.status == :complete)
     |> where(
       [message],
       fragment(
@@ -271,10 +272,21 @@ defmodule Ankole.AIGateway.ResponseChain do
   defp delete_visible_suffix(repo, conversation_id, message_ids) do
     case validate_current_visible_suffix(repo, conversation_id, message_ids) do
       :ok ->
-        {deleted_count, _} =
+        result =
           Message
-          |> where([message], message.id in ^message_ids)
-          |> repo.delete_all()
+          |> Ash.Query.filter(id in ^message_ids)
+          |> Ankole.Ash.bulk_destroy(:remove_suffix, %{},
+            strategy: [:atomic],
+            return_records?: true,
+            select: [:id],
+            return_errors?: true
+          )
+
+        deleted_count =
+          case result do
+            %Ash.BulkResult{status: :success, records: records} -> length(records)
+            %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+          end
 
         {:ok,
          %{
@@ -349,28 +361,20 @@ defmodule Ankole.AIGateway.ResponseChain do
     end
   end
 
-  defp retract_response_rows(repo, message_ids, retraction) do
-    messages =
-      Message
-      |> where([message], message.id in ^message_ids)
-      |> lock("FOR UPDATE")
-      |> repo.all()
-      |> Map.new(&{&1.id, &1})
+  defp retract_response_rows(_repo, message_ids, retraction) do
+    case Message
+         |> Ash.Query.filter(id in ^message_ids)
+         |> Ankole.Ash.bulk_update(:retract, %{metadata: %{"retraction" => retraction}},
+           strategy: [:atomic],
+           return_records?: true,
+           return_errors?: true
+         ) do
+      %Ash.BulkResult{status: :success, records: records} ->
+        by_id = Map.new(records, &{&1.id, &1})
+        {:ok, Enum.map(message_ids, &Map.fetch!(by_id, &1))}
 
-    Enum.reduce_while(message_ids, {:ok, []}, fn message_id, {:ok, retracted} ->
-      message = Map.fetch!(messages, message_id)
-      metadata = Map.put(message.metadata || %{}, "retraction", retraction)
-
-      case message
-           |> Message.changeset(%{status: "retracted", metadata: metadata})
-           |> repo.update() do
-        {:ok, message} -> {:cont, {:ok, [message | retracted]}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, retracted} -> {:ok, Enum.reverse(retracted)}
-      {:error, _reason} = error -> error
+      %Ash.BulkResult{errors: errors} ->
+        {:error, Ash.Error.to_error_class(errors)}
     end
   end
 
@@ -396,8 +400,8 @@ defmodule Ankole.AIGateway.ResponseChain do
       Message
       |> where([message], message.id in ^message_ids)
       |> where([message], message.conversation_id == ^conversation_id)
-      |> where([message], message.type == "message")
-      |> where([message], message.status == "complete")
+      |> where([message], message.type == :message)
+      |> where([message], message.status == :complete)
       |> repo.aggregate(:count)
 
     count == length(message_ids)
@@ -408,7 +412,7 @@ defmodule Ankole.AIGateway.ResponseChain do
     |> where([message], message.conversation_id == ^conversation_id)
     |> where([message], message.previous_message_id in ^message_ids)
     |> where([message], message.id not in ^message_ids)
-    |> where([message], message.status == "complete")
+    |> where([message], message.status == :complete)
     |> repo.exists?()
   end
 
@@ -508,7 +512,7 @@ defmodule Ankole.AIGateway.ResponseChain do
              :invalid_anchor
              | :invalid_conversation
              | :stateful_anchor_conflict
-             | Ecto.Changeset.t()}
+             | Ash.Error.t()}
   def create_compaction_checkpoint(attrs) when is_map(attrs) do
     raw_subject_uid = Map.fetch!(attrs, :subject_uid)
     artifact = Map.fetch!(attrs, :artifact)
@@ -615,7 +619,7 @@ defmodule Ankole.AIGateway.ResponseChain do
         where:
           m.id == ^message_id and
             m.subject_uid == ^subject_uid and
-            m.status == "complete"
+            m.status == :complete
       )
     )
   end
@@ -628,7 +632,7 @@ defmodule Ankole.AIGateway.ResponseChain do
         where:
           m.id == ^message_id and
             m.subject_uid == ^subject_uid and
-            m.status == "complete" and
+            m.status == :complete and
             conversation.subject_uid == ^subject_uid and
             is_nil(conversation.ended_at),
         select: m
@@ -664,24 +668,21 @@ defmodule Ankole.AIGateway.ResponseChain do
   # deliberately skips Conversations.touch_conversation_in_tx: the console
   # orders conversations by activity and compaction must not reorder them.
   def insert_checkpoint_row(
-        repo,
+        _repo,
         subject_uid,
         conversation_id,
         previous_message_id,
         artifact_id,
         metadata
       ) do
-    %Message{id: artifact_id}
-    |> Message.changeset(%{
+    Ankole.Ash.create(Message, :checkpoint, %{
+      id: artifact_id,
       subject_uid: subject_uid,
       conversation_id: conversation_id,
-      type: "checkpoint",
-      status: "complete",
       previous_message_id: previous_message_id,
       content: [CompactionArtifacts.ref_item(artifact_id)],
       metadata: metadata
     })
-    |> repo.insert()
   end
 
   defp history_anchor(conversation_id, opts) do
@@ -708,7 +709,7 @@ defmodule Ankole.AIGateway.ResponseChain do
              where:
                m.id == ^message_id and
                  m.conversation_id == ^conversation_id and
-                 m.status == "complete",
+                 m.status == :complete,
              select: m.id
            )
          ) do
@@ -831,7 +832,7 @@ defmodule Ankole.AIGateway.ResponseChain do
 
   defp journal?(message), do: message.metadata["tool_result_journal"] == true
 
-  defp project_message?(%Message{status: "complete"}), do: true
+  defp project_message?(%Message{status: :complete}), do: true
   defp project_message?(_message), do: false
 
   defp maybe_filter_response_statuses(query, nil), do: query

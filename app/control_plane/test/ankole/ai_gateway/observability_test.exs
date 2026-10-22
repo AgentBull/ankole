@@ -64,7 +64,6 @@ defmodule Ankole.AIGateway.ObservabilityTest do
   end
 
   setup do
-    allow_cache_database_access()
     clear_app_configure()
     previous_provider = Observability.provider()
     previous_otlp_environment = otlp_environment()

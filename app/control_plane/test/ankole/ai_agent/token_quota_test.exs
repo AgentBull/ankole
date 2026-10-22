@@ -1,5 +1,5 @@
 defmodule Ankole.AIAgent.TokenQuotaTest do
-  use Ankole.DataCase, async: false
+  use Ankole.DataCase, async: true
 
   import Ankole.PrincipalsFixtures
 
@@ -168,8 +168,9 @@ defmodule Ankole.AIAgent.TokenQuotaTest do
 
   defp record_usage(agent_uid, input_tokens, output_tokens, %DateTime{} = inserted_at) do
     Repo.insert!(%UsageRecord{
+      id: Ankole.Ecto.UUIDv7.autogenerate(),
       subject_uid: agent_uid,
-      origin: "agent",
+      origin: :agent,
       model: "test-provider/test-model",
       input_tokens: input_tokens,
       output_tokens: output_tokens,

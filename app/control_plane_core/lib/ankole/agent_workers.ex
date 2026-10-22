@@ -15,6 +15,7 @@ defmodule Ankole.AgentWorkers do
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Principals.Principal
   alias Ankole.Repo
@@ -30,8 +31,7 @@ defmodule Ankole.AgentWorkers do
 
   # A request keeps the Worker wanted this long. Environment calls renew it;
   # active slots and running Jobs also prevent idle release.
-  @wanted_for_seconds 300
-  @connect_states ~w(starting stale ready)
+  @connect_states [:starting, :stale, :ready]
 
   def list, do: Repo.all(from(worker in AgentWorker, order_by: [asc: worker.agent_uid]))
 
@@ -77,17 +77,13 @@ defmodule Ankole.AgentWorkers do
           | {:error, :agent_not_active | :agent_worker_unavailable | :no_worker_capacity}
   def reserve_slot_in_tx(repo, agent_uid) when is_binary(agent_uid) do
     with :ok <- agent_active(repo, agent_uid),
-         %AgentWorker{state: "ready"} = worker <- lock_in_tx(repo, agent_uid) || :unavailable,
-         slots when slots > 0 <- AgentWorker.available_slots(worker) do
-      worker
-      |> Ecto.Changeset.change(
-        capacity: Map.put(worker.capacity, "available_slots", slots - 1),
-        load: Map.update(worker.load, "active_slots", 1, &(&1 + 1))
-      )
-      |> repo.update()
+         worker = lock_in_tx(repo, agent_uid),
+         true <- ready?(worker) do
+      if AgentWorker.available_slots(worker) > 0,
+        do: Ankole.Ash.update(worker, :reserve_slot, %{}),
+        else: {:error, :no_worker_capacity}
     else
       {:error, _reason} = error -> error
-      0 -> {:error, :no_worker_capacity}
       _not_ready -> {:error, :agent_worker_unavailable}
     end
   end
@@ -102,17 +98,56 @@ defmodule Ankole.AgentWorkers do
     AgentWorker
     |> where([worker], worker.agent_uid == ^agent_uid)
     |> lock("FOR UPDATE")
-    |> repo.one()
+    |> repo.one(lock_identity: {"agent_workers", agent_uid})
   end
 
   @doc "Returns the Agent's Worker when it is ready."
   @spec ready_worker(String.t()) :: {:ok, AgentWorker.t()} | {:error, :agent_worker_unavailable}
   def ready_worker(agent_uid) when is_binary(agent_uid) do
-    case Repo.get(AgentWorker, agent_uid) do
-      %AgentWorker{state: "ready"} = worker -> {:ok, worker}
-      _worker -> {:error, :agent_worker_unavailable}
+    worker = Repo.get(AgentWorker, agent_uid)
+    if ready?(worker), do: {:ok, worker}, else: {:error, :agent_worker_unavailable}
+  end
+
+  @doc """
+  Decides the readiness wait for a new attempt from the caller's current facts.
+
+  Returns the decision and the wait start to persist. A ready Worker clears the
+  clock even when work capacity is full. Full work capacity does not start or
+  reset a clock, and does not report a timeout. Otherwise an unavailable Worker
+  starts or continues the clock. Retries keep the stored start.
+
+  This function does not read storage, reserve slots, or schedule a wakeup.
+  The caller owns work capacity, persistence, and the result of a timeout.
+  """
+  @spec wait_status(
+          AgentWorker.t() | nil,
+          boolean(),
+          DateTime.t() | nil,
+          DateTime.t(),
+          pos_integer()
+        ) ::
+          {:ready | :wait | :timed_out, DateTime.t() | nil}
+  def wait_status(worker, capacity_available?, started_at, now, ready_timeout_ms) do
+    cond do
+      ready?(worker) ->
+        {:ready, nil}
+
+      not capacity_available? ->
+        {:wait, started_at}
+
+      is_nil(started_at) ->
+        {:wait, now}
+
+      DateTime.diff(now, started_at, :millisecond) >= ready_timeout_ms ->
+        {:timed_out, started_at}
+
+      true ->
+        {:wait, started_at}
     end
   end
+
+  defp ready?(%AgentWorker{state: :ready}), do: true
+  defp ready?(_worker), do: false
 
   @doc """
   Returns the Agent's Worker while it has a connection that can carry Turn
@@ -145,7 +180,7 @@ defmodule Ankole.AgentWorkers do
       worker && AgentWorker.connected?(worker) ->
         {:ok, worker}
 
-      is_nil(worker) or worker.state == "deleting" ->
+      is_nil(worker) or worker.state == :deleting ->
         {:error, :agent_worker_unavailable}
 
       agent_active(Repo, agent_uid) != :ok ->
@@ -154,16 +189,16 @@ defmodule Ankole.AgentWorkers do
       is_nil(worker.provider_id) ->
         {:error, :worker_provider_missing}
 
-      worker.state == "absent" and worker.last_error_kind == "rejected" ->
+      worker.state == :absent and worker.last_error_kind == "rejected" ->
         {:error, {:rejected, worker.last_error}}
 
-      worker.state == "paused" ->
+      worker.state == :paused ->
         {:wait, :resuming}
 
-      worker.state == "draining" ->
+      worker.state == :draining ->
         {:wait, :replacing}
 
-      worker.state == "absent" and worker.last_error_kind == "pending" ->
+      worker.state == :absent and worker.last_error_kind == "pending" ->
         {:wait, :preparing}
 
       worker.last_error_kind == "transient" ->
@@ -189,23 +224,21 @@ defmodule Ankole.AgentWorkers do
   """
   @spec request(String.t()) :: :ok
   def request(agent_uid) when is_binary(agent_uid) do
-    {count, _rows} =
+    result =
       AgentWorker
-      |> where([worker], worker.agent_uid == ^agent_uid and worker.state != "deleting")
-      |> update([worker],
-        set: [
-          wanted_until:
-            fragment(
-              "greatest(coalesce(?, now()), now() + make_interval(secs => ?))",
-              worker.wanted_until,
-              ^@wanted_for_seconds
-            )
-        ]
+      |> Ash.Query.filter(agent_uid == ^agent_uid)
+      |> Ash.Query.select([:agent_uid])
+      |> Ankole.Ash.bulk_update(:request, %{},
+        strategy: [:atomic],
+        return_records?: true,
+        return_errors?: true
       )
-      |> Repo.update_all([])
 
-    if count > 0, do: ReconcileJob.enqueue(agent_uid)
-    :ok
+    case result do
+      %Ash.BulkResult{status: :success, records: []} -> :ok
+      %Ash.BulkResult{status: :success} -> ReconcileJob.enqueue(agent_uid)
+      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+    end
   end
 
   @doc """
@@ -267,21 +300,17 @@ defmodule Ankole.AgentWorkers do
   @spec insert_in_tx(module(), String.t(), String.t()) :: :ok
   def insert_in_tx(repo, agent_uid, provider_id)
       when is_binary(agent_uid) and is_binary(provider_id) do
-    {1, _rows} =
-      repo.insert_all(
-        AgentWorker,
-        [
-          %{
-            tenant_id: Repo.tenant_id!(),
-            agent_uid: agent_uid,
-            provider_id: provider_id,
-            initial_start_pending: true
-          }
-        ]
-      )
+    case Ankole.Ash.create(AgentWorker, :register, %{
+           agent_uid: agent_uid,
+           provider_id: provider_id
+         }) do
+      {:ok, _worker} ->
+        %{agent_uid: agent_uid} |> ReconcileJob.new() |> Oban.insert!()
+        :ok
 
-    %{agent_uid: agent_uid} |> ReconcileJob.new() |> Oban.insert!()
-    :ok
+      {:error, reason} ->
+        repo.rollback(reason)
+    end
   end
 
   @doc """
@@ -291,19 +320,64 @@ defmodule Ankole.AgentWorkers do
   """
   @spec mark_deleting_in_tx(module(), String.t()) :: :ok
   def mark_deleting_in_tx(repo, agent_uid) when is_binary(agent_uid) do
-    AgentWorker
-    |> where([worker], worker.agent_uid == ^agent_uid)
-    |> update([worker],
-      set: [
-        state: "deleting",
-        incarnation_id: nil,
-        transport_route: nil,
-        initial_start_pending: false,
-        wanted_until: nil,
-        state_changed_at: fragment("now()")
-      ]
-    )
-    |> repo.update_all([])
+    case AgentWorker
+         |> Ash.Query.filter(agent_uid == ^agent_uid)
+         |> Ankole.Ash.bulk_update(:mark_deleting, %{}, strategy: [:atomic], return_errors?: true) do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: errors} -> repo.rollback(Ash.Error.to_error_class(errors))
+    end
+  end
+
+  @doc "Clears rejected launch diagnostics after the site provider changes."
+  def clear_provider_rejections_in_tx(provider_id) do
+    tenants =
+      Repo.across_tenants(fn ->
+        Repo.all(
+          from(worker in AgentWorker,
+            where: worker.provider_id == ^provider_id,
+            where: worker.last_error_kind == "rejected",
+            distinct: worker.tenant_id,
+            select: worker.tenant_id
+          )
+        )
+      end)
+
+    Enum.each(tenants, fn tenant ->
+      Repo.with_tenant(tenant, fn ->
+        case AgentWorker
+             |> Ash.Query.filter(provider_id == ^provider_id)
+             |> Ankole.Ash.bulk_update(:clear_rejection, %{},
+               strategy: [:atomic],
+               return_errors?: true
+             ) do
+          %Ash.BulkResult{status: :success} -> :ok
+          %Ash.BulkResult{errors: errors} -> Repo.rollback(Ash.Error.to_error_class(errors))
+        end
+      end)
+    end)
+
+    :ok
+  end
+
+  @doc "Assigns legacy unbound Workers inside the bootstrap registry transaction."
+  def assign_legacy_provider_in_tx(provider_id) do
+    workers =
+      Repo.across_tenants(fn ->
+        AgentWorker
+        |> where([worker], is_nil(worker.provider_id) and worker.state != :deleting)
+        |> order_by([worker], worker.agent_uid)
+        |> lock("FOR UPDATE")
+        |> Repo.lock_all("agent_workers", :agent_uid)
+      end)
+
+    Enum.each(workers, fn worker ->
+      Repo.with_tenant(worker.tenant_id, fn ->
+        case Ankole.Ash.update(worker, :assign_provider, %{provider_id: provider_id}) do
+          {:ok, _updated} -> :ok
+          {:error, error} -> Repo.rollback(error)
+        end
+      end)
+    end)
 
     :ok
   end

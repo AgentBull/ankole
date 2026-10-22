@@ -1,9 +1,9 @@
 defmodule AnkoleWeb.PodMovePermissionsControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  @moduletag host: :pod
   alias Ankole.Pod.Pages
 
   setup do
-    allow_cache_database_access()
     Ankole.AppConfigure.Cache.clear_for_test()
     :ok
   end

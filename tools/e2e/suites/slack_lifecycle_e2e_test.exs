@@ -12,6 +12,7 @@ defmodule Ankole.E2E.SlackLifecycleTest do
   alias Ankole.Plugins.SlackAdapter.Inbound
 
   alias Ankole.Principals
+  alias Ankole.OIDCClientFixture
   alias Ankole.Repo
 
   alias Ankole.Conversations.AdapterContext
@@ -24,6 +25,52 @@ defmodule Ankole.E2E.SlackLifecycleTest do
   import Ankole.PrincipalsFixtures
 
   test "directory sync creates users, usergroups and memberships, while OIDC converges on the same subject" do
+    config = %{
+      "clientID" => "client",
+      "clientSecret" => "secret",
+      "botToken" => "xoxb-fake",
+      "appToken" => "xapp-fake",
+      "oidc" => %{"enabled" => true, "scopes" => ["openid", "profile", "email"]},
+      "sync" => %{"contacts" => true, "websocket" => true, "pageSize" => 200}
+    }
+
+    nonce = Ecto.UUID.generate()
+    state = Ecto.UUID.generate()
+    code = Ecto.UUID.generate()
+    redirect_uri = "https://ankole.test/callback"
+
+    assert {:ok, authorization_url} =
+             IdentityProvider.authorization_url(config,
+               redirect_uri: redirect_uri,
+               state: state,
+               nonce: nonce
+             )
+
+    assert %URI{
+             scheme: "https",
+             host: "slack.com",
+             path: "/openid/connect/authorize",
+             query: query
+           } =
+             URI.parse(authorization_url)
+
+    authorization = URI.decode_query(query)
+
+    assert authorization == %{
+             "client_id" => config["clientID"],
+             "redirect_uri" => redirect_uri,
+             "response_type" => "code",
+             "scope" => "openid profile email",
+             "state" => state,
+             "nonce" => nonce
+           }
+
+    {id_token, jwks} =
+      OIDCClientFixture.token("https://slack.com", config["clientID"], %{
+        "sub" => "U1",
+        "nonce" => authorization["nonce"]
+      })
+
     fake =
       Server.start!(
         users: [
@@ -45,19 +92,55 @@ defmodule Ankole.E2E.SlackLifecycleTest do
             "users" => ["U1"],
             "date_delete" => 0
           }
-        ]
+        ],
+        oidc: %{
+          client_id: authorization["client_id"],
+          client_secret: config["clientSecret"],
+          code: code,
+          redirect_uri: authorization["redirect_uri"],
+          scope: authorization["scope"],
+          access_token: "xoxp-slack-lifecycle",
+          id_token: id_token,
+          jwks: jwks,
+          user_info: %{
+            "sub" => "U1",
+            "https://slack.com/user_id" => "U1",
+            "https://slack.com/team_id" => "TFAKE",
+            "email" => "ada@example.com",
+            "name" => "Ada"
+          }
+        }
       )
 
-    put_slack_test_client_opts!(base_url: fake.base_url)
+    put_slack_test_client_opts!(base_url: fake.base_url, req_options: [plug: nil])
+    previous = Req.default_options()
+    parent = self()
 
-    config = %{
-      "clientID" => "client",
-      "clientSecret" => "secret",
-      "botToken" => "xoxb-fake",
-      "appToken" => "xapp-fake",
-      "oidc" => %{"enabled" => true, "scopes" => ["openid", "profile", "email"]},
-      "sync" => %{"contacts" => true, "websocket" => true, "pageSize" => 200}
-    }
+    # Keep the public issuer while its discovery transport reaches FakeSlack.
+    # Token and UserInfo requests already use its real HTTP client endpoint.
+    Req.default_options(
+      Keyword.put(previous, :plug, fn conn ->
+        assert conn.scheme == :https
+        assert conn.host == "slack.com"
+        assert conn.request_path in ["/.well-known/openid-configuration", "/openid/connect/keys"]
+
+        response =
+          Req.get!("http://127.0.0.1:#{fake.port}" <> conn.request_path,
+            plug: nil,
+            raw: true,
+            retry: false,
+            redirect: false
+          )
+
+        send(parent, {:slack_oidc_http, conn.request_path})
+
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(response.status, response.body)
+      end)
+    )
+
+    on_exit(fn -> Req.default_options(previous) end)
 
     assert {:ok, %{users: 2, usergroups: 1}} =
              IdentityProvider.sync_directory("slack-main", config)
@@ -69,10 +152,15 @@ defmodule Ankole.E2E.SlackLifecycleTest do
     [group_id] = AuthZ.external_group_ids("slack-main", :directory_department, "S1")
     assert Repo.get_by(Membership, principal_uid: uid, group_id: group_id)
 
-    assert {:ok, %{user: %{"user_id" => "U1"} = login_user}} =
-             IdentityProvider.exchange_code(config, "code",
-               redirect_uri: "https://ankole.test/callback"
+    assert {:ok, %{token: token, user: %{"user_id" => "U1"} = login_user}} =
+             IdentityProvider.exchange_code(config, code,
+               redirect_uri: redirect_uri,
+               nonce: nonce
              )
+
+    assert token.raw["scope"] == authorization["scope"]
+    assert_received {:slack_oidc_http, "/.well-known/openid-configuration"}
+    assert_received {:slack_oidc_http, "/openid/connect/keys"}
 
     assert {:ok, login_observed} = IdentityProvider.upsert_user("slack-main", login_user)
     assert login_observed.principal.uid == uid

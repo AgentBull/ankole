@@ -725,18 +725,6 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
     if is_binary(origin), do: put_req_header(conn, "origin", origin), else: conn
   end
 
-  defp websocket_upgrade_headers(conn) do
-    %{
-      conn
-      | host: "www.example.com",
-        req_headers: [{"host", "www.example.com"} | conn.req_headers]
-    }
-    |> put_req_header("connection", "Upgrade")
-    |> put_req_header("upgrade", "websocket")
-    |> put_req_header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
-    |> put_req_header("sec-websocket-version", "13")
-  end
-
   defp response_header_contains?(conn, value) do
     Enum.any?(conn.resp_headers, fn {_name, header_value} ->
       String.contains?(header_value, value)
@@ -766,7 +754,7 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
   defp completed_subject_responses(subject_uid) do
     Message
     |> Repo.all()
-    |> Enum.filter(&(&1.subject_uid == subject_uid and &1.status == "complete"))
+    |> Enum.filter(&(&1.subject_uid == subject_uid and &1.status == :complete))
     |> Enum.sort_by(&{DateTime.to_unix(&1.inserted_at, :microsecond), &1.id})
   end
 end

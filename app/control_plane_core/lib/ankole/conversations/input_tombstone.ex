@@ -17,54 +17,50 @@ defmodule Ankole.Conversations.InputTombstone do
   ordering guard, not a record of the deletion.
   """
 
-  use Ankole.Schema, tenancy: :tenant, tenant_in_primary_key: true
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    tenant_in_primary_key: true,
+    domain: Ankole.Conversations.Domain
 
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
+  postgres do
+    table("conversation_input_tombstones")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:conversation_id, "conversation_input_tombstones_conversation_id_fkey"}])
 
-  alias Ankole.Conversations.Conversation
-
-  @primary_key false
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
-
-  schema "conversation_input_tombstones" do
-    belongs_to :conversation, Conversation,
-      foreign_key: :conversation_id,
-      references: :id,
-      type: Ecto.UUID,
-      primary_key: true
-
-    field :provider_message_id, :string, primary_key: true
-    # Wall-clock expiry of the guard. A receive arriving at-or-before this
-    # instant is dropped; after it, the cleanup job deletes the row and normal
-    # ingress resumes for that entry.
-    field :tombstoned_until, :utc_datetime_usec
-
-    timestamps()
+    unique_index_names([
+      {[:tenant_id, :conversation_id, :provider_message_id], "conversation_input_tombstones_pkey"}
+    ])
   end
 
-  @doc """
-  Builds a changeset for input tombstone rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(tombstone, attrs) do
-    tombstone
-    |> cast(attrs, [
-      :conversation_id,
-      :provider_message_id,
-      :tombstoned_until
-    ])
-    |> normalize_blank([:conversation_id, :provider_message_id])
-    |> validate_required([
-      :conversation_id,
-      :provider_message_id,
-      :tombstoned_until
-    ])
-    |> foreign_key_constraint(:conversation_id)
-    |> unique_constraint(
-      [:conversation_id, :provider_message_id],
-      name: :conversation_input_tombstones_pkey
+  attributes do
+    attribute(:conversation_id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true
     )
+
+    attribute(:provider_message_id, :string, primary_key?: true, allow_nil?: false, public?: true)
+    attribute(:tombstoned_until, :utc_datetime_usec, allow_nil?: false, public?: true)
+    timestamps(type: :utc_datetime_usec)
+  end
+
+  actions do
+    defaults([:read])
+
+    create :record do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+      accept([:conversation_id, :provider_message_id, :tombstoned_until])
+      upsert?(true)
+      upsert_fields([:tombstoned_until])
+    end
+
+    destroy :expire do
+      transaction?(false)
+      require_atomic?(true)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+      change(filter(expr(tombstoned_until <= ^arg(:now))))
+    end
   end
 end

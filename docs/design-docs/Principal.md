@@ -1,5 +1,19 @@
 # Principal
 
+`Ankole.Principals.Domain` owns the typed persistence actions for Principals,
+Agent and Human profiles, external identities, local credentials, access
+restrictions, audit events, and pending identity mappings. These resources use
+the existing PostgreSQL tables and constraints. The Principal UID codec and
+tenant-qualified ActorRef codec remain the identity and attribution contracts.
+
+The existing aggregate operations own transactions and lock order. Resource
+actions require that transaction. Profile actions accept only profile fields;
+they cannot change identity, status, or access versions. Human revocation
+changes status and the access version in one Principal action. Audit events
+have no update or delete action. The cleanup audit action keeps the first
+event on a repeated operation. Its JSON fields use the durable JSON object
+contract, and a system operation can have no actor.
+
 A Principal identifies the human or Agent responsible for an action. Work,
 permissions, and audit records all use that same identity.
 
@@ -77,7 +91,7 @@ The table extends a human Principal with these fields:
 - Optional `job_title`.
 - `inserted_at` and `updated_at`.
 
-The changeset lowercases email addresses.
+The Human profile action lowercases email addresses.
 It validates mobile numbers as E.164 values through the native kernel.
 
 DingTalk, Lark, WeCom, and Slack normalize observed phone numbers through

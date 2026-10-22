@@ -21,12 +21,8 @@ defmodule Ankole.AgentWorkers.Providers.Errors do
   def describe({:invalid_worker_provider_config, errors}),
     do: invalid("Worker provider YAML is invalid", errors)
 
-  def describe(%Ecto.Changeset{} = changeset),
-    do:
-      invalid(
-        "Worker provider is invalid",
-        Ecto.Changeset.traverse_errors(changeset, fn {message, _opts} -> message end)
-      )
+  def describe(%module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid],
+    do: invalid("Worker provider is invalid", Ankole.Ash.validation_details(error))
 
   def describe({:invalid_worker_provider_credential, name}),
     do:
@@ -90,6 +86,19 @@ defmodule Ankole.AgentWorkers.Providers.Errors do
 
   def describe(:unknown_worker_provider_kind),
     do: invalid("Unknown Worker provider kind", [%{path: "kind", message: "is not supported"}])
+
+  def describe({:worker_provider_plugin_inactive, plugin_id}),
+    do:
+      invalid(
+        "Enable Control Plane Plugin #{plugin_id}. If it is not active, restart the control plane.",
+        [%{path: "kind", message: "requires active and configured Plugin #{plugin_id}"}]
+      )
+
+  def describe({:worker_provider_plugin_in_use, plugin_id, provider_id}),
+    do:
+      {:conflict,
+       "Plugin #{plugin_id} is required by Agents assigned to Worker provider #{provider_id}, including Agents being deleted",
+       []}
 
   def describe(:worker_runtime_not_configured),
     do: invalid("The Worker image and RuntimeFabric startup configuration are required")

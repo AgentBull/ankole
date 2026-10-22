@@ -8,7 +8,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
   enablement overrides.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.AIAgent.Library.AgentPlugins.Config
   alias Ankole.AIAgent.Library.AgentPlugins.Contract
@@ -17,7 +17,6 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
   alias Ankole.Principals
   alias Ankole.Principals.Agent
-  alias Ankole.Repo
 
   @max_catalog_plugins 256
 
@@ -59,10 +58,8 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
 
   @spec capabilities_for_agent(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def capabilities_for_agent(agent_uid, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         :ok <- ensure_agent(repo, agent_uid),
+         :ok <- ensure_agent(agent_uid),
          {:ok, agent_plugins} <- sources(opts),
          {:ok, defaults} <- defaults(opts),
          opts =
@@ -85,11 +82,9 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
 
   @doc false
   def capabilities_from_sources(agent_uid, agent_plugins, opts) do
-    repo = Keyword.get(opts, :repo, Repo)
-
     with {:ok, defaults} <- defaults(opts) do
-      plugin_overrides = plugin_overrides(repo, agent_uid)
-      skill_overrides = agent_plugin_skill_overrides(repo, agent_uid)
+      plugin_overrides = plugin_overrides(agent_uid)
+      skill_overrides = agent_plugin_skill_overrides(agent_uid)
 
       {:ok,
        agent_plugins
@@ -164,14 +159,12 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
 
   def set_agent_override(agent_uid, agent_plugin_id, enabled, opts)
       when is_boolean(enabled) or is_nil(enabled) do
-    repo = Keyword.get(opts, :repo, Repo)
-
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         :ok <- ensure_agent(repo, agent_uid),
+         :ok <- ensure_agent(agent_uid),
          :ok <- Contract.validate_identifier(agent_plugin_id),
          {:ok, agent_plugins} <- sources(opts),
          %{} <- Enum.find(agent_plugins, &(&1.id == agent_plugin_id)) do
-      persist_agent_override(repo, agent_uid, agent_plugin_id, enabled)
+      persist_agent_override(agent_uid, agent_plugin_id, enabled)
     else
       nil -> {:error, :agent_plugin_not_found}
       {:error, _reason} = error -> error
@@ -184,15 +177,13 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
   @spec effective_enabled?(String.t(), String.t(), keyword()) ::
           {:ok, boolean()} | {:error, term()}
   def effective_enabled?(agent_uid, agent_plugin_id, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         :ok <- ensure_agent(repo, agent_uid),
+         :ok <- ensure_agent(agent_uid),
          :ok <- Contract.validate_identifier(agent_plugin_id),
          {:ok, agent_plugins} <- sources(opts),
          %{} = agent_plugin <- Enum.find(agent_plugins, &(&1.id == agent_plugin_id)),
          {:ok, defaults} <- defaults(opts) do
-      override = Map.get(plugin_overrides(repo, agent_uid), agent_plugin_id)
+      override = Map.get(plugin_overrides(agent_uid), agent_plugin_id)
       {:ok, effective_plugin_enabled(agent_plugin, override, defaults)}
     else
       nil -> {:error, :agent_plugin_not_found}
@@ -278,40 +269,35 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
     end
   end
 
-  defp persist_agent_override(repo, agent_uid, agent_plugin_id, nil) do
+  defp persist_agent_override(agent_uid, agent_plugin_id, nil) do
     AgentPluginOverride
-    |> where(
-      [override],
-      override.agent_uid == ^agent_uid and override.agent_plugin_id == ^agent_plugin_id
-    )
-    |> repo.delete_all()
-
-    {:ok, nil}
+    |> Ash.Query.filter(agent_uid == ^agent_uid and agent_plugin_id == ^agent_plugin_id)
+    |> Ankole.Ash.bulk_destroy(:reset, %{}, strategy: [:atomic], return_errors?: true)
+    |> case do
+      %Ash.BulkResult{status: :success} -> {:ok, nil}
+      %Ash.BulkResult{errors: errors} -> {:error, errors}
+    end
   end
 
-  defp persist_agent_override(repo, agent_uid, agent_plugin_id, enabled) do
-    attrs = %{agent_uid: agent_uid, agent_plugin_id: agent_plugin_id, enabled: enabled}
+  defp persist_agent_override(agent_uid, agent_plugin_id, enabled),
+    do:
+      Ankole.Ash.create(AgentPluginOverride, :set, %{
+        agent_uid: agent_uid,
+        agent_plugin_id: agent_plugin_id,
+        enabled: enabled
+      })
 
-    %AgentPluginOverride{}
-    |> AgentPluginOverride.changeset(attrs)
-    |> repo.insert(
-      on_conflict: {:replace, [:enabled, :updated_at]},
-      conflict_target: [:agent_uid, :agent_plugin_id],
-      returning: true
-    )
-  end
-
-  defp plugin_overrides(repo, agent_uid) do
+  defp plugin_overrides(agent_uid) do
     AgentPluginOverride
-    |> where([override], override.agent_uid == ^agent_uid)
-    |> repo.all()
+    |> Ash.Query.filter(agent_uid == ^agent_uid)
+    |> Ankole.Ash.read!()
     |> Map.new(&{&1.agent_plugin_id, &1.enabled})
   end
 
-  defp agent_plugin_skill_overrides(repo, agent_uid) do
+  defp agent_plugin_skill_overrides(agent_uid) do
     AgentSkill
-    |> where([skill], skill.agent_uid == ^agent_uid and not is_nil(skill.agent_plugin_id))
-    |> repo.all()
+    |> Ash.Query.filter(agent_uid == ^agent_uid and not is_nil(agent_plugin_id))
+    |> Ankole.Ash.read!()
     |> Map.new(&{&1.skill_name, &1.enabled_override})
   end
 
@@ -322,12 +308,12 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
         {:ok, %{agent_plugins: agent_plugins, skills: skills}}
 
       _value ->
-        Config.defaults(opts)
+        Config.defaults()
     end
   end
 
-  defp ensure_agent(repo, agent_uid) do
-    case repo.get(Agent, agent_uid) do
+  defp ensure_agent(agent_uid) do
+    case Agent |> Ash.Query.filter(uid == ^agent_uid) |> Ankole.Ash.read_one!() do
       %Agent{} -> :ok
       nil -> {:error, :not_found}
     end

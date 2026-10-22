@@ -29,6 +29,11 @@ defmodule Ankole.Application do
     #     compiled plugin during first-run configuration.
     #   - Plugins.Cohort after setup: it resolves one immutable activation snapshot,
     #     starts Plugins.Registry, then starts every child that consumes that snapshot.
+    #   - Worker provider seed import after Plugins: plugin kinds must be active
+    #     before the seed validates their configuration. Oban starts first because
+    #     Plugin startup can enqueue jobs. A recovered job can record
+    #     worker_provider_missing for an unassigned legacy Worker before seed import.
+    #     The seed clears that error when it assigns the provider.
     #   - IdentityProviders.StartupSync after Oban + Plugins: full-sync enqueue
     #     needs the queue, active provider config, and adapter declarations.
     #   - PubSub + AIGateway credential and response-stream processes before
@@ -51,9 +56,9 @@ defmodule Ankole.Application do
         Ankole.I18n.Catalog,
         Ankole.Setup.Bootstrap,
         Ankole.AgentWorkers.Config,
-        Ankole.AgentWorkers.Providers.Seed,
         {Oban, Application.fetch_env!(:ankole, Oban)},
         Ankole.Plugins.Cohort,
+        Ankole.AgentWorkers.Providers.Seed,
         Ankole.IdentityProviders.LocalPassword.RetryGuard.Supervisor,
         Ankole.AIGateway.CredentialPool,
         {Task.Supervisor, name: Ankole.AIGateway.ProgramTaskSupervisor, max_children: 4},

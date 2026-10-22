@@ -145,9 +145,9 @@ defmodule Ankole.Sessions.ModelHistoryTest do
                )
              end)
 
-    assert Repo.get!(Message, predecessor.id).status == "complete"
-    assert Repo.get!(Message, first.id).status == "retracted"
-    assert Repo.get!(Message, second.id).status == "retracted"
+    assert Repo.get!(Message, predecessor.id).status == :complete
+    assert Repo.get!(Message, first.id).status == :retracted
+    assert Repo.get!(Message, second.id).status == :retracted
     assert ResponseChain.latest_visible_leaf(conversation.id) == predecessor.id
   end
 
@@ -284,7 +284,7 @@ defmodule Ankole.Sessions.ModelHistoryTest do
   test "a reply route to an absent public conversation is rejected at acceptance" do
     %{principal: agent} = agent_fixture()
 
-    assert {:error, %Ecto.Changeset{errors: errors}} =
+    assert {:error, %Ash.Error.Invalid{} = error} =
              accept_signal(%{
                target: %{agent_uid: agent.uid, session_id: "missing-ingress"},
                source: "test:im",
@@ -294,7 +294,8 @@ defmodule Ankole.Sessions.ModelHistoryTest do
                data: %{}
              })
 
-    assert Keyword.has_key?(errors, :conversation_id)
+    assert [%{path: "conversation_id", message: "does not exist"}] =
+             Ankole.Ash.validation_details(error)
   end
 
   defp accept_signal(attrs),

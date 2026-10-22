@@ -21,22 +21,46 @@ defmodule Ankole.DataCase do
 
   setup tags do
     Ankole.DataCase.setup_sandbox(tags)
-    tenant = create_tenant()
+
+    tenant =
+      if tags[:sandbox] == false do
+        create_committed_tenant()
+      else
+        create_tenant()
+      end
+
     Ankole.Repo.put_tenant_id(tenant.id)
     {:ok, tenant: tenant}
   end
 
+  @doc "Compares every persisted schema field without framework bookkeeping."
+  def assert_persisted_equal(actual, expected) when is_list(actual) and is_list(expected) do
+    assert Enum.map(actual, &persisted_fields/1) == Enum.map(expected, &persisted_fields/1)
+  end
+
+  def assert_persisted_equal(actual, expected) do
+    assert persisted_fields(actual) == persisted_fields(expected)
+  end
+
+  defp persisted_fields(%schema{} = record),
+    do: {schema, Map.take(record, schema.__schema__(:fields))}
+
+  @doc "Creates a committed tenant through its lifecycle owner."
+  def create_committed_tenant(attrs \\ %{}) do
+    {:ok, tenant} = Ankole.Tenants.create(Map.merge(tenant_attributes(), attrs))
+    tenant
+  end
+
   @doc "Creates an isolated tenant without changing site configuration."
-  def create_tenant do
+  def create_tenant(attrs \\ %{}) do
     {:ok, tenant} =
       Ankole.Repo.transact(fn repo ->
-        tenant =
-          %Ankole.Tenants.Tenant{}
-          |> Ankole.Tenants.Tenant.changeset(%{
-            slug: "test-" <> Ankole.Ecto.UUIDv7.autogenerate(),
-            display_name: "Test tenant"
-          })
-          |> repo.insert!()
+        {:ok, tenant} =
+          Ankole.Ash.create(
+            Ankole.Tenants.Tenant,
+            :create_in_tx,
+            Map.merge(tenant_attributes(), attrs)
+          )
 
         Ankole.Repo.with_tenant(tenant.id, fn ->
           :ok = Ankole.Pod.Access.initialize_space(repo)
@@ -46,6 +70,13 @@ defmodule Ankole.DataCase do
       end)
 
     tenant
+  end
+
+  defp tenant_attributes do
+    %{
+      slug: "test-" <> Ankole.Ecto.UUIDv7.autogenerate(),
+      display_name: "Test tenant"
+    }
   end
 
   @doc "Deletes a committed tenant through its lifecycle owner."
@@ -75,10 +106,16 @@ defmodule Ankole.DataCase do
   end
 
   def setup_sandbox(%{sandbox: false}) do
-    # These serial integration tests need independent, committed transactions.
-    # A shared owner would make every process wait on one connection.
-    :ok = Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :auto)
-    on_exit(fn -> Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :manual) end)
+    %{opts: opts} = Ecto.Adapter.lookup_meta(Ankole.Repo)
+
+    case Keyword.fetch!(opts, :pool) do
+      DBConnection.Ownership ->
+        :ok = Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :auto)
+        on_exit(fn -> Ecto.Adapters.SQL.Sandbox.mode(Ankole.Repo, :manual) end)
+
+      DBConnection.ConnectionPool ->
+        :ok
+    end
   end
 
   def setup_sandbox(tags) do
@@ -88,9 +125,14 @@ defmodule Ankole.DataCase do
 
     pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Ankole.Repo, opts)
     drivers = if not tags[:async], do: Ankole.SessionsCase.driver_pids()
+    previews = if not tags[:async], do: Ankole.SessionsCase.preview_handler_pids()
 
     on_exit(fn ->
-      if drivers, do: Ankole.SessionsCase.stop_new_drivers(drivers)
+      if drivers do
+        Ankole.SessionsCase.stop_new_drivers(drivers)
+        Ankole.SessionsCase.stop_new_preview_handlers(previews)
+      end
+
       Ecto.Adapters.SQL.Sandbox.stop_owner(pid)
     end)
   end
@@ -100,22 +142,19 @@ defmodule Ankole.DataCase do
 
   defp maybe_put_ownership_timeout(opts, _timeout), do: opts
 
-  @doc """
-  Lets the `Ankole.AppConfigure.Cache` process use the sandbox connection of the
-  calling test.
-
-  The cache is a long-lived process outside the test, so a test that makes the
-  cache read the database must call this function first. Access stays opt-in:
-  call it from the test or its setup block.
-  """
-  def allow_cache_database_access do
-    case GenServer.whereis(Ankole.AppConfigure.Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Ankole.Repo, self(), pid)
-    end
+  def errors_on(%module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid] do
+    error
+    |> Ankole.Ash.validation_details()
+    |> Enum.group_by(
+      fn
+        %{path: ""} -> :base
+        %{path: field} -> String.to_existing_atom(field)
+      end,
+      & &1.message
+    )
   end
 
-  def errors_on(changeset) do
+  def errors_on(%Ecto.Changeset{} = changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {message, opts} ->
       Regex.replace(~r"%{(\w+)}", message, fn _, key ->
         opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()

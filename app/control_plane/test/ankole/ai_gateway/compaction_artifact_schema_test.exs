@@ -10,7 +10,7 @@ defmodule Ankole.AIGateway.CompactionArtifactSchemaTest do
 
     test "accepts a provider-native version 3 artifact" do
       changeset =
-        CompactionArtifact.changeset(%CompactionArtifact{}, %{
+        Ankole.Ash.for_create(CompactionArtifact, :store, %{
           subject_uid: "agent-x",
           content: %{
             "version" => 3,
@@ -54,7 +54,7 @@ defmodule Ankole.AIGateway.CompactionArtifactSchemaTest do
         ]
 
         for value <- [[], pack] do
-          assert CompactionArtifact.changeset(%CompactionArtifact{}, %{
+          assert Ankole.Ash.for_create(CompactionArtifact, :store, %{
                    subject_uid: "agent-x",
                    content: Map.put(base, "brain_context_pack", value)
                  }).valid?
@@ -66,7 +66,7 @@ defmodule Ankole.AIGateway.CompactionArtifactSchemaTest do
               [%{"type" => "function_call"}],
               [%{"type" => "message", "role" => "assistant", "content" => []}]
             ] do
-          refute CompactionArtifact.changeset(%CompactionArtifact{}, %{
+          refute Ankole.Ash.for_create(CompactionArtifact, :store, %{
                    subject_uid: "agent-x",
                    content: Map.put(base, "brain_context_pack", value)
                  }).valid?
@@ -83,7 +83,7 @@ defmodule Ankole.AIGateway.CompactionArtifactSchemaTest do
   end
 
   defp artifact_changeset(version) do
-    CompactionArtifact.changeset(%CompactionArtifact{}, %{
+    Ankole.Ash.for_create(CompactionArtifact, :store, %{
       subject_uid: "agent-x",
       content: %{
         "version" => version,

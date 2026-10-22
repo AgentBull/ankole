@@ -1576,7 +1576,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     assert %{
              "type" => "response.completed",
-             "sequence_number" => 5,
+             "sequence_number" => 3,
              "response" => %{
                "id" => "resp_http_limit",
                "status" => "completed",
@@ -2092,16 +2092,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     conn =
-      %{
-        conn
-        | host: "www.example.com",
-          req_headers: [{"host", "www.example.com"} | conn.req_headers]
-      }
+      conn
       |> put_req_header("authorization", "Bearer #{api_key.api_key}")
-      |> put_req_header("connection", "Upgrade")
-      |> put_req_header("upgrade", "websocket")
-      |> put_req_header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
-      |> put_req_header("sec-websocket-version", "13")
+      |> websocket_upgrade_headers()
       |> get(~p"/api/v1/ai-gateway/responses")
 
     assert conn.state == :upgraded
@@ -2133,17 +2126,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       |> Base.url_encode64(padding: false)
 
     conn =
-      %{
-        conn
-        | host: "www.example.com",
-          req_headers: [{"host", "www.example.com"} | conn.req_headers]
-      }
+      conn
       |> put_req_header("authorization", "Bearer #{api_key.api_key}")
       |> put_req_header("x-ankole-aigateway-model-binding", encoded)
-      |> put_req_header("connection", "Upgrade")
-      |> put_req_header("upgrade", "websocket")
-      |> put_req_header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
-      |> put_req_header("sec-websocket-version", "13")
+      |> websocket_upgrade_headers()
       |> get(~p"/api/v1/ai-gateway/responses")
 
     assert conn.state == :upgraded
@@ -2646,8 +2632,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert artifact.content["summary"] == %{"text" => "## Active Task\nhello from compliance"}
 
     assert %Message{} = row = Repo.get!(Message, artifact_id)
-    assert row.type == "checkpoint"
-    assert row.status == "complete"
+    assert row.type == :checkpoint
+    assert row.status == :complete
     assert row.previous_message_id == anchor.id
     assert row.content == [%{"id" => "cmp_#{artifact_id}", "type" => "compaction_artifact"}]
     # A checkpoint keeps Provider items verbatim, so it records its issuer like

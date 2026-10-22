@@ -6,7 +6,7 @@ defmodule Ankole.AIGateway.Artifacts do
   different public ID prefixes and lifecycle rules.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.AIGateway.Artifacts.Image
   alias Ankole.AIGateway.Artifacts.References
@@ -14,7 +14,6 @@ defmodule Ankole.AIGateway.Artifacts do
   alias Ankole.AIGateway.Schemas.Artifact
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Principals
-  alias Ankole.Repo
 
   @max_image_bytes 50 * 1024 * 1024
   @min_expiry_seconds 3_600
@@ -39,14 +38,11 @@ defmodule Ankole.AIGateway.Artifacts do
          {:ok, expires_at} <- expires_at(params),
          {:ok, payload} <- read_bounded_upload(upload),
          {:ok, mime_type} <- Image.sniff(payload) do
-      insert(%{
+      Ankole.Ash.create(Artifact, :upload, %{
         subject_uid: subject_uid,
-        kind: "uploaded_file",
         filename: upload.filename,
         purpose: "vision",
         mime_type: mime_type,
-        byte_size: byte_size(payload),
-        sha256: :crypto.hash(:sha256, payload),
         payload: payload,
         expires_at: expires_at
       })
@@ -73,16 +69,13 @@ defmodule Ankole.AIGateway.Artifacts do
          :ok <- Image.validate_declared_mime(mime_type, sniffed_type) do
       message_id = Keyword.get(opts, :message_id)
 
-      insert(%{
+      Ankole.Ash.create(Artifact, :generate_image, %{
         id: identity.id,
         provider_item_id: identity.provider_item_id,
         subject_uid: subject_uid,
         message_id: message_id,
-        kind: "generated_image",
         filename: Keyword.get(opts, :filename),
         mime_type: sniffed_type,
-        byte_size: byte_size(payload),
-        sha256: :crypto.hash(:sha256, payload),
         payload: payload,
         expires_at: generated_expiry(message_id)
       })
@@ -109,7 +102,7 @@ defmodule Ankole.AIGateway.Artifacts do
   @spec get_file(String.t(), String.t(), keyword()) ::
           {:ok, Artifact.t()} | {:error, OpenAIError.t()}
   def get_file(subject_uid, file_id, opts \\ []) do
-    get_for_subject(subject_uid, file_id, "file_", "uploaded_file", opts)
+    get_for_subject(subject_uid, file_id, "file_", :uploaded_file, opts)
   end
 
   @spec get_generated_image(String.t(), String.t(), keyword()) ::
@@ -117,7 +110,7 @@ defmodule Ankole.AIGateway.Artifacts do
   def get_generated_image(subject_uid, image_id, opts \\ []) do
     case public_uuid(image_id, "ig_") do
       {:ok, _id} ->
-        get_for_subject(subject_uid, image_id, "ig_", "generated_image", opts)
+        get_for_subject(subject_uid, image_id, "ig_", :generated_image, opts)
 
       # A native provider's item id is not a local UUID; the Artifact stored
       # it in provider_item_id, so the public reference stays resolvable.
@@ -129,7 +122,7 @@ defmodule Ankole.AIGateway.Artifacts do
   @spec delete_file(String.t(), String.t()) :: {:ok, map()} | {:error, OpenAIError.t()}
   def delete_file(subject_uid, file_id) do
     with {:ok, artifact} <- get_file(subject_uid, file_id),
-         {:ok, _artifact} <- Repo.delete(artifact) do
+         {:ok, _artifact} <- Ankole.Ash.destroy(artifact, :remove) do
       {:ok, %{"id" => file_id, "object" => "file", "deleted" => true}}
     end
   end
@@ -141,7 +134,7 @@ defmodule Ankole.AIGateway.Artifacts do
          {:ok, order} <- list_order(params),
          :ok <- list_purpose(params),
          {:ok, cursor} <- list_cursor(params) do
-      rows = list_query(subject_uid, params, order, cursor, limit + 1) |> Repo.all()
+      rows = list_query(subject_uid, params, order, cursor, limit + 1) |> Ankole.Ash.read!()
       has_more = length(rows) > limit
       rows = Enum.take(rows, limit)
       data = Enum.map(rows, &file_object/1)
@@ -172,8 +165,8 @@ defmodule Ankole.AIGateway.Artifacts do
   end
 
   @spec public_id(Artifact.t()) :: String.t()
-  def public_id(%Artifact{kind: "uploaded_file", id: id}), do: "file_#{id}"
-  def public_id(%Artifact{kind: "generated_image", id: id}), do: "ig_#{id}"
+  def public_id(%Artifact{kind: :uploaded_file, id: id}), do: "file_#{id}"
+  def public_id(%Artifact{kind: :generated_image, id: id}), do: "ig_#{id}"
 
   @spec hydrate_generated_images(String.t(), [map()]) :: {:ok, [map()]} | {:error, term()}
   defdelegate hydrate_generated_images(subject_uid, items), to: References
@@ -186,35 +179,22 @@ defmodule Ankole.AIGateway.Artifacts do
 
   @spec cleanup_expired_and_failed(DateTime.t()) :: non_neg_integer()
   def cleanup_expired_and_failed(now \\ DateTime.utc_now(:microsecond)) do
-    failed_message_ids =
-      from(message in Ankole.AIGateway.Schemas.Message,
-        where: message.status == "error",
-        select: message.id
-      )
-
-    {count, _rows} =
-      from(artifact in Artifact,
-        where:
-          (not is_nil(artifact.expires_at) and artifact.expires_at <= ^now) or
-            (artifact.kind == "generated_image" and is_nil(artifact.expires_at) and
-               (is_nil(artifact.message_id) or
-                  artifact.message_id in subquery(failed_message_ids)))
-      )
-      |> Repo.delete_all()
-
-    count
-  end
-
-  defp insert(attrs) do
-    %Artifact{}
-    |> Artifact.changeset(attrs)
-    |> Repo.insert()
+    case Ankole.Ash.bulk_destroy(Artifact, :collect, %{now: now},
+           strategy: [:atomic],
+           return_records?: true,
+           select: [:id],
+           return_errors?: true
+         ) do
+      %Ash.BulkResult{status: :success, records: records} -> length(records)
+      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+    end
   end
 
   defp get_for_subject(subject_uid, public_id, prefix, kind, opts) do
     with {:ok, subject_uid} <- normalize_subject(subject_uid),
          {:ok, id} <- public_uuid(public_id, prefix),
-         %Artifact{} = artifact <- Repo.one(artifact_query(subject_uid, id, kind, opts)) do
+         %Artifact{} = artifact <-
+           Ankole.Ash.read_one!(artifact_query(subject_uid, id, kind, opts)) do
       {:ok, artifact}
     else
       _missing_or_invalid -> {:error, OpenAIError.not_found("file_id")}
@@ -225,7 +205,7 @@ defmodule Ankole.AIGateway.Artifacts do
        when is_binary(provider_item_id) and provider_item_id != "" do
     with {:ok, subject_uid} <- normalize_subject(subject_uid),
          %Artifact{} = artifact <-
-           Repo.one(provider_item_query(subject_uid, provider_item_id, opts)) do
+           Ankole.Ash.read_one!(provider_item_query(subject_uid, provider_item_id, opts)) do
       {:ok, artifact}
     else
       _missing_or_invalid -> {:error, OpenAIError.not_found("file_id")}
@@ -238,38 +218,32 @@ defmodule Ankole.AIGateway.Artifacts do
   defp artifact_query(subject_uid, id, kind, opts) do
     now = DateTime.utc_now(:microsecond)
 
-    from(artifact in Artifact,
-      where:
-        artifact.id == ^id and artifact.subject_uid == ^subject_uid and
-          artifact.kind == ^kind and
-          (is_nil(artifact.expires_at) or artifact.expires_at > ^now)
+    Artifact
+    |> Ash.Query.filter(
+      id == ^id and subject_uid == ^subject_uid and kind == ^kind and
+        (is_nil(expires_at) or expires_at > ^now)
     )
     |> maybe_select_payload(opts)
   end
 
-  # The provider_item_id index is not unique, so the newest matching Artifact
-  # wins deterministically.
+  # Provider item IDs are not unique; the newest matching row wins.
   defp provider_item_query(subject_uid, provider_item_id, opts) do
     now = DateTime.utc_now(:microsecond)
 
-    from(artifact in Artifact,
-      where:
-        artifact.provider_item_id == ^provider_item_id and
-          artifact.subject_uid == ^subject_uid and
-          artifact.kind == "generated_image" and
-          (is_nil(artifact.expires_at) or artifact.expires_at > ^now),
-      order_by: [desc: artifact.inserted_at, desc: artifact.id],
-      limit: 1
+    Artifact
+    |> Ash.Query.filter(
+      provider_item_id == ^provider_item_id and subject_uid == ^subject_uid and
+        kind == :generated_image and (is_nil(expires_at) or expires_at > ^now)
     )
+    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+    |> Ash.Query.limit(1)
     |> maybe_select_payload(opts)
   end
 
   defp maybe_select_payload(query, opts) do
-    if Keyword.get(opts, :payload?, false) do
-      from(artifact in query, select_merge: %{payload: artifact.payload})
-    else
-      query
-    end
+    if Keyword.get(opts, :payload?, false),
+      do: Ash.Query.ensure_selected(query, [:payload]),
+      else: query
   end
 
   defp normalize_subject(subject_uid) do
@@ -423,57 +397,50 @@ defmodule Ankole.AIGateway.Artifacts do
     now = DateTime.utc_now(:microsecond)
 
     query =
-      from(artifact in Artifact,
-        where:
-          artifact.subject_uid == ^subject_uid and artifact.kind == "uploaded_file" and
-            (is_nil(artifact.expires_at) or artifact.expires_at > ^now),
-        limit: ^limit
+      Artifact
+      |> Ash.Query.filter(
+        subject_uid == ^subject_uid and kind == :uploaded_file and
+          (is_nil(expires_at) or expires_at > ^now)
       )
+      |> Ash.Query.limit(limit)
 
     query =
       case Ankole.Attrs.get_truthy(params, "purpose") do
-        purpose when is_binary(purpose) ->
-          from(artifact in query, where: artifact.purpose == ^purpose)
-
-        _purpose ->
-          query
+        purpose when is_binary(purpose) -> Ash.Query.filter(query, purpose == ^purpose)
+        _purpose -> query
       end
 
-    query = apply_cursor(query, subject_uid, cursor, order)
-
-    case order do
-      :asc -> from(artifact in query, order_by: [asc: artifact.inserted_at, asc: artifact.id])
-      :desc -> from(artifact in query, order_by: [desc: artifact.inserted_at, desc: artifact.id])
-    end
+    query
+    |> apply_cursor(subject_uid, cursor, order)
+    |> Ash.Query.sort(inserted_at: order, id: order)
   end
 
   defp apply_cursor(query, _subject_uid, nil, _order), do: query
 
   defp apply_cursor(query, subject_uid, cursor, order) do
-    case Repo.one(
-           from(artifact in Artifact,
-             where:
-               artifact.id == ^cursor and artifact.subject_uid == ^subject_uid and
-                 artifact.kind == "uploaded_file",
-             select: {artifact.inserted_at, artifact.id}
-           )
-         ) do
-      {inserted_at, id} when order == :asc ->
-        from(artifact in query,
-          where:
-            artifact.inserted_at > ^inserted_at or
-              (artifact.inserted_at == ^inserted_at and artifact.id > ^id)
+    anchor =
+      Artifact
+      |> Ash.Query.filter(
+        id == ^cursor and subject_uid == ^subject_uid and kind == :uploaded_file
+      )
+      |> Ash.Query.select([:inserted_at, :id])
+      |> Ankole.Ash.read_one!()
+
+    case anchor do
+      %Artifact{inserted_at: inserted_at, id: id} when order == :asc ->
+        Ash.Query.filter(
+          query,
+          inserted_at > ^inserted_at or (inserted_at == ^inserted_at and id > ^id)
         )
 
-      {inserted_at, id} ->
-        from(artifact in query,
-          where:
-            artifact.inserted_at < ^inserted_at or
-              (artifact.inserted_at == ^inserted_at and artifact.id < ^id)
+      %Artifact{inserted_at: inserted_at, id: id} ->
+        Ash.Query.filter(
+          query,
+          inserted_at < ^inserted_at or (inserted_at == ^inserted_at and id < ^id)
         )
 
       nil ->
-        from(artifact in query, where: false)
+        Ash.Query.filter(query, false)
     end
   end
 

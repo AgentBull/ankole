@@ -1,12 +1,12 @@
 defmodule AnkoleWeb.PodDatabaseControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  @moduletag host: :pod
   import OpenApiSpex.TestAssertions
 
   alias Ankole.Pod.Pages
   alias Ankole.Repo
 
   setup do
-    allow_cache_database_access()
     Ankole.AppConfigure.Cache.clear_for_test()
     :ok
   end

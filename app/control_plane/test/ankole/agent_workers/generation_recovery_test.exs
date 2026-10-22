@@ -22,7 +22,7 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
   } do
     assert {:error, {:docker_api, 503, _}} = reconcile(uid)
     first = Repo.get!(AgentWorker, uid)
-    assert first.state == "starting"
+    assert first.state == :starting
     assert first.generation != nil
     assert first.instance_seen_at == nil
     assert first.last_error =~ "platform unavailable"
@@ -119,13 +119,16 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
     assert {:error, _} = reconcile(uid)
     first = Repo.get!(AgentWorker, uid)
     assert {:ok, token} = AgentWorkers.credential(first)
-    assert :ok = AgentWorkers.mark_deleting_in_tx(Repo, uid)
+
+    assert {:ok, :ok} =
+             Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+
     deleting = Repo.get!(AgentWorker, uid)
     assert deleting.generation == first.generation
     assert deleting.token_digest == first.token_digest
     assert {:error, :stale_worker_generation} = AgentWorkers.authenticate(uid, token)
     assert {:error, _} = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).state == "deleting"
+    assert Repo.get!(AgentWorker, uid).state == :deleting
     assert map_size(Agent.get(api, & &1.volumes)) == 2
     Agent.update(api, &%{&1 | mode: :success})
     assert :ok = reconcile(uid)
@@ -155,7 +158,7 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
     assert {:error, {:docker_api, 400, _}} = reconcile(uid)
 
     assert %AgentWorker{
-             state: "absent",
+             state: :absent,
              generation: nil,
              token_digest: nil,
              token_ciphertext: nil,
@@ -183,7 +186,10 @@ defmodule Ankole.AgentWorkers.GenerationRecoveryTest do
 
   test "a deleting row without provider is removed without platform calls", %{uid: uid, api: api} do
     Repo.update_all(from(w in AgentWorker, where: w.agent_uid == ^uid), set: [provider_id: nil])
-    assert :ok = AgentWorkers.mark_deleting_in_tx(Repo, uid)
+
+    assert {:ok, :ok} =
+             Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+
     assert :ok = reconcile(uid)
     assert Repo.get(AgentWorker, uid) == nil
     assert Agent.get(api, & &1.calls) == []

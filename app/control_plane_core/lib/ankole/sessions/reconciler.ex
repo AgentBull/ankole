@@ -1,7 +1,6 @@
 defmodule Ankole.Sessions.Reconciler do
   @moduledoc "Repairs lost wakeups from durable input, Workflow, and intent state."
   use Ankole.Job, tenancy: :site, queue: :conversations, max_attempts: 3
-  require Logger
   import Ecto.Query
   alias Ankole.Repo
   alias Ankole.Sessions.Jobs.EnsureDriver
@@ -27,7 +26,7 @@ defmodule Ankole.Sessions.Reconciler do
       Repo.across_tenants(fn ->
         Repo.all(
           from e in Signal,
-            where: e.input_state == "open" and is_nil(e.completed_at) and e.available_at <= ^now,
+            where: e.status in [:queued, :running] and e.available_at <= ^now,
             distinct: [e.agent_uid, e.session_id],
             select: %{agent_uid: e.agent_uid, session_id: e.session_id, tenant_id: e.tenant_id}
         )
@@ -54,7 +53,11 @@ defmodule Ankole.Sessions.Reconciler do
           previous
 
         {:error, reason} = error ->
-          Logger.warning("Session reconciliation failed for #{inspect(key)}: #{inspect(reason)}")
+          Ankole.Logging.warning(
+            "sessions.reconciliation_failed",
+            "Session reconciliation failed",
+            Map.merge(Ankole.Logging.failure_fields(:error, reason, []), key)
+          )
 
           error
       end

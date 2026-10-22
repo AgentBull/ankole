@@ -12,7 +12,6 @@ defmodule Ankole.Pod.DatabaseTest do
     "statement_timeout_ms" => 5000
   }
   setup do
-    allow_cache_database_access()
     Ankole.AppConfigure.Cache.clear_for_test()
     {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.database.limits", @limits)
     human = human_fixture().principal

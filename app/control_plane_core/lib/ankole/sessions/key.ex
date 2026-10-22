@@ -14,6 +14,9 @@ defmodule Ankole.Sessions.Key do
 
   def parse(_key), do: :error
 
+  @spec job?(term()) :: boolean()
+  def job?(key), do: match?({:job, _}, parse(key))
+
   def routable?(key) do
     case parse(key) do
       :error -> false

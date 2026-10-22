@@ -60,7 +60,7 @@ defmodule Ankole.Brain.Calibration do
 
     Claim
     |> Claims.filter_live_parents()
-    |> where([claim], claim.claim_type == "take" and claim.active == true)
+    |> where([claim], claim.claim_type == :take and claim.active == true)
     |> where([claim], is_nil(claim.resolved_at))
     |> where(
       [claim],
@@ -137,7 +137,7 @@ defmodule Ankole.Brain.Calibration do
 
       domains =
         Ankole.Brain.Schemas.SchemaCalibrationDomain
-        |> Repo.all()
+        |> Ankole.Ash.read!()
         |> Map.new(&{&1.name, &1.pack_name})
 
       grader =
@@ -226,7 +226,7 @@ defmodule Ankole.Brain.Calibration do
 
   defp commit_grade(take_id, input_hash, output) do
     Repo.transact(fn repo ->
-      take = repo.one(from claim in Claim, where: claim.id == ^take_id, lock: "FOR UPDATE")
+      take = repo.one(from(claim in Claim, where: claim.id == ^take_id, lock: "FOR UPDATE"))
       commit_current_grade(repo, take, input_hash, output)
     end)
   end
@@ -238,18 +238,17 @@ defmodule Ankole.Brain.Calibration do
       if take.graded_input_hash == hash do
         {:ok, :skip}
       else
-        take
-        |> Ecto.Changeset.change(
-          graded_quality: output["quality"],
-          graded_confidence: min(max(output["confidence"] * 1.0, 0.0), 1.0),
-          graded_at: DateTime.utc_now(:microsecond),
-          graded_input_hash: hash
-        )
-        |> repo.update!()
+        {:ok, _} =
+          Ankole.Ash.update(take, :record_grade, %{
+            graded_quality: output["quality"],
+            graded_confidence: min(max(output["confidence"] * 1.0, 0.0), 1.0),
+            graded_at: DateTime.utc_now(:microsecond),
+            graded_input_hash: hash
+          })
 
-        assign_take_domains(repo, take, List.wrap(output["domains"]), domains)
+        assign_take_domains(take, List.wrap(output["domains"]), domains)
 
-        with :ok <- resolve_expired(repo, take, output["quality"], model.grader),
+        with :ok <- resolve_expired(take, output["quality"], model.grader),
              do: {:ok, :graded}
       end
     else
@@ -266,7 +265,7 @@ defmodule Ankole.Brain.Calibration do
   # unresolvable verdict keeps the Take in the queue for later evidence, and a
   # stale Take without a due date keeps only its grade because its period is
   # still open.
-  defp resolve_expired(repo, take, quality, grader)
+  defp resolve_expired(take, quality, grader)
        when quality in ["correct", "incorrect", "partial"] do
     if expired?(take) do
       resolution = %{
@@ -275,14 +274,14 @@ defmodule Ankole.Brain.Calibration do
         resolution_provenance: "dreaming grade"
       }
 
-      with {:ok, _resolved} <- Claims.resolve_take(take.id, resolution, grader, repo: repo),
+      with {:ok, _resolved} <- Claims.resolve_take(take.id, resolution, grader),
            do: :ok
     else
       :ok
     end
   end
 
-  defp resolve_expired(_repo, _take, _quality, _grader), do: :ok
+  defp resolve_expired(_take, _quality, _grader), do: :ok
 
   defp resolved_outcome("correct"), do: true
   defp resolved_outcome("incorrect"), do: false
@@ -290,23 +289,21 @@ defmodule Ankole.Brain.Calibration do
 
   # Domain assignments feed the calibration scorecards; the unique
   # (take, domain) key makes grading reruns idempotent.
-  defp assign_take_domains(repo, take, names, domains) do
+  defp assign_take_domains(take, names, domains) do
     names
     |> Enum.filter(&Map.has_key?(domains, &1))
     |> Enum.each(fn domain ->
-      repo.insert!(
-        %TakeDomainAssignment{
-          id: UUIDv7.autogenerate(),
-          take_claim_id: take.id,
-          domain: domain,
-          pack: Map.fetch!(domains, domain),
-          assignment_provenance: "dreaming grade",
-          confidence: 1.0,
-          assigned_at: DateTime.utc_now(:microsecond)
-        },
-        on_conflict: :nothing,
-        conflict_target: [:tenant_id, :take_claim_id, :domain]
-      )
+      TakeDomainAssignment
+      |> Ankole.Ash.for_create(:assign_once, %{
+        id: UUIDv7.autogenerate(),
+        take_claim_id: take.id,
+        domain: domain,
+        pack: Map.fetch!(domains, domain),
+        assignment_provenance: "dreaming grade",
+        confidence: 1.0,
+        assigned_at: DateTime.utc_now(:microsecond)
+      })
+      |> Ash.create!(authorize?: false)
     end)
   end
 
@@ -315,13 +312,13 @@ defmodule Ankole.Brain.Calibration do
     scored =
       Claim
       |> Claims.filter_live_parents()
-      |> where([claim], claim.claim_type == "take")
+      |> where([claim], claim.claim_type == :take)
       |> where([claim], claim.resolved_quality in ["correct", "incorrect"])
       |> Repo.all()
 
     domain_assignments =
       TakeDomainAssignment
-      |> Repo.all()
+      |> Ankole.Ash.read!()
       |> Enum.group_by(& &1.take_claim_id, & &1.domain)
 
     profiles =

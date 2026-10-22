@@ -29,17 +29,17 @@ defmodule Ankole.Brain.Forget do
          :ok <- validate_eligibility(claim, caller) do
       # State change and reason commit together: a crash between them must
       # not leave a forgotten claim without its required reason.
-      Repo.transact(fn repo ->
+      Repo.transact(fn _repo ->
         result =
           case claim.claim_type do
-            "fact" -> Claims.expire_fact(claim.id, repo: repo)
-            "take" -> Claims.deactivate_take(claim.id, repo: repo)
+            :fact -> Claims.expire_fact(claim.id)
+            :take -> Claims.deactivate_take(claim.id)
           end
 
         with {:ok, updated} <- result do
-          updated
-          |> Ecto.Changeset.change(provenance: append_reason(updated.provenance, reason, caller))
-          |> repo.update()
+          Ankole.Ash.update(updated, :append_forgetting_reason, %{
+            reason: forgetting_reason(reason, caller)
+          })
         end
       end)
     end
@@ -95,8 +95,8 @@ defmodule Ankole.Brain.Forget do
     end
   end
 
-  defp append_reason(provenance, reason, caller) do
-    provenance <> " | forgotten by #{caller_label(caller)}: #{String.trim(reason)}"
+  defp forgetting_reason(reason, caller) do
+    " | forgotten by #{caller_label(caller)}: #{String.trim(reason)}"
   end
 
   defp caller_label(:admin), do: "console admin"

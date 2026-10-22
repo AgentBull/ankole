@@ -5,7 +5,6 @@ defmodule Ankole.Conversations.External do
   boundary; readers receive a Message and its adapter-owned reference.
   """
   import Ecto.Query
-  alias Ecto.Adapters.SQL
   alias Ankole.Conversations.{Conversation, ExternalMessageRef, Message, Participant}
   alias Ankole.Conversations.Attachments
   alias Ankole.Principals.Principal
@@ -112,9 +111,9 @@ defmodule Ankole.Conversations.External do
     Ankole.Repo.transact(fn repo ->
       case lock_conversation(repo, conversation_id) do
         %Conversation{kind: :external} = conversation ->
-          conversation
-          |> Conversation.changeset(%{metadata: fun.(conversation.metadata || %{})})
-          |> repo.update()
+          Ankole.Ash.update(conversation, :put_metadata, %{
+            metadata: fun.(conversation.metadata || %{})
+          })
 
         _ ->
           {:error, :external_conversation_not_found}
@@ -193,7 +192,7 @@ defmodule Ankole.Conversations.External do
              nil,
              DateTime.utc_now(:microsecond)
            ),
-         {:ok, _} <- repo.delete(message) do
+         {:ok, _} <- Ankole.Ash.destroy(message, :remove) do
       {:ok, message}
     else
       nil -> {:ok, nil}
@@ -221,18 +220,12 @@ defmodule Ankole.Conversations.External do
           do: Map.delete(ref.reactions, reaction.reaction_key),
           else: Map.put(ref.reactions, reaction.reaction_key, actors)
 
-      ref
-      |> ExternalMessageRef.changeset(
-        Map.merge(
-          %{
-            reactions: reactions,
-            raw_reaction_keys:
-              Map.put(ref.raw_reaction_keys, reaction.reaction_key, reaction.raw_reaction_key)
-          },
-          %{last_seen_at: latest(ref.last_seen_at, now)}
-        )
-      )
-      |> repo.update()
+      Ankole.Ash.update(ref, :fold_reaction, %{
+        reactions: reactions,
+        raw_reaction_keys:
+          Map.put(ref.raw_reaction_keys, reaction.reaction_key, reaction.raw_reaction_key),
+        last_seen_at: latest(ref.last_seen_at, now)
+      })
     else
       nil -> {:ok, nil}
       _ -> {:error, :external_conversation_not_found}
@@ -286,7 +279,7 @@ defmodule Ankole.Conversations.External do
           last_seen_at: latest(ref.last_seen_at, now)
         })
 
-      with {:ok, message} <- persist(repo, Message.changeset(message, message_attrs)),
+      with {:ok, message} <- write_message(message, message_attrs),
            attachments =
              Attachments.prepare_in_tx(
                repo,
@@ -297,19 +290,17 @@ defmodule Ankole.Conversations.External do
                old_attachments
              ),
            {:ok, message} <-
-             message |> Message.changeset(%{attachments: attachments}) |> repo.update(),
+             Ankole.Ash.update(message, :resolve_attachments, %{attachments: attachments}),
            hash = content_hash(message, ref_attrs, ref),
            status = if(ref.content_hash == hash, do: :unchanged, else: status),
            ref_attrs = Map.put(ref_attrs, :content_hash, hash),
-           {:ok, ref} <- persist(repo, ExternalMessageRef.changeset(ref, ref_attrs)),
+           {:ok, ref} <- write_reference(ref, ref_attrs),
            :ok <- Ankole.Conversations.message_changed_in_tx(repo, before_message, message, now),
            {:ok, conversation} <-
-             conversation
-             |> Conversation.changeset(%{
+             Ankole.Ash.update(conversation, :touch, %{
                last_activity_at: latest(conversation.last_activity_at, now),
                last_seen_at: latest(conversation.last_seen_at, now)
-             })
-             |> repo.update() do
+             }) do
         {:ok, %{status: status, conversation: conversation, message: message, external_ref: ref}}
       end
     end
@@ -360,7 +351,6 @@ defmodule Ankole.Conversations.External do
       Map.merge(
         %{
           id: Ankole.Ecto.UUIDv7.autogenerate(),
-          kind: :external,
           external_kind: :unknown,
           reply_mode: :none,
           first_seen_at: now,
@@ -372,27 +362,20 @@ defmodule Ankole.Conversations.External do
     end
   end
 
-  defp write_conversation(repo, nil, attrs),
-    do: %Conversation{} |> Conversation.changeset(attrs) |> repo.insert()
+  defp write_conversation(_repo, nil, attrs),
+    do: Ankole.Ash.create(Conversation, :create_external, attrs)
 
-  defp write_conversation(repo, conversation, attrs),
-    do: conversation |> Conversation.changeset(attrs) |> repo.update()
+  defp write_conversation(_repo, conversation, attrs),
+    do: Ankole.Ash.update(conversation, :observe, Map.delete(attrs, :provider_conversation_id))
 
-  defp ensure_agent(repo, id, uid) do
-    %Participant{}
-    |> Participant.changeset(%{conversation_id: id, principal_uid: uid, role: :agent})
-    |> repo.insert(
-      on_conflict: :nothing,
-      conflict_target: [:tenant_id, :conversation_id, :principal_uid]
-    )
+  defp ensure_agent(_repo, id, uid) do
+    Ankole.Ash.create(Participant, :join, %{conversation_id: id, principal_uid: uid, role: :agent})
   end
 
   defp lock_identity(repo, parts) do
     key = Enum.join([Ankole.Repo.tenant_id!() | parts], "|")
 
-    SQL.query!(repo, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      "external-conversation:" <> key
-    ])
+    Ankole.AdvisoryLock.lock!(repo, "external-conversation:" <> key, hash: :extended)
   end
 
   defp lock_conversation(repo, id),
@@ -406,10 +389,27 @@ defmodule Ankole.Conversations.External do
 
   defp message_sequence(_repo, _conversation, %Message{seq: sequence}), do: {:ok, sequence}
 
-  defp persist(repo, %{data: %{__meta__: %{state: :built}}} = changeset),
-    do: repo.insert(changeset)
+  defp write_message(%Message{id: nil}, attrs),
+    do: Ankole.Ash.create(Message, :record, attrs)
 
-  defp persist(repo, changeset), do: repo.update(changeset)
+  defp write_message(message, attrs) do
+    Ankole.Ash.update(
+      message,
+      :observe,
+      Map.drop(attrs, [:id, :conversation_id, :seq, :origin, :created_at])
+    )
+  end
+
+  defp write_reference(%ExternalMessageRef{message_id: nil}, attrs),
+    do: Ankole.Ash.create(ExternalMessageRef, :record, attrs)
+
+  defp write_reference(ref, attrs) do
+    Ankole.Ash.update(
+      ref,
+      :observe,
+      Map.drop(attrs, [:message_id, :conversation_id, :provider_message_id, :first_seen_at])
+    )
+  end
 
   defp stale?(%{external_ref: %{provider_time: %DateTime{} = old}}, %DateTime{} = new),
     do: DateTime.compare(new, old) == :lt

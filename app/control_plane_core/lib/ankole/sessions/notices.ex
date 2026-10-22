@@ -109,10 +109,12 @@ defmodule Ankole.Sessions.Notices do
 
   @doc false
   def reject_suspended_input_in_tx(repo, event, now) do
+    :ok = lock_work_in_tx(repo, event)
     :ok = Queue.lock_session_in_tx(repo, event.agent_uid, event.session_id)
 
     case Ankole.Signals.lock_signal_in_tx(repo, event.id) do
-      %Signal{last_attempt_at: nil, completed_at: nil, input_state: "open"} = current ->
+      %Signal{last_attempt_at: nil, status: live_status} = current
+      when live_status in [:queued, :running] ->
         with {:ok, workflow_transition} <- reject_unstarted_workflow_task(repo, current, now),
              {:ok, completed} <-
                Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, current, now) do
@@ -143,6 +145,27 @@ defmodule Ankole.Sessions.Notices do
     end
   end
 
+  @doc false
+  def lock_work_in_tx(repo, event) do
+    case Ankole.Workflow.parse_task_session_id(event.session_id) do
+      {:ok, _call_id} ->
+        with {:ok, %{run: run}} <-
+               Ankole.Workflow.Slot.lock_session_work_in_tx(
+                 repo,
+                 event.agent_uid,
+                 event.session_id
+               ) do
+          Queue.lock_sessions_in_tx(repo, [
+            {event.agent_uid, event.session_id},
+            {run.agent_uid, run.owner_session_id}
+          ])
+        end
+
+      :error ->
+        :ok
+    end
+  end
+
   defp reject_unstarted_workflow_task(repo, event, now) do
     case Ankole.Workflow.parse_task_session_id(event.session_id) do
       {:ok, call_id} ->
@@ -155,7 +178,7 @@ defmodule Ankole.Sessions.Notices do
                now
              ) do
           {:ok, transition} -> {:ok, transition}
-          {:error, {:workflow_task_not_queued, "running"}} -> {:ok, nil}
+          {:error, {:workflow_task_not_queued, :running}} -> {:ok, nil}
           {:error, _} = error -> error
         end
 

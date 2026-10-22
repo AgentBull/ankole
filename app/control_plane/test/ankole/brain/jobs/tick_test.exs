@@ -8,7 +8,6 @@ defmodule Ankole.Brain.Jobs.TickTest do
   alias Ankole.Brain.Jobs.Tick
 
   setup do
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 

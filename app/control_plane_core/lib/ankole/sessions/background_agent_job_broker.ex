@@ -194,7 +194,7 @@ defmodule Ankole.Sessions.BackgroundAgentJobBroker do
   defp job_response(%Job{} = job) do
     %FabricProto.BackgroundAgentJobResponse{
       agent_uid: job.agent_uid,
-      status: job.status,
+      status: Atom.to_string(job.status),
       runtime_thread_id: job.runtime_thread_id || "",
       task: job.task,
       attempts: job.attempts,
@@ -224,7 +224,7 @@ defmodule Ankole.Sessions.BackgroundAgentJobBroker do
            result_output_window(job, offset, output_window, total_bytes) do
       {:ok,
        %FabricProto.BackgroundAgentJobResponse{
-         status: job.status,
+         status: Atom.to_string(job.status),
          task: job.task,
          result_output_text: output_text,
          result_output_total_bytes: Integer.to_string(total_bytes)
@@ -233,11 +233,11 @@ defmodule Ankole.Sessions.BackgroundAgentJobBroker do
   end
 
   defp result_output_window(%Job{status: status}, _offset, _output_window, _total_bytes)
-       when status != "succeeded",
+       when status != :succeeded,
        do: {:ok, {"", 0}}
 
   defp result_output_window(
-         %Job{status: "succeeded"},
+         %Job{status: :succeeded},
          offset,
          output_window,
          total_bytes
@@ -315,7 +315,7 @@ defmodule Ankole.Sessions.BackgroundAgentJobBroker do
     {:error,
      RPCWire.error_payload(request_id, reason,
        fallback_code: "background_agent_job_failed",
-       changeset_code: "invalid_background_agent_job",
+       validation_code: "invalid_background_agent_job",
        message_style: :tuple_inspect,
        details_json: %{"agent_uid" => agent_uid}
      )}

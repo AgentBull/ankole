@@ -1,6 +1,5 @@
 defmodule Ankole.AIGateway.ToolResultJournal do
   @moduledoc "Validates, deduplicates and commits client tool outputs against their Response calls."
-  import Ecto.Query
 
   import Ankole.AIGateway.ResponseChain,
     only: [previous_response_id: 1, decode_response_id: 1, complete_message_for_subject: 3]
@@ -39,7 +38,7 @@ defmodule Ankole.AIGateway.ToolResultJournal do
     with {:ok, subject_uid} <- Principals.normalize_uid(raw_subject_uid),
          :ok <- validate_tool_result_items(request_items),
          {:ok, previous_message_id} <- decode_response_id(previous_response_id),
-         %Message{status: "complete"} = anchor <-
+         %Message{status: :complete} = anchor <-
            complete_message_for_subject(repo, subject_uid, previous_message_id) do
       case reconcile_tool_result_items(anchor, request_items) do
         {:ok, reconciled_items} ->
@@ -84,81 +83,27 @@ defmodule Ankole.AIGateway.ToolResultJournal do
          repo,
          %Message{} = anchor,
          request_items,
-         merged_metadata,
+         metadata,
          idempotency_key
        ) do
-    case fetch_tool_result_journal(repo, anchor.subject_uid, idempotency_key) do
-      {:ok, %Message{} = message} ->
-        {:ok, message, :existing}
+    id = Ankole.Ecto.UUIDv7.autogenerate()
 
-      {:error, :invalid_anchor} ->
-        do_insert_tool_result_journal(
-          repo,
-          anchor,
-          request_items,
-          merged_metadata,
-          idempotency_key
-        )
-    end
-  end
-
-  defp do_insert_tool_result_journal(
-         repo,
-         %Message{} = anchor,
-         request_items,
-         merged_metadata,
-         idempotency_key
-       ) do
-    changeset =
-      %Message{}
-      |> Message.changeset(%{
-        subject_uid: anchor.subject_uid,
-        conversation_id: anchor.conversation_id,
-        type: "message",
-        status: "complete",
-        previous_message_id: anchor.id,
-        content: request_items,
-        metadata: merged_metadata
-      })
-
-    case repo.insert(changeset) do
-      {:ok, %Message{} = message} ->
+    with {:ok, %Message{} = message} <-
+           Ankole.Ash.create(Message, :journal, %{
+             id: id,
+             subject_uid: anchor.subject_uid,
+             conversation_id: anchor.conversation_id,
+             previous_message_id: anchor.id,
+             content: request_items,
+             metadata: metadata,
+             journal_key: idempotency_key
+           }) do
+      if message.id == id do
         :ok = Conversations.touch_conversation_in_tx(repo, anchor.conversation_id)
         {:ok, message, :inserted}
-
-      {:error, %Ecto.Changeset{} = changeset} ->
-        if unique_constraint_error?(
-             changeset,
-             "ai_gateway_messages_tool_result_journal_key_index"
-           ) do
-          case fetch_tool_result_journal(repo, anchor.subject_uid, idempotency_key) do
-            {:ok, %Message{} = message} ->
-              {:ok, message, :existing}
-
-            {:error, _reason} = error ->
-              error
-          end
-        else
-          {:error, changeset}
-        end
-    end
-  end
-
-  defp fetch_tool_result_journal(repo, subject_uid, idempotency_key) do
-    # PostgreSQL needs this literal predicate to use the journal's partial index.
-    case repo.one(
-           from(message in Message,
-             where: message.subject_uid == ^subject_uid,
-             where: fragment("? \\? 'tool_result_idempotency_key'", message.metadata),
-             where:
-               fragment(
-                 "?->>'tool_result_idempotency_key'",
-                 message.metadata
-               ) == ^idempotency_key
-           )
-         ) do
-      %Message{} = message -> {:ok, message}
-      nil -> {:error, :invalid_anchor}
+      else
+        {:ok, message, :existing}
+      end
     end
   end
 
@@ -337,59 +282,22 @@ defmodule Ankole.AIGateway.ToolResultJournal do
         }
       })
 
-    case fetch_tool_result_journal(repo, anchor.subject_uid, idempotency_key) do
-      {:ok, %Message{} = message} ->
-        tool_results_quarantined_error(message, quarantine)
+    id = Ankole.Ecto.UUIDv7.autogenerate()
 
-      {:error, :invalid_anchor} ->
-        insert_tool_result_quarantine(
-          repo,
-          anchor,
-          request_items,
-          metadata,
-          idempotency_key,
-          quarantine
-        )
-    end
-  end
+    with {:ok, %Message{} = message} <-
+           Ankole.Ash.create(Message, :quarantine, %{
+             id: id,
+             subject_uid: anchor.subject_uid,
+             conversation_id: anchor.conversation_id,
+             previous_message_id: anchor.id,
+             content: request_items,
+             metadata: metadata,
+             journal_key: idempotency_key
+           }) do
+      if message.id == id,
+        do: Conversations.touch_conversation_in_tx(repo, anchor.conversation_id)
 
-  defp insert_tool_result_quarantine(
-         repo,
-         anchor,
-         request_items,
-         metadata,
-         idempotency_key,
-         quarantine
-       ) do
-    changeset =
-      %Message{}
-      |> Message.changeset(%{
-        subject_uid: anchor.subject_uid,
-        conversation_id: anchor.conversation_id,
-        type: "message",
-        status: "error",
-        previous_message_id: anchor.id,
-        content: request_items,
-        metadata: metadata
-      })
-
-    case repo.insert(changeset) do
-      {:ok, %Message{} = message} ->
-        :ok = Conversations.touch_conversation_in_tx(repo, anchor.conversation_id)
-        tool_results_quarantined_error(message, quarantine)
-
-      {:error, %Ecto.Changeset{} = changeset} ->
-        if unique_constraint_error?(
-             changeset,
-             "ai_gateway_messages_tool_result_journal_key_index"
-           ) do
-          case fetch_tool_result_journal(repo, anchor.subject_uid, idempotency_key) do
-            {:ok, %Message{} = message} -> tool_results_quarantined_error(message, quarantine)
-            {:error, _reason} = error -> error
-          end
-        else
-          {:error, changeset}
-        end
+      tool_results_quarantined_error(message, quarantine)
     end
   end
 
@@ -398,7 +306,7 @@ defmodule Ankole.AIGateway.ToolResultJournal do
      {:tool_results_quarantined,
       quarantine
       |> Map.put("quarantine_response_id", "resp_#{message.id}")
-      |> Map.put("quarantine_status", message.status)}}
+      |> Map.put("quarantine_status", Atom.to_string(message.status))}}
   end
 
   def request_items_metadata(request_items) when is_list(request_items) do
@@ -455,12 +363,6 @@ defmodule Ankole.AIGateway.ToolResultJournal do
     |> :erlang.term_to_binary()
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.url_encode64(padding: false)
-  end
-
-  defp unique_constraint_error?(%Ecto.Changeset{errors: errors}, constraint_name) do
-    Enum.any?(errors, fn {_field, {_message, opts}} ->
-      opts[:constraint] == :unique and opts[:constraint_name] == constraint_name
-    end)
   end
 
   defp maybe_put_metadata(map, _key, nil), do: map

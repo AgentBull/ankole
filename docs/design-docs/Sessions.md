@@ -19,11 +19,23 @@ and keep separate Sessions and model states. A cron rule uses its own stable
 Session. A Background Agent Job or Workflow task has its own execution context
 and can publish a result or notice into an explicitly routed conversation.
 
-`Sessions.Key` owns construction and parsing of the stored key formats:
+`Sessions.Key` owns construction and parsing of the transport key formats:
 `conversation:<uuid>`, `cron:<id>`, `job:<id>`, and `wf_task:<id>`. Other valid
 UTF-8, nonblank, NUL-free strings are named Session keys. `parse/1` classifies
 the key; each work domain validates its own ID. `routable?/1` excludes private
 Job and Workflow task keys from external route selection.
+
+`SessionWorkspace` is an Ash resource. Its persisted `kind` selects exactly one
+owner: a named Session, a Conversation, a Background Agent Job, a Workflow task,
+or a Cron rule. Work references are typed foreign keys that include the tenant
+and Agent. A Conversation reference includes the tenant because its participants
+can use separate Agent Sessions. A missing owner cannot allocate a workspace.
+
+PostgreSQL generates `session_id` from these facts. Callers cannot write a key
+that disagrees with its owner. An upgrade keeps every workspace ID, transport
+key, and Driver epoch. Owner deletion removes its workspace through the foreign
+key. Allocation locks the referenced owner before the Session advisory lock;
+the `advance_epoch` action advances the locked workspace once.
 
 ## Durable Owners
 
@@ -35,6 +47,18 @@ Job and Workflow task keys from external route selection.
 | `Conversations` | Shared Message UUID/sequence, participants, public statements and external facts |
 | `Conversations.Delivery` | External send intent, attempt fence, provider confirmation, and recovery result |
 | `AgentWorkers` | Worker provisioning and incarnation; its in-memory route can be rebuilt |
+
+`RoundState`, `Receipts`, and `AmbientJudgment` are Ash resources in the Sessions
+domain. Their write actions require the caller's transaction. `record_once`
+keeps the first round snapshot when recovery records the same model message
+again. `commit_result` stores a tool result with its domain write; a duplicate
+receipt rolls back that write before recovery reads the committed result.
+Receipt results, round pages, and result journals use the shared strict JSON
+object type. Unsupported runtime values reject the write and roll back its
+domain effects. PostgreSQL also rejects non-object journal values.
+Round recording removes its receipts in the same transaction. An ambient
+judgment keeps its original route and progress. Removing its accepted message
+anchor can only degrade attribution and clear that reference.
 
 PostgreSQL is authoritative. A Driver, Worker process, socket, or PubSub event
 is not recovery truth. Committing an input also commits an EnsureDriver job.
@@ -57,6 +81,39 @@ round recording, and finalization retain their existing postponement rules.
 The handler reads the Signal under its Agent and Session and checks authorization.
 Duplicate notifications cannot change the durable queue order. Lost notifications
 are repaired by EnsureDriver and the existing Reconciler.
+
+## Turn Progression
+
+`Sessions.Turn.step/2` owns the next execution step. It takes the current Turn
+and an event, then returns the next Turn and ordered commands. Events include
+operation results, inbox notices, Worker messages, model completion, and timer
+expiry. The Turn includes its Run, pending calls, observation state, and Worker
+acquisition state. It has no process, database table, or recovery journal.
+
+The Driver executes these commands through the existing Admission, Run, Tools,
+Commands, and Worker contracts. It owns registry membership, subscriptions,
+Task monitors, stream handles, timers, tracing, and activity publication. It
+returns each operation result to the Turn. Commands are private to this pair;
+they do not form a shared work engine or a persistent command queue.
+
+Turn owns tool scheduling, result acceptance, receipt restoration, round
+completion, continuation, and failure policy. Its repeated-tool-failure rule
+also folds committed history during Run recovery. Run and the Ash resources
+retain transaction authority: a proposed record, retry, or finalization cannot
+advance past that boundary until its operation succeeds. Epoch and closed-run
+errors stop the Driver. Turn state cannot authorize a durable write.
+
+Preparation replays durable inbox controls before it resumes model or tool I/O.
+A superseded epoch cannot resume the previous Run. Round commit cancels that
+round's transport and observation tasks before the next boundary. Worker
+acquisition uses the existing bounded policy, including safe probes for calls
+whose result is unknown. Activity remains an observation of these pending calls
+in the same Driver process.
+
+Turn tests exercise event sequences without a Driver or database. Receipt and
+Run tests still use PostgreSQL for atomicity and recovery. Driver integration
+tests retain process ordering, cancellation, presentation, single-writer,
+epoch-fence, and cross-node checks.
 
 State publications occur in the outer transaction owner's process after success.
 The guard only rejects a transaction in that process; it is not proof of commit.
@@ -120,6 +177,35 @@ conversation records. An Agent being able to read a group message does not grant
 it the author's action authority. Delivery destination, execution identity,
 and requester authorization remain separate.
 
+Before foreground admission, the Driver runs `AmbientTriage` in an asynchronous
+task for a kernel-produced ambient input. `Run.kind/1` selects this path. First,
+`Ambient.resolve/2` uses the Session admission owner to check the tenant and
+Agent before it folds pending observations from the same room and rejects
+expired or changed scenes. The triage builds an `Observation` from the public
+room, Agent documents, and current work candidates. It does not create an
+AIGateway conversation or a Session workspace. Second, the light model receives
+one stateless request outside a database transaction. Third,
+`AmbientCuration.record_judgment/3` repeats admission under the tenant and Agent
+locks, then locks the target Job and participating Sessions. After those locks,
+it checks the scene against the current time and stores the canonical decision.
+A tenant suspension, Agent disablement, or expiry during the model request
+prevents the proposed route from committing. That transaction also completes `NOOP` and `HANDOFF` inputs silently.
+A HANDOFF locks its Job before the participating Session locks and commits one
+idempotent steer with the judgment. A changed scene rejects that entire write
+and returns to the existing observation resolver.
+
+Only a persisted `FOREGROUND_REPLY` or `NEW_WORK` judgment permits ordinary
+admission to create model history and increment the workspace epoch. A retry
+uses that judgment instead of asking the model to select another route. Model
+request failures defer the input and increment `attempt_count`; they leave
+`last_attempt_at` empty so a newer room batch can still supersede it. The third
+failure records a silent `NOOP`. A missing light profile also records a silent
+`NOOP` without posting a configuration notice to the room. Triage checks the
+Agent token quota before it builds model context. An exhausted quota records a
+silent `NOOP` at once. The same rule applies if another request uses the
+remaining quota before AIGateway checks it. Neither rejection creates a Session
+workspace, creates model history, or consumes a model retry.
+
 ## Prepare a Model Request
 
 The runtime builds its instructions, tool catalog, input, model binding, and
@@ -162,6 +248,25 @@ than being silently reexecuted. Sequential calls keep their execution order;
 parallel calls retain their own receipts. Worker reconnection and workspace
 adoption restore committed progress under the current epoch.
 
+A recovered Worker result can complete a batch before its new workspace open
+finishes. Recording that batch cancels the pending acquisition tasks and timers
+and retains the fact that the run requested a Worker. The next batch can acquire
+the workspace again. If the model finishes instead, the Driver closes the
+workspace for that exact Signal and the Worker releases its slot. A pure text
+run that never requested a Worker sends no Worker messages.
+
+`stale_driver` and `run_closed` are control results. Every asynchronous task
+passes them to the Driver's stop path. A fenced tool cannot turn them into a
+model-visible error or start the next call in its round.
+
+Unexpected Ash tool errors return a generic message. Their logs use
+`Ankole.Logging.failure_fields/3` to keep private action data out of diagnostics.
+Job Driver operation failures use the same diagnostics and retain their existing
+retry. Logs include the operation name without the request payload.
+Receipt notification, workspace close, and Session reconciliation failures use
+the same diagnostics. A failed notification cannot undo a committed receipt
+or repeat its domain write.
+
 Jobs and Workflow calls preserve the parent's source authorization, explicit
 reply route, and owner Session. Their dispatch/completion/failure/attention
 notifications are Signals accepted through the same intake. Parent completion
@@ -183,6 +288,11 @@ transitions. A caller-owned transaction returns the Workflow transition through
 the Session result; `Run.after_finalization/1` performs terminal cleanup only
 after the outer transaction commits. Ordinary cancellation and Human revocation
 retain their different treatment of already admitted work.
+
+Input injection locks Workflow parents and calls before it locks Session,
+Workspace, and Signal rows. This also applies to a fresh steer that must be
+rejected after tenant suspension. That rejection completes only the fresh
+input; an admitted task and its current input retain their attempt.
 
 `RoundState` captures and restores the same six scalar loop controls. Pages,
 steers, tool results, and Workflow attempts retain their distinct recovery rules.
@@ -229,10 +339,10 @@ surface after the durable terminal intent takes ownership.
 Native activity is a bounded observation in the existing Driver: one phase and
 up to four unfinished tool labels from its PendingCalls. `Sessions.Activity`
 filters native display fields, ignores late updates to terminal tools, advances
-display revisions, and clears details. The Driver keeps execution state and
-PendingCalls. Each snapshot carries the
-admitted Signal, workspace epoch, response identity, and a revision within that
-epoch.
+display revisions, and clears details. The Driver holds the Turn and its
+PendingCalls; tracing handles stay outside that execution state. Each snapshot
+carries the admitted Signal, workspace epoch, response identity, and a revision
+within that epoch.
 Snapshots check the durable epoch and open input; a missing or stopped Driver
 falls back to durable generic status. Completion, retry, replacement, and death
 clear details. Activity creates no process, journal, or separate pending state.

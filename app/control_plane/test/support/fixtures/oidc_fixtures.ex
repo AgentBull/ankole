@@ -7,7 +7,7 @@ defmodule Ankole.OIDCFixtures do
          do: OIDC.Tokens.mint_access(principal_uid, client_id, scope, session.id)
   end
 
-  def session(principal_uid, client_id, scope) do
+  def session(principal_uid, client_id, scope, opts \\ []) do
     provider_id =
       case IdentityProviders.LocalPassword.fetch_enabled_provider() do
         {:ok, provider} ->
@@ -19,9 +19,15 @@ defmodule Ankole.OIDCFixtures do
       end
 
     {:ok, version} = Ankole.Principals.HumanAccess.current_version(principal_uid)
-    {:ok, browser} = BrowserSessions.create()
+
+    browser =
+      Keyword.get_lazy(opts, :browser, fn ->
+        {:ok, browser} = BrowserSessions.create()
+        browser
+      end)
+
     ref = BrowserSessions.reference(browser)
-    {:ok, flow} = BrowserSessions.begin_login(ref, :oauth, %{})
+    {:ok, flow} = BrowserSessions.begin_login(ref, :oauth, %{}, mode: :add)
     {:ok, _} = BrowserSessions.bind_provider(ref, flow.id, provider_id)
 
     {:ok, %{authentication: browser_authentication}} =

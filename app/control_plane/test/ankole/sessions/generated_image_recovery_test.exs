@@ -46,10 +46,16 @@ defmodule Ankole.Sessions.GeneratedImageRecoveryTest do
     {run, artifact, payload} = completed_image(ctx, [call], [image_item(prior_id)])
 
     assert {:ok, _} =
-             Receipts.execute(run, Run.response_id(run.model_response), call["call_id"], fn _ ->
-               {:ok, Tools.result(%{"tool" => "reply_attachment", "attachments" => [attachment]}),
-                []}
-             end)
+             Receipts.execute(
+               run,
+               Run.response_id(run.model_response),
+               call["call_id"],
+               prepare_operation(fn _ ->
+                 {:ok,
+                  Tools.result(%{"tool" => "reply_attachment", "attachments" => [attachment]}),
+                  []}
+               end)
+             )
 
     text = "The completed image and the receipt attachment are ready."
 
@@ -84,17 +90,22 @@ defmodule Ankole.Sessions.GeneratedImageRecoveryTest do
     question = "Which image variant should I keep?"
 
     assert {:ok, _} =
-             Receipts.execute(run, Run.response_id(run.model_response), call["call_id"], fn _ ->
-               {:ok,
-                Tools.result(
-                  %{
-                    "tool" => "clarify",
-                    "question" => question,
-                    "choices" => [%{"label" => "First"}]
-                  },
-                  terminate: true
-                ), []}
-             end)
+             Receipts.execute(
+               run,
+               Run.response_id(run.model_response),
+               call["call_id"],
+               prepare_operation(fn _ ->
+                 {:ok,
+                  Tools.result(
+                    %{
+                      "tool" => "clarify",
+                      "question" => question,
+                      "choices" => [%{"label" => "First"}]
+                    },
+                    terminate: true
+                  ), []}
+               end)
+             )
 
     assert {:ok, result} = Run.finalize(%{run | calls: [call], round_calls: [call]})
     assert result.journal.message.metadata["tool_result_journal"]
@@ -163,7 +174,14 @@ defmodule Ankole.Sessions.GeneratedImageRecoveryTest do
   test "a closed run rejects finalization before reporting its missing generated image" do
     ctx = admitted()
     {run, _error} = completed_image_without_artifact(ctx)
-    Repo.update!(Ecto.Changeset.change(ctx.signal, completed_at: DateTime.utc_now(:microsecond)))
+
+    Repo.update!(
+      Ecto.Changeset.change(ctx.signal,
+        status: :completed,
+        completed_at: DateTime.utc_now(:microsecond)
+      )
+    )
+
     assert Repo.get!(SessionWorkspace, run.workspace_id).epoch == run.epoch
 
     assert_rejected_without_reply_or_retry(ctx, run, :run_closed)
@@ -215,7 +233,7 @@ defmodule Ankole.Sessions.GeneratedImageRecoveryTest do
     assert {:ok, %{status: :dead_letter, signal: ended}} =
              Admission.admit(ctx.key, deferred, now: deferred.available_at)
 
-    assert ended.input_state == "dead_letter"
+    assert ended.status == :dead_letter
     assert ended.attempt_count == 6
     assert %DateTime{} = ended.dead_letter_at
     assert ended.dead_letter_reason["code"] == "conversation_attempts_exhausted"
@@ -330,4 +348,8 @@ defmodule Ankole.Sessions.GeneratedImageRecoveryTest do
 
   defp image_item(id),
     do: %{"id" => id, "type" => "image_generation_call", "status" => "completed", "result" => nil}
+
+  defp prepare_operation(operation) do
+    fn repo -> {:ok, [], fn -> operation.(repo) end} end
+  end
 end

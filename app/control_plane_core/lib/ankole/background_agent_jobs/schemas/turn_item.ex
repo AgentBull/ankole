@@ -7,51 +7,68 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.TurnItem do
   and thread replay reads them back when a lost Codex thread must be rebuilt.
   """
 
-  use Ankole.Schema, tenancy: :tenant
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.BackgroundAgentJobs.Domain
 
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
+  postgres do
+    table("background_agent_job_turn_items")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:turn_id, "background_agent_job_turn_items_turn_id_fkey"}])
+    unique_index_names([{[:turn_id, :position], "background_agent_job_turn_items_pkey"}])
+    identity_index_names(item_key: "background_agent_job_turn_items_item_key_index")
 
-  alias Ankole.BackgroundAgentJobs.Schemas.Turn
-  alias Ankole.Ecto.JSONPayload
-
-  @primary_key false
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
-
-  schema "background_agent_job_turn_items" do
-    belongs_to(:turn, Turn, type: Ecto.UUID, primary_key: true)
-    field(:position, :integer, primary_key: true)
-    field(:revision, :integer)
-    field(:item_key, :string)
-    field(:item, :map)
-    timestamps(updated_at: false)
+    check_constraints do
+      check_constraint(:position, "baj_turn_items_position_nonnegative")
+      check_constraint(:revision, "baj_turn_items_revision_nonnegative")
+      check_constraint(:item_key, "baj_turn_items_item_key_present")
+      check_constraint(:item, "baj_turn_items_item_check")
+    end
   end
 
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(turn_item, attrs) do
-    turn_item
-    |> cast(attrs, [:turn_id, :position, :revision, :item_key, :item, :inserted_at])
-    |> normalize_blank([:item_key])
-    |> validate_required([:turn_id, :position, :revision, :item_key, :item])
-    |> validate_number(:position, greater_than_or_equal_to: 0)
-    |> validate_number(:revision, greater_than_or_equal_to: 0)
-    |> JSONPayload.validate_map(:item, allow_datetime: true)
-    |> validate_change(:item, fn :item, item ->
-      if is_map(item) and is_binary(item["type"]) and item["type"] != "",
-        do: [],
-        else: [item: "must be one semantic thread item with a type"]
-    end)
-    |> foreign_key_constraint(:turn_id)
-    |> unique_constraint([:turn_id, :position],
-      name: :background_agent_job_turn_items_pkey
+  attributes do
+    attribute(:turn_id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true
     )
-    |> unique_constraint([:turn_id, :item_key],
-      name: :background_agent_job_turn_items_item_key_index
+
+    attribute(:position, :integer,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true,
+      constraints: [min: 0]
     )
-    |> check_constraint(:position, name: :baj_turn_items_position_nonnegative)
-    |> check_constraint(:revision, name: :baj_turn_items_revision_nonnegative)
-    |> check_constraint(:item_key, name: :baj_turn_items_item_key_present)
-    |> check_constraint(:item, name: :baj_turn_items_item_check)
+
+    attribute(:revision, :integer, allow_nil?: false, public?: true, constraints: [min: 0])
+    attribute(:item_key, :string, allow_nil?: false, public?: true)
+
+    attribute(:item, Ankole.Ash.Types.JSONMap,
+      allow_nil?: false,
+      public?: true,
+      constraints: [allow_datetime?: true]
+    )
+
+    create_timestamp(:inserted_at, type: :utc_datetime_usec)
+  end
+
+  identities do
+    identity(:item_key, [:turn_id, :item_key], all_tenants?: true)
+  end
+
+  actions do
+    defaults([:read])
+
+    create :append do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+      accept([:turn_id, :position, :revision, :item_key, :item])
+
+      validate(fn changeset, _context ->
+        case Ash.Changeset.get_attribute(changeset, :item) do
+          %{"type" => type} when is_binary(type) and type != "" -> :ok
+          _ -> {:error, field: :item, message: "must be one semantic thread item with a type"}
+        end
+      end)
+    end
   end
 end

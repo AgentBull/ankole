@@ -32,8 +32,15 @@ Conversations uses these tenant-scoped tables:
 Each table has a tenant foreign key. Primary and unique keys include
 `tenant_id`. The tenant deletion owner includes all four tables.
 
+`Conversations.Domain` declares the resource actions for these records. The
+conversation owner keeps the aggregate transaction and locks. Membership retries
+retain the first role, and native creation retries cannot replace stored facts.
+External observation actions can change content and observation metadata, but
+cannot change the platform identity or the first observation time.
+
 A message sequence is unique within its conversation. Writers lock the
-conversation before they allocate the next sequence from its retained high water.
+conversation before the resource action increments its retained high water in
+the database. A stale resource cannot overwrite the current counter.
 Deleting a tail message never permits sequence reuse. A reply reference can
 only name a message in the same tenant and conversation.
 
@@ -53,6 +60,13 @@ retries at the stored deadline. Adapters own platform wire formats and identity
 observation, Conversations owns batching and source tombstones, and Signals accepts the
 resulting stimulus. Adding an adapter does not copy these windows or recovery
 rules into that adapter.
+
+`InboundBatch` actions own the `open`, `finalized`, and `canceled` states.
+Only an open batch can change. A revision or terminal action increments the
+stored revision atomically; PostgreSQL rejects negative revisions. The deadline
+keeps its scheduling meaning and does not define the batch state. A source
+removal records or renews one shared tombstone through its resource action.
+Expiry removes only rows whose stored deadline has passed.
 
 `Conversations.MessageInput` computes message-backed input revisions without
 database writes. It updates source entries, their summary, ambient batch facts,
@@ -320,9 +334,12 @@ Disabling an Agent preserves its native conversations and history. Reads stay
 available; new conversations and messages return `agent_unavailable`. Pod
 disables the composer and explains that the Agent is unavailable.
 
-Permanent Agent deletion removes its native conversations, participants, and
-messages before it deletes the Principal and its signals. This order satisfies
-the message's source signal foreign key. Existing pages refresh on the status
+Permanent Agent deletion removes its native conversations and participation.
+Shared-room Messages remain readable. Their author and source Signal references
+become null when the Principal and its Signals are removed. The source Signal
+foreign key retains its tenant-qualified identity and checks at transaction
+commit, after both native cascades have completed. This avoids dependence on
+PostgreSQL trigger creation order. Existing native pages refresh on the status
 event, remove cached detail on `conversation_not_found`, and close SSE.
 
 Human chat uploads store bytes through `Conversations.Attachments` and `Files`.
@@ -453,6 +470,19 @@ Intents in `deliveries` record the speaking Agent, Binding, public IDs, and
 opaque provider references. Work completion and delivery completion are
 separate facts.
 
+`recovery_status` and `recovery_reason` record why a failed or unknown delivery
+stopped. The status is `blocked`, `permanent`, or `exhausted`. PostgreSQL requires
+a paired reason and rejects these fields on another delivery status.
+`possible_duplicate` records an uncertain prior send; `possible_duplicate_notice`
+records its visible warning. Automatic retries cannot advance a stopped or
+ambiguous delivery. An explicit requeue grants one further attempt on the same
+row and retains the warning.
+
+`recovery_state` contains only Adapter-owned provider anchors, such as CardKit
+card IDs and streaming state. Recovery, requeue, and retry failures preserve
+these anchors. PostgreSQL rejects control-plane recovery keys in this JSONB
+column. LINE reads the typed duplicate flag before it permits an aged retry.
+
 | Status | Meaning |
 | --- | --- |
 | `pending` | Durable and awaiting delivery; a recorded send-start timestamp can indicate an in-flight attempt |
@@ -461,13 +491,20 @@ separate facts.
 | `expired` | Expired before sending; the provider is not called |
 | `unknown` | The send cannot be confirmed; automatic resend stops |
 
-The pending send claim records start time and attempt count before the network
-call. Recovery reconciles the claimed attempt when the adapter supports it, or
+`Delivery.Intent` owns the state machine and all persisted transitions through
+Ash actions. An update matches the stored status and attempt count, so a stale
+snapshot cannot claim another attempt or replace a newer result. Commit retries
+return the original row without replacing its payload or state.
+
+The pending send claim records start time and atomically increments the attempt
+count before the network call. Recovery reconciles the claimed attempt when the adapter supports it, or
 records unknown. A late response cannot overwrite a newer attempt. Failed sends
 have a bounded attempt budget. Unsupported operations are failed with a permanent
 reason. Operator requeue preserves the intent and audit; explicitly retrying an
-unknown visible reply adds one possible-duplicate notice. It is never an automatic
-retry policy.
+unknown visible reply adds one possible-duplicate notice. Requeue sets the budget
+to the consumed attempt count plus one; it does not reset the count. Sent and
+expired rows cannot return to a sendable state. It is never an automatic retry
+policy.
 
 Each confirmed chunk keeps its own provider ID, exact delivered text, and public
 Message UUID. Missing provider identity never produces a synthetic platform ID.
@@ -486,8 +523,11 @@ Provider-native previews are transient renderers. Their versioned checkpoint,
 sequence high water, first recorded provider message identity, and terminal
 presentation live in the Delivery-owned `delivery_previews` row, keyed by
 `(tenant_id, signal_id)`. Writers lock the source Signal before the preview row.
-`Delivery.PreviewState` owns these writes; Signal deletion cascades to its
-preview. `Delivery.ReplyPresentation` owns the renderer-safe presentation.
+`Delivery.PreviewState` owns these writes. Its checkpoint update function locks
+and loads the Signal, applies the requested change, and persists the fenced
+checkpoint in one transaction. Recovery, cleanup, and fallback use this same
+function. Signal deletion cascades to its preview. Its resource attributes validate the JSON checkpoint and nonnegative
+sequence directly. `Delivery.ReplyPresentation` owns the renderer-safe presentation.
 These facts let durable delivery settle or recover the visible surface. They do
 not make a streamed draft an immutable model or conversation record. Native
 conversations use Pod SSE and never start an external preview.

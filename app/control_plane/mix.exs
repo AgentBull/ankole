@@ -93,24 +93,38 @@ defmodule Ankole.MixProject do
 
   defp test_paths, do: ["test"] ++ internal_paths(["control_plane/test"])
 
-  # shortcut: Keep this patch until a stable Boruta release fixes both token errors.
-  defp patch_boruta(_args) do
-    Mix.Task.run("deps.loadpaths")
-    patch = Path.join(__DIR__, "patches/boruta-2.3.8.patch")
-    args = [patch]
-    opts = [cd: Map.fetch!(Mix.Project.deps_paths(), :boruta), stderr_to_stdout: true]
-    {_, status} = System.cmd("git", ["--work-tree=.", "apply", "--check" | args], opts)
+  # Patch before deps.compile takes its dependency snapshot.
+  defp patch_ash_dependencies(_args) do
+    for {dependency_name, filename} <- [
+          {"ash", "ash-3.36.1.patch"},
+          {"ash_postgres", "ash_postgres-2.15.1.patch"}
+        ] do
+      dependency = Path.join(Mix.Project.deps_path(), dependency_name)
+      patch = Path.expand("../control_plane_core/patches/#{filename}", __DIR__)
+      arguments = ["--force", "-p1", "-i", patch]
+      options = [cd: dependency, stderr_to_stdout: true]
 
-    command =
-      if status == 0,
-        do: ["apply" | args],
-        else: ["apply", "--reverse", "--check" | args]
+      case System.cmd("patch", ["--dry-run", "--reverse" | arguments], options) do
+        {_output, 0} ->
+          :ok
 
-    {output, status} = System.cmd("git", ["--work-tree=." | command], opts)
-    if status != 0, do: Mix.raise("Boruta 2.3.8 protocol patch does not match:\n#{output}")
+        {_output, _status} ->
+          case System.cmd("patch", ["--forward" | arguments], options) do
+            {_output, 0} ->
+              :ok
 
-    Mix.Task.reenable("deps.compile")
-    Mix.Task.run("deps.compile", ["boruta"])
+            {output, _status} ->
+              Mix.raise("Cannot apply the pinned #{dependency_name} fix:\n" <> output)
+          end
+      end
+    end
+  end
+
+  # Build before deps.loadpaths snapshots dependencies, including warm builds.
+  defp compile_ash_dependencies(args) do
+    unless "--no-compile" in args or "--no-deps-check" in args do
+      Mix.Task.rerun("deps.compile", ["ash", "ash_postgres", "--include-children"])
+    end
   end
 
   defp prepare_webapps(_args) do
@@ -233,7 +247,7 @@ defmodule Ankole.MixProject do
       {:archdo, ">= 0.0.0", github: "BadBeta/archdo", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
-      {:stream_data, "~> 1.4", only: :test, runtime: false},
+      {:stream_data, "~> 1.4", []},
       {:ankole_core, path: "../control_plane_core", env: Mix.env()}
     ] ++ plugin_deps()
   end
@@ -241,7 +255,9 @@ defmodule Ankole.MixProject do
   defp aliases do
     [
       setup: ["deps.get", "ecto.setup"],
-      compile: [&prepare_webapps/1, &patch_boruta/1, "compile", &validate_build/1],
+      "deps.compile": [&patch_ash_dependencies/1, "deps.compile"],
+      "deps.loadpaths": [&compile_ash_dependencies/1, "deps.loadpaths"],
+      compile: [&prepare_webapps/1, "compile", &validate_build/1],
       "ecto.migrate": [
         fn args ->
           Mix.Task.run("loadpaths", args)

@@ -1,12 +1,10 @@
 defmodule Ankole.AgentWorkers.Providers.Seed do
   @moduledoc "Imports the bootstrap providers and assigns legacy Agents in one transaction."
 
-  import Ecto.Query
   alias Ankole.Repo
   alias Ankole.AgentWorkers.Providers
   alias Ankole.AgentWorkers.Providers.Provider
   alias Ankole.AgentWorkers.Providers.YAML
-  alias Ankole.AgentWorkers.AgentWorker
 
   def child_spec(opts), do: %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}}
 
@@ -41,13 +39,9 @@ defmodule Ankole.AgentWorkers.Providers.Seed do
            YAML.parse(text),
          true <- Map.keys(data) == ["providers"],
          :ok <- validate_flags(entries),
-         {:ok, legacy_id} <- insert_all(repo, entries) do
-      if legacy_id do
-        repo.update_all(
-          from(w in AgentWorker, where: is_nil(w.provider_id) and w.state != "deleting"),
-          set: [provider_id: legacy_id, last_error: nil, last_error_kind: nil]
-        )
-      end
+         {:ok, legacy_id} <- insert_all(repo, entries),
+         {:ok, ^legacy_id} <- select_legacy_provider(repo, legacy_id) do
+      if legacy_id, do: Ankole.AgentWorkers.assign_legacy_provider_in_tx(legacy_id)
 
       {:ok, :ok}
     else
@@ -55,6 +49,9 @@ defmodule Ankole.AgentWorkers.Providers.Seed do
       _invalid -> {:error, :invalid_worker_providers_seed}
     end
   end
+
+  defp select_legacy_provider(_repo, nil), do: {:ok, nil}
+  defp select_legacy_provider(repo, id), do: Providers.select_in_tx(repo, id)
 
   defp validate_flags(entries) do
     valid =

@@ -191,7 +191,7 @@ defmodule Ankole.E2E.PodContentEvidence do
     responses =
       Repo.all(
         from message in GatewayMessage,
-          where: message.subject_uid == ^ctx.agent.uid and message.type == "message",
+          where: message.subject_uid == ^ctx.agent.uid and message.type == :message,
           order_by: [desc: message.inserted_at, desc: message.id],
           select: %{
             id: message.id,
@@ -482,7 +482,7 @@ defmodule Ankole.E2E.PodContentEvidence do
               :type,
               :message_id,
               :queue_sequence,
-              :input_state,
+              :status,
               :completed_at,
               :final_response_id,
               :turn_outcome,

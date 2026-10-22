@@ -191,10 +191,12 @@ defmodule Ankole.ConversationsModelPreferencesTest do
 
     queued = Repo.get_by!(Signal, message_id: id)
 
-    queued =
-      Repo.update!(
-        Signal.changeset(queued, %{data: Map.put(queued.data, "delivery_mode", "steer")})
-      )
+    {:ok, queued} =
+      Repo.transact(fn _ ->
+        Ankole.Ash.update(queued, :revise_input, %{
+          data: Map.put(queued.data, "delivery_mode", "steer")
+        })
+      end)
 
     assert ModelPreferences.compatible?(queued, "primary") == false
     assert {:ok, []} = Run.inject(run, [queued])

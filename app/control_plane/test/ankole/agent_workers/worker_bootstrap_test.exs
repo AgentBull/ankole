@@ -1,13 +1,12 @@
 defmodule Ankole.AgentWorkers.WorkerBootstrapTest do
   use ExUnit.Case, async: true
 
-  alias Ankole.AgentWorkers.Providers.Provider
   alias Ankole.AgentWorkers.WorkerBootstrap
   alias Ankole.AgentWorkers.WorkerBootstrap.AgentWorkerSpec
 
   describe "agent_worker_spec/5" do
     test "binds the generation and credential to the Agent's persistent storage" do
-      provider = %Provider{
+      provider = %{
         kind: "docker",
         settings: %{},
         runtime: %{

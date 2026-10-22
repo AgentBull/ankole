@@ -13,6 +13,135 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
+  describe "intent resource contract" do
+    setup do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      {:ok,
+       attrs: %{
+         agent_uid: agent.uid,
+         binding_name: "bot",
+         outbound_key: "resource-contract",
+         operation: :post,
+         delivery_class: :durable_ai_reply,
+         payload: %{"text" => "original"},
+         max_attempts: 1
+       }}
+    end
+
+    test "commit retries retain the first payload and committed result", %{attrs: attrs} do
+      assert {:ok, original} =
+               Repo.transact(fn _ -> Ankole.Ash.create(Intent, :commit, attrs) end)
+
+      assert {:ok, sent} =
+               Repo.transact(fn _ ->
+                 Ankole.Ash.update(original, :succeed, %{created_provider_message_id: "sent-once"})
+               end)
+
+      assert {:ok, repeated} =
+               Repo.transact(fn _ ->
+                 Ankole.Ash.create(Intent, :commit, %{attrs | payload: %{"text" => "replacement"}})
+               end)
+
+      assert_persisted_equal(repeated, sent)
+    end
+
+    test "attempt claims fence stale writers and terminal results", %{attrs: attrs} do
+      assert {:ok, queued} =
+               Repo.transact(fn _ -> Ankole.Ash.create(Intent, :commit, attrs) end)
+
+      assert {:ok, started} =
+               Repo.transact(fn _ ->
+                 Ankole.Ash.update(queued, :start_attempt, %{platform_send_started_at: @base_time})
+               end)
+
+      assert started.attempt_count == 1
+
+      for {snapshot, action, input} <- [
+            {queued, :start_attempt, %{platform_send_started_at: @base_time}},
+            {started, :start_attempt, %{platform_send_started_at: @base_time}},
+            {queued, :succeed, %{created_provider_message_id: "stale"}},
+            {queued, :fail, %{last_error: %{"reason" => "stale"}}}
+          ] do
+        assert {:error, _} =
+                 Repo.transact(fn _ -> Ankole.Ash.update(snapshot, action, input) end)
+      end
+
+      assert {:ok, sent} =
+               Repo.transact(fn _ ->
+                 Ankole.Ash.update(started, :succeed, %{created_provider_message_id: "winner"})
+               end)
+
+      for snapshot <- [queued, started, sent], action <- [:expire, :fail] do
+        assert {:error, _} =
+                 Repo.transact(fn _ -> Ankole.Ash.update(snapshot, action, %{}) end)
+      end
+
+      assert {:error, _} =
+               Repo.transact(fn _ ->
+                 Ankole.Ash.update(sent, :requeue, %{next_attempt_at: @base_time})
+               end)
+
+      assert_persisted_equal(
+        Repo.get_by!(Intent, Map.take(attrs, [:agent_uid, :binding_name, :outbound_key])),
+        sent
+      )
+    end
+
+    test "explicit requeue grants one attempt without resetting consumed budget", %{attrs: attrs} do
+      assert {:ok, queued} =
+               Repo.transact(fn _ -> Ankole.Ash.create(Intent, :commit, attrs) end)
+
+      assert {:ok, started} =
+               Repo.transact(fn _ ->
+                 Ankole.Ash.update(queued, :start_attempt, %{platform_send_started_at: @base_time})
+               end)
+
+      assert {:ok, failed} =
+               Repo.transact(fn _ -> Ankole.Ash.update(started, :fail, %{}) end)
+
+      assert {:error, _} =
+               Repo.transact(fn _ ->
+                 Ankole.Ash.update(failed, :start_attempt, %{platform_send_started_at: @base_time})
+               end)
+
+      assert {:ok, requeued} =
+               Repo.transact(fn _ ->
+                 Ankole.Ash.update(failed, :requeue, %{next_attempt_at: @base_time})
+               end)
+
+      assert requeued.attempt_count == 1
+      assert requeued.max_attempts == 2
+      assert is_nil(requeued.platform_send_started_at)
+
+      assert {:error, _} =
+               Repo.transact(fn _ ->
+                 Ankole.Ash.update(failed, :requeue, %{next_attempt_at: @base_time})
+               end)
+
+      assert {:ok, retried} =
+               Repo.transact(fn _ ->
+                 Ankole.Ash.update(requeued, :start_attempt, %{
+                   platform_send_started_at: @base_time
+                 })
+               end)
+
+      assert retried.attempt_count == 2
+      assert retried.max_attempts == 2
+
+      assert {:ok, failed_again} =
+               Repo.transact(fn _ -> Ankole.Ash.update(retried, :fail, %{}) end)
+
+      assert {:error, _} =
+               Repo.transact(fn _ ->
+                 Ankole.Ash.update(failed_again, :start_attempt, %{
+                   platform_send_started_at: @base_time
+                 })
+               end)
+    end
+  end
+
   describe "intent commit and dispatch" do
     test "operation selection reports missing routes instead of inventing reply or post" do
       %{principal: agent} = agent_fixture()
@@ -112,7 +241,8 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
       binding_fixture(agent.uid, "bot", :ignore)
       %{signal: input} = emit_addressed_signal(agent.uid, "bot", group_entry(%{explicit: true}))
 
-      assert {:error, %Ecto.Changeset{valid?: false}} =
+      assert {:error,
+              %Ash.Error.Invalid{errors: [%Ash.Error.Changes.InvalidAttribute{field: :operation}]}} =
                complete_with_intents(input, [
                  %{
                    outbound_key: "valid-before-invalid",

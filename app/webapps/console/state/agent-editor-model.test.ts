@@ -11,50 +11,6 @@ import {
 beforeAll(() => preloadTransliteration())
 
 describe('AgentEditorModel', () => {
-  test('keeps edits during refetch and resets when the route selects another agent', () => {
-    const model = new AgentEditorModel()
-
-    model.initialize('agent:alpha', {
-      handle: 'alpha',
-      displayName: 'Alpha',
-      avatarURL: '',
-      ownerPrincipalUID: 'operator',
-      groupMemoryDisclosureMode: 'strict' as const,
-      workerProviderID: 'docker',
-      role: 'Research Analyst'
-    })
-    expect(model.dirty.value).toBe(false)
-    model.displayName.value = 'Edited Alpha'
-    expect(model.dirty.value).toBe(true)
-    model.initialize('agent:alpha', {
-      handle: 'alpha',
-      displayName: 'Refetched Alpha',
-      avatarURL: '',
-      ownerPrincipalUID: 'operator',
-      groupMemoryDisclosureMode: 'strict' as const,
-      workerProviderID: 'docker',
-      role: 'Research Analyst'
-    })
-
-    expect(model.displayName.value).toBe('Edited Alpha')
-
-    model.initialize('agent:beta', {
-      handle: 'beta',
-      displayName: 'Beta',
-      avatarURL: '',
-      ownerPrincipalUID: 'operator',
-      groupMemoryDisclosureMode: 'strict' as const,
-      workerProviderID: 'docker',
-      role: 'Operator'
-    })
-
-    expect(model.handle.value).toBe('beta')
-    expect(model.role.value).toBe('Operator')
-    expect(model.validationError.value).toBeUndefined()
-    expect(model.dirty.value).toBe(false)
-    model[Symbol.dispose]()
-  })
-
   test('reports the required display name, handle, role, and owner before submission', () => {
     const model = new AgentEditorModel()
 

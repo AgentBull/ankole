@@ -18,14 +18,14 @@ defmodule Ankole.AgentWorkers.Decision do
     cond do
       stray != [] -> {:delete_object, hd(stray)}
       current && not ProviderKind.instance_present?(current) -> partial(worker, current)
-      worker.state == "deleting" -> deleting(worker, current)
-      worker.state == "absent" -> if(wanted?(facts), do: :begin_create, else: :none)
+      worker.state == :deleting -> deleting(worker, current)
+      worker.state == :absent -> if(wanted?(facts), do: :begin_create, else: :none)
       is_nil(current) and is_nil(worker.instance_seen_at) -> :create
       connected?(worker) and (is_nil(current) or current.phase == :exited) -> wait(worker)
       is_nil(current) -> :mark_absent
-      worker.state == "draining" -> draining(facts, current)
+      worker.state == :draining -> draining(facts, current)
       current.phase == :exited -> {:replace, "exited", :now}
-      worker.state == "paused" -> paused(facts, current)
+      worker.state == :paused -> paused(facts, current)
       true -> running(facts, current)
     end
   end
@@ -76,7 +76,7 @@ defmodule Ankole.AgentWorkers.Decision do
       (changed?(facts) or lifetime_due?(facts, current)) and idle?(facts) ->
         {:replace, "replacement", :graceful}
 
-      worker.state in ["starting", "stale"] and not_ready_too_long?(facts) ->
+      worker.state in [:starting, :stale] and not_ready_too_long?(facts) ->
         {:replace, "rebuild", :now}
 
       true ->
@@ -88,22 +88,22 @@ defmodule Ankole.AgentWorkers.Decision do
     cond do
       # An instance that never joined has no work to keep. Delete it rather
       # than pause it, also for a disabled Agent.
-      worker.state == "starting" and not wanted?(facts) ->
+      worker.state == :starting and not wanted?(facts) ->
         {:release, "not_needed"}
 
-      worker.state == "stale" and facts.agent != :active and not facts.turn_in_progress? ->
+      worker.state == :stale and facts.agent != :active and not facts.turn_in_progress? ->
         {:release, "agent_inactive"}
 
-      worker.state == "stale" and not wanted?(facts) and not idle_below_release?(facts) ->
+      worker.state == :stale and not wanted?(facts) and not idle_below_release?(facts) ->
         {:release, "not_needed"}
 
-      worker.state == "ready" and facts.agent != :active and inactive_idle?(facts) ->
+      worker.state == :ready and facts.agent != :active and inactive_idle?(facts) ->
         {:release, "agent_inactive"}
 
-      worker.state == "ready" and idle_release?(facts) ->
+      worker.state == :ready and idle_release?(facts) ->
         {:release, "idle_release"}
 
-      worker.state == "starting" ->
+      worker.state == :starting ->
         starting_instance(facts, current)
 
       true ->

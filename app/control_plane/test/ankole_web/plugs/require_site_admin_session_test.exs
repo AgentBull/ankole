@@ -6,7 +6,6 @@ defmodule AnkoleWeb.Plugs.RequireSiteAdminSessionTest do
   alias Ankole.Repo
 
   setup do
-    allow_cache_database_access()
     Ankole.AppConfigure.Registry.clear_for_test()
     Ankole.AppConfigure.Cache.clear_for_test()
     :ok

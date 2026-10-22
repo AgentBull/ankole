@@ -60,7 +60,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert tool_result_succeeded?(messages, "check_back_later")
 
     checkback = Repo.get_by!(ScheduledEvent, source_signal_id: input.id)
-    assert checkback.status == "scheduled"
+    assert checkback.status == :scheduled
     assert checkback.binding_name == "lark-chaos-primary"
     assert checkback.source_signal_id == input.id
     assert checkback.origin_ai_message_id in Enum.map(messages, & &1.id)
@@ -134,7 +134,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert tool_result_succeeded?(messages, "cron")
 
     cron_schedule = Repo.get_by!(CronSchedule, agent_uid: agent.uid, name: "lark-chaos-cron")
-    assert cron_schedule.status == "active"
+    assert cron_schedule.status == :active
     assert cron_schedule.binding_name == "lark-chaos-primary"
     assert cron_schedule.name == "lark-chaos-cron"
     assert cron_schedule.schedule["kind"] == "every"
@@ -234,7 +234,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert {:ok, %Signal{}} =
              wait_until(deadline(60_000), fn ->
                case Repo.get(Signal, fire_input.id) do
-                 %Signal{completed_at: %DateTime{}} = event -> event
+                 %Signal{status: :completed, completed_at: %DateTime{}} = event -> event
                  _other -> nil
                end
              end)

@@ -82,17 +82,12 @@ defmodule Ankole.Conversations.Delivery.Queries do
       Intent
       |> maybe_where_agent(agent_uid)
       |> where([entry], entry.delivery_class == :durable_ai_reply)
-      # `:unsupported` is already terminal by itself: the route can never accept
-      # this reply, so it carries no retry state to inspect. Retryable classes
-      # only stop once their recovery state says they will not run again.
+      # A failed or unknown reply stops when recovery requires explicit action.
       |> where(
         [entry],
         entry.status == :expired or
           (entry.status in [:failed, :unknown] and is_nil(entry.next_attempt_at) and
-             fragment(
-               "?->>'state' IN ('blocked', 'permanent', 'exhausted')",
-               entry.recovery_state
-             ))
+             (not is_nil(entry.recovery_status) or entry.possible_duplicate))
       )
       |> order_by(
         [entry],

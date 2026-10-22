@@ -40,7 +40,7 @@ defmodule Ankole.Signals.WebhooksTest do
     assert {:ok,
             %{
               status: :accepted,
-              webhook_endpoint: %WebhookEndpoint{status: "fired"},
+              webhook_endpoint: %WebhookEndpoint{status: :fired},
               signal: receipt
             }} = Webhooks.receive(token, headers, ~s({"action":"opened"}), now: @now)
 
@@ -67,7 +67,7 @@ defmodule Ankole.Signals.WebhooksTest do
     assert {:ok, %{status: :ignored, webhook_endpoint: replayed}} =
              Webhooks.receive(token, headers, ~s({"action":"replayed"}), now: @now)
 
-    assert replayed.status == "fired"
+    assert replayed.status == :fired
 
     assert Repo.aggregate(
              from(event in Signal, where: event.type == "webhook.received"),
@@ -94,7 +94,7 @@ defmodule Ankole.Signals.WebhooksTest do
                Webhooks.receive(token, [], "paused", now: @now)
              end)
 
-    assert Repo.reload!(endpoint).status == "armed"
+    assert Repo.reload!(endpoint).status == :armed
     assert Repo.aggregate(from(e in Signal, where: e.type == "webhook.received"), :count) == 0
     tenant |> Repo.reload!() |> Ecto.Changeset.change(suspended_at: nil) |> Repo.update!()
 
@@ -112,12 +112,10 @@ defmodule Ankole.Signals.WebhooksTest do
     {tenant_id, agent_uid, endpoint_id, token} =
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
         tenant =
-          %Ankole.Tenants.Tenant{}
-          |> Ankole.Tenants.Tenant.changeset(%{
+          create_committed_tenant(%{
             slug: "webhook-" <> Ecto.UUID.generate(),
             display_name: "Webhook claim test"
           })
-          |> Repo.insert!()
 
         Repo.with_tenant(tenant.id, fn ->
           %{principal: agent} = agent_fixture()
@@ -144,7 +142,7 @@ defmodule Ankole.Signals.WebhooksTest do
           )
         end)
 
-        Repo.get!(Ankole.Tenants.Tenant, tenant_id) |> Repo.delete!()
+        Repo.get!(Ankole.Tenants.Tenant, tenant_id) |> cleanup_tenant!()
       end)
     end)
 
@@ -171,7 +169,7 @@ defmodule Ankole.Signals.WebhooksTest do
 
     Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
       Repo.with_tenant(tenant_id, fn ->
-        assert %WebhookEndpoint{status: "fired"} = Repo.get!(WebhookEndpoint, endpoint_id)
+        assert %WebhookEndpoint{status: :fired} = Repo.get!(WebhookEndpoint, endpoint_id)
 
         assert Repo.aggregate(
                  from(
@@ -194,7 +192,7 @@ defmodule Ankole.Signals.WebhooksTest do
                now: @now
              )
 
-    assert endpoint.status == "active"
+    assert endpoint.status == :active
 
     assert {:ok, %{status: :accepted, signal: first}} =
              Webhooks.receive(token, [{"x-github-event", "pull_request"}], "first", now: @now)
@@ -209,7 +207,7 @@ defmodule Ankole.Signals.WebhooksTest do
 
     assert first.id != second.id
     assert first.source_event_id != second.source_event_id
-    assert Repo.get!(WebhookEndpoint, endpoint.id).status == "active"
+    assert Repo.get!(WebhookEndpoint, endpoint.id).status == :active
   end
 
   test "a bound callback commits one automation run before accepting the delivery" do
@@ -228,7 +226,7 @@ defmodule Ankole.Signals.WebhooksTest do
     assert {:ok,
             %{
               status: :accepted,
-              webhook_endpoint: %WebhookEndpoint{status: "fired"},
+              webhook_endpoint: %WebhookEndpoint{status: :fired},
               automation_job_run: run
             }} =
              Webhooks.receive(
@@ -239,7 +237,7 @@ defmodule Ankole.Signals.WebhooksTest do
              )
 
     assert run.automation_job_id == job.id
-    assert run.status == "queued"
+    assert run.status == :queued
     assert run.event["type"] == "webhook.received"
     assert get_in(run.event, ["data", "body"]) == ~s({"action":"opened"})
     assert get_in(run.event, ["data", "headers", "x-github-event"]) == "issues"
@@ -283,7 +281,7 @@ defmodule Ankole.Signals.WebhooksTest do
     assert {:ok, %{status: :cancelled, webhook_endpoint: cancelled}} =
              Webhooks.cancel_endpoint(agent.uid, source.session_id, endpoint.id, now: @now)
 
-    assert cancelled.status == "cancelled"
+    assert cancelled.status == :cancelled
 
     assert {:ok, %{status: :ignored}} =
              Webhooks.receive(token, [], "ignored", now: DateTime.add(@now, 1, :second))
@@ -340,14 +338,24 @@ defmodule Ankole.Signals.WebhooksTest do
              )
 
     assert {:error, changeset} =
-             Repo.transact(fn repo ->
-               %WebhookEndpoint{}
-               |> WebhookEndpoint.changeset(Map.from_struct(endpoint))
-               |> repo.insert()
+             Repo.transact(fn _repo ->
+               attrs =
+                 Map.take(endpoint, Ash.Resource.Info.action(WebhookEndpoint, :create).accept)
+
+               Ankole.Ash.create(WebhookEndpoint, :create, attrs)
              end)
 
-    assert {"has already been taken", details} = Keyword.fetch!(changeset.errors, :token_digest)
-    assert details[:constraint] == :unique
+    assert %Ash.Error.Invalid{} = changeset
+
+    assert [%Ash.Error.Changes.InvalidAttribute{field: :token_digest, private_vars: details}] =
+             changeset.errors
+
+    assert details[:constraint_type] == :unique
+    assert details[:constraint] == "signal_webhook_endpoints_token_digest_index"
+
+    assert [%{path: "token_digest", message: "has already been taken"}] =
+             Ankole.Ash.validation_details(changeset)
+
     assert Repo.aggregate(WebhookEndpoint, :count) == 1
   end
 
@@ -377,7 +385,7 @@ defmodule Ankole.Signals.WebhooksTest do
     assert {:ok, %{status: :cancelled, webhook_endpoint: cancelled}} =
              Webhooks.cancel_endpoint(agent.uid, nil, one.id, now: @now)
 
-    assert cancelled.status == "cancelled"
+    assert cancelled.status == :cancelled
     assert [remaining] = Webhooks.list_endpoints(agent.uid, nil, active_only: true, now: @now)
     assert remaining.id == two.id
   end
@@ -397,7 +405,7 @@ defmodule Ankole.Signals.WebhooksTest do
              )
 
     assert Webhooks.expire_due(DateTime.add(expires_at, 1, :second)) == 1
-    assert Repo.get!(WebhookEndpoint, endpoint.id).status == "expired"
+    assert Repo.get!(WebhookEndpoint, endpoint.id).status == :expired
 
     assert {:ok, %{status: :ignored}} =
              Webhooks.receive(token, [], "late", now: DateTime.add(expires_at, 2, :second))

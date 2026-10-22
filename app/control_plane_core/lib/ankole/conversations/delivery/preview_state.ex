@@ -1,27 +1,61 @@
 defmodule Ankole.Conversations.Delivery.PreviewState do
   import Ankole.Attrs, only: [parse_datetime: 1]
   @moduledoc "Durable provider preview state, fenced by its source Signal row."
-  use Ankole.Schema, tenancy: :tenant, tenant_in_primary_key: true
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    tenant_in_primary_key: true,
+    domain: Ankole.Conversations.Domain
+
   import Ecto.Query
-  import Ecto.Changeset
   alias Ankole.Repo
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.Delivery.{InteractionState, PreviewAdapter}
-  @primary_key false
-  schema "delivery_previews" do
-    field :signal_id, Ankole.Ecto.UUIDv7, primary_key: true
-    field :provider_message_id, :string
-    field :checkpoint, :map
-    field :sequence_high_water, :integer, default: 0
+
+  postgres do
+    table("delivery_previews")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:signal_id, "delivery_previews_tenant_id_signal_id_fkey"}])
+
+    check_constraints do
+      check_constraint(:checkpoint, "delivery_previews_checkpoint_check")
+      check_constraint(:sequence_high_water, "delivery_previews_sequence_high_water_check")
+    end
   end
 
-  def changeset(preview, attrs) do
-    preview
-    |> cast(attrs, [:signal_id, :provider_message_id, :checkpoint, :sequence_high_water])
-    |> validate_required([:signal_id, :sequence_high_water])
-    |> validate_number(:sequence_high_water, greater_than_or_equal_to: 0)
-    |> Ankole.Ecto.JSONPayload.validate_map(:checkpoint)
-    |> foreign_key_constraint(:signal_id)
+  attributes do
+    attribute(:signal_id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:provider_message_id, :string, constraints: [trim?: false], public?: true)
+    attribute(:checkpoint, Ankole.Ash.Types.JSONMap, public?: true)
+
+    attribute(:sequence_high_water, :integer,
+      default: 0,
+      allow_nil?: false,
+      public?: true,
+      constraints: [min: 0]
+    )
+  end
+
+  actions do
+    defaults([:read])
+
+    create :ensure do
+      primary?(true)
+      transaction?(false)
+      accept([:signal_id])
+      upsert?(true)
+      upsert_fields([:signal_id])
+      change(Ankole.Ash.RequireTransaction)
+    end
+
+    in_tx_update :update_preview do
+      accept([:provider_message_id, :checkpoint, :sequence_high_water])
+    end
   end
 
   def get(signal, repo \\ Repo)
@@ -29,7 +63,7 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
   def get(%Signal{id: id}, repo), do: get(id, repo)
 
   def get(id, repo) when is_binary(id),
-    do: repo.get_by(__MODULE__, signal_id: id) || %__MODULE__{signal_id: id}
+    do: repo.get_by(__MODULE__, signal_id: id) || struct(__MODULE__, signal_id: id)
 
   def load(nil, _repo), do: nil
   def load(%Signal{} = signal, repo), do: %{signal | preview: get(signal.id, repo)}
@@ -39,14 +73,12 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
     # lock before creating or locking the child preview row.
     Ankole.Signals.lock_signal_in_tx(repo, signal.id)
 
-    repo.insert_all(
-      __MODULE__,
-      [%{tenant_id: signal.tenant_id, signal_id: signal.id, sequence_high_water: 0}],
-      on_conflict: :nothing,
-      conflict_target: [:tenant_id, :signal_id]
-    )
+    case Ankole.Ash.create(__MODULE__, :ensure, %{signal_id: signal.id}) do
+      {:ok, _} -> :ok
+      {:error, error} -> repo.rollback(error)
+    end
 
-    repo.one!(from p in __MODULE__, where: p.signal_id == ^signal.id, lock: "FOR UPDATE")
+    repo.one!(from(p in __MODULE__, where: p.signal_id == ^signal.id, lock: "FOR UPDATE"))
   end
 
   @doc """
@@ -95,8 +127,7 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
     case lock_in_tx(repo, event) do
       %__MODULE__{provider_message_id: nil} = preview ->
         preview
-        |> changeset(%{provider_message_id: provider_message_id})
-        |> repo.update()
+        |> Ankole.Ash.update(:update_preview, %{provider_message_id: provider_message_id})
         |> case do
           {:ok, _preview} -> record_preview_thread(repo, event, provider_thread_id)
           {:error, _changeset} = error -> error
@@ -117,13 +148,12 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
     do: {:ok, :already_recorded}
 
   defp record_preview_thread(
-         repo,
+         _repo,
          %Signal{provider_thread_id: nil} = event,
          provider_thread_id
        ) do
     event
-    |> Signal.changeset(%{provider_thread_id: provider_thread_id})
-    |> repo.update()
+    |> Ankole.Ash.update(:update_metadata, %{provider_thread_id: provider_thread_id})
     |> case do
       {:ok, _event} -> {:ok, :thread_recorded}
       {:error, _changeset} = error -> error
@@ -171,6 +201,20 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
 
   def put_checkpoint(_signal_id, _checkpoint, _source),
     do: {:error, :invalid_reply_preview_checkpoint}
+
+  @doc "Updates a checkpoint under its source Signal lock."
+  def update_checkpoint(signal_id, update) when is_function(update, 1) do
+    Repo.transact(fn repo ->
+      with %Signal{} = event <- Ankole.Signals.lock_signal_in_tx(repo, signal_id),
+           event = load(event, repo),
+           {:ok, checkpoint} <- update.(event) do
+        put_checkpoint_in_tx(repo, event, checkpoint)
+      else
+        nil -> {:error, :signal_not_found}
+        {:error, _reason} = error -> error
+      end
+    end)
+  end
 
   defp checkpoint_source_result(_repo, event, nil), do: {:ok, {:ok, event}}
 
@@ -220,8 +264,7 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
 
       with {:ok, updated} <-
              preview
-             |> changeset(%{checkpoint: checkpoint})
-             |> repo.update(),
+             |> Ankole.Ash.update(:update_preview, %{checkpoint: checkpoint}),
            :ok <- notify_preview_in_tx(repo, updated) do
         {:ok, %{event | preview: updated}}
       end
@@ -373,8 +416,10 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
 
       with {:ok, updated} <-
              preview
-             |> changeset(%{checkpoint: checkpoint, sequence_high_water: sequence})
-             |> repo.update(),
+             |> Ankole.Ash.update(:update_preview, %{
+               checkpoint: checkpoint,
+               sequence_high_water: sequence
+             }),
            :ok <- notify_preview_in_tx(repo, updated) do
         {:ok, mutation}
       end
@@ -404,7 +449,7 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
         )
       )
       |> lock("FOR UPDATE OF s0")
-      |> repo.all()
+      |> repo.lock_all("signals")
       |> Enum.reduce_while({:ok, :ok}, fn event, acc ->
         checkpoint = Map.delete(get(event, repo).checkpoint, "recovery_state")
 

@@ -252,7 +252,10 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
     uid: uid
   } do
     api = install_storage_platform(provider)
-    assert :ok = AgentWorkers.mark_deleting_in_tx(Repo, uid)
+
+    assert {:ok, :ok} =
+             Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+
     assert :ok = reconcile(uid)
     ref = Repo.get!(AgentWorker, uid).storage_ref
     assert %{"microvmId" => _} = ref
@@ -261,7 +264,7 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
     args = Ankole.Job.arguments(:tenant, %{"agent_uid" => uid})
     deletion = start_database_task(fn -> ReconcileJob.perform(%Oban.Job{args: args}) end)
     assert_receive {:storage_delete_pending, pending}, 5_000
-    assert %{state: "deleting", storage_ref: ^ref} = Repo.get!(AgentWorker, uid)
+    assert %{state: :deleting, storage_ref: ^ref} = Repo.get!(AgentWorker, uid)
     assert Agent.get(api, & &1.deletes) == [ref["microvmId"]]
 
     send(pending, :accept_delete)
@@ -277,14 +280,17 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
     uid: uid
   } do
     api = install_storage_platform(provider)
-    assert :ok = AgentWorkers.mark_deleting_in_tx(Repo, uid)
+
+    assert {:ok, :ok} =
+             Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+
     assert :ok = reconcile(uid)
     ref = Repo.get!(AgentWorker, uid).storage_ref
     Agent.update(api, &%{&1 | delete_mode: :error})
 
     assert {:error, {:lambda_api, 503, "InternalServerException"}} = reconcile(uid)
 
-    assert %{state: "deleting", storage_ref: ^ref, last_error_kind: "transient"} =
+    assert %{state: :deleting, storage_ref: ^ref, last_error_kind: "transient"} =
              Repo.get!(AgentWorker, uid)
 
     Agent.update(api, &%{&1 | delete_mode: :success})
@@ -299,7 +305,10 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
     uid: uid
   } do
     api = install_storage_platform(provider)
-    assert :ok = AgentWorkers.mark_deleting_in_tx(Repo, uid)
+
+    assert {:ok, :ok} =
+             Repo.transact(fn repo -> {:ok, AgentWorkers.mark_deleting_in_tx(repo, uid)} end)
+
     assert :ok = reconcile(uid)
     first_ref = Repo.get!(AgentWorker, uid).storage_ref
     [first] = Agent.get(api, & &1.calls)

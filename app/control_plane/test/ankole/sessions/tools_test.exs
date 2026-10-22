@@ -12,8 +12,10 @@ defmodule Ankole.Sessions.ToolsTest do
       ProgramRunner.run(run_id, source, tools, memo, options)
     end
 
-    def cancel("wf-" <> id = run_id) do
-      status = Ankole.Repo.get!(Ankole.Workflow.Schemas.Run, String.to_integer(id)).status
+    def cancel(run_id) do
+      status =
+        Ankole.Repo.get_by!(Ankole.Workflow.Schemas.Run, title: "Cancel native replay").status
+
       result = ProgramRunner.cancel(run_id)
 
       if owner = Process.whereis(:workflow_tools_native_runner_owner) do
@@ -335,7 +337,7 @@ defmodule Ankole.Sessions.ToolsTest do
       assert shown.details["error"] == nil
       stopped = invoke(run, "stop_background_job", %{"job_id" => id}, "stop")
       refute stopped.is_error, inspect(stopped)
-      assert Repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, id).status == "stopped"
+      assert Repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, id).status == :stopped
 
       assert Repo.get!(Ankole.AgentWorkers.AgentWorker, run.agent_uid) ==
                worker
@@ -438,7 +440,7 @@ defmodule Ankole.Sessions.ToolsTest do
       source =
         Repo.update!(
           change(source,
-            status: "failed",
+            status: :failed,
             runtime_thread_id: "thread-to-continue",
             owner_session_id: "historical-session",
             reply_route: %{"binding_name" => "historical-binding"},
@@ -470,7 +472,7 @@ defmodule Ankole.Sessions.ToolsTest do
 
       id = created.details["job_id"]
       job = Repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, id)
-      Repo.update!(change(job, status: "stopped", completed_at: DateTime.utc_now(:microsecond)))
+      Repo.update!(change(job, status: :stopped, completed_at: DateTime.utc_now(:microsecond)))
 
       missing =
         invoke_error(
@@ -501,7 +503,7 @@ defmodule Ankole.Sessions.ToolsTest do
 
       Repo.update!(
         change(job,
-          status: "succeeded",
+          status: :succeeded,
           result: %{
             "output_text" => text,
             "project_path" => "/agents/report",
@@ -608,7 +610,7 @@ defmodule Ankole.Sessions.ToolsTest do
       refute cancelled.is_error, inspect(cancelled)
     end
 
-    test "cancel_workflow commits its receipt before it stops registered native replay", %{
+    test "cancel_workflow commits its receipt before it stops native replay", %{
       run: run
     } do
       alias Ankole.Kernel.ProgramRunner
@@ -625,19 +627,17 @@ defmodule Ankole.Sessions.ToolsTest do
 
       refute created.is_error, inspect(created)
       id = created.details["run_id"]
-      native_id = "wf-#{id}"
       true = Process.register(self(), :workflow_tools_native_runner_owner)
 
       on_exit(fn ->
         RunServer.stop_replay(id)
-        ProgramRunner.cancel(native_id)
       end)
 
       assert :ok = RunServer.poke(id, runner: NativeWorkflowRunner, runtime_busy_retry_ms: 20)
       assert_receive {:native_replay_started, _task}, 1_000
-      assert wait_for(fn -> native_replay_registered?(native_id) end)
+      assert wait_for(fn -> ProgramRunner.active_runs() == 1 end)
       server = RunServer.whereis(id)
-      %{replay: %{pid: task}} = :sys.get_state(server)
+      %{handle: native_id, replay: %{pid: task}} = :sys.get_state(server)
       server_monitor = Process.monitor(server)
       task_monitor = Process.monitor(task)
 
@@ -653,7 +653,7 @@ defmodule Ankole.Sessions.ToolsTest do
       refute result.is_error, inspect(result)
       assert result.details == %{"run_id" => id, "status" => "cancelled"}
 
-      assert %Run{status: "cancelled", result_text: nil, cleanup_completed_at: %DateTime{}} =
+      assert %Run{status: :cancelled, result_text: nil, cleanup_completed_at: %DateTime{}} =
                Repo.get!(Run, id)
 
       assert {:ok, receipt} =
@@ -664,20 +664,15 @@ defmodule Ankole.Sessions.ToolsTest do
 
       assert receipt.result["details"] == result.details
 
-      assert_receive {:native_replay_cancelled, ^native_id, "cancelled", false, :ok}, 2_000
+      assert_receive {:native_replay_cancelled, ^native_id, :cancelled, false, :ok}, 2_000
       assert_receive {:DOWN, ^server_monitor, :process, ^server, :normal}, 2_000
       assert_receive {:DOWN, ^task_monitor, :process, ^task, _reason}, 2_000
       assert RunServer.whereis(id) == nil
 
-      # Task DOWN does not wait for a dirty NIF. Native cancellation requests
-      # termination; reusing this id observes the registry entry's release.
+      assert wait_for(fn -> ProgramRunner.active_runs() == 0 end)
+
       assert {:ok, %{status: :completed, output: [%{value: "released"}]}} =
-               wait_for(fn ->
-                 case ProgramRunner.run(native_id, ~s|text("released");|, [], []) do
-                   {:ok, %{status: :failed, error_code: "program_run_id_conflict"}} -> false
-                   result -> result
-                 end
-               end)
+               ProgramRunner.run(~s|text("released");|, [], [])
 
       assert System.monotonic_time(:millisecond) - started_at < 2_000
 
@@ -717,7 +712,7 @@ defmodule Ankole.Sessions.ToolsTest do
       refute slept.is_error, inspect(slept)
       assert slept.terminate
       stored = Repo.get!(Ankole.Workflow.Schemas.AgentCall, call.id)
-      assert stored.status == "sleeping"
+      assert stored.status == :sleeping
       assert stored.wake_count == 1
       assert stored.sleep_note == "Wait for the delegated work."
 
@@ -728,8 +723,8 @@ defmodule Ankole.Sessions.ToolsTest do
           type: "workflow.task.wakeup"
         )
 
-      assert wake.input_state == "open"
-      assert wake.available_at == stored.sleeping_until
+      assert wake.status == :queued
+      assert wake.available_at == stored.wake_at
       shown = invoke(run, "show_workflow", %{"run_id" => id}, "sleep-status")
 
       assert Enum.any?(
@@ -747,7 +742,11 @@ defmodule Ankole.Sessions.ToolsTest do
 
       rejected = invoke_error(run, "workflow", args, "oversized-workflow")
       assert rejected.is_error
-      assert rejected.output =~ ~s("args":["is too large"])
+
+      assert rejected.output ==
+               "Error: [{\"message\":\"is too large\",\"path\":\"args\"}]\n" <>
+                 "Analyze the error above and try a different approach."
+
       created = invoke(run, "workflow", Map.put(args, "args", %{}), "workflow-limits")
       refute created.is_error, inspect(created)
       {task, call} = task_run(run, created.details["run_id"], %{"type" => "string"})
@@ -766,7 +765,7 @@ defmodule Ankole.Sessions.ToolsTest do
 
       assert rejected.is_error
       assert rejected.output =~ "workflow_result_too_large"
-      assert Repo.get!(Ankole.Workflow.Schemas.AgentCall, call.id).status == "running"
+      assert Repo.get!(Ankole.Workflow.Schemas.AgentCall, call.id).status == :running
       accepted = invoke(task, "submit_result", %{"result" => "Complete"}, "bounded-result")
       refute accepted.is_error, inspect(accepted)
     end
@@ -813,13 +812,6 @@ defmodule Ankole.Sessions.ToolsTest do
     {%{task | tools: tools}, call}
   end
 
-  defp native_replay_registered?(run_id) do
-    match?(
-      {:ok, %{status: :failed, error_code: "program_run_id_conflict"}},
-      Ankole.Kernel.ProgramRunner.run(run_id, ~s|text("registration probe");|, [], [])
-    )
-  end
-
   defp wait_for(fun, attempts \\ 200)
   defp wait_for(_fun, 0), do: flunk("condition did not become true")
 
@@ -847,7 +839,6 @@ defmodule Ankole.Sessions.ToolsTest do
   defp invoke(run, name, args, id) do
     call = %{"name" => name, "call_id" => id, "arguments" => Ankole.JSON.encode!(args)}
     assert {:ok, tool, args} = Tools.prepare(run, call)
-    {:ok, result} = Repo.transact(fn _repo -> {:ok, Tools.execute(run, call, tool, args)} end)
-    result
+    Tools.execute(run, call, tool, args)
   end
 end

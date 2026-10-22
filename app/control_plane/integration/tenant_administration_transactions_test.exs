@@ -8,8 +8,6 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
   alias Ankole.{AppConfigure, AuthZ, Tenants}
   alias Ankole.AppConfigure.SiteConfig
   alias Ankole.AuthZ.{Grant, Group, Membership}
-  alias Ankole.Brain.Schemas.Object
-  alias Ankole.Principals.Principal
   alias Ecto.Adapters.SQL.Sandbox
 
   @assignment_key "tenants.privileged_tenant_id"
@@ -17,10 +15,16 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
 
   setup %{tenant: source} do
     original = Repo.get_by!(SiteConfig, scope: "global", key: @assignment_key)
-    middle = create_tenant()
-    final = create_tenant()
+    middle = create_committed_tenant()
+    final = create_committed_tenant()
 
     on_exit(fn -> restore_fixture(original, [source, middle, final]) end)
+
+    initial_grants =
+      Map.new([source, middle, final], fn tenant ->
+        {tenant.id,
+         Repo.with_tenant(tenant.id, fn -> Repo.all(from g in Grant, order_by: g.id) end)}
+      end)
 
     :ok = set_privileged_tenant(source)
     :ok = Tenants.ensure_scaffold(source)
@@ -30,6 +34,7 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
     %{principal: final_admin} = Repo.with_tenant(final.id, fn -> human_fixture() end)
 
     %{
+      initial_grants: initial_grants,
       source: source,
       source_admin: source_admin,
       source_group: source_group,
@@ -72,8 +77,8 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
       assert_blocked_by(second, first)
       assert_privileged(context.source)
       assert AuthZ.site_admin?(context.source_admin.uid)
-      assert_no_admin_state(context.middle)
-      assert_no_admin_state(context.final)
+      assert_no_admin_state(context.middle, context.initial_grants[context.middle.id])
+      assert_no_admin_state(context.final, context.initial_grants[context.final.id])
 
       send(first.task.pid, :continue)
       assert {:ok, %{id: middle_id}} = Task.await(first.task, 5_000)
@@ -85,8 +90,8 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
       refute AuthZ.site_admin?(context.source_admin.uid)
       assert AuthZ.site_admin?(context.middle_admin.uid)
       refute AuthZ.site_admin?(context.final_admin.uid)
-      assert_no_admin_state(context.source)
-      assert_no_admin_state(context.final)
+      assert_no_admin_state(context.source, context.initial_grants[context.source.id])
+      assert_no_admin_state(context.final, context.initial_grants[context.final.id])
 
       middle_group =
         Repo.with_tenant(context.middle.id, fn -> Repo.get_by!(Group, name: "siteadmin") end)
@@ -98,8 +103,8 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
       refute AuthZ.site_admin?(context.source_admin.uid)
       refute AuthZ.site_admin?(context.middle_admin.uid)
       assert AuthZ.site_admin?(context.final_admin.uid)
-      assert_no_admin_state(context.source)
-      assert_no_admin_state(context.middle)
+      assert_no_admin_state(context.source, context.initial_grants[context.source.id])
+      assert_no_admin_state(context.middle, context.initial_grants[context.middle.id])
 
       for {tenant, group} <- [
             {context.source, context.source_group},
@@ -197,10 +202,10 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
     assert id == tenant.id
   end
 
-  defp assert_no_admin_state(tenant) do
+  defp assert_no_admin_state(tenant, initial_grants) do
     Repo.with_tenant(tenant.id, fn ->
       refute Repo.get_by(Group, name: "siteadmin")
-      refute Repo.exists?(Grant)
+      assert Repo.all(from g in Grant, order_by: g.id) == initial_grants
       refute Repo.exists?(Membership)
     end)
   end
@@ -221,14 +226,16 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
               ]
             )
 
+          # These tenants had no site-admin group before this fixture. Restore
+          # that state with the assignment before lifecycle deletion starts.
           for tenant <- tenants do
             Repo.with_tenant(tenant.id, fn ->
-              repo.delete_all(Grant)
-              repo.delete_all(Membership)
-              repo.delete_all(Group)
-              repo.delete_all(Object)
-              repo.delete_all(Principal)
-              repo.delete!(tenant)
+              Ankole.Pod.Pages.lock_tree()
+
+              if group = repo.get_by(Group, name: "siteadmin", built_in: true) do
+                repo.delete_all(from grant in Grant, where: grant.group_id == ^group.id)
+                repo.delete!(group)
+              end
             end)
           end
 
@@ -236,6 +243,10 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
         end)
 
       {:ok, _} = AppConfigure.Cache.refresh("global", @assignment_key)
+
+      for tenant <- tenants do
+        Repo.with_tenant(tenant.id, fn -> cleanup_tenant!(tenant) end)
+      end
     end)
   end
 end

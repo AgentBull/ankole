@@ -1,5 +1,5 @@
 defmodule Ankole.Conversations.Delivery.WakeupsTest do
-  use Ankole.DataCase, async: false
+  use Ankole.DataCase, async: true
 
   import Ankole.PrincipalsFixtures
 
@@ -22,13 +22,22 @@ defmodule Ankole.Conversations.Delivery.WakeupsTest do
     skipped = [
       {"future", %{status: :failed, next_attempt_at: DateTime.add(@now, 1)}},
       {"in-flight", %{status: :pending, platform_send_started_at: DateTime.add(@now, -59)}},
-      {"blocked", %{status: :failed, recovery_state: %{"state" => "blocked"}}},
-      {"permanent", %{status: :failed, recovery_state: %{"state" => "permanent"}}},
+      {"blocked",
+       %{status: :failed, recovery_status: :blocked, recovery_reason: "operator_action_required"}},
+      {"permanent",
+       %{status: :failed, recovery_status: :permanent, recovery_reason: "permanent_failure"}},
       {"exhausted",
-       %{status: :failed, attempt_count: 10, recovery_state: %{"state" => "exhausted"}}},
+       %{
+         status: :failed,
+         attempt_count: 10,
+         recovery_status: :exhausted,
+         recovery_reason: "max_attempts_reached"
+       }},
+      {"ambiguous-failed", %{status: :failed, possible_duplicate: true, next_attempt_at: @now}},
       {"stopped-unknown", %{status: :unknown, next_attempt_at: @now}},
       {"succeeded", %{status: :sent}},
-      {"unsupported", %{status: :failed, recovery_state: %{"state" => "permanent"}}}
+      {"unsupported",
+       %{status: :failed, recovery_status: :permanent, recovery_reason: "permanent_failure"}}
     ]
 
     rows = for {key, attrs} <- due ++ skipped, do: intent_fixture(agent.uid, key, attrs)
@@ -41,7 +50,7 @@ defmodule Ankole.Conversations.Delivery.WakeupsTest do
              Enum.sort(Enum.map(due, &elem(&1, 0)))
 
     for row <- rows do
-      assert stored_intent(row) == row
+      assert_persisted_equal(stored_intent(row), row)
     end
   end
 
@@ -84,7 +93,7 @@ defmodule Ankole.Conversations.Delivery.WakeupsTest do
     assert :ok = Delivery.reconcile_wakeups(@now)
     assert :ok = Delivery.reconcile_wakeups(@now)
     assert Repo.aggregate(dispatch_jobs(agent.uid), :count) == 2
-    assert Repo.reload!(discarded) == discarded
+    Ankole.DataCase.assert_persisted_equal(Repo.reload!(discarded), discarded)
     assert stored_intent(intent).attempt_count == 2
     assert_enqueued(worker: Dispatch, args: %{outbound_key: "discarded"})
   end
@@ -115,20 +124,20 @@ defmodule Ankole.Conversations.Delivery.WakeupsTest do
 
   defp intent_fixture(agent_uid, key, attrs \\ %{}) do
     assert {:ok, %Intent{} = intent} =
-             Ankole.SignalsFixtures.commit_delivery(
-               Map.merge(
-                 %{
-                   agent_uid: agent_uid,
-                   binding_name: "bot",
-                   outbound_key: key,
-                   operation: :post,
-                   fallback_visible_text: "Recover the reply"
-                 },
-                 Map.new(attrs)
-               )
-             )
+             Ankole.SignalsFixtures.commit_delivery(%{
+               agent_uid: agent_uid,
+               binding_name: "bot",
+               outbound_key: key,
+               operation: :post,
+               fallback_visible_text: "Recover the reply"
+             })
 
+    # Reconciliation must preserve persisted history, including old unknown
+    # rows with a retry deadline that current transition actions clear.
     intent
+    |> AshPostgres.DataLayer.to_ecto()
+    |> change(Map.new(attrs))
+    |> Repo.update!()
   end
 
   defp dispatch_jobs(agent_uid) do

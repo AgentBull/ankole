@@ -1,6 +1,4 @@
 import {
-  Badge,
-  Checkbox,
   CreatableCombobox,
   Input,
   Select,
@@ -10,30 +8,19 @@ import {
   SelectValue,
   Switch
 } from '@ankole/uikit'
-import { RiRestartLine } from '@remixicon/react'
-import { useQuery } from '@tanstack/react-query'
-import { useDeferredValue, useMemo, useState, type ComponentType } from 'react'
+import { useMemo, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import { availableLocaleIDs, nativeLocaleLabel } from '../../common/i18n'
-import { ankoleWebControlPlanePluginControllerIndexOptions } from '../api/generated/@tanstack/react-query.gen'
-import type { AppConfigurationItem, ControlPlanePluginItem } from '../api/generated/types.gen'
-import { ErrorBlock } from '../../common/error-block'
+import type { AppConfigurationItem } from '../api/generated/types.gen'
 import { EncryptedValueInput } from '../encrypted-value-input'
 import { JSONObjectField } from '../json-object-field'
 import { JSONField, LabeledField } from '../console-form'
-import { ResourceSearch } from '../console-list-page'
-import { localizedJSONText } from '../state/agent-library-capabilities'
-import { matchesResourceSearch } from '../state/resource-search'
 import {
   AI_GATEWAY_COMPACTION_FIELDS,
   aiGatewayCompactionDraft,
-  pluginIDsFromDraft,
-  pluginRestartRequired,
   serializeAIGatewayCompactionDraft,
   settingEditorKind,
   settingStringDraft,
-  togglePluginID,
-  unknownPluginIDs,
   type AIGatewayCompactionDraft,
   type SettingEditorKind
 } from '../state/setting-value-editor'
@@ -53,7 +40,6 @@ export type SettingValueEditorProps = {
 
 const SPECIFIC_SETTING_EDITORS: Partial<Record<SettingEditorKind, ComponentType<SettingValueEditorProps>>> = {
   aiGatewayCompaction: AIGatewayCompactionEditor,
-  plugins: PluginsEnabledIDsEditor,
   timezone: SystemTimeZoneEditor,
   locale: SystemLocaleEditor
 }
@@ -242,120 +228,5 @@ function SystemTimeZoneEditor({ onChange, value }: SettingValueEditorProps) {
         ) : null}
       </div>
     </LabeledField>
-  )
-}
-
-function PluginsEnabledIDsEditor({ onChange, value }: SettingValueEditorProps) {
-  const { i18n, t } = useTranslation()
-  const [query, setQuery] = useState('')
-  const deferredQuery = useDeferredValue(query)
-  const catalog = useQuery(ankoleWebControlPlanePluginControllerIndexOptions())
-  const selectedIDs = pluginIDsFromDraft(value)
-  const discoveredPlugins = catalog.data?.control_plane_plugins ?? []
-  const filteredPlugins = discoveredPlugins.filter(plugin =>
-    matchesResourceSearch(
-      deferredQuery,
-      plugin.id,
-      localizedJSONText(plugin.display_name, i18n.language),
-      localizedJSONText(plugin.description, i18n.language)
-    )
-  )
-  const undiscoveredIDs = unknownPluginIDs(
-    selectedIDs,
-    discoveredPlugins.map(plugin => plugin.id)
-  ).filter(id => matchesResourceSearch(deferredQuery, id, t('console.settings.plugin_not_discovered')))
-  const update = (pluginID: string, selected: boolean) =>
-    onChange(JSON.stringify(togglePluginID(selectedIDs, pluginID, selected), null, 2))
-
-  return (
-    <div className="grid gap-4">
-      <div className="grid gap-1">
-        <h3 className="text-sm font-semibold">{t('console.settings.plugins_title')}</h3>
-        <p className="text-xs leading-5 text-muted-foreground">{t('console.settings.plugins_hint')}</p>
-      </div>
-      <ResourceSearch
-        label={t('console.settings.plugin_search')}
-        placeholder={t('console.settings.plugin_search_placeholder')}
-        value={query}
-        onChange={setQuery}
-      />
-      <ErrorBlock error={catalog.error} />
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {filteredPlugins.map(plugin => (
-          <PluginChoiceCard
-            key={plugin.id}
-            plugin={plugin}
-            selected={selectedIDs.includes(plugin.id)}
-            onChange={selected => update(plugin.id, selected)}
-          />
-        ))}
-        {undiscoveredIDs.map(pluginID => (
-          <label
-            key={pluginID}
-            className="flex min-w-0 items-start gap-3 border border-warning/50 bg-warning-subtle px-4 py-4">
-            <Checkbox checked onCheckedChange={checked => update(pluginID, checked === true)} />
-            <span className="grid min-w-0 flex-1 gap-2">
-              <span className="break-all font-mono text-sm font-semibold">{pluginID}</span>
-              <span className="text-xs leading-5 text-muted-foreground">
-                {t('console.settings.plugin_not_discovered_hint')}
-              </span>
-              <Badge variant="warning">{t('console.settings.plugin_not_discovered')}</Badge>
-            </span>
-          </label>
-        ))}
-      </div>
-      {!catalog.isLoading && filteredPlugins.length === 0 && undiscoveredIDs.length === 0 ? (
-        <p className="border border-border bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground">
-          {query ? t('console.empty.no_results_title') : t('console.settings.no_plugins')}
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
-function PluginChoiceCard({
-  onChange,
-  plugin,
-  selected
-}: {
-  onChange: (selected: boolean) => void
-  plugin: ControlPlanePluginItem
-  selected: boolean
-}) {
-  const { i18n, t } = useTranslation()
-  const restartRequired = pluginRestartRequired(plugin.active, selected)
-  return (
-    <label className="flex min-w-0 items-start gap-3 border border-border/70 bg-card/60 px-4 py-4">
-      <Checkbox checked={selected} onCheckedChange={checked => onChange(checked === true)} />
-      <span className="grid min-w-0 flex-1 gap-2">
-        <span className="break-words text-sm font-semibold leading-5">
-          {localizedJSONText(plugin.display_name, i18n.language) || plugin.id}
-        </span>
-        <span className="break-all font-mono text-[11px] text-muted-foreground">{plugin.id}</span>
-        {plugin.description ? (
-          <span className="whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
-            {localizedJSONText(plugin.description, i18n.language)}
-          </span>
-        ) : null}
-        <span className="flex flex-wrap gap-1.5 pt-1">
-          <Badge variant={plugin.active ? 'success' : 'outline'}>
-            {plugin.active
-              ? t('console.agent_library_capabilities.active_now')
-              : t('console.agent_library_capabilities.inactive_now')}
-          </Badge>
-          <Badge variant={selected ? 'secondary' : 'outline'}>
-            {selected
-              ? t('console.agent_library_capabilities.enabled_next_start')
-              : t('console.agent_library_capabilities.disabled_next_start')}
-          </Badge>
-          {restartRequired ? (
-            <Badge variant="warning">
-              <RiRestartLine aria-hidden />
-              {t('console.agent_library_capabilities.restart_required')}
-            </Badge>
-          ) : null}
-        </span>
-      </span>
-    </label>
   )
 }

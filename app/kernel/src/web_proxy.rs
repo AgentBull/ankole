@@ -48,7 +48,7 @@ impl WebProxy {
 
     /// Abort the listener and all tunnels. The caller can await the returned task.
     pub fn stop(&self) -> Option<JoinHandle<()>> {
-        let task = self.task.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let task = self.task.lock().expect("web proxy task lock").take();
         if let Some(task) = &task {
             task.abort();
         }

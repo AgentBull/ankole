@@ -21,7 +21,6 @@ defmodule Ankole.E2E.PodContentStory do
   @job_timeout 1_200_000
 
   def start!(tenant) do
-    assert :ok = Ankole.Tenants.ensure_scaffold(tenant)
     cleanup_committed_fixtures_on_exit!()
 
     ctx =

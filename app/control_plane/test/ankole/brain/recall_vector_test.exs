@@ -19,7 +19,6 @@ defmodule Ankole.Brain.RecallVectorTest do
   @dimensions 8
 
   setup do
-    allow_cache_database_access()
     AppConfigure.Cache.clear_for_test()
     on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
 
@@ -317,21 +316,18 @@ defmodule Ankole.Brain.RecallVectorTest do
   defp insert_channel! do
     now = DateTime.utc_now(:microsecond)
 
-    Repo.insert!(
-      Ankole.Conversations.Conversation.changeset(%Ankole.Conversations.Conversation{}, %{
-        id: Ecto.UUID.generate(),
-        provider_conversation_id: "test:embedding-#{System.unique_integer([:positive])}",
-        title: "Conversation",
-        last_activity_at: now,
-        kind: :external,
-        external_kind: :im_dm,
-        reply_mode: :entry,
-        metadata: %{},
-        raw_payload: %{},
-        first_seen_at: now,
-        last_seen_at: now
-      })
-    )
+    Ankole.ExternalConversationsFixtures.create_external_conversation!(%{
+      id: Ecto.UUID.generate(),
+      provider_conversation_id: "test:embedding-#{System.unique_integer([:positive])}",
+      title: "Conversation",
+      last_activity_at: now,
+      external_kind: :im_dm,
+      reply_mode: :entry,
+      metadata: %{},
+      raw_payload: %{},
+      first_seen_at: now,
+      last_seen_at: now
+    })
   end
 
   defp fake_embedding(text) do

@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.PodControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  @moduletag host: :pod
 
   import Ankole.PrincipalsFixtures
 
@@ -28,7 +29,6 @@ defmodule AnkoleWeb.PodControllerTest do
   end
 
   setup do
-    allow_cache_database_access()
     Cache.clear_for_test()
     :ok
   end
@@ -607,7 +607,11 @@ defmodule AnkoleWeb.PodControllerTest do
 
   defp stream_request(authenticated, id) do
     request =
-      Plug.Test.conn(:get, "/.internal-apis/pod/conversations/#{id}/events")
+      Plug.Test.conn(
+        :get,
+        AnkoleWeb.Plugs.RequestHost.origin(authenticated) <>
+          "/.internal-apis/pod/conversations/#{id}/events"
+      )
       |> Plug.Test.init_test_session(get_session(authenticated))
       |> put_req_header("accept", "text/event-stream")
 

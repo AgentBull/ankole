@@ -12,7 +12,6 @@ defmodule Ankole.Sessions.Queue do
 
   import Ecto.Query, warn: false
 
-  alias Ecto.Adapters.SQL
   alias Ankole.Signals.Signal
   alias Ankole.Repo
   alias Ankole.Conversations.InputTombstone
@@ -28,11 +27,19 @@ defmodule Ankole.Sessions.Queue do
   @spec lock_session_in_tx(module(), String.t(), String.t()) :: :ok
   def lock_session_in_tx(repo, agent_uid, session_id)
       when is_binary(agent_uid) and is_binary(session_id) do
-    SQL.query!(
-      repo,
-      "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
-      [agent_uid, session_id]
-    )
+    Ankole.AdvisoryLock.lock!(repo, {agent_uid, session_id})
+
+    :ok
+  end
+
+  @doc "Locks every participating session before any workspace or Signal row."
+  def lock_sessions_in_tx(repo, sessions) do
+    sessions
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.each(fn {agent_uid, session_id} ->
+      lock_session_in_tx(repo, agent_uid, session_id)
+    end)
 
     :ok
   end
@@ -163,7 +170,7 @@ defmodule Ankole.Sessions.Queue do
   Moves an Signal into the terminal dead-letter bucket.
 
   Dead-letter is reserved for real poison inputs after worker execution has
-  repeatedly failed. Normal completion still uses `completed_at`. The event
+  repeatedly failed. Normal completion transitions to `completed`. The event
   keeps a bounded, redacted copy of `reason`, so the row itself says why it
   was dead-lettered.
   """
@@ -171,33 +178,27 @@ defmodule Ankole.Sessions.Queue do
           session_commit_result()
   def mark_event_dead_letter_in_tx(
         _repo,
-        %Signal{completed_at: %DateTime{}} = signal,
+        %Signal{status: :completed} = signal,
         _dead_letter_at,
         _reason
       ),
       do: {:ok, signal}
 
-  def mark_event_dead_letter_in_tx(repo, %Signal{} = signal, dead_letter_at, reason) do
-    with {:ok, %Signal{} = event} <-
-           signal
-           |> Signal.changeset(%{
-             input_state: "dead_letter",
-             dead_letter_at: dead_letter_at,
-             dead_letter_reason: dead_letter_reason(reason)
-           })
-           |> repo.update() do
-      {:ok, event}
-    end
+  def mark_event_dead_letter_in_tx(_repo, %Signal{} = signal, dead_letter_at, reason) do
+    Ankole.Ash.update(signal, :dead_letter, %{
+      dead_letter_at: dead_letter_at,
+      dead_letter_reason: dead_letter_reason(reason)
+    })
   end
 
   defp dead_letter_reason(reason) when is_map(reason), do: Sanitizer.transport(reason)
   defp dead_letter_reason(reason), do: %{"reason" => Sanitizer.transport(reason)}
 
-  defp mark_event_completed(repo, %Signal{} = signal, attrs) when is_map(attrs) do
-    signal
-    |> Signal.changeset(attrs)
-    |> repo.update()
-  end
+  defp mark_event_completed(_repo, %Signal{status: :dead_letter}, _attrs),
+    do: {:error, :signal_already_dead_lettered}
+
+  defp mark_event_completed(_repo, %Signal{} = signal, attrs) when is_map(attrs),
+    do: Ankole.Ash.update(signal, :complete, attrs)
 
   defp completion_attrs(opts) do
     %{completed_at: Keyword.fetch!(opts, :completed_at)}
@@ -252,7 +253,7 @@ defmodule Ankole.Sessions.Queue do
       on: conversation.id == e.conversation_id and conversation.kind == :native,
       where:
         e.agent_uid == ^uid and e.session_id == ^session and
-          e.input_state == "open" and is_nil(e.completed_at),
+          e.status in [:queued, :running],
       where:
         not is_nil(e.last_attempt_at) or e.type != "conversation.message.addressed" or
           fragment("COALESCE(?->>'delivery_mode', 'steer')", e.data) != "queue" or
@@ -262,18 +263,11 @@ defmodule Ankole.Sessions.Queue do
     )
   end
 
-  def next_ready_event(uid, session, now \\ DateTime.utc_now(:microsecond), opts \\ []) do
-    if Keyword.get(opts, :strict_queue_order?, false) do
-      case oldest_open(Repo, uid, session) do
-        %Signal{} = event -> if DateTime.compare(event.available_at, now) != :gt, do: event
-        nil -> nil
-      end
-    else
-      open_query(uid, session)
-      |> where([e], e.available_at <= ^now)
-      |> limit(1)
-      |> Repo.one()
-    end
+  def next_ready_event(uid, session, now \\ DateTime.utc_now(:microsecond)) do
+    open_query(uid, session)
+    |> where([e], e.available_at <= ^now)
+    |> limit(1)
+    |> Repo.one()
   end
 
   # Accepts an explicit queue sequence for fixtures and replay tools.
@@ -333,19 +327,29 @@ defmodule Ankole.Sessions.Queue do
     if background -- existing == [], do: :ok, else: {:error, :signal_context_canceled}
   end
 
-  def stop_human_work_in_tx(repo, uid, version, now) do
-    repo.update_all(
-      from(e in Signal,
-        where:
-          e.human_uid == ^uid and e.human_access_version < ^version and e.input_state == "open" and
-            is_nil(e.completed_at) and is_nil(e.last_attempt_at)
-      ),
-      set: [
-        input_state: "dead_letter",
-        dead_letter_at: now,
-        updated_at: now,
-        dead_letter_reason: %{"reason" => "human_access_revoked"}
-      ]
-    )
+  def stop_human_work_in_tx(_repo, uid, version, now) do
+    require Ash.Query
+
+    result =
+      Signal
+      |> Ash.Query.filter(
+        human_uid == ^uid and human_access_version < ^version and status == :queued and
+          is_nil(last_attempt_at)
+      )
+      |> Ankole.Ash.bulk_update(
+        :revoke_unstarted,
+        %{
+          dead_letter_at: now,
+          dead_letter_reason: %{"reason" => "human_access_revoked"}
+        },
+        strategy: [:atomic],
+        return_records?: true,
+        return_errors?: true
+      )
+
+    case result do
+      %Ash.BulkResult{status: :success, records: records} -> {length(records), nil}
+      %Ash.BulkResult{errors: errors} -> Ankole.Repo.rollback(errors)
+    end
   end
 end

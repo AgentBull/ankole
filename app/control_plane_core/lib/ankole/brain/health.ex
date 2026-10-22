@@ -86,12 +86,12 @@ defmodule Ankole.Brain.Health do
       |> group_by([lesson], lesson.retire_reason)
       |> select([lesson], {lesson.retire_reason, count(lesson.id)})
       |> Repo.all()
-      |> Map.new()
+      |> Map.new(fn {reason, count} -> {to_string(reason), count} end)
 
     oldest_active =
       AgentSkillLesson
       |> where([lesson], is_nil(lesson.retired_at))
-      |> where([lesson], lesson.author_kind == "dreaming")
+      |> where([lesson], lesson.author_kind == :dreaming)
       |> select([lesson], min(lesson.inserted_at))
       |> Repo.one()
 

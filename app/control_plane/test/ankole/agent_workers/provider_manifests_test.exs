@@ -6,7 +6,6 @@ defmodule Ankole.AgentWorkers.ProviderManifestsTest do
   alias Ankole.AgentWorkers.Kubernetes
   alias Ankole.AgentWorkers.ProviderKind
   alias Ankole.AgentWorkers.Providers.Configuration
-  alias Ankole.AgentWorkers.Providers.Provider
   alias Ankole.AgentWorkers.WorkerBootstrap
 
   @tenant_id "01900000-0000-7000-8000-000000000001"
@@ -254,7 +253,7 @@ defmodule Ankole.AgentWorkers.ProviderManifestsTest do
         observing_since: ~U[2026-10-07 00:00:00Z]
       )
 
-    %Provider{
+    %{
       provider_id: "local",
       kind: kind.definition().kind,
       settings: settings,

@@ -18,7 +18,8 @@ test('a provider refetch keeps operator YAML and credential edits, and never see
     config: '# Operator comment\ninstance: lite\n',
     credentials: { api_token: '********' },
     is_default: false,
-    agent_count: 0
+    agent_count: 0,
+    selectable: true
   }
   const sourceKey = `provider:${provider.provider_id}`
   seedEditorDraft(model, sourceKey, workerProviderDraft(provider), false)
@@ -62,7 +63,8 @@ test('a removed stored credential is a null change until the operator keeps the 
     config: 'region: us-east-1\n',
     credentials: { sessionToken: '********' },
     is_default: false,
-    agent_count: 0
+    agent_count: 0,
+    selectable: true
   }
   seedEditorDraft(model, 'provider:aws', workerProviderDraft(provider), false)
   model.setCredential('sessionToken', null)

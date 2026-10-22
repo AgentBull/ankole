@@ -14,12 +14,101 @@ defmodule Ankole.BrowserSessionsTest do
   end
 
   setup do
-    allow_cache_database_access()
     previous = Application.get_env(:ankole, :site_identity_sources, [])
     Application.put_env(:ankole, :site_identity_sources, [{"test-site", SiteSource}])
     on_exit(fn -> Application.put_env(:ankole, :site_identity_sources, previous) end)
     {:ok, browser} = BrowserSessions.create()
     {:ok, browser: BrowserSessions.reference(browser)}
+  end
+
+  test "login actions reject scope substitution and cannot reopen a consumed transaction", %{
+    browser: browser
+  } do
+    transaction = flow(browser, :pod)
+
+    assert {:error, error} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.update(transaction, :password_ticket_in_tx, %{status: :consumed})
+             end)
+
+    assert [%Ash.Error.Invalid.NoSuchInput{input: :status}] = error.errors
+    assert Repo.get!(BrowserSessions.LoginTransaction, transaction.id).status == :pending
+
+    assert {:error, error} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.create(BrowserSessions.LoginTransaction, :begin_in_tx, %{
+                 browser_id: browser["id"],
+                 purpose: :pod,
+                 started_revision: 0,
+                 csrf_token: "scope-test",
+                 expires_at: DateTime.add(DateTime.utc_now(), 60)
+               })
+             end)
+
+    assert %{tenant_id: [_]} = errors_on(error)
+
+    assert {:ok, consumed} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.update(transaction, :consume_in_tx, %{})
+             end)
+
+    assert consumed.status == :consumed
+
+    assert {:error, _error} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.update(consumed, :reauthenticate_in_tx, %{})
+             end)
+
+    assert Repo.get!(BrowserSessions.LoginTransaction, transaction.id).status == :consumed
+  end
+
+  test "trusted Pod entry binds the held proof without refreshing it and rejects another browser",
+       %{
+         browser: browser
+       } do
+    %{principal: human} = human_fixture()
+
+    {:ok, signed_in} =
+      BrowserSessions.complete_login(browser, flow(browser, :pod).id, auth(human))
+
+    authentication = signed_in.authentication
+
+    assert {:ok, transaction} =
+             BrowserSessions.begin_login(browser, :pod, %{"kind" => "open-pod"},
+               mode: :add,
+               authentication_ref: ref(signed_in)
+             )
+
+    assert transaction.status == :pending
+    assert transaction.authentication_id == authentication.id
+    assert transaction.authentication_revision == authentication.revision
+    assert transaction.expected_authentication_id == authentication.id
+
+    Ankole.DataCase.assert_persisted_equal(
+      Repo.get!(BrowserSessions.Authentication, authentication.id),
+      authentication
+    )
+
+    {:ok, other_browser} = BrowserSessions.create()
+    count = Repo.aggregate(BrowserSessions.LoginTransaction, :count)
+
+    assert {:error, :invalid_authentication} =
+             BrowserSessions.begin_login(BrowserSessions.reference(other_browser), :pod, %{},
+               mode: :add,
+               authentication_ref: ref(signed_in)
+             )
+
+    assert Repo.aggregate(BrowserSessions.LoginTransaction, :count) == count
+
+    assert {:ok, _} = BrowserSessions.revoke(browser, ref(signed_in))
+
+    assert {:error, :browser_session_expired} =
+             BrowserSessions.begin_login(browser, :pod, %{},
+               mode: :add,
+               authentication_ref: ref(signed_in)
+             )
+
+    assert Repo.aggregate(BrowserSessions.LoginTransaction, :count) == count
   end
 
   test "default replacement cancels competing flows and the group reference grants no identity",
@@ -304,7 +393,7 @@ defmodule Ankole.BrowserSessionsTest do
                {:error, :creation_failed}
              end)
 
-    refute Repo.exists?(from t in Ankole.Tenants.Tenant, where: t.display_name == "Roll back")
+    refute Repo.exists?(from(t in Ankole.Tenants.Tenant, where: t.display_name == "Roll back"))
   end
 
   test "connecting an existing Pod requires its live proof and does not refresh old evidence", %{
@@ -418,7 +507,7 @@ defmodule Ankole.BrowserSessionsTest do
 
     {:ok, session} = Ankole.OIDC.Sessions.ensure(client.id, auth, "openid offline_access")
     assert {:ok, _} = Ankole.OIDC.Sessions.validate(session.id, client.id, human.uid, "openid")
-    Repo.delete_all(from e in ExternalIdentity, where: e.principal_uid == ^human.uid)
+    Repo.delete_all(from(e in ExternalIdentity, where: e.principal_uid == ^human.uid))
     refute BrowserSessions.identity(ref(login), tenant.id)
 
     assert {:error, :authorization_revoked} =
@@ -466,13 +555,14 @@ defmodule Ankole.BrowserSessionsTest do
   end
 
   defp bind(principal, subject) do
-    %ExternalIdentity{}
-    |> ExternalIdentity.changeset(%{
-      principal_uid: principal.uid,
-      provider: "test-site",
-      external_id: subject
-    })
-    |> Repo.insert!()
+    {:ok, identity} =
+      Ankole.PrincipalsFixtures.create_external_identity(%{
+        principal_uid: principal.uid,
+        provider: "test-site",
+        external_id: subject
+      })
+
+    identity
   end
 
   defp disable_and_restore(human) do

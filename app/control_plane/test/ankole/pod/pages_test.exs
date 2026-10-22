@@ -182,7 +182,7 @@ defmodule Ankole.Pod.PagesTest do
     {:ok, _} = Pages.restore(ctx.owner.uid, root.id)
     assert {:ok, _} = Pages.authorize(ctx.agent.uid, child.id, "page_view")
     {:ok, root} = Pages.delete(ctx.owner.uid, root.id)
-    Repo.update!(Page.changeset(root, %{purge_started_at: DateTime.utc_now(:microsecond)}))
+    Ankole.Pod.PagesFixtures.update_record!(root, :begin_purge)
     assert {:error, :cannot_restore} = Pages.restore(ctx.owner.uid, root.id)
   end
 

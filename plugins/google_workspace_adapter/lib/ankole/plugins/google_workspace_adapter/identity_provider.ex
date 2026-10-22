@@ -12,13 +12,16 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
   @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def authorization_url(config, opts) do
     with {:ok, redirect_uri} <- MapHelpers.required_opt(opts, :redirect_uri),
-         {:ok, state} <- MapHelpers.required_opt(opts, :state) do
+         {:ok, state} <- MapHelpers.required_opt(opts, :state),
+         {:ok, nonce} <- MapHelpers.required_opt(opts, :nonce) do
       {:ok,
        Auth.authorize_url(
          auth_base_url: "https://accounts.google.com",
          client_id: Map.fetch!(config, "clientID"),
          redirect_uri: redirect_uri,
          state: state,
+         nonce: nonce,
+         prompt: Keyword.get(opts, :prompt),
          scopes: get_in(config, ["oidc", "scopes"]) || ["openid", "email", "profile"],
          hd: hosted_domain_hint(config)
        )}
@@ -34,9 +37,17 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
              code: code,
              redirect_uri: Keyword.get(opts, :redirect_uri)
            ),
+         {:ok, verified} <-
+           Ankole.IdentityProviders.OIDC.verify(
+             token,
+             "https://accounts.google.com",
+             client.client_id,
+             opts
+           ),
          {:ok, claims} <- Auth.userinfo(client, token.access_token),
+         :ok <- Ankole.IdentityProviders.OIDC.bind_subject(verified, claims),
          :ok <- verify_login_claims(claims, config) do
-      {:ok, %{token: token, user: login_user(claims)}}
+      {:ok, %{token: token, user: login_user(claims), auth_time: verified["auth_time"]}}
     end
   end
 

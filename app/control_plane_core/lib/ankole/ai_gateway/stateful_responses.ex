@@ -80,7 +80,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   @spec start_planned_response_run(map()) ::
           {:ok, Message.t()}
           | {:error,
-             Ecto.Changeset.t()
+             Ash.Error.t()
              | :invalid_compaction_plan
              | :invalid_anchor
              | :invalid_conversation
@@ -159,12 +159,10 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
   @doc false
   @spec merge_generating_response_metadata(Message.t(), map()) ::
-          {:ok, Message.t()} | {:error, :response_not_generating | Ecto.Changeset.t()}
-  def merge_generating_response_metadata(%Message{status: "generating"} = message, metadata)
+          {:ok, Message.t()} | {:error, :response_not_generating | Ash.Error.t()}
+  def merge_generating_response_metadata(%Message{status: :generating} = message, metadata)
       when is_map(metadata) do
-    message
-    |> Ecto.Changeset.change(metadata: Map.merge(message.metadata || %{}, metadata))
-    |> Repo.update()
+    Ankole.Ash.update(message, :update_context, %{metadata: metadata})
   end
 
   def merge_generating_response_metadata(%Message{}, _metadata),
@@ -196,7 +194,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
                subject_uid: current.subject_uid,
                conversation_id: current.conversation_id
              }),
-           {:ok, artifact} <- CompactionArtifacts.insert_artifact_in_tx(repo, artifact_attrs),
+           {:ok, artifact} <- CompactionArtifacts.insert_artifact(artifact_attrs),
            {:ok, checkpoint} <-
              insert_checkpoint_row(
                repo,
@@ -207,15 +205,11 @@ defmodule Ankole.AIGateway.StatefulResponses do
                checkpoint_metadata
              ),
            {:ok, updated} <-
-             current
-             |> Ecto.Changeset.change(
+             Ankole.Ash.update(current, :update_context, %{
                previous_message_id: checkpoint.id,
-               metadata:
-                 (current.metadata || %{})
-                 |> Map.drop(~w(brain_context_pack brain_context_pack_claimed))
-                 |> Map.merge(injection)
-             )
-             |> repo.update(),
+               metadata: injection,
+               drop_keys: ~w(brain_context_pack brain_context_pack_claimed)
+             }),
            :ok <- notify_ai_message_deadline(repo, updated) do
         {:ok, %{checkpoint: checkpoint, message: updated}}
       else
@@ -346,8 +340,8 @@ defmodule Ankole.AIGateway.StatefulResponses do
     generating? =
       Message
       |> where([message], message.conversation_id == ^conversation_id)
-      |> where([message], message.type == "message")
-      |> where([message], message.status == "generating")
+      |> where([message], message.type == :message)
+      |> where([message], message.status == :generating)
       |> repo.exists?()
 
     if generating?, do: {:error, :response_run_in_progress}, else: :ok
@@ -387,7 +381,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
         conversation_id: conversation_id
       })
 
-    with {:ok, artifact} <- CompactionArtifacts.insert_artifact_in_tx(repo, artifact_attrs),
+    with {:ok, artifact} <- CompactionArtifacts.insert_artifact(artifact_attrs),
          {:ok, checkpoint} <-
            insert_checkpoint_row(
              repo,
@@ -417,18 +411,14 @@ defmodule Ankole.AIGateway.StatefulResponses do
          initial_content: initial_content,
          merged_metadata: merged_metadata
        }) do
-    changeset =
-      Message.changeset(%Message{}, %{
-        subject_uid: subject_uid,
-        conversation_id: conversation_id,
-        type: "message",
-        status: "generating",
-        previous_message_id: previous_message_id,
-        content: initial_content,
-        metadata: merged_metadata
-      })
-
-    with {:ok, %Message{} = message} <- repo.insert(changeset) do
+    with {:ok, %Message{} = message} <-
+           Ankole.Ash.create(Message, :start, %{
+             subject_uid: subject_uid,
+             conversation_id: conversation_id,
+             previous_message_id: previous_message_id,
+             content: initial_content,
+             metadata: merged_metadata
+           }) do
       :ok = Conversations.touch_conversation_in_tx(repo, conversation_id)
       {:ok, message}
     end

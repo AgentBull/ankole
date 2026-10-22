@@ -1,16 +1,41 @@
 defmodule Ankole.Brain.Schemas.SchemaLinkType do
-  @moduledoc """
-  One relation predicate of the instance ontology.
-  """
+  @moduledoc "A registered relation predicate and its inverse."
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
 
-  use Ankole.Schema, tenancy: :tenant
-
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-
-  schema "brain_schema_link_types" do
-    field :name, :string
-    field :inverse, :string
-    field :pack_name, :string
-    field :created_at, :utc_datetime_usec
+  postgres do
+    table("brain_schema_link_types")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:pack_name, "brain_schema_link_types_pack_name_fkey"}])
+    identity_index_names(name: "brain_schema_link_types_name_key")
   end
+
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+    )
+
+    attribute(:name, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:inverse, :string, allow_nil?: true, constraints: [trim?: false])
+    attribute(:pack_name, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:created_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
+  end
+
+  identities do
+    identity(:name, [:name])
+  end
+
+  actions do
+    defaults([:read])
+
+    create :register do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+      accept([:id, :name, :inverse, :pack_name, :created_at])
+    end
+  end
+
+  @type t :: %__MODULE__{}
 end

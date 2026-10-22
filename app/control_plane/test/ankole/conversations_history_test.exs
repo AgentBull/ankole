@@ -46,9 +46,13 @@ defmodule Ankole.ConversationsHistoryTest do
     # Keep the original accepted identity while simulating its committed removal.
     input = Repo.one!(from s in Signal, where: s.conversation_id == ^id)
 
-    Repo.update!(
-      Signal.changeset(input, %{data: Map.put(input.data, "removed", true), completed_at: now})
-    )
+    {:ok, _input} =
+      Repo.transact(fn _ ->
+        Ankole.Ash.update(input, :complete, %{
+          data: Map.put(input.data, "removed", true),
+          completed_at: now
+        })
+      end)
 
     {:ok, newest} = Conversations.get(human.uid, id)
     assert Enum.map(newest.messages, & &1.seq) == Enum.to_list(507..1006)

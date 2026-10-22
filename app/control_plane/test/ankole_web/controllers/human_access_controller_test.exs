@@ -6,7 +6,6 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
   alias Ankole.Principals.WorkAccess
 
   setup do
-    allow_cache_database_access()
     Ankole.AppConfigure.Registry.clear_for_test()
     Ankole.AppConfigure.Cache.clear_for_test()
     :ok

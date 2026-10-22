@@ -6,7 +6,6 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
   alias AnkoleWeb.Session, as: WebSession
 
   setup %{tenant: tenant, conn: conn} do
-    allow_cache_database_access()
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     %{principal: a} = human_fixture()
@@ -307,11 +306,13 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     |> pin(ref)
   end
 
-  defp unpinned_request(cookies),
-    do:
-      Enum.reduce(cookies, build_conn(), fn {name, value}, conn ->
-        Plug.Test.put_req_cookie(conn, name, value)
-      end)
+  defp unpinned_request(cookies) do
+    {:ok, tenant} = Ankole.Tenants.get(Repo.tenant_id!())
+
+    Enum.reduce(cookies, pod_conn(build_conn(), tenant), fn {name, value}, conn ->
+      Plug.Test.put_req_cookie(conn, name, value)
+    end)
+  end
 
   defp authentication_reads(read) do
     handler = {__MODULE__, make_ref()}

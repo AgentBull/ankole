@@ -64,16 +64,18 @@ defmodule Ankole.Sessions.RunTest do
         signal
       end
 
-    started = Repo.update!(Ecto.Changeset.change(started, last_attempt_at: now))
-    Repo.update!(Ecto.Changeset.change(closed, completed_at: now))
+    {:ok, started} =
+      Repo.transact(fn _repo ->
+        Ankole.Ash.update(started, :start_attempt, %{last_attempt_at: now})
+      end)
+
+    assert {:ok, _closed} =
+             Repo.transact(fn _repo ->
+               Ankole.Ash.update(closed, :complete, %{completed_at: now})
+             end)
+
     assert Ankole.Sessions.Queue.due(key, now) |> Enum.map(& &1.id) == [due.id]
     assert Ankole.Sessions.Queue.next_ready_event(key.agent_uid, key.session_id, now).id == due.id
-
-    assert is_nil(
-             Ankole.Sessions.Queue.next_ready_event(key.agent_uid, key.session_id, now,
-               strict_queue_order?: true
-             )
-           )
 
     assert Ankole.Sessions.Queue.oldest_open(Repo, key.agent_uid, key.session_id).id == first.id
 
@@ -114,9 +116,9 @@ defmodule Ankole.Sessions.RunTest do
     Repo.update!(Ecto.Changeset.change(human, access_version: human.access_version + 1))
     assert {:ok, [retained]} = Run.inject(run, [admitted, fresh])
     assert retained.id == admitted.id
-    assert Repo.reload!(fresh).input_state == "dead_letter"
+    assert Repo.reload!(fresh).status == :dead_letter
     assert {:ok, _} = Ankole.Sessions.Commands.process(key, stop)
-    assert Repo.reload!(stop).input_state == "dead_letter"
+    assert Repo.reload!(stop).status == :dead_letter
     refute Repo.reload!(event).completed_at
   end
 
@@ -125,9 +127,62 @@ defmodule Ankole.Sessions.RunTest do
     assert {:ok, run} = Admission.admit(key, event)
     assert run.event.attempt_count == 1
     assert run.epoch == 1
-    assert Repo.get!(AgentWorker, key.agent_uid) == worker
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
     assert {:ok, {:preparing, restored}} = Run.restore(run)
     assert restored.signal_id == event.id
+  end
+
+  test "suspension rejects a fresh workflow steer without failing its admitted task", %{
+    key: key,
+    event: source,
+    tenant: tenant
+  } do
+    assert {:ok, %{run: workflow}} =
+             Ankole.Workflow.create_with_dispatch(%{
+               "agent_uid" => key.agent_uid,
+               "owner_session_id" => key.session_id,
+               "source_signal_id" => source.id,
+               "source_tool_call_id" => "suspended-workflow-steer",
+               "title" => "Suspended steer",
+               "script" => "return await agent('Review the case');",
+               "reply_route" => %{"binding_name" => "bot"}
+             })
+
+    Ankole.SessionsCase.stub_workflow_drivers(workflow)
+
+    assert {:ok, %{new_calls: [call]}} =
+             Ankole.Workflow.commit_replay_pending(
+               workflow.id,
+               [%{namespace: nil, name: "agent", arguments: %{"prompt" => "Review the case"}}],
+               0
+             )
+
+    dispatch = Repo.get_by!(Signal, source_event_id: "workflow:call:#{call.id}:dispatch")
+    task_key = %{agent_uid: key.agent_uid, session_id: dispatch.session_id}
+    assert {:ok, %Run{} = admitted} = Admission.admit(task_key, dispatch)
+
+    assert {:ok, %{event: steer}} =
+             Ankole.Workflow.send_task_message(
+               workflow.id,
+               call.call_seq,
+               key.agent_uid,
+               "New input before suspension.",
+               "suspended-steer"
+             )
+
+    tenant
+    |> Ecto.Changeset.change(suspended_at: DateTime.utc_now(:microsecond))
+    |> Repo.update!()
+
+    assert {:ok, []} = Run.inject(admitted, [steer])
+    rejected = Repo.reload!(steer)
+    assert %DateTime{} = rejected.completed_at
+    assert is_nil(rejected.last_attempt_at)
+    assert rejected.status == :completed
+    assert Repo.reload!(call).status == :running
+    assert Repo.reload!(workflow).status == :running
+    refute Repo.reload!(dispatch).completed_at
+    assert Repo.reload!(dispatch).last_attempt_at == admitted.event.last_attempt_at
   end
 
   test "a takeover reclaims the old stream and rejects its driver writes (G3, G6)", %{
@@ -146,9 +201,44 @@ defmodule Ankole.Sessions.RunTest do
 
     {:ok, current} = Admission.admit(key, event)
     assert {:ok, {:preparing, _}} = Run.restore(current)
-    assert Repo.get!(Message, live.id).status == "error"
+    assert Repo.get!(Message, live.id).status == :error
     assert {:ok, :already_terminal} = ResponseCommit.commit_complete(live, [])
     assert {:error, :stale_driver} = Repo.transact(&Fence.check_in_tx(&1, old))
+  end
+
+  test "a committed round keeps its original progress when the same message is recorded again", %{
+    key: key,
+    event: event
+  } do
+    assert {:ok, run} = Admission.admit(key, event)
+    run = %{run | iteration: 1, truncated_rounds: 2, repaired: true}
+
+    assert {:ok, response} =
+             start_response_run(%{
+               subject_uid: key.agent_uid,
+               conversation_id: run.conversation.id,
+               round_state: run,
+               metadata: %{"request_metadata" => Ankole.Sessions.Run.metadata(run)}
+             })
+
+    original = Ankole.Sessions.RoundState.get(response)
+
+    assert {:ok, :ok} =
+             Repo.transact(fn repo ->
+               :ok =
+                 Ankole.Sessions.RoundState.put_in_tx(
+                   repo,
+                   %{run | iteration: 99, truncated_rounds: 99, repaired: false},
+                   response
+                 )
+
+               {:ok, :ok}
+             end)
+
+    assert Ankole.Sessions.RoundState.get(response) == original
+    assert original.iteration == 1
+    assert original.truncated_rounds == 2
+    assert original.repaired
   end
 
   test "an unrecorded call is recovered, and a recorded round is never dispatched again (G3)", %{
@@ -179,9 +269,14 @@ defmodule Ankole.Sessions.RunTest do
     assert recovered.calls == [call]
 
     assert {:ok, _receipt} =
-             Receipts.execute(run, Run.response_id(response), "c1", fn _ ->
-               {:ok, %Ankole.Sessions.ToolResult{output: "committed"}, []}
-             end)
+             Receipts.execute(
+               run,
+               Run.response_id(response),
+               "c1",
+               prepare_operation(fn _ ->
+                 {:ok, %Ankole.Sessions.ToolResult{output: "committed"}, []}
+               end)
+             )
 
     assert {:ok, {:executing_tools, recovered}} = Run.restore(run)
     assert recovered.receipts == %{"c1" => %ToolResult{output: "committed"}}
@@ -226,9 +321,14 @@ defmodule Ankole.Sessions.RunTest do
     wait = %Wait{kind: :job, job_id: 1000, command_event_id: event.id, timeout_ms: 30_000}
 
     assert {:ok, receipt} =
-             Receipts.execute(run, Run.response_id(response), "waiting", fn _ ->
-               {:ok, {:await, wait}, []}
-             end)
+             Receipts.execute(
+               run,
+               Run.response_id(response),
+               "waiting",
+               prepare_operation(fn _ ->
+                 {:ok, {:await, wait}, []}
+               end)
+             )
 
     assert {:ok, {:executing_tools, recovered}} = Run.restore(run)
     assert recovered.calls == [call]
@@ -283,14 +383,23 @@ defmodule Ankole.Sessions.RunTest do
       {:ok, response} = ResponseCommit.commit_complete(response, [call])
 
       {:ok, _} =
-        Receipts.execute(run, Run.response_id(response), Run.call_id(call), fn _repo ->
-          {:ok, %Ankole.Sessions.ToolResult{output: "committed-before-rejection"}, []}
-        end)
+        Receipts.execute(
+          run,
+          Run.response_id(response),
+          Run.call_id(call),
+          prepare_operation(fn _repo ->
+            {:ok, %Ankole.Sessions.ToolResult{output: "committed-before-rejection"}, []}
+          end)
+        )
 
       result =
         case unquote(rejection) do
           :exhausted ->
-            event |> Signal.changeset(%{attempt_count: 5}) |> Repo.update!()
+            event
+            |> AshPostgres.DataLayer.to_ecto()
+            |> Ecto.Changeset.change(%{attempt_count: 5})
+            |> Repo.update!()
+
             Admission.admit(key, event)
 
           :profile_unavailable ->
@@ -308,8 +417,8 @@ defmodule Ankole.Sessions.RunTest do
 
       case unquote(rejection) do
         :exhausted ->
-          assert Repo.reload!(event).input_state == "dead_letter"
-          assert Repo.reload!(steer).input_state == "dead_letter"
+          assert Repo.reload!(event).status == :dead_letter
+          assert Repo.reload!(steer).status == :dead_letter
 
         :profile_unavailable ->
           assert Repo.reload!(event).completed_at
@@ -344,7 +453,7 @@ defmodule Ankole.Sessions.RunTest do
     end
 
     assert {:ok, %{status: :dead_letter}} = Admission.admit(key, event, now: now)
-    assert Repo.get!(Signal, event.id).input_state == "dead_letter"
+    assert Repo.get!(Signal, event.id).status == :dead_letter
     assert {:ok, :idle} = Run.rebuild(key, now)
   end
 
@@ -357,7 +466,7 @@ defmodule Ankole.Sessions.RunTest do
     assert {:ok, %{status: :dead_letter}} = Admission.admit(key, event)
     assert {:ok, :unchanged} = Run.refund(first, :stale_driver)
     assert Repo.get!(Signal, event.id).attempt_count == 6
-    assert Repo.get!(Signal, event.id).input_state == "dead_letter"
+    assert Repo.get!(Signal, event.id).status == :dead_letter
   end
 
   test "terminal decisions consume only input that reached the model tape (G2)", %{
@@ -373,7 +482,7 @@ defmodule Ankole.Sessions.RunTest do
     assert %Signal{producer: :kernel, completed_at: %DateTime{}, turn_outcome: "silent"} =
              Repo.get!(Signal, event.id)
 
-    assert %Signal{producer: :kernel, completed_at: nil, input_state: "open"} =
+    assert %Signal{producer: :kernel, completed_at: nil, status: :running} =
              Repo.get!(Signal, steer.id)
   end
 
@@ -417,7 +526,7 @@ defmodule Ankole.Sessions.RunTest do
 
     refute Repo.exists?(
              from(m in Message,
-               where: m.conversation_id == ^old.conversation.id and m.status == "generating"
+               where: m.conversation_id == ^old.conversation.id and m.status == :generating
              )
            )
   end
@@ -436,5 +545,9 @@ defmodule Ankole.Sessions.RunTest do
         available_at: DateTime.utc_now(:microsecond)
       })
     end)
+  end
+
+  defp prepare_operation(operation) do
+    fn repo -> {:ok, [], fn -> operation.(repo) end} end
   end
 end

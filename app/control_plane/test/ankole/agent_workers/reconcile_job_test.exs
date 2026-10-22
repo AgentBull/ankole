@@ -44,12 +44,12 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
     set_row!(uid, wanted_until: nil)
     heartbeat!(uid, idle_for_ms: 5_000)
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).state == "draining"
+    assert Repo.get!(AgentWorker, uid).state == :draining
     assert Enum.any?(Agent.get(api, & &1.signals), fn {_name, signal} -> signal == "SIGTERM" end)
     close_connection!(uid)
     assert :ok = reconcile(uid)
 
-    assert %AgentWorker{state: "absent", generation: nil, token_ciphertext: nil} =
+    assert %AgentWorker{state: :absent, generation: nil, token_ciphertext: nil} =
              Repo.get!(AgentWorker, uid)
 
     assert Agent.get(api, & &1.containers) == %{}
@@ -67,13 +67,13 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
     heartbeat!(uid, idle_for_ms: 5_000)
     heartbeat!(uid, idle_for_ms: 0, active_slots: 1)
     assert :ok = reconcile(uid)
-    assert Repo.get!(AgentWorker, uid).state == "ready"
+    assert Repo.get!(AgentWorker, uid).state == :ready
 
     heartbeat!(uid, idle_for_ms: 5_000)
 
     assert :ok = reconcile(uid)
 
-    assert %AgentWorker{state: "draining", drain_reason: "idle_release"} =
+    assert %AgentWorker{state: :draining, drain_reason: "idle_release"} =
              Repo.get!(AgentWorker, uid)
   end
 
@@ -122,7 +122,7 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
 
     assert :ok = reconcile(uid)
     assert Repo.get!(AgentWorker, uid).generation == first.generation
-    assert Repo.get!(AgentWorker, uid).state == "ready"
+    assert Repo.get!(AgentWorker, uid).state == :ready
     assert {:ok, ^old_endpoints} = Providers.connection_endpoints(uid)
 
     assert {:ok, response} =
@@ -183,7 +183,7 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
     Agent.update(api, &%{&1 | hold_kill: true})
 
     set_row!(uid,
-      state: "draining",
+      state: :draining,
       drain_reason: "replacement",
       state_changed_at: DateTime.add(DateTime.utc_now(), -120)
     )
@@ -200,7 +200,7 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
     set_row!(uid, wanted_until: nil, initial_start_pending: false)
     assert :ok = reconcile(uid)
     assert :ok = reconcile(uid)
-    assert %AgentWorker{state: "absent", last_error: nil} = Repo.get!(AgentWorker, uid)
+    assert %AgentWorker{state: :absent, last_error: nil} = Repo.get!(AgentWorker, uid)
     assert {:wait, :starting} = AgentWorkers.workspace_status(uid)
 
     :ok = AgentWorkers.request(uid)
@@ -227,11 +227,11 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
     assert :ok = reconcile(uid)
     join!(uid)
     first = Repo.get!(AgentWorker, uid)
-    set_row!(uid, state: "stale", transport_route: nil)
+    set_row!(uid, state: :stale, transport_route: nil)
     age_state!(uid, 60)
     observe_since!(minutes_ago: 1)
     assert :ok = reconcile(uid)
-    assert %AgentWorker{state: "stale", generation: generation} = Repo.get!(AgentWorker, uid)
+    assert %AgentWorker{state: :stale, generation: generation} = Repo.get!(AgentWorker, uid)
     assert generation == first.generation
     assert Agent.get(api, & &1.signals) == []
   end

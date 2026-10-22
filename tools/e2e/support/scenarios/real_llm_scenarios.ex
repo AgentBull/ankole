@@ -166,9 +166,24 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     refute tool_result_error?(fetch_call)
 
     fetch_result = fetch_call.result
-    assert %{"raw" => fetch_output} = fetch_result
-    assert fetch_output =~ "Example Domain"
+
+    assert %{
+             "results" => [
+               %{
+                 "url" => "https://example.com",
+                 "title" => "Example Domain",
+                 "text" => fetch_output,
+                 "total_bytes" => total_bytes,
+                 "source" => "rendered_fallback",
+                 "next_offset" => nil,
+                 "repeat_fetch" => false
+               }
+             ]
+           } = fetch_result
+
+    assert is_binary(fetch_output)
     assert fetch_output =~ "documentation examples"
+    assert total_bytes == byte_size(fetch_output)
 
     called_tools =
       messages
@@ -398,11 +413,11 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert {:ok, %BackgroundAgentJob{} = job} =
              wait_until(deadline(1_500_000), fn ->
                case Repo.get(BackgroundAgentJob, job.id) do
-                 %BackgroundAgentJob{status: "succeeded"} = completed ->
+                 %BackgroundAgentJob{status: :succeeded} = completed ->
                    completed
 
                  %BackgroundAgentJob{status: status} = failed
-                 when status in ["failed", "stopped"] ->
+                 when status in [:failed, :stopped] ->
                    flunk("""
                    real background Agent Job Tool Search verification ended as #{status}.
                    background_agent_jobs=#{inspect(background_agent_job_debug(input.id), limit: :infinity, printable_limit: 8_000)}
@@ -446,7 +461,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       )
 
     assert turns != []
-    assert List.last(turns).status == "completed"
+    assert List.last(turns).status == :completed
     assert Enum.all?(turns, &(&1.trajectory["format"] == "ankole_chatml"))
 
     trajectory_messages = Enum.flat_map(turns, &job_turn_trajectory_messages/1)
@@ -554,8 +569,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                1. Call show_background_job_details with the returned Job ID and verify both ANKOLE_CODEX_PPTX_JOB_DONE and ANKOLE_PPTX_AGENTS_CONTEXT in the result.
                2. Create the parent directory for #{pptx_path} if needed. Copy #{@pptx_name} from the exact Job Workspace reported by the completion notification to that path. Do not guess or use another Job directory.
                3. Independently run officecli validate and officecli view in outline mode against #{pptx_path} with the command tool.
-               4. Call reply_attachment with path=#{inspect(pptx_path)}, name=#{inspect(@pptx_name)}, and mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation".
-               5. Include ANKOLE_CODEX_PPTX_REAL_OK in your reply.
+               4. Save the verified file to this conversation's drive with the command tool: run ankole-files put with local path #{inspect(pptx_path)} and a drive path made by appending #{@pptx_name} to the exact "Current drive directory" from your runtime context. Do not use another conversation's directory or an absolute Worker path as the drive path.
+               5. Call reply_attachment with drive_path set to the exact relative path returned by ankole-files put, name=#{inspect(@pptx_name)}, and mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation".
+               6. Include ANKOLE_CODEX_PPTX_REAL_OK in your reply.
 
                Do not create the deck yourself and do not use web research.
                """,
@@ -613,11 +629,11 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert {:ok, %BackgroundAgentJob{} = job} =
              wait_until(deadline(1_500_000), fn ->
                case Repo.get(BackgroundAgentJob, job.id) do
-                 %BackgroundAgentJob{status: "succeeded"} = completed ->
+                 %BackgroundAgentJob{status: :succeeded} = completed ->
                    completed
 
                  %BackgroundAgentJob{status: status} = failed
-                 when status in ["failed", "stopped"] ->
+                 when status in [:failed, :stopped] ->
                    flunk("""
                    real background agent job PPTX job ended as #{status}.
                    background_agent_jobs=#{inspect(background_agent_job_debug(input.id), limit: :infinity, printable_limit: 12_000)}
@@ -642,7 +658,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       )
 
     assert turns != []
-    assert List.last(turns).status == "completed"
+    assert List.last(turns).status == :completed
 
     assert Enum.any?(turns, fn turn ->
              Enum.any?(job_turn_trajectory_messages(turn), fn message ->
@@ -688,7 +704,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
         )
       )
 
-    if is_nil(wakeup_event.completed_at) do
+    if wakeup_event.status in [:queued, :running] do
       assert {:ok, _result} =
                ensure_input_driver!(
                  wakeup_event,
@@ -704,8 +720,20 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       nil -> :ok
     end
 
+    wakeup_messages = ai_messages_for_signal(wakeup_event.id)
+
+    assert [attachment_result] =
+             wakeup_messages
+             |> tool_results("reply_attachment")
+             |> Enum.reject(&tool_result_error?/1)
+
+    refute tool_result_error?(attachment_result)
+    drive_path = Map.fetch!(attachment_result.arguments, "drive_path")
+    assert drive_path == Ankole.Files.chat_path(input.conversation_id, @pptx_name)
+
     assert [attachment] = intent.payload["attachments"]
-    assert "sent/" <> _digest_and_name = attachment["path"]
+    assert %{"attachments" => [^attachment]} = attachment_result.result
+    assert attachment["path"] == drive_path
     assert Path.basename(attachment["path"]) == @pptx_name
     assert is_binary(attachment["blob_ref"])
     assert attachment["name"] == @pptx_name
@@ -715,7 +743,18 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     assert attachment["size"] > 1_000
 
-    wakeup_messages = ai_messages_for_signal(wakeup_event.id)
+    pptx_content = DockerWorker.exec!(container, ["cat", pptx_job_path])
+
+    assert attachment["blob_ref"] ==
+             Base.encode16(:crypto.hash(:sha256, pptx_content), case: :lower)
+
+    assert attachment["size"] == byte_size(pptx_content)
+
+    assert {:ok, %{agent_uid: file_agent_uid, path: ^drive_path}, ^pptx_content} =
+             Ankole.Files.read(agent.uid, drive_path)
+
+    assert file_agent_uid == agent.uid
+
     assert [details_result] = tool_results(wakeup_messages, "show_background_job_details")
     assert details_result.arguments == %{"job_id" => job.id, "result_offset" => 0}
     refute tool_result_error?(details_result)
@@ -732,6 +771,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert %{name: @pptx_name, content: uploaded_content} =
              FakeFeishu.State.uploaded_file(fake_feishu.state, file_key)
 
+    assert uploaded_content == pptx_content
     assert byte_size(uploaded_content) == attachment["size"]
     assert binary_part(uploaded_content, 0, 2) == "PK"
     assert [%{"provider_file_key" => ^file_key}] = sent.payload["attachments"]
@@ -875,7 +915,17 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     drive_path = attachment["path"]
     assert Path.basename(drive_path) == "vision-dog.jpeg"
-    assert String.starts_with?(drive_path, "inbox/")
+
+    Ankole.FilesFixtures.assert_stored_attachment!(
+      agent.uid,
+      input.conversation_id,
+      attachment,
+      vision_image_jpeg(),
+      "vision-dog.jpeg"
+    )
+
+    assert {:ok, %{message_id: stored_message_id}} = Ankole.Files.fetch(agent.uid, drive_path)
+    assert stored_message_id == input.message_id
 
     assert {:ok, %Signal{} = input} =
              wait_until(deadline(10_000), fn ->
@@ -1057,7 +1107,6 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
             description: "Deterministic Tool Search and code-mode verification tools"
             transport: "stdio"
             command: "bun #{server_path}"
-            timeout_ms: 30000
       """
     )
 

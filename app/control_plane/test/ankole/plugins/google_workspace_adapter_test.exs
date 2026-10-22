@@ -45,6 +45,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
   """
 
   setup do
+    Req.Test.set_req_test_to_shared()
     # Earlier suites in the same run may clear the global AppConfigure
     # registries, so config-key writes re-register this plugin's patterns.
     AppConfigureRegistry.clear_for_test()
@@ -193,6 +194,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
       assert {:ok, url} =
                IdentityProvider.authorization_url(config,
                  redirect_uri: "https://ankole.example.com/cb",
+                 nonce: "nonce-1",
                  state: "state-1"
                )
 
@@ -237,6 +239,13 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
 
     test "exchange_code trades the code, reads userinfo, and enforces the domain" do
       {:ok, config} = Config.validate_identity_config(identity_config())
+      auth_time = System.system_time(:second)
+
+      {id_token, jwks} =
+        Ankole.OIDCClientFixture.token("https://accounts.google.com", "client-1", %{
+          "sub" => "103200300400500600700",
+          "auth_time" => auth_time
+        })
 
       Req.Test.stub(__MODULE__, fn conn ->
         case conn.request_path do
@@ -245,7 +254,12 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
             form = URI.decode_query(body)
             assert form["grant_type"] == "authorization_code"
             assert form["code"] == "code-1"
-            Req.Test.json(conn, %{"access_token" => "at-1", "expires_in" => 3599})
+
+            Req.Test.json(conn, %{
+              "access_token" => "at-1",
+              "expires_in" => 3599,
+              "id_token" => id_token
+            })
 
           "/v1/userinfo" ->
             assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer at-1"]
@@ -257,13 +271,17 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
               "hd" => "example.com",
               "name" => "Ada Lovelace"
             })
+
+          _discovery ->
+            Ankole.OIDCClientFixture.discovery(conn, "https://accounts.google.com", jwks)
         end
       end)
 
       use_req_test!()
 
-      assert {:ok, %{user: user}} =
+      assert {:ok, %{user: user, auth_time: ^auth_time}} =
                IdentityProvider.exchange_code(config, "code-1",
+                 nonce: "nonce-1",
                  redirect_uri: "https://ankole.example.com/cb"
                )
 
@@ -275,10 +293,17 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
     test "exchange_code rejects accounts outside the allowed domains" do
       {:ok, config} = Config.validate_identity_config(identity_config())
 
+      {id_token, jwks} =
+        Ankole.OIDCClientFixture.token("https://accounts.google.com", "client-1", %{"sub" => "42"})
+
       Req.Test.stub(__MODULE__, fn conn ->
         case conn.request_path do
           "/token" ->
-            Req.Test.json(conn, %{"access_token" => "at-1", "expires_in" => 3599})
+            Req.Test.json(conn, %{
+              "access_token" => "at-1",
+              "expires_in" => 3599,
+              "id_token" => id_token
+            })
 
           "/v1/userinfo" ->
             Req.Test.json(conn, %{
@@ -286,6 +311,9 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
               "email" => "mallory@gmail.com",
               "email_verified" => true
             })
+
+          _discovery ->
+            Ankole.OIDCClientFixture.discovery(conn, "https://accounts.google.com", jwks)
         end
       end)
 
@@ -293,6 +321,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
 
       assert {:error, :not_workspace_account} =
                IdentityProvider.exchange_code(config, "code-1",
+                 nonce: "nonce-1",
                  redirect_uri: "https://ankole.example.com/cb"
                )
     end

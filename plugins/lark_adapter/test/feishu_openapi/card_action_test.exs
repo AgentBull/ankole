@@ -165,6 +165,60 @@ defmodule FeishuOpenAPI.CardActionTest do
   end
 
   describe "handler dispatch" do
+    test "callback errors keep private causes in telemetry and safe diagnostics in logs" do
+      owner = self()
+      handler_id = {__MODULE__, make_ref()}
+      telemetry_event = [:feishu_openapi, :card_action, :handler_error]
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          telemetry_event,
+          fn name, _, metadata, pid ->
+            if self() == pid, do: send(pid, {name, metadata})
+          end,
+          owner
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      secret = "private-card-action-should-not-escape"
+
+      for {kind, failure} <- [error: "Elixir.ArgumentError", throw: "throw", exit: "exit"] do
+        handler =
+          Handler.new(
+            handler: fn action ->
+              value = action.action["private"]
+
+              case kind do
+                :error -> :erlang.binary_to_integer(value)
+                :throw -> throw(value)
+                :exit -> exit(value)
+              end
+            end
+          )
+
+        log =
+          ExUnit.CaptureLog.capture_log([format: "$metadata$message\n", metadata: :all], fn ->
+            assert {:error, {:handler_crashed, cause}} =
+                     Handler.dispatch(handler, {:decoded, %{"action" => %{"private" => secret}}})
+
+            if kind == :error,
+              do: assert(%ArgumentError{} = cause),
+              else: assert(cause == {kind, secret})
+
+            assert_receive {^telemetry_event, %{kind: ^kind, reason: reason, stacktrace: frames}}
+            assert is_list(frames)
+            assert reason == if(kind == :error, do: cause, else: secret)
+          end)
+
+        assert log =~ "feishu_openapi.card_action.handler_crashed"
+        assert log =~ "failure=#{failure}"
+        assert log =~ "card_action_test.exs:"
+        refute log =~ secret
+      end
+    end
+
     test "rejects the removed signature bypass option" do
       assert_raise ArgumentError, ~r/unknown keys/, fn ->
         Handler.new(skip_sign_verify: true)

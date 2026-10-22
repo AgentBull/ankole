@@ -1,51 +1,68 @@
 defmodule Ankole.Principals.ExternalIdentity do
-  @moduledoc """
-  Durable binding from a provider-scoped external subject to a Principal.
-  """
+  @moduledoc false
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals.Domain
 
-  use Ankole.Schema, tenancy: :tenant
+  postgres do
+    table("principal_external_identities")
+    repo(Ankole.Repo)
+    migrate?(false)
+    identity_index_names(subject: "principal_external_identities_provider_identity_index")
+    foreign_key_names([{:principal_uid, "principal_external_identities_principal_uid_fkey"}])
 
-  import Ecto.Changeset
-  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
+    unique_index_names([
+      {[:provider, :external_id], "principal_external_identities_provider_identity_index"}
+    ])
 
-  alias Ankole.Ecto.JSONPayload
-  alias Ankole.Principals.Principal
-
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-  @foreign_key_type :string
-  @timestamps_opts [type: :utc_datetime_usec]
-
-  @provider_format ~r/\A[a-z][a-z0-9_-]*\z/
-
-  schema "principal_external_identities" do
-    belongs_to :principal, Principal,
-      foreign_key: :principal_uid,
-      references: :uid,
-      type: Ankole.Ecto.PrincipalKey
-
-    field :provider, :string
-    field :external_id, :string
-    field :metadata, :map, default: %{}
-
-    timestamps()
+    check_constraints do
+      check_constraint(:provider, "principal_external_identities_provider_format")
+      check_constraint(:metadata, "principal_external_identities_metadata_object")
+    end
   end
 
-  @doc """
-  Builds a changeset for external identity rows.
-  """
-  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
-  def changeset(external_identity, attrs) do
-    external_identity
-    |> cast(attrs, [:principal_uid, :provider, :external_id, :metadata])
-    |> normalize_blank([:provider, :external_id])
-    |> validate_required([:principal_uid, :provider, :external_id, :metadata])
-    |> JSONPayload.validate_map(:metadata)
-    |> validate_format(:provider, @provider_format)
-    |> foreign_key_constraint(:principal_uid)
-    |> unique_constraint(:external_id,
-      name: :principal_external_identities_provider_identity_index
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      public?: true,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0
     )
-    |> check_constraint(:provider, name: :principal_external_identities_provider_format)
-    |> check_constraint(:metadata, name: :principal_external_identities_metadata_object)
+
+    attribute(:principal_uid, Ankole.Ash.Types.PrincipalKey, public?: true, allow_nil?: false)
+    attribute(:provider, :string, public?: true, allow_nil?: false)
+    attribute(:external_id, :string, public?: true, allow_nil?: false)
+    attribute(:metadata, Ankole.Ash.Types.JSONMap, public?: true, allow_nil?: false, default: %{})
+    timestamps(type: :utc_datetime_usec)
   end
+
+  identities do
+    identity(:subject, [:provider, :external_id])
+  end
+
+  relationships do
+    belongs_to :principal, Ankole.Principals.Principal do
+      source_attribute(:principal_uid)
+      destination_attribute(:uid)
+      define_attribute?(false)
+    end
+  end
+
+  validations do
+    validate(match(:provider, ~r/\A[a-z][a-z0-9_-]*\z/))
+  end
+
+  actions do
+    defaults([:read])
+
+    create :bind_in_tx do
+      accept([:principal_uid, :provider, :external_id, :metadata])
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+    end
+
+    in_tx_update :observe_in_tx do
+      accept([:metadata])
+    end
+  end
+
+  @type t :: %__MODULE__{}
 end

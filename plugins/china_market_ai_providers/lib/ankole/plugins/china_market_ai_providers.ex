@@ -1,6 +1,6 @@
 defmodule Ankole.Plugins.ChinaMarketAIProviders do
   @moduledoc """
-  China-market AI Gateway providers.
+  China-market model and Worker providers.
   """
 
   @behaviour Ankole.Plugins.Plugin
@@ -31,8 +31,8 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders do
   @impl true
   def description do
     %{
-      "default" => "Adds support for more china-market model providers.",
-      "zh-Hans-CN" => "添加对更多的国内模型算力厂商的支持。"
+      "default" => "Adds China-market model providers and Alibaba Function Compute Workers.",
+      "zh-Hans-CN" => "提供国内模型适配器和阿里云函数计算 Worker。"
     }
   end
 
@@ -46,7 +46,14 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders do
         display_name: module.provider_definition().label,
         module: module
       }
-    end)
+    end) ++
+      [
+        %{
+          contract_id: "agent_workers.provider_kind",
+          id: "function_compute",
+          module: Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute
+        }
+      ]
   end
 
   @impl true

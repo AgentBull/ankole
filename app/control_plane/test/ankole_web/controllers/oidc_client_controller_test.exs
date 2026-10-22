@@ -143,7 +143,6 @@ defmodule AnkoleWeb.OIDCClientControllerTest do
   end
 
   test "logout delivery controls show stored results and reject a different Client", %{conn: conn} do
-    allow_cache_database_access()
     Ankole.AppConfigure.Registry.clear_for_test()
     Ankole.AppConfigure.Cache.clear_for_test()
     conn = console_conn(conn)
@@ -192,9 +191,14 @@ defmodule AnkoleWeb.OIDCClientControllerTest do
            |> post("/api/v1/oidc-clients/#{other.id}/logout-deliveries/#{id}/retries", %{})
            |> json_response(404)
 
-    Ankole.Repo.get!(Ankole.OIDC.LogoutDelivery, id)
-    |> Ecto.Changeset.change(status: :failed)
-    |> Ankole.Repo.update!()
+    assert {:ok, _} =
+             Ankole.Repo.transact(fn _repo ->
+               Ankole.Ash.update(
+                 Ankole.Repo.get!(Ankole.OIDC.LogoutDelivery, id),
+                 :exhaust_in_tx,
+                 %{}
+               )
+             end)
 
     response =
       conn

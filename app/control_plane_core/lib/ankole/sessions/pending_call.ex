@@ -6,7 +6,6 @@ defmodule Ankole.Sessions.PendingCall do
     :activity,
     :tool,
     :args,
-    :span,
     :wait,
     :worker_name,
     :continue,
@@ -34,7 +33,7 @@ defmodule Ankole.Sessions.PendingCall do
       Enum.any?(pending, fn {_id, p} -> p.status != :queued and p.sequential? end) or
         (sequential? and active > 0)
 
-  def start(pending, id, call, tool, args, span, sequential?),
+  def start(pending, id, call, tool, args, sequential?),
     do:
       Map.update!(
         pending,
@@ -44,7 +43,6 @@ defmodule Ankole.Sessions.PendingCall do
           | call: call,
             tool: tool,
             args: args,
-            span: span,
             sequential?: sequential?,
             status: :running
         }

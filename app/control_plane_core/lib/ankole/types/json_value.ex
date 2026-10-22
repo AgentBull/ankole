@@ -32,7 +32,10 @@ defmodule Ankole.Types.JSONValue do
 
   defp json_value?(nil), do: true
   defp json_value?(value) when is_boolean(value), do: true
-  defp json_value?(value) when is_binary(value), do: true
+
+  defp json_value?(value) when is_binary(value),
+    do: String.valid?(value) and :binary.match(value, <<0>>) == :nomatch
+
   defp json_value?(value) when is_integer(value), do: true
   defp json_value?(value) when is_float(value), do: true
   defp json_value?(values) when is_list(values), do: Enum.all?(values, &json_value?/1)
@@ -44,7 +47,9 @@ defmodule Ankole.Types.JSONValue do
   # on load), so atom-keyed maps are rejected on the way in too.
   defp json_value?(value) when is_map(value) do
     not is_struct(value) and
-      Enum.all?(value, fn {key, nested} -> is_binary(key) and json_value?(nested) end)
+      Enum.all?(value, fn {key, nested} ->
+        is_binary(key) and json_value?(key) and json_value?(nested)
+      end)
   end
 
   defp json_value?(_value), do: false

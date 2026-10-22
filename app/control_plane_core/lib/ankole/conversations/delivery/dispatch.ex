@@ -62,11 +62,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
             (entry.status == :pending and is_nil(entry.platform_send_started_at)) or
               (entry.status == :failed and entry.next_attempt_at <= ^now and
                  entry.attempt_count < entry.max_attempts and
-                 fragment("coalesce(?->>'state', '')", entry.recovery_state) not in [
-                   "blocked",
-                   "permanent",
-                   "exhausted"
-                 ]) or
+                 is_nil(entry.recovery_status) and not entry.possible_duplicate) or
               (entry.status == :pending and entry.platform_send_started_at <= ^recovery_before),
           where: not exists(subquery(active_jobs)),
           select: map(entry, [:agent_uid, :binding_name, :outbound_key, :tenant_id])
@@ -320,21 +316,19 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
              repo
            ) do
         %Signal{} = event ->
-          refreshed =
-            terminal_presentation_from_latest_checkpoint(
-              event,
-              original,
-              intent.payload["metadata"]
-            )
+          with {:ok, refreshed} <-
+                 terminal_presentation_from_latest_checkpoint(
+                   event,
+                   original,
+                   intent.payload["metadata"]
+                 ) do
+            if refreshed == original do
+              {:ok, intent}
+            else
+              payload = Map.put(intent.payload, "reply_presentation", refreshed)
 
-          if refreshed == original do
-            {:ok, intent}
-          else
-            payload = Map.put(intent.payload, "reply_presentation", refreshed)
-
-            intent
-            |> Intent.changeset(%{payload: payload})
-            |> repo.update()
+              Ankole.Ash.update(intent, :prepare, %{payload: payload})
+            end
           end
 
         nil ->
@@ -349,12 +343,19 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
 
   defp terminal_presentation_from_latest_checkpoint(_event, original, %{
          "reason" => "context_withdrawn"
-       }),
-       do: original
+       }) do
+    state = Map.get(original, "state")
+
+    if state in ReplyPresentation.terminal_states() do
+      {:ok, original}
+    else
+      {:error, {:reply_presentation_not_terminal, state}}
+    end
+  end
 
   defp terminal_presentation_from_latest_checkpoint(event, original, _metadata) do
+    state = Map.get(original, "state")
     latest = Ankole.Conversations.Delivery.reply_presentation_checkpoint(event)
-    state = Map.get(original, "state") || "completed"
 
     answer =
       if state == "stopped" do
@@ -363,20 +364,16 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
         Map.get(original, "answer") || ""
       end
 
-    latest
-    |> ReplyPresentation.terminal(state, answer, preserve_interaction_from: original)
-    |> preserve_empty_stopped_answer(state, answer)
-    |> merge_terminal_meta(original)
+    case ReplyPresentation.fetch_terminal(latest, state, answer,
+           preserve_interaction_from: original
+         ) do
+      {:ok, refreshed} ->
+        {:ok, merge_terminal_meta(refreshed, original)}
+
+      {:error, {:invalid_terminal_state, invalid}} ->
+        {:error, {:reply_presentation_not_terminal, invalid}}
+    end
   end
-
-  # A stopped rich reply is useful with status and progress metadata alone. The text
-  # fallback remains available to providers that cannot render the rich card,
-  # but a late preview checkpoint must not turn that fallback concern into a
-  # fabricated answer.
-  defp preserve_empty_stopped_answer(presentation, "stopped", ""),
-    do: Map.put(presentation, "answer", "")
-
-  defp preserve_empty_stopped_answer(presentation, _state, _answer), do: presentation
 
   defp merge_terminal_meta(presentation, original) do
     original_meta = Map.get(original, "meta")
@@ -405,13 +402,11 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
           }
         }
         when is_binary(provider_message_id) ->
-          intent
-          |> Intent.changeset(%{
+          Ankole.Ash.update(intent, :prepare, %{
             operation: :edit,
             reply_to_provider_message_id: nil,
             target_provider_message_id: provider_message_id
           })
-          |> repo.update()
 
         %Signal{} ->
           {:ok, intent}
@@ -460,9 +455,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   defp prepare_fresh_intent_dispatch(repo, intent, conversation, adapter, now) do
     if intent.expires_at && DateTime.compare(intent.expires_at, now) != :gt do
       with {:ok, expired} <-
-             intent
-             |> Intent.changeset(%{status: :expired, next_attempt_at: nil})
-             |> repo.update(),
+             Ankole.Ash.update(intent, :expire, %{}),
            :ok <- Ankole.Conversations.Delivery.Recovery.notify_intent_deadline(repo, expired),
            do: {:ok, expired}
     else
@@ -500,34 +493,24 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   # what it can do. Rewriting the row keeps the attempted operation durable, and
   # the reply anchor stays: it records what the message answers, and no adapter
   # that needs this degrade reads it.
-  defp degrade_threaded_reply(repo, %Intent{operation: :reply} = intent, adapter) do
+  defp degrade_threaded_reply(_repo, %Intent{operation: :reply} = intent, adapter) do
     case Ankole.Conversations.Delivery.effective_operation(:reply, Adapter.capabilities(adapter)) do
       :reply ->
         {:ok, intent}
 
       operation ->
-        intent
-        |> Intent.changeset(%{operation: operation})
-        |> repo.update()
+        Ankole.Ash.update(intent, :prepare, %{operation: operation})
     end
   end
 
   defp degrade_threaded_reply(_repo, %Intent{} = intent, _adapter), do: {:ok, intent}
 
-  # Guard clauses encode the status machine's "may I attempt this now?" rules:
-  # fresh rows go; failed or uncertain rows go only if retries remain and the
-  # deadline has passed; a row already :pending is refused (another dispatcher
-  # owns it); anything terminal is not dispatchable.
-  defp dispatchable_intent?(
-         %Intent{status: :pending, platform_send_started_at: %DateTime{}},
-         _now
-       ),
-       do: {:error, :intent_send_in_progress}
-
-  defp dispatchable_intent?(%Intent{status: :pending}, _now), do: :ok
+  # The resource owns attempt admission. Dispatch also checks retry policy and time.
+  defp dispatchable_intent?(%Intent{status: :pending} = intent, _now),
+    do: Intent.check_attempt(intent)
 
   defp dispatchable_intent?(
-         %Intent{status: :failed, recovery_state: %{"state" => "blocked"}},
+         %Intent{status: :failed, recovery_status: :blocked},
          _now
        ),
        do: {:error, :intent_operator_action_required}
@@ -535,42 +518,27 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   defp dispatchable_intent?(
          %Intent{
            status: :failed,
-           recovery_state: %{"state" => state}
+           recovery_status: state
          },
          _now
        )
-       when state in ["permanent", "exhausted"],
+       when state in [:permanent, :exhausted],
        do: {:error, :intent_manual_requeue_required}
 
-  defp dispatchable_intent?(
-         %Intent{
-           status: status,
-           attempt_count: attempts,
-           max_attempts: max
-         },
-         _now
-       )
-       when status == :failed and attempts >= max,
-       do: {:error, :intent_attempts_exhausted}
+  defp dispatchable_intent?(%Intent{status: :failed, possible_duplicate: true}, _now),
+    do: {:error, :intent_manual_requeue_required}
 
-  defp dispatchable_intent?(
-         %Intent{status: status, next_attempt_at: nil},
-         _now
-       )
-       when status == :failed,
-       do: {:error, :intent_not_dispatchable}
+  defp dispatchable_intent?(%Intent{status: :failed} = intent, now) do
+    with :ok <- Intent.check_attempt(intent) do
+      case intent.next_attempt_at do
+        nil ->
+          {:error, :intent_not_dispatchable}
 
-  defp dispatchable_intent?(
-         %Intent{
-           status: status,
-           next_attempt_at: %DateTime{} = next_attempt_at
-         },
-         now
-       )
-       when status == :failed do
-    case DateTime.compare(next_attempt_at, now) do
-      :gt -> {:error, :intent_not_due}
-      _ready -> :ok
+        %DateTime{} = next_attempt_at ->
+          if DateTime.compare(next_attempt_at, now) == :gt,
+            do: {:error, :intent_not_due},
+            else: :ok
+      end
     end
   end
 
@@ -659,28 +627,19 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   # crash, so recovery marks them unknown instead of repeating the operation.
   defp mark_intent_sending(repo, intent, now) do
     with {:ok, %Intent{} = intent} <-
-           intent
-           |> Intent.changeset(%{
-             status: :pending,
-             platform_send_started_at: now,
-             attempt_count: intent.attempt_count + 1,
-             next_attempt_at: nil
-           })
-           |> repo.update(),
+           Ankole.Ash.update(intent, :start_attempt, %{platform_send_started_at: now}),
          :ok <- Ankole.Conversations.Delivery.Recovery.notify_intent_deadline(repo, intent) do
       {:ok, intent}
     end
   end
 
-  defp mark_intent_unsupported(repo, intent) do
-    intent
-    |> Intent.changeset(%{
-      status: :failed,
+  defp mark_intent_unsupported(_repo, intent) do
+    Ankole.Ash.update(intent, :fail, %{
       next_attempt_at: nil,
       last_error: %{"code" => "unsupported_operation"},
-      recovery_state: %{"state" => "permanent", "reason" => "unsupported_operation"}
+      recovery_status: :permanent,
+      recovery_reason: "unsupported_operation"
     })
-    |> repo.update()
   end
 
   # A durable AI reply whose adapter declares a reply-preview module is the

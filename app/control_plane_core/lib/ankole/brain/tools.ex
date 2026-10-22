@@ -464,16 +464,12 @@ defmodule Ankole.Brain.Tools do
   # reuses the Source unchanged, and the response reports the scope that
   # actually applies. Changing it afterwards is a Console decision.
   defp find_or_register_url_source(url, scope) do
-    case Sources.get_or_create(%{
-           kind: "url",
-           upstream_id: url,
-           name: url,
-           default_audience_scope: scope
-         }) do
-      {:ok, source} -> {:ok, source}
-      {:error, %Ecto.Changeset{}} -> {:error, :source_registration_failed}
-      {:error, _reason} = error -> error
-    end
+    Sources.get_or_create(%{
+      kind: "url",
+      upstream_id: url,
+      name: url,
+      default_audience_scope: scope
+    })
   end
 
   defp forget_target(params) do

@@ -1,5 +1,5 @@
 defmodule Ankole.Kernel.AppletRuntimeTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Ankole.Kernel.AppletRuntime
 
@@ -114,6 +114,43 @@ defmodule Ankole.Kernel.AppletRuntimeTest do
     after
       if Process.alive?(pid), do: Process.exit(pid, :kill)
       Process.demonitor(monitor, [:flush])
+    end
+  end
+
+  test "fifth concurrent invocation returns synchronous applet_busy without panicking on BEAM scheduler" do
+    source = "export default {'POST /orders/:id':()=>AnkoleRuntime.db.query('t',{})}"
+
+    active =
+      for _ <- 1..4 do
+        {:ok, handle, run_id} = AppletRuntime.start(source, @context, timeout_ms: 10_000)
+        assert_receive {:applet_runtime, ^run_id, :call, _id, "db.query", _}, 2_000
+        {handle, run_id}
+      end
+
+    try do
+      assert {:error,
+              {:applet_busy,
+               %{
+                 "status" => 503,
+                 "body" => %{
+                   "error" => %{
+                     "code" => "applet_busy",
+                     "message" => "Applet runtime is at capacity"
+                   }
+                 }
+               }}} = AppletRuntime.start(source, @context, timeout_ms: 1_000)
+
+      assert {:error,
+              %{
+                "status" => 503,
+                "code" => "applet_busy",
+                "message" => "Applet runtime is at capacity"
+              }} = AppletRuntime.inspect("export default {'GET /':()=>1}")
+    after
+      Enum.each(active, fn {handle, run_id} ->
+        AppletRuntime.cancel(handle)
+        assert_receive {:applet_runtime, ^run_id, :done, _}, 2_000
+      end)
     end
   end
 end

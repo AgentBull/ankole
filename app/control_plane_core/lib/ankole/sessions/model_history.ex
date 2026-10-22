@@ -308,10 +308,10 @@ defmodule Ankole.Sessions.ModelHistory do
              repo,
              conversation.subject_uid,
              conversation.id,
-             statuses: ["complete", "generating"],
+             statuses: [:complete, :generating],
              lock: true
            ) do
-      complete_responses = Enum.filter(responses, &(&1.status == "complete"))
+      complete_responses = Enum.filter(responses, &(&1.status == :complete))
 
       case select_visible_signal_suffix(complete_responses, signal_id) do
         {:noop, reason} ->
@@ -320,7 +320,7 @@ defmodule Ankole.Sessions.ModelHistory do
         {:ok, suffix} ->
           generating_responses =
             Enum.filter(responses, fn response ->
-              response.status == "generating" and
+              response.status == :generating and
                 ordinary_response?(response) and
                 response_signal_id(response) == signal_id
             end)
@@ -370,7 +370,7 @@ defmodule Ankole.Sessions.ModelHistory do
              repo,
              conversation.subject_uid,
              conversation.id,
-             statuses: ["complete"],
+             statuses: [:complete],
              lock: true
            ) do
       case select_visible_signal_suffix(responses, signal_id) do
@@ -445,7 +445,7 @@ defmodule Ankole.Sessions.ModelHistory do
       MapSet.member?(seen, response.id) ->
         []
 
-      response.type == "checkpoint" ->
+      response.type == :checkpoint ->
         [response]
 
       true ->
@@ -523,7 +523,7 @@ defmodule Ankole.Sessions.ModelHistory do
   defp response_signal_id(%Message{} = response),
     do: AIGateway.response_metadata(response)["signal_id"]
 
-  defp ordinary_response?(%Message{type: "message"}), do: true
+  defp ordinary_response?(%Message{type: :message}), do: true
   defp ordinary_response?(_response), do: false
 
   defp validate_response_id("resp_" <> uuid) do
@@ -540,10 +540,10 @@ defmodule Ankole.Sessions.ModelHistory do
       response_id(final) != final_response_id ->
         {:error, :final_response_mismatch}
 
-      final.type != "message" ->
+      final.type != :message ->
         {:error, :final_response_not_message}
 
-      final.status != "complete" ->
+      final.status != :complete ->
         {:error, :final_response_not_terminal_success}
 
       true ->
@@ -593,7 +593,7 @@ defmodule Ankole.Sessions.ModelHistory do
   end
 
   defp invalid_chain_row?(%Message{} = message, turn_ref) do
-    message.subject_uid != turn_ref.agent_uid or message.status != "complete"
+    message.subject_uid != turn_ref.agent_uid or message.status != :complete
   end
 
   defp chain_depth_exceeded?(turn_chain) do
@@ -617,7 +617,7 @@ defmodule Ankole.Sessions.ModelHistory do
                repo,
                session_key.agent_uid,
                conversation.id,
-               statuses: ["generating"],
+               statuses: [:generating],
                lock: true
              ) do
           {:ok, responses} ->
@@ -670,7 +670,7 @@ defmodule Ankole.Sessions.ModelHistory do
                repo,
                session_key.agent_uid,
                conversation.id,
-               statuses: ["generating", "complete", "error"],
+               statuses: [:generating, :complete, :error],
                lock: true
              ) do
           {:ok, responses} ->
@@ -678,7 +678,7 @@ defmodule Ankole.Sessions.ModelHistory do
             |> Enum.filter(&(signal_id in response_signal_ids(&1)))
             |> Enum.all?(fn response ->
               exact_response_owner?(response, signal_id) and
-                (response.status != "error" or response_replay_safe?(response))
+                (response.status != :error or response_replay_safe?(response))
             end)
 
           {:error, _} ->

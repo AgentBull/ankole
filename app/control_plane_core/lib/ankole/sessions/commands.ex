@@ -10,6 +10,7 @@ defmodule Ankole.Sessions.Commands do
   tool calls or results.
   """
   import Ecto.Query
+  require Ash.Query
   alias Ankole.{I18n, Repo}
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.Sessions.Fence
@@ -111,9 +112,14 @@ defmodule Ankole.Sessions.Commands do
 
   def process(key, event) do
     case Ankole.Sessions.Admission.authorize_event(event) do
-      {:ok, %{input_state: "open"} = event} -> process_authorized(key, event)
-      {:ok, event} -> {:ok, %{status: :dead_letter, signal: event}}
-      error -> error
+      {:ok, %{status: live_status} = event} when live_status in [:queued, :running] ->
+        process_authorized(key, event)
+
+      {:ok, event} ->
+        {:ok, %{status: :dead_letter, signal: event}}
+
+      error ->
+        error
     end
   end
 
@@ -130,7 +136,8 @@ defmodule Ankole.Sessions.Commands do
 
     Repo.transact(fn repo ->
       with :ok <- Queue.lock_session_in_tx(repo, key.agent_uid, key.session_id),
-           %Signal{completed_at: nil, input_state: "open"} = current <-
+           %Signal{status: live_status} = current
+           when live_status in [:queued, :running] <-
              PreviewState.load(
                Ankole.Signals.lock_signal_in_tx(repo, event.id),
                repo
@@ -166,7 +173,8 @@ defmodule Ankole.Sessions.Commands do
       Repo.transact(fn repo ->
         with :ok <- Queue.lock_session_in_tx(repo, run.agent_uid, run.session_id),
              :ok <- Fence.check_in_tx(repo, run),
-             %Signal{completed_at: nil, input_state: "open"} = current <-
+             %Signal{status: live_status} = current
+             when live_status in [:queued, :running] <-
                PreviewState.load(
                  Ankole.Signals.lock_signal_in_tx(repo, event.id),
                  repo
@@ -209,7 +217,8 @@ defmodule Ankole.Sessions.Commands do
     now = DateTime.utc_now(:microsecond)
 
     Repo.transact(fn repo ->
-      with :ok <- Fence.check_in_tx(repo, run),
+      with :ok <- Run.lock_for_write_in_tx(repo, run),
+           :ok <- Fence.check_in_tx(repo, run),
            {:ok, _} <-
              ModelHistory.retract_generating_turn_in_tx(
                repo,
@@ -230,28 +239,32 @@ defmodule Ankole.Sessions.Commands do
                now,
                preserve_tool_history: true
              ) do
-        if history.status == :preserved do
-          with {:ok, _} <- repo.update(Signal.changeset(event, %{last_attempt_at: now})) do
-            {:ok, Run.reset(run)}
-          end
-        else
-          with {:ok, _} <-
-                 Queue.complete_command_event_in_tx(repo, event, completed_at: now) do
-            repo.update_all(
-              from(e in Signal, where: e.id in ^[run.signal_id | run.steer_event_ids]),
-              set: [
-                attempt_count: 0,
-                provider_capacity_attempt_count: 0,
-                last_attempt_at: nil,
-                available_at: now
-              ]
-            )
-
-            {:ok, :retry}
-          end
-        end
+        commit_current_retry_in_tx(repo, run, event, history.status, now)
       end
     end)
+  end
+
+  defp commit_current_retry_in_tx(_repo, run, event, :preserved, now) do
+    with {:ok, _} <- Ankole.Ash.update(event, :start_attempt, %{last_attempt_at: now}),
+         do: {:ok, Run.reset(run)}
+  end
+
+  defp commit_current_retry_in_tx(repo, run, event, _history_status, now) do
+    ids = [run.signal_id | run.steer_event_ids]
+
+    with {:ok, _} <- Queue.complete_command_event_in_tx(repo, event, completed_at: now),
+         %Ash.BulkResult{status: :success} <-
+           Signal
+           |> Ash.Query.filter(id in ^ids)
+           |> Ankole.Ash.bulk_update(:reset_attempts, %{available_at: now},
+             strategy: [:atomic],
+             return_errors?: true
+           ) do
+      {:ok, :retry}
+    else
+      %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+      {:error, _} = error -> error
+    end
   end
 
   defp stop_and_process(run, event) do
@@ -288,7 +301,8 @@ defmodule Ankole.Sessions.Commands do
 
   def workflow_failure(run, failure) do
     Repo.transact(fn repo ->
-      with :ok <- Fence.check_in_tx(repo, run),
+      with :ok <- Run.lock_for_write_in_tx(repo, run),
+           :ok <- Fence.check_in_tx(repo, run),
            {:ok, result} <-
              Ankole.Workflow.submit_result_in_tx(
                repo,
@@ -304,7 +318,8 @@ defmodule Ankole.Sessions.Commands do
 
   def workflow_error(run, error) do
     Repo.transact(fn repo ->
-      with :ok <- Fence.check_in_tx(repo, run),
+      with :ok <- Run.lock_for_write_in_tx(repo, run),
+           :ok <- Fence.check_in_tx(repo, run),
            {:ok, _} <- Run.record_pending_in_tx(repo, run),
            do:
              Ankole.Workflow.compensate_turn_error_in_tx(
@@ -619,7 +634,7 @@ defmodule Ankole.Sessions.Commands do
            id: signal_id,
            agent_uid: agent_uid,
            session_id: session_id,
-           completed_at: %DateTime{},
+           status: :completed,
            final_response_id: final_response_id
          },
          now
@@ -656,7 +671,7 @@ defmodule Ankole.Sessions.Commands do
     |> where([event], event.agent_uid == ^session_key.agent_uid)
     |> where([event], event.session_id == ^session_key.session_id)
     |> lock("FOR UPDATE")
-    |> repo.one()
+    |> repo.one(lock_identity: {"signals", target_signal_id})
   end
 
   defp validate_retry_source(repo, command_event, source) do
@@ -693,11 +708,11 @@ defmodule Ankole.Sessions.Commands do
     end
   end
 
-  defp terminal_retry_source?(%Signal{input_state: "open", completed_at: %DateTime{}}),
+  defp terminal_retry_source?(%Signal{status: :completed}),
     do: true
 
   defp terminal_retry_source?(%Signal{
-         input_state: "dead_letter",
+         status: :dead_letter,
          dead_letter_at: %DateTime{}
        }),
        do: true

@@ -237,7 +237,8 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
           )
         ) : null
       }>
-      <fieldset className="contents" disabled={create.isPending}>
+      {selected && kinds.isSuccess && !definition ? <ProviderAvailability providerID={selected.provider_id} /> : null}
+      <fieldset className="contents" disabled={create.isPending || (kinds.isSuccess && !definition)}>
         <LabeledField label={t('console.worker_providers.id')} required={!providerID}>
           {providerID ? (
             <ReadOnlyValue mono>{providerID}</ReadOnlyValue>

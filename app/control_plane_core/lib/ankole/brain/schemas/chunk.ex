@@ -1,27 +1,119 @@
 defmodule Ankole.Brain.Schemas.Chunk do
   @moduledoc """
-  One retrieval unit of an object's current content. Chunks are a rebuildable
-  projection: body chunks come first, then compiled timeline chunks continue
-  the same index sequence. Each row carries exactly one audience scope.
+  One current retrieval position. A changed position invalidates its embedding;
+  a model result can replace vector state only while its input still matches.
   """
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
 
-  use Ankole.Schema, tenancy: :tenant
+  postgres do
+    table("brain_chunks")
+    repo(Ankole.Repo)
+    migrate?(false)
+    identity_index_names(object_position: "brain_chunks_object_position_key")
+    foreign_key_names([{:object_id, "brain_chunks_object_id_fkey"}])
 
-  alias Ankole.Brain.Schemas.Object
-
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-
-  schema "brain_chunks" do
-    belongs_to :object, Object, type: Ankole.Ecto.UUIDv7
-    field :chunk_index, :integer
-    field :content_kind, :string, default: "body"
-    field :audience_scope, :string
-    field :chunk_text, :string
-    field :token_count, :integer
-    field :embedding, Pgvector.Ecto.Vector
-    field :embedding_signature, :string
-    field :embedding_error, :string
-    field :embedded_at, :utc_datetime_usec
-    field :created_at, :utc_datetime_usec
+    check_constraints do
+      check_constraint(:chunk_index, "brain_chunks_index_nonnegative")
+      check_constraint(:content_kind, "brain_chunks_content_kind_values")
+      check_constraint(:token_count, "brain_chunks_token_count_nonnegative")
+      check_constraint(:audience_scope, "brain_chunks_audience_scope_shape")
+      check_constraint(:embedding, "brain_chunks_embedding_state")
+    end
   end
+
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+    )
+
+    attribute(:object_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+    attribute(:chunk_index, :integer, allow_nil?: false, constraints: [min: 0])
+
+    attribute(:content_kind, Ankole.Ash.Types.State,
+      allow_nil?: false,
+      default: :body,
+      constraints: [one_of: [:body, :timeline]]
+    )
+
+    attribute(:audience_scope, :string,
+      allow_nil?: false,
+      constraints: [trim?: false]
+    )
+
+    attribute(:chunk_text, :string,
+      allow_nil?: false,
+      constraints: [trim?: false, allow_empty?: true]
+    )
+
+    attribute(:token_count, :integer, allow_nil?: false, constraints: [min: 0])
+    attribute(:embedding, Ankole.Ash.Types.Vector)
+    attribute(:embedding_signature, :string, constraints: [trim?: false, allow_empty?: true])
+    attribute(:embedding_error, :string, constraints: [trim?: false, allow_empty?: true])
+    attribute(:embedded_at, :utc_datetime_usec)
+    attribute(:created_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
+  end
+
+  identities do
+    identity(:object_position, [:object_id, :chunk_index])
+  end
+
+  actions do
+    defaults([:read])
+
+    create :project do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+
+      accept([
+        :object_id,
+        :chunk_index,
+        :content_kind,
+        :audience_scope,
+        :chunk_text,
+        :token_count
+      ])
+    end
+
+    atomic_in_tx_update :replace_projection do
+      accept([:content_kind, :audience_scope, :chunk_text, :token_count])
+      change(set_attribute(:embedding, nil))
+      change(set_attribute(:embedding_signature, nil))
+      change(set_attribute(:embedding_error, nil))
+      change(set_attribute(:embedded_at, nil))
+    end
+
+    update :record_embedding do
+      transaction?(false)
+      require_atomic?(true)
+      accept([:embedding, :embedding_signature, :embedding_error, :embedded_at])
+
+      argument(:input_text, :string,
+        allow_nil?: false,
+        constraints: [trim?: false, allow_empty?: true]
+      )
+
+      argument(:input_embedded_at, :utc_datetime_usec)
+      argument(:input_signature, :string, constraints: [trim?: false, allow_empty?: true])
+
+      change(
+        filter(
+          expr(
+            chunk_text == ^arg(:input_text) and
+              fragment("? IS NOT DISTINCT FROM ?", embedded_at, ^arg(:input_embedded_at)) and
+              fragment("? IS NOT DISTINCT FROM ?", embedding_signature, ^arg(:input_signature))
+          )
+        )
+      )
+    end
+
+    destroy :remove_projection do
+      transaction?(false)
+      require_atomic?(true)
+      change(Ankole.Ash.RequireTransaction.Atomic)
+    end
+  end
+
+  @type t :: %__MODULE__{}
 end

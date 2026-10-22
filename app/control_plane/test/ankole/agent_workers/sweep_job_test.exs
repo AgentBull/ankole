@@ -28,27 +28,27 @@ defmodule Ankole.AgentWorkers.SweepJobTest do
     provider: provider
   } do
     idle =
-      agent_in!(provider, "ready", load: %{"active_tasks" => 0, "idle_for_ms" => 16 * @minute})
+      agent_in!(provider, :ready, load: %{"active_tasks" => 0, "idle_for_ms" => 16 * @minute})
 
-    busy = agent_in!(provider, "ready", load: %{"active_tasks" => 1, "idle_for_ms" => 0})
-    wanted = agent_in!(provider, "absent", wanted: true)
-    initial = agent_in!(provider, "absent", initial_start_pending: true)
-    unwanted = agent_in!(provider, "absent")
-    starting = agent_in!(provider, "starting")
-    stale = agent_in!(provider, "stale")
-    draining = agent_in!(provider, "draining")
-    paused = agent_in!(provider, "paused")
-    other_image = agent_in!(provider, "paused", image: "worker:old")
-    other_settings = agent_in!(provider, "ready", settings_digest: "previous")
-    disabled = agent_in!(provider, "ready")
+    busy = agent_in!(provider, :ready, load: %{"active_tasks" => 1, "idle_for_ms" => 0})
+    wanted = agent_in!(provider, :absent, wanted: true)
+    initial = agent_in!(provider, :absent, initial_start_pending: true)
+    unwanted = agent_in!(provider, :absent)
+    starting = agent_in!(provider, :starting)
+    stale = agent_in!(provider, :stale)
+    draining = agent_in!(provider, :draining)
+    paused = agent_in!(provider, :paused)
+    other_image = agent_in!(provider, :paused, image: "worker:old")
+    other_settings = agent_in!(provider, :ready, settings_digest: "previous")
+    disabled = agent_in!(provider, :ready)
     {:ok, _principal} = Ankole.PrincipalsFixtures.disable_principal_fixture(disabled)
 
     turn =
-      agent_in!(provider, "ready",
+      agent_in!(provider, :ready,
         load: %{"active_slots" => 1, "active_tasks" => 1, "idle_for_ms" => 0}
       )
 
-    warm = agent_in!(provider, "absent")
+    warm = agent_in!(provider, :absent)
     Repo.delete_all(Oban.Job)
 
     assert :ok = perform_job(SweepJob, %{})
@@ -89,10 +89,10 @@ defmodule Ankole.AgentWorkers.SweepJobTest do
     foreign_provider = %{provider | provider_id: "another-installation-provider"}
     foreign = unique_uid("foreign")
     create_object!(foreign_provider, foreign, "gen-foreign")
-    mismatched = agent_in!(provider, "ready")
+    mismatched = agent_in!(provider, :ready)
     create_object!(provider, mismatched, "gen-stray")
-    missing = agent_in!(provider, "ready")
-    started_by_hand = agent_in!(provider, "paused")
+    missing = agent_in!(provider, :ready)
+    started_by_hand = agent_in!(provider, :paused)
     generation = Repo.get!(AgentWorker, started_by_hand).generation
     create_object!(provider, started_by_hand, generation)
     Repo.delete_all(Oban.Job)
@@ -115,10 +115,10 @@ defmodule Ankole.AgentWorkers.SweepJobTest do
   test "one invalid stored provider does not stop another provider or unassigned deletion", %{
     provider: provider
   } do
-    valid = agent_in!(provider, "starting")
+    valid = agent_in!(provider, :starting)
     broken = worker_provider_fixture()
     {:ok, broken_provider} = Providers.load(broken)
-    affected = agent_in!(broken_provider, "ready")
+    affected = agent_in!(broken_provider, :ready)
 
     Repo.update_all(from(p in Provider, where: p.id == ^broken.id),
       set: [config: "unknown: true\n"]
@@ -128,7 +128,7 @@ defmodule Ankole.AgentWorkers.SweepJobTest do
 
     Repo.insert!(%AgentWorker{
       agent_uid: unassigned,
-      state: "deleting",
+      state: :deleting,
       state_changed_at: DateTime.utc_now(:microsecond)
     })
 
@@ -149,7 +149,7 @@ defmodule Ankole.AgentWorkers.SweepJobTest do
 
   defp agent_in!(provider, state, opts \\ []) do
     %{principal: agent} = agent_fixture(%{worker_provider_id: provider.provider_id})
-    generation = if state in ["absent", "deleting"], do: nil, else: unique_uid("gen")
+    generation = if state in [:absent, :deleting], do: nil, else: unique_uid("gen")
 
     credential =
       if generation do
@@ -159,7 +159,7 @@ defmodule Ankole.AgentWorkers.SweepJobTest do
         %{token_digest: nil, token_ciphertext: nil}
       end
 
-    route = if state in ["ready", "draining"], do: unique_uid("sweep-route")
+    route = if state in [:ready, :draining], do: unique_uid("sweep-route")
     now = DateTime.utc_now(:microsecond)
 
     {1, _} =

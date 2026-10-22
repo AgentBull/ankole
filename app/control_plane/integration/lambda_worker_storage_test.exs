@@ -53,7 +53,7 @@ defmodule Ankole.LambdaWorkerStorageIntegrationTest do
 
       Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn -> cleanup_storage!(uids, ids, owner.uid) end)
 
-      Repo.delete!(tenant)
+      cleanup_tenant!(tenant)
     end)
 
     %{uids: uids, replacement: replacement, runtime: previous, owner: owner}
@@ -62,8 +62,8 @@ defmodule Ankole.LambdaWorkerStorageIntegrationTest do
   test "EFS survives pause, termination, and image replacement; deletion removes only its Agent",
        context do
     [uid, peer_uid] = context.uids
-    first = await_worker_state!(uid, "ready")
-    peer = await_worker_state!(peer_uid, "ready")
+    first = await_worker_state!(uid, :ready)
+    peer = await_worker_state!(peer_uid, :ready)
 
     # The peer image build can take minutes. A connection can change without
     # an instance change, so obtain the current connection before file RPCs.
@@ -85,12 +85,12 @@ defmodule Ankole.LambdaWorkerStorageIntegrationTest do
     assert {:ok, ^ref} = Lambda.create_instance(provider, %{spec | instance_ref: ref})
 
     assert {:ok, _} = Principals.delete_agent(uid)
-    paused = await_worker_state!(uid, "paused")
+    paused = await_worker_state!(uid, :paused)
     assert paused.generation == first.generation
     assert {:ok, [%{phase: :paused}]} = Lambda.list_instances(provider, uid)
     assert {:ok, _} = Principals.enable_agent(uid)
     assert :ok = AgentWorkers.request(uid)
-    resumed = await_worker_state!(uid, "ready")
+    resumed = await_worker_state!(uid, :ready)
     assert resumed.instance_ref == first.instance_ref
     assert resumed.incarnation_id == first.incarnation_id
     assert_proof!(resumed, "HOME-BEFORE-PAUSE")
@@ -110,13 +110,13 @@ defmodule Ankole.LambdaWorkerStorageIntegrationTest do
                :now
              )
 
-    recovered = await_worker_state!(uid, "ready", resumed.generation)
+    recovered = await_worker_state!(uid, :ready, resumed.generation)
     refute recovered.instance_ref == resumed.instance_ref
     assert_proof!(recovered, "HOME-BEFORE-TERMINATION")
 
     put_proof!(recovered, "HOME-BEFORE-IMAGE-CHANGE")
     :ok = Config.put(context.runtime |> Map.to_list() |> Keyword.put(:image, context.replacement))
-    changed = await_worker_state!(uid, "ready", recovered.generation)
+    changed = await_worker_state!(uid, :ready, recovered.generation)
     assert changed.image == context.replacement
     assert_proof!(changed, "HOME-BEFORE-IMAGE-CHANGE")
     assert {:ok, _} = Principals.delete_agent(uid)

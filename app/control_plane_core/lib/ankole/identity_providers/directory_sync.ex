@@ -181,7 +181,7 @@ defmodule Ankole.IdentityProviders.DirectorySync do
       Logging.warning(
         "identity_providers.realtime_reconcile.failed",
         "identity provider realtime reconcile failed",
-        %{module: inspect(module), reason: inspect({kind, reason})}
+        Logging.failure_fields(kind, reason, __STACKTRACE__) |> Map.put(:module, module)
       )
 
       {:ok, {:error, {kind, reason}}}
@@ -193,7 +193,7 @@ defmodule Ankole.IdentityProviders.DirectorySync do
     Logging.warning(
       "identity_providers.realtime_reconcile.completed_with_errors",
       "identity provider realtime reconcile completed with errors",
-      %{module: inspect(module), errors: errors}
+      %{module: module, error_count: length(errors)}
     )
   end
 

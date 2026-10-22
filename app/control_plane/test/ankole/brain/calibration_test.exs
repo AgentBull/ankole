@@ -12,7 +12,6 @@ defmodule Ankole.Brain.CalibrationTest do
   alias Ankole.Repo
 
   setup do
-    allow_cache_database_access()
     AppConfigure.Cache.clear_for_test()
     on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
 
@@ -174,6 +173,7 @@ defmodule Ankole.Brain.CalibrationTest do
     assert %{candidates: 0} = Calibration.grade_takes()
 
     take
+    |> AshPostgres.DataLayer.to_ecto()
     |> Ecto.Changeset.change(created_at: ~U[2020-01-01 00:00:00.000000Z])
     |> Repo.update!()
 
@@ -215,13 +215,14 @@ defmodule Ankole.Brain.CalibrationTest do
   test "successful input hashes persist and unchanged grades skip the model", context do
     take = write_take!(context.member, %{object_slug: context.object.slug}, "Legacy prediction")
 
-    take
-    |> Ecto.Changeset.change(
-      graded_quality: "partial",
-      graded_confidence: 0.5,
-      graded_at: ~U[2020-01-01 00:00:00.000000Z]
-    )
-    |> Repo.update!()
+    {:ok, _} =
+      Repo.transact(fn _ ->
+        Ankole.Ash.update(take, :record_grade, %{
+          graded_quality: "partial",
+          graded_confidence: 0.5,
+          graded_at: ~U[2020-01-01 00:00:00.000000Z]
+        })
+      end)
 
     assert %{status: :ok, attempted: 1, graded: 1} = Calibration.grade_takes()
     assert_receive {:calibration_prompt, _prompt}, 1_000
@@ -233,7 +234,7 @@ defmodule Ankole.Brain.CalibrationTest do
     assert graded.graded_quality == "unresolvable"
 
     assert %{status: :ok, candidates: 1, attempted: 0, graded: 0} = Calibration.grade_takes()
-    assert Repo.get!(Claim, take.id) == graded
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(Claim, take.id), graded)
     refute_receive {:calibration_prompt, _prompt}, 0
 
     [entry] = context.provider.credential_pool["entries"]
@@ -244,7 +245,7 @@ defmodule Ankole.Brain.CalibrationTest do
              })
 
     assert %{attempted: 0, graded: 0} = Calibration.grade_takes()
-    assert Repo.get!(Claim, take.id) == graded
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(Claim, take.id), graded)
     refute_receive {:calibration_prompt, _prompt}, 0
   end
 
@@ -304,6 +305,7 @@ defmodule Ankole.Brain.CalibrationTest do
 
     facts
     |> List.first()
+    |> AshPostgres.DataLayer.to_ecto()
     |> Ecto.Changeset.change(claim: "Old evidence outside the prompt changed")
     |> Repo.update!()
 
@@ -388,7 +390,7 @@ defmodule Ankole.Brain.CalibrationTest do
 
     assert %{attempted: 1, graded: 0} = Calibration.grade_takes()
     assert_receive {:calibration_prompt, _prompt}, 1_000
-    assert Repo.get!(Claim, take.id) == previous
+    Ankole.DataCase.assert_persisted_equal(Repo.get!(Claim, take.id), previous)
 
     assert %{attempted: 1, graded: 1} = Calibration.grade_takes()
     assert_receive {:calibration_prompt, _prompt}, 1_000
@@ -679,20 +681,17 @@ defmodule Ankole.Brain.CalibrationTest do
   defp insert_channel! do
     now = DateTime.utc_now(:microsecond)
 
-    Repo.insert!(
-      Ankole.Conversations.Conversation.changeset(%Ankole.Conversations.Conversation{}, %{
-        id: Ecto.UUID.generate(),
-        provider_conversation_id: "test:calibration-#{System.unique_integer([:positive])}",
-        title: "Conversation",
-        last_activity_at: now,
-        kind: :external,
-        external_kind: :im_dm,
-        reply_mode: :entry,
-        metadata: %{},
-        raw_payload: %{},
-        first_seen_at: now,
-        last_seen_at: now
-      })
-    )
+    Ankole.ExternalConversationsFixtures.create_external_conversation!(%{
+      id: Ecto.UUID.generate(),
+      provider_conversation_id: "test:calibration-#{System.unique_integer([:positive])}",
+      title: "Conversation",
+      last_activity_at: now,
+      external_kind: :im_dm,
+      reply_mode: :entry,
+      metadata: %{},
+      raw_payload: %{},
+      first_seen_at: now,
+      last_seen_at: now
+    })
   end
 end

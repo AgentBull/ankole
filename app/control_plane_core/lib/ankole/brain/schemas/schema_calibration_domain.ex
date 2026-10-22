@@ -1,16 +1,41 @@
 defmodule Ankole.Brain.Schemas.SchemaCalibrationDomain do
-  @moduledoc """
-  One Take calibration domain of the instance ontology.
-  """
+  @moduledoc "An installed calibration domain and its aggregator."
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
 
-  use Ankole.Schema, tenancy: :tenant
-
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
-
-  schema "brain_schema_calibration_domains" do
-    field :name, :string
-    field :aggregator, :string
-    field :pack_name, :string
-    field :created_at, :utc_datetime_usec
+  postgres do
+    table("brain_schema_calibration_domains")
+    repo(Ankole.Repo)
+    migrate?(false)
+    foreign_key_names([{:pack_name, "brain_schema_calibration_domains_pack_name_fkey"}])
+    identity_index_names(name: "brain_schema_calibration_domains_name_key")
   end
+
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+    )
+
+    attribute(:name, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:aggregator, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:pack_name, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:created_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
+  end
+
+  identities do
+    identity(:name, [:name])
+  end
+
+  actions do
+    defaults([:read])
+
+    create :register do
+      transaction?(false)
+      change(Ankole.Ash.RequireTransaction)
+      accept([:id, :name, :aggregator, :pack_name, :created_at])
+    end
+  end
+
+  @type t :: %__MODULE__{}
 end

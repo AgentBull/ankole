@@ -82,20 +82,6 @@ defmodule Ankole.SessionsCase do
 
       @base_time ~U[2026-07-02 01:34:05.000000Z]
       @long_lease_seconds 31_536_000
-
-      setup do
-        existing_driver_pids = Ankole.SessionsCase.driver_pids()
-
-        existing_preview_pids =
-          Ankole.SessionsCase.preview_handler_pids()
-
-        on_exit(fn ->
-          Ankole.SessionsCase.stop_new_drivers(existing_driver_pids)
-          Ankole.SessionsCase.stop_new_preview_handlers(existing_preview_pids)
-        end)
-
-        :ok
-      end
     end
   end
 
@@ -153,13 +139,18 @@ defmodule Ankole.SessionsCase do
         fn _, _, metadata, _ ->
           if String.starts_with?(metadata.query, ~s(INSERT INTO "workflow_agent_calls")) and
                run.id in metadata.params do
-            {:ok, %{columns: columns, rows: [row]}} = metadata.result
-            call_id = Enum.at(row, Enum.find_index(columns, &(&1 == "id")))
+            {:ok, %{columns: columns, rows: rows}} = metadata.result
+            id_column = Enum.find_index(columns, &(&1 == "id"))
 
-            stub_driver(
-              %{agent_uid: run.agent_uid, session_id: Ankole.Workflow.task_session_id(call_id)},
-              owner
-            )
+            Enum.each(rows, fn row ->
+              stub_driver(
+                %{
+                  agent_uid: run.agent_uid,
+                  session_id: Ankole.Workflow.task_session_id(Enum.at(row, id_column))
+                },
+                owner
+              )
+            end)
           end
         end,
         nil
@@ -266,7 +257,7 @@ defmodule Ankole.SessionsCase do
     {:ok, config} = AgentWorkersConfig.fetch()
 
     case Repo.get(AgentWorker, agent_uid) do
-      %AgentWorker{state: state} when state in ["starting", "stale", "ready"] ->
+      %AgentWorker{state: state} when state in [:starting, :stale, :ready] ->
         :ok
 
       %AgentWorker{} = worker ->
@@ -293,7 +284,7 @@ defmodule Ankole.SessionsCase do
           Repo.update_all(
             from(worker in AgentWorker, where: worker.agent_uid == ^agent_uid),
             set: [
-              state: "starting",
+              state: :starting,
               generation: generation,
               token_digest: credential.token_digest,
               token_ciphertext: credential.token_ciphertext,
@@ -361,7 +352,7 @@ defmodule Ankole.SessionsCase do
   Encodes an envelope struct into the protobuf bytes the router delivers.
   """
   def encode_fabric_envelope(%FabricProto.Envelope{} = envelope),
-    do: Ankole.Kernel.RuntimeFabric.encode_envelope(envelope)
+    do: Ankole.RuntimeFabric.encode_envelope(envelope)
 
   @doc """
   Builds a worker-originated RPC request frame carrying an encoded payload
@@ -593,15 +584,15 @@ defmodule Ankole.SessionsCase do
           lock: "FOR UPDATE"
         )
 
-      case repo.one(query) do
-        %Signal{} = signal ->
+      case repo.lock_all(query, "signals") do
+        [%Signal{} = signal] ->
           Queue.complete_signal_in_tx(
             repo,
             signal,
             Keyword.put(opts, :completed_at, completed_at)
           )
 
-        nil ->
+        [] ->
           {:error, :signal_not_found}
       end
     end)
@@ -628,7 +619,7 @@ defmodule Ankole.SessionsCase do
 
   def wait_for_worker(worker_id, worker_task, attempts) when attempts > 0 do
     case Repo.get(AgentWorker, worker_id) do
-      %AgentWorker{state: "ready"} = worker ->
+      %AgentWorker{state: :ready} = worker ->
         worker
 
       _not_ready ->

@@ -18,7 +18,6 @@ defmodule AnkoleWeb.SetupControllerTest do
 
   setup %{tenant: tenant} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
-    allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
 
@@ -88,13 +87,12 @@ defmodule AnkoleWeb.SetupControllerTest do
   test "setup state reports the forwarded origin the callback URL is built from", %{conn: conn} do
     conn =
       conn
-      |> Map.merge(%{host: "ankole.example.com", port: 80})
+      |> forwarded_https_conn()
       |> init_test_session(%{})
-      |> put_req_header("x-forwarded-proto", "https")
       |> get(~p"/.internal-apis/setup/state")
 
     assert AnkoleWeb.InternalAPIContract.json_response(conn, 200)["publicBaseURL"] ==
-             "https://ankole.example.com"
+             "https://#{conn.host}"
   end
 
   test "OIDC authorization uses the forwarded HTTPS origin for its callback", %{conn: conn} do
@@ -108,10 +106,9 @@ defmodule AnkoleWeb.SetupControllerTest do
 
     conn =
       conn
-      |> Map.merge(%{host: "ankole.example.com", port: 80})
+      |> forwarded_https_conn()
       |> init_test_session(%{})
       |> WebSession.put_setup_session()
-      |> put_req_header("x-forwarded-proto", "https")
       |> post(~p"/.internal-apis/setup/identity-providers/lark-main/oidc/authorizations")
 
     %{"authorizationURL" => authorization_url} =
@@ -125,7 +122,7 @@ defmodule AnkoleWeb.SetupControllerTest do
       |> Map.fetch!("redirect_uri")
 
     assert redirect_uri ==
-             "https://ankole.example.com/sessions/oidc/lark-main/callback"
+             "https://#{conn.host}/sessions/oidc/lark-main/callback"
 
     assert WebSession.setup_oidc_state(conn)["redirect_uri"] == redirect_uri
   end
@@ -282,7 +279,7 @@ defmodule AnkoleWeb.SetupControllerTest do
       assert AnkoleWeb.InternalAPIContract.json_response(put_conn, 200)["adapter_id"] == "local"
 
       conn =
-        post(put_conn, ~p"/.internal-apis/setup/local-admin", %{
+        post(recycle(put_conn), ~p"/.internal-apis/setup/local-admin", %{
           "email" => "Admin@Example.com",
           "password" => "hunter2-long"
         })
@@ -293,7 +290,7 @@ defmodule AnkoleWeb.SetupControllerTest do
       assert {:ok, true} = SetupConfig.completed?()
       assert get_session(conn, :setup_session) == nil
 
-      conn = get(conn, ~p"/.internal-apis/session")
+      conn = get(recycle(conn), ~p"/.internal-apis/session")
 
       assert %{
                "authenticated" => true,

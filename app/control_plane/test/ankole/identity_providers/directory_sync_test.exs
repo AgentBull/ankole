@@ -1,5 +1,6 @@
 defmodule Ankole.IdentityProviders.DirectorySyncTest do
   use Ankole.DataCase, async: false
+  import ExUnit.CaptureLog
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
@@ -13,6 +14,22 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
 
   import Ankole.IdentityProviderTestHelpers
 
+  defmodule RaisingReconciler do
+    def reconcile, do: raise(ArgumentError, "private-reconcile-request-credential")
+  end
+
+  defmodule ReportingReconciler do
+    def reconcile do
+      %{
+        started: 0,
+        stopped: 0,
+        errors: [
+          %{tenant_id: "tenant", reason: {:snapshot_failed, "private-reconcile-provider-content"}}
+        ]
+      }
+    end
+  end
+
   setup do
     AppConfigureRegistry.clear_for_test()
     Cache.clear_for_test()
@@ -21,8 +38,6 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
   test "a broken tenant cannot prevent another tenant's periodic directory sync", %{
     tenant: broken
   } do
-    allow_cache_database_access()
-
     assert {:ok, _} =
              AppConfigure.put_tenant_by_key("principals.identity_providers.active", [
                %{
@@ -51,8 +66,93 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
     assert_enqueued(worker: SyncProvider, args: %{provider_id: "healthy", tenant_id: healthy.id})
   end
 
+  test "startup keeps each tenant's enqueue failure without logging its private cause", %{
+    tenant: broken
+  } do
+    secret = "private-startup-provider-configuration"
+
+    assert {:ok, _} =
+             AppConfigure.put_tenant_by_key("principals.identity_providers.active", [
+               %{
+                 "provider_id" => "broken",
+                 "adapter_id" => secret,
+                 "plugin_id" => "missing-plugin",
+                 "config_key" => "principals.identity_providers.lark.broken",
+                 "enabled" => true
+               }
+             ])
+
+    healthy = create_tenant()
+
+    Repo.with_tenant(healthy.id, fn ->
+      assert {:ok, _} =
+               IdentityProviders.save_provider(
+                 "healthy",
+                 "lark",
+                 %{"appID" => "cli_healthy", "appSecret" => "secret"},
+                 true
+               )
+    end)
+
+    {result, log} =
+      with_log(
+        [format: "$metadata$message\n", metadata: :all],
+        fn -> StartupSync.enqueue() end
+      )
+
+    assert {:ok, %{errors: [%{tenant_id: broken_id, reason: reason}]}} = result
+    assert broken_id == broken.id
+    assert inspect(reason) =~ secret
+    assert_enqueued(worker: SyncProvider, args: %{provider_id: "healthy", tenant_id: healthy.id})
+    assert Repo.tenant_id!() == broken.id
+    assert log =~ "event=tenants.site_fanout_failed"
+    assert log =~ "failure=Elixir.ErlangError"
+    refute log =~ secret
+  end
+
+  test "reconcile exceptions retain their result and log only the class and call site" do
+    adapter = %{
+      capabilities: ["directory_realtime_sync"],
+      connection_reconciler: RaisingReconciler
+    }
+
+    {result, log} =
+      with_log(
+        [format: "$metadata$message\n", metadata: :all],
+        fn ->
+          DirectorySync.reconcile_saved_provider(adapter, %{}, true, reconcile_realtime?: true)
+        end
+      )
+
+    assert {:ok, {:error, {:error, %ArgumentError{message: message}}}} = result
+    assert message == "private-reconcile-request-credential"
+    assert log =~ "event=identity_providers.realtime_reconcile.failed"
+    assert log =~ "failure=Elixir.ArgumentError"
+    assert log =~ "RaisingReconciler.reconcile/0"
+    refute log =~ message
+  end
+
+  test "reconcile error summaries retain the original errors without logging provider content" do
+    adapter = %{
+      capabilities: ["directory_realtime_sync"],
+      connection_reconciler: ReportingReconciler
+    }
+
+    {result, log} =
+      with_log(
+        [format: "$metadata$message\n", metadata: :all],
+        fn ->
+          DirectorySync.reconcile_saved_provider(adapter, %{}, true, reconcile_realtime?: true)
+        end
+      )
+
+    assert result == {:ok, ReportingReconciler.reconcile()}
+    assert log =~ "event=identity_providers.realtime_reconcile.completed_with_errors"
+    assert log =~ "error_count=1"
+    refute log =~ "private-reconcile-provider-content"
+  end
+
   test "a provider without stored configuration fails its Oban run" do
-    allow_cache_database_access()
     key = "principals.identity_providers.missing-sync-config"
 
     definition =

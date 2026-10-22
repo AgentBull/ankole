@@ -5,7 +5,7 @@ ARG MYSQL_VERSION=9.7.2
 # versioned official image as the source, and copy only the client executable.
 FROM mysql:${MYSQL_VERSION} AS mysql-client-source
 
-FROM oven/bun:1.4.2
+FROM oven/bun:1.4.4
 
 WORKDIR /repo
 

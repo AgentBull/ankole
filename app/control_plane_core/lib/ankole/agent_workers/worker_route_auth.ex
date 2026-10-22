@@ -22,11 +22,14 @@ defmodule Ankole.AgentWorkers.WorkerRouteAuth do
       when effect in [:read, :write, :terminal] do
     case ref do
       %JobTurnRef{} ->
+        # The locked Job and attempt fence serialize cancellation and terminal
+        # writes. Lock the input only when its lifecycle mutation runs, after
+        # Turn and Session locks.
         with :ok <- lock_job_write(repo, uid, effect),
              %Job{attempts: attempt, status: status} <-
                job(repo, ref, effect),
-             true <- attempt == ref.attempt and (status == "running" or effect == :terminal),
-             :ok <- input(repo, ref, status != "running", opts) do
+             true <- attempt == ref.attempt and (status == :running or effect == :terminal),
+             :ok <- input(repo, ref, status != :running, Keyword.delete(opts, :lock)) do
           {:ok, :authorized}
         else
           {:error, _} = error -> error
@@ -51,7 +54,7 @@ defmodule Ankole.AgentWorkers.WorkerRouteAuth do
   defp job(repo, ref, effect) do
     query = from j in Job, where: j.id == ^ref.job_id and j.agent_uid == ^ref.agent_uid
     query = if effect == :read, do: query, else: lock(query, "FOR UPDATE")
-    repo.one(query)
+    repo.one(query, lock_identity: {"background_agent_jobs", ref.job_id})
   end
 
   defp admitted_access(_repo, %{last_attempt_at: %DateTime{}}), do: :ok
@@ -64,16 +67,33 @@ defmodule Ankole.AgentWorkers.WorkerRouteAuth do
           e.id == ^ref.signal_id and e.agent_uid == ^ref.agent_uid and
             e.session_id == ^ref.session_id
 
-    query = if Keyword.get(opts, :lock, false), do: lock(query, "FOR UPDATE"), else: query
-
     case repo.one(query) do
-      %Signal{} = event ->
-        if terminal? or (event.input_state == "open" and is_nil(event.completed_at)),
-          do: admitted_access(repo, event),
-          else: {:error, :run_closed}
+      %Signal{} = snapshot ->
+        with :ok <- input_open(snapshot, terminal?),
+             :ok <- admitted_access(repo, snapshot),
+             %Signal{} = event <- lock_input(repo, query, snapshot, opts),
+             true <- WorkAccess.fields(event) == WorkAccess.fields(snapshot),
+             :ok <- input_open(event, terminal?) do
+          :ok
+        else
+          {:error, _} = error -> error
+          _ -> {:error, :run_closed}
+        end
 
       nil ->
         {:error, :run_closed}
     end
+  end
+
+  defp lock_input(repo, query, snapshot, opts) do
+    if Keyword.get(opts, :lock, false),
+      do: repo.one(lock(query, "FOR UPDATE"), lock_identity: {"signals", snapshot.id}),
+      else: snapshot
+  end
+
+  defp input_open(event, terminal?) do
+    if terminal? or event.status in [:queued, :running],
+      do: :ok,
+      else: {:error, :run_closed}
   end
 end

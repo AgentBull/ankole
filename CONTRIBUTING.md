@@ -647,6 +647,17 @@ The nesting limit is 4 and the cyclomatic complexity limit is 20.
 `bun run analyze:unused` checks production files, exports, types, and
 dependencies; tests do not retain dead production code.
 
+The build applies the pinned Ash 3.36.1 and AshPostgres 2.15.1 patches before
+dependency compilation. The build needs `patch`; the Docker build installs it.
+A failed patch stops the build. The fixes prevent false notification warnings
+and handle skipped upserts whose row is not visible in the selected tenant.
+Check the public action behavior when updating these dependencies. Remove each
+patch when an upstream release includes its fix.
+
+Credo checks that bulk actions use `Ankole.Ash` and that resource mutation
+filters use `change(filter(...))`. Resource compilation checks the tenant and
+transaction contracts. Database tests check the resulting isolation and writes.
+
 After you change compile-time dependencies, run this check from
 `app/control_plane`:
 
@@ -1000,6 +1011,12 @@ only approved temporary resources and keep credentials in temporary files
 outside the repository. Both need two different target images and a reachable
 HTTPS/WebSocket test control plane. They preserve unresolved rows if cleanup
 fails; retain the test database until cleanup is complete.
+
+Vercel requires the `vercel-worker-provider` Control Plane Plugin. Function
+Compute requires `china-market-ai-providers`. Before running either cloud
+suite, save its Plugin ID in `plugins.enabled_ids` in that suite's database
+partition and restart the test process. Keep the Plugin enabled through Agent
+and storage cleanup. The suite checks this activation policy before cloud I/O.
 
 - Vercel: `ANKOLE_VERCEL_TEST_TOKEN_FILE`, `ANKOLE_VERCEL_TEST_TEAM_ID`,
   `ANKOLE_VERCEL_TEST_PROJECT_ID`, `ANKOLE_VERCEL_TEST_REGION`,

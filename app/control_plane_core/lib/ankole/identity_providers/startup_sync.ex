@@ -4,7 +4,6 @@ defmodule Ankole.IdentityProviders.StartupSync do
   """
 
   alias Ankole.IdentityProviders.DirectorySync
-  alias Ankole.Logging
 
   def child_spec(opts) do
     %{
@@ -19,23 +18,11 @@ defmodule Ankole.IdentityProviders.StartupSync do
     Task.start_link(fn -> enqueue(opts) end)
   end
 
-  @spec enqueue(keyword()) :: {:ok, map()} | {:error, term()}
+  @spec enqueue(keyword()) :: {:ok, map()}
   def enqueue(opts \\ []) when is_list(opts) do
     reason = Keyword.get(opts, :reason, "control_plane_started")
     source = Keyword.get(opts, :source, "startup")
 
-    case DirectorySync.enqueue_site_directory_syncs(reason: reason, source: source) do
-      {:ok, _result} = ok ->
-        ok
-
-      {:error, reason} = error ->
-        Logging.warning(
-          "identity_providers.startup_sync.enqueue_failed",
-          "identity provider startup full sync enqueue failed",
-          %{reason: inspect(reason)}
-        )
-
-        error
-    end
+    DirectorySync.enqueue_site_directory_syncs(reason: reason, source: source)
   end
 end

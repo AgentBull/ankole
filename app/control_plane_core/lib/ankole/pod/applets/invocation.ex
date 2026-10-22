@@ -39,22 +39,31 @@ defmodule Ankole.Pod.Applets.Invocation do
     monitor = Process.monitor(owner)
     started = System.monotonic_time(:millisecond)
 
-    with {:ok, handle, run_id} <- AppletRuntime.start(source, context, limits) do
-      try do
-        outcome =
-          receive_loop(handle, run_id, monitor, context, authority, %{}) |> normalize_error()
+    case AppletRuntime.start(source, context, limits) do
+      {:ok, handle, run_id} ->
+        try do
+          outcome =
+            receive_loop(handle, run_id, monitor, context, authority, %{}) |> normalize_error()
 
-        log_outcome(context, started, outcome)
+          finish_outcome(context, started, outcome)
+        after
+          AppletRuntime.cancel(handle)
+        end
 
-        if context["principal"]["kind"] == "agent",
-          do: outcome,
-          else: Map.drop(outcome, ["logs", "debug"])
-      after
-        AppletRuntime.cancel(handle)
-      end
-    else
-      _ -> failed()
+      {:error, {:applet_busy, outcome}} ->
+        finish_outcome(context, started, normalize_error(outcome))
+
+      _ ->
+        failed()
     end
+  end
+
+  defp finish_outcome(context, started, outcome) do
+    log_outcome(context, started, outcome)
+
+    if context["principal"]["kind"] == "agent",
+      do: outcome,
+      else: Map.drop(outcome, ["logs", "debug"])
   end
 
   defp normalize_error(%{"status" => status, "body" => %{"error" => error}} = outcome)

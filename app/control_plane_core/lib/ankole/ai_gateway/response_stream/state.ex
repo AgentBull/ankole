@@ -187,13 +187,8 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   terminal accumulates every round.
   """
   @spec round_output_items(t(), map()) :: [map()]
-  def round_output_items(%__MODULE__{tool_loop: %StreamLoop{} = loop}, event),
-    do: StreamLoop.round_output_items(loop, terminal_response(event))
-
-  def round_output_items(%__MODULE__{} = state, event) do
-    terminal_items = event |> terminal_response() |> Map.get("output") |> map_items()
-    terminal_items_or_accumulated(chronological(state.public_items), terminal_items)
-  end
+  def round_output_items(%__MODULE__{} = state, event),
+    do: StreamLoop.round_output_items(state.tool_loop, terminal_response(event))
 
   defp terminal_response(%{"response" => %{} = response}), do: response
   defp terminal_response(_event), do: %{}
@@ -209,21 +204,26 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   end
 
   @doc """
+  Returns whether the response has a local effect before its first provider round.
+  """
+  @spec initial_local_effect?(t()) :: boolean()
+  def initial_local_effect?(%__MODULE__{} = state),
+    do: StreamLoop.initial_local_effect?(state.tool_loop)
+
+  @doc """
   Takes the local effects that precede the first provider round.
   """
   @spec take_initial_local_effect(t()) :: {:ok, t(), [map()], [map()], map()}
-  def take_initial_local_effect(%__MODULE__{tool_loop: %StreamLoop{}} = state) do
+  def take_initial_local_effect(%__MODULE__{} = state) do
     {state, lifecycle_events} = ensure_public_lifecycle(state)
     {:ok, jobs, context, tool_loop} = StreamLoop.take_initial_local_effect(state.tool_loop)
     {:ok, %{state | tool_loop: tool_loop}, lifecycle_events, jobs, context}
   end
 
-  defp ensure_public_lifecycle(
-         %__MODULE__{tool_loop: %StreamLoop{}, public_lifecycle_started?: true} = state
-       ),
-       do: {state, []}
+  defp ensure_public_lifecycle(%__MODULE__{public_lifecycle_started?: true} = state),
+    do: {state, []}
 
-  defp ensure_public_lifecycle(%__MODULE__{tool_loop: %StreamLoop{}} = state) do
+  defp ensure_public_lifecycle(%__MODULE__{} = state) do
     response_id = cleanup_response_id(state)
     sequence = next_public_sequence(state)
 
@@ -268,7 +268,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     {state, Enum.reverse(reversed_events), status}
   end
 
-  defp observe_public_event(%{tool_loop: %StreamLoop{}} = state, event, fallback_sequence) do
+  defp observe_public_event(state, event, fallback_sequence) do
     case StreamLoop.observe(state.tool_loop, event) do
       {:suppress, tool_loop} ->
         {%{state | tool_loop: tool_loop}, [], :continue}
@@ -278,55 +278,45 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     end
   end
 
-  defp observe_public_event(state, event, fallback_sequence),
-    do: observe_planned_public_event(state, event, fallback_sequence)
-
   defp observe_planned_public_event(state, event, fallback_sequence) do
     terminal? = event["type"] in @terminal_event_types
 
     {event, sequence} =
-      case state.tool_loop do
-        %StreamLoop{} when terminal? ->
-          {event, nil}
-
-        %StreamLoop{} ->
-          if is_nil(event["sequence_number"]) do
-            {event, nil}
-          else
-            sequence = next_public_sequence(state)
-            {Map.put(event, "sequence_number", sequence), sequence}
-          end
-
-        nil ->
-          {event, public_sequence_number(event, fallback_sequence)}
+      if terminal? or is_nil(event["sequence_number"]) do
+        {event, nil}
+      else
+        sequence = next_public_sequence(state, event)
+        {Map.put(event, "sequence_number", sequence), sequence}
       end
 
     state = state |> remember_provider_response_id(event) |> account_tool_calls(event)
 
     if terminal? do
-      state = if is_nil(state.tool_loop), do: put_public_sequence(state, sequence), else: state
       event = reconcile_terminal_item_snapshots(state, event)
       event = filter_unadmitted_tool_items(state, event)
-      observe_terminal_event(state, event, sequence)
+      observe_terminal_event(state, event, fallback_sequence)
     else
-      observe_non_terminal_event(state, event, sequence)
+      observe_non_terminal_event(state, event, sequence, fallback_sequence)
     end
   end
 
-  defp put_public_sequence(%{tool_loop: %StreamLoop{}} = state, nil), do: state
+  defp put_public_sequence(state, nil), do: state
   defp put_public_sequence(state, sequence), do: %{state | sequence_number: sequence}
 
   defp observe_non_terminal_event(
          state,
          %{"item" => %{} = _item} = event,
-         sequence
+         sequence,
+         fallback_sequence
        ) do
     if MaxToolCalls.event_item_admitted?(state.max_tool_calls, event, budget_scope(state)) do
       {state, event} = map_provider_item_identity(state, event)
       {state, event} = map_provider_output_index(state, event)
 
       state =
-        state |> put_public_sequence(sequence) |> remember_non_terminal_event(event, sequence)
+        state
+        |> put_public_sequence(sequence)
+        |> remember_non_terminal_event(event, sequence || fallback_sequence)
 
       public_event = rewrite_response_id(event, state)
       {state, [public_event], :continue}
@@ -344,7 +334,8 @@ defmodule Ankole.AIGateway.ResponseStream.State do
            "type" => "response.image_generation_call.completed",
            "item_id" => upstream_id
          } = event,
-         sequence
+         sequence,
+         fallback_sequence
        )
        when is_binary(upstream_id) and upstream_id != "" do
     item = %{"type" => "image_generation_call", "id" => upstream_id}
@@ -355,7 +346,9 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       event = Map.put(event, "item_id", public_id)
 
       state =
-        state |> put_public_sequence(sequence) |> remember_non_terminal_event(event, sequence)
+        state
+        |> put_public_sequence(sequence)
+        |> remember_non_terminal_event(event, sequence || fallback_sequence)
 
       {state, [rewrite_response_id(event, state)], :continue}
     else
@@ -363,11 +356,13 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     end
   end
 
-  defp observe_non_terminal_event(state, event, sequence) do
+  defp observe_non_terminal_event(state, event, sequence, fallback_sequence) do
     with {:ok, event} <- mapped_provider_output_index(state, event),
          {:ok, event} <- mapped_provider_item_identity(state, event) do
       state =
-        state |> put_public_sequence(sequence) |> remember_non_terminal_event(event, sequence)
+        state
+        |> put_public_sequence(sequence)
+        |> remember_non_terminal_event(event, sequence || fallback_sequence)
 
       public_event = rewrite_response_id(event, state)
       {state, [public_event], :continue}
@@ -416,11 +411,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
          %{"response" => %{"output" => output} = response} = event
        )
        when is_list(output) do
-    public_output =
-      case state.tool_loop do
-        %StreamLoop{} = loop -> StreamLoop.rewrite_public_items(loop, output)
-        _no_loop -> output
-      end
+    public_output = StreamLoop.rewrite_public_items(state.tool_loop, output)
 
     filtered =
       output
@@ -443,9 +434,13 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
   defp filter_unadmitted_tool_items(_state, event), do: event
 
-  defp observe_terminal_event(%{tool_loop: %StreamLoop{}} = state, event, _sequence) do
+  defp observe_terminal_event(state, event, fallback_sequence) do
     response = Map.get(event, "response", %{})
-    {state, provider_events} = admit_terminal_provider_items(state, response)
+
+    {state, provider_events} =
+      if StreamLoop.gateway_effects?(state.tool_loop),
+        do: admit_terminal_provider_items(state, response),
+        else: {state, []}
 
     case StreamLoop.intercept_terminal(state.tool_loop, event["type"], response) do
       {:round, continuation_request, round_items, tool_loop} ->
@@ -463,14 +458,18 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
       {:finalize, output_items, extra_items, tool_loop} ->
         {state, events, status} =
-          finish_loop_terminal(state, event, output_items, extra_items, tool_loop)
+          finish_loop_terminal(
+            state,
+            event,
+            output_items,
+            extra_items,
+            tool_loop,
+            fallback_sequence
+          )
 
         {state, provider_events ++ events, status}
     end
   end
-
-  defp observe_terminal_event(state, event, sequence),
-    do: finalize_terminal(state, event, sequence, :keep_upstream)
 
   # Some compatible providers omit item identities and other fields from the
   # terminal snapshot. Restore a same-index item only when the snapshot is a
@@ -529,28 +528,17 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     reconciled ++ tail
   end
 
-  defp terminal_snapshot_candidate(
-         %{tool_loop: %StreamLoop{current_round_items_rev: provider_items}} = state,
-         public_items,
-         provider_index
-       ) do
+  defp terminal_snapshot_candidate(state, public_items, provider_index) do
     with {:ok, public_item} <- terminal_public_item_candidate(state, public_items, provider_index),
-         public_id when is_binary(public_id) <- public_item_id(public_item),
-         %{} = provider_item <-
-           Enum.find(provider_items, fn provider_item ->
-             case public_item_id(provider_item) do
-               nil -> false
-               provider_id -> Map.get(state.provider_item_ids, provider_id) == public_id
-             end
-           end) do
-      {:ok, provider_item}
-    else
-      _missing -> :error
+         public_id when is_binary(public_id) <- public_item_id(public_item) do
+      StreamLoop.find_round_item(state.tool_loop, fn provider_item ->
+        case public_item_id(provider_item) do
+          nil -> false
+          provider_id -> Map.get(state.provider_item_ids, provider_id) == public_id
+        end
+      end)
     end
   end
-
-  defp terminal_snapshot_candidate(state, public_items, provider_index),
-    do: terminal_public_item_candidate(state, public_items, provider_index)
 
   defp terminal_public_item_candidate(state, public_items, provider_index) do
     with {:ok, public_index} <- Map.fetch(state.provider_output_indexes, provider_index),
@@ -581,7 +569,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   @doc false
   @spec complete_local_effect(t(), map(), [map()]) ::
           {:ok, t(), [map()], status()} | {:error, t(), term()}
-  def complete_local_effect(%__MODULE__{tool_loop: %StreamLoop{}} = state, context, outcomes) do
+  def complete_local_effect(%__MODULE__{} = state, context, outcomes) do
     loop_context = Map.delete(context, :event)
 
     case StreamLoop.complete_local_effect(state.tool_loop, loop_context, outcomes) do
@@ -625,7 +613,14 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     finish_loop_terminal(state, event, output_items, extra_items, tool_loop)
   end
 
-  defp finish_loop_terminal(state, event, output_items, extra_items, tool_loop) do
+  defp finish_loop_terminal(
+         state,
+         event,
+         output_items,
+         extra_items,
+         tool_loop,
+         fallback_sequence \\ nil
+       ) do
     {state, output_items} =
       map_terminal_provider_items(%{state | tool_loop: tool_loop}, output_items)
 
@@ -640,7 +635,8 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       output_items,
       mapped_extra_items,
       extra_events,
-      tool_loop
+      tool_loop,
+      fallback_sequence
     )
   end
 
@@ -650,7 +646,8 @@ defmodule Ankole.AIGateway.ResponseStream.State do
          output_items,
          extra_items,
          extra_events,
-         tool_loop
+         tool_loop,
+         fallback_sequence
        ) do
     response =
       event
@@ -666,7 +663,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       finalize_terminal(
         state,
         event,
-        next_public_sequence(state),
+        terminal_public_sequence(state, event, fallback_sequence),
         :keep_upstream
       )
 
@@ -741,7 +738,13 @@ defmodule Ankole.AIGateway.ResponseStream.State do
           {state, identity_event} = map_provider_item_identity(state, %{"item" => item})
           item = Map.fetch!(identity_event, "item")
 
-          case terminal_item_recorded?(item, recorded_ids, recorded_anonymous) do
+          case terminal_item_recorded?(
+                 state,
+                 item,
+                 provider_index,
+                 recorded_ids,
+                 recorded_anonymous
+               ) do
             {:yes, recorded_ids, recorded_anonymous} ->
               {state, events, recorded_ids, recorded_anonymous}
 
@@ -785,21 +788,27 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     end)
   end
 
-  defp terminal_item_recorded?(item, recorded_ids, recorded_anonymous) do
-    case public_item_id(item) do
-      nil ->
-        case Map.get(recorded_anonymous, item, 0) do
-          count when count > 0 ->
-            {:yes, recorded_ids, Map.put(recorded_anonymous, item, count - 1)}
+  defp terminal_item_recorded?(state, item, provider_index, recorded_ids, recorded_anonymous) do
+    if incomplete_tool_call_item?(item) do
+      {:yes, recorded_ids, recorded_anonymous}
+    else
+      case public_item_id(item) do
+        nil ->
+          case Map.get(recorded_anonymous, item, 0) do
+            count when count > 0 ->
+              {:yes, recorded_ids, Map.put(recorded_anonymous, item, count - 1)}
 
-          _missing ->
-            :no
-        end
+            _missing ->
+              if Map.has_key?(state.provider_output_indexes, provider_index),
+                do: {:yes, recorded_ids, recorded_anonymous},
+                else: :no
+          end
 
-      item_id ->
-        if MapSet.member?(recorded_ids, item_id),
-          do: {:yes, recorded_ids, recorded_anonymous},
-          else: :no
+        item_id ->
+          if MapSet.member?(recorded_ids, item_id),
+            do: {:yes, recorded_ids, recorded_anonymous},
+            else: :no
+      end
     end
   end
 
@@ -1088,11 +1097,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       case event do
         %{"type" => type, "response" => %{"output" => output}}
         when type in @terminal_event_types and is_list(output) ->
-          public_output =
-            case state.tool_loop do
-              %StreamLoop{} = loop -> StreamLoop.rewrite_public_items(loop, output)
-              _no_loop -> output
-            end
+          public_output = StreamLoop.rewrite_public_items(state.tool_loop, output)
 
           policy
           |> MaxToolCalls.reconcile_provider_items(public_output, scope)
@@ -1105,8 +1110,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     %{state | max_tool_calls: policy}
   end
 
-  defp budget_scope(%{tool_loop: %StreamLoop{rounds: rounds}}), do: {:provider_round, rounds}
-  defp budget_scope(_state), do: :single_response
+  defp budget_scope(state), do: StreamLoop.budget_scope(state.tool_loop)
 
   defp force_cancel(:continue), do: :continue
   defp force_cancel({:round, _continuation_request}), do: :continue
@@ -1118,9 +1122,17 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
   # A multi-round public response accumulated items from every provider round;
   # the final provider terminal only carries the last round.
-  defp terminal_public_items(%{tool_loop: %StreamLoop{rounds: rounds}} = state, terminal_items)
-       when rounds > 0 do
+  defp terminal_public_items(state, terminal_items) do
     accumulated = chronological(state.public_items)
+
+    if StreamLoop.multi_round?(state.tool_loop) do
+      merge_multi_round_terminal_items(accumulated, terminal_items)
+    else
+      terminal_items_or_accumulated(accumulated, terminal_items)
+    end
+  end
+
+  defp merge_multi_round_terminal_items(accumulated, terminal_items) do
     terminal_by_id = Map.new(terminal_items, &{public_item_id(&1), &1}) |> Map.delete(nil)
 
     accumulated_ids =
@@ -1145,9 +1157,6 @@ defmodule Ankole.AIGateway.ResponseStream.State do
         end
       end)
   end
-
-  defp terminal_public_items(state, terminal_items),
-    do: terminal_items_or_accumulated(chronological(state.public_items), terminal_items)
 
   defp terminal_items_or_accumulated(accumulated, []), do: accumulated
   defp terminal_items_or_accumulated(_accumulated, terminal_items), do: terminal_items
@@ -1357,7 +1366,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   end
 
   defp unique_public_item_id(state, item_id, source, attempt) do
-    round = if match?(%StreamLoop{}, state.tool_loop), do: state.tool_loop.rounds, else: 0
+    round = StreamLoop.round(state.tool_loop)
 
     digest =
       :crypto.hash(
@@ -1383,7 +1392,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   end
 
   defp unique_public_pair_id(state, pair_id, attempt) do
-    round = if match?(%StreamLoop{}, state.tool_loop), do: state.tool_loop.rounds, else: 0
+    round = StreamLoop.round(state.tool_loop)
 
     digest =
       :crypto.hash(
@@ -1654,6 +1663,21 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   defp public_sequence_number(_event, fallback), do: fallback
 
   defp next_public_sequence(state), do: (state.sequence_number || -1) + 1
+
+  defp next_public_sequence(%{sequence_number: sequence}, _event) when is_integer(sequence),
+    do: sequence + 1
+
+  defp next_public_sequence(_state, %{"sequence_number" => sequence}) when is_integer(sequence),
+    do: sequence
+
+  defp next_public_sequence(_state, _event), do: 0
+
+  defp terminal_public_sequence(%{sequence_number: sequence}, _event, _fallback)
+       when is_integer(sequence),
+       do: sequence + 1
+
+  defp terminal_public_sequence(_state, event, fallback),
+    do: public_sequence_number(event, fallback)
 
   defp next_sequence_number(%{sequence_number: sequence}) when is_integer(sequence),
     do: sequence + 1

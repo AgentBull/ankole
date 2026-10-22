@@ -7,13 +7,16 @@ defmodule Ankole.AutomationJobs do
   an automation job.
   """
 
+  require Ash.Query
   require Ankole.ModelIntegerID
+  @behaviour Ankole.Sessions.AsyncWorkUnit
 
   import Ecto.Query, warn: false
 
   alias Ankole.AutomationJobs.Jobs.ExecuteRun
   alias Ankole.AutomationJobs.Schemas.Job
   alias Ankole.AutomationJobs.Schemas.Run
+  alias Ankole.AgentWorkers
   alias Ankole.Ecto.JSONPayload
   alias Ankole.Repo
   alias Ankole.Conversations.Route
@@ -21,7 +24,7 @@ defmodule Ankole.AutomationJobs do
 
   @log_max_bytes 65_536
   @payload_max_bytes 1_048_576
-  @finished_run_statuses ~w(succeeded failed cancelled)
+  @finished_run_statuses [:succeeded, :failed, :cancelled]
 
   @type enqueue_result :: %{
           required(:status) => :queued | :failed,
@@ -41,20 +44,20 @@ defmodule Ankole.AutomationJobs do
       attrs = Ankole.Principals.WorkAccess.inherit(repo, normalize_agent_uid(attrs))
 
       with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
-           changeset = Job.changeset(%Job{}, attrs),
+           changeset = Ankole.Ash.for_create(Job, :create, attrs),
            :ok <- require_script_in_drive(changeset) do
-        repo.insert(changeset)
+        Ankole.Ash.create(changeset)
       end
     end)
   end
 
   # The check reads the cast fields. An invalid changeset reports its own
   # errors at the insert.
-  defp require_script_in_drive(%Ecto.Changeset{valid?: false}), do: :ok
+  defp require_script_in_drive(%Ash.Changeset{valid?: false}), do: :ok
 
   defp require_script_in_drive(changeset) do
-    agent_uid = Ecto.Changeset.get_field(changeset, :agent_uid)
-    prefix = Ecto.Changeset.get_field(changeset, :drive_prefix)
+    agent_uid = Ash.Changeset.get_attribute(changeset, :agent_uid)
+    prefix = Ash.Changeset.get_attribute(changeset, :drive_prefix)
 
     case Ankole.Files.fetch(agent_uid, prefix <> "/main.ts") do
       {:ok, _file} -> :ok
@@ -126,22 +129,13 @@ defmodule Ankole.AutomationJobs do
 
     Repo.transact(fn repo ->
       case lock_owned_job(repo, agent_uid, owner_session_id, job_id) do
-        %Job{status: "active"} = job ->
+        %Job{status: :active} = job ->
           with {:ok, job} <-
                  job
-                 |> Job.changeset(%{status: "cancelled", cancelled_at: now})
-                 |> repo.update() do
+                 |> Ankole.Ash.update(:cancel, %{cancelled_at: now}) do
             Run
-            |> where([run], run.automation_job_id == ^job.id and run.status == "queued")
-            |> repo.update_all(
-              set: [
-                status: "cancelled",
-                attempt_id: nil,
-                finished_at: now,
-                error: "automation job was cancelled",
-                updated_at: now
-              ]
-            )
+            |> Ash.Query.filter(automation_job_id == ^job.id and status == :queued)
+            |> cancel_runs_in_tx(repo, now, "automation job was cancelled")
 
             {:ok, %{status: :cancelled, automation_job: job}}
           end
@@ -169,9 +163,9 @@ defmodule Ankole.AutomationJobs do
       when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) do
     normalized_agent_uid = String.downcase(agent_uid)
 
-    case lock_job(repo, job_id) do
+    case lock_job_in_tx(repo, job_id) do
       %Job{agent_uid: owner_uid} = job when owner_uid == normalized_agent_uid ->
-        if job.status == "active",
+        if job.status == :active,
           do: :ok,
           else: {:error, {:automation_job_not_active, job.status}}
 
@@ -186,6 +180,15 @@ defmodule Ankole.AutomationJobs do
   def validate_bindable_in_tx(_repo, _job_id, _agent_uid),
     do: {:error, :invalid_automation_job_id}
 
+  @doc "Locks a trigger's automation job before the trigger row in the caller's transaction."
+  @spec lock_job_in_tx(module(), pos_integer()) :: Job.t() | nil
+  def lock_job_in_tx(repo, job_id) do
+    Job
+    |> where([job], job.id == ^job_id)
+    |> lock("FOR UPDATE")
+    |> repo.one(lock_identity: {"automation_jobs", job_id})
+  end
+
   @doc """
   Inserts one durable run and its Oban wake edge in the caller's transaction.
   """
@@ -199,7 +202,7 @@ defmodule Ankole.AutomationJobs do
 
     with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
          :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Job, job_id),
-         %Job{} = job <- lock_job(repo, job_id),
+         %Job{} = job <- lock_job_in_tx(repo, job_id),
          true <- job.agent_uid == String.downcase(agent_uid),
          {:ok, event} <- normalize_event(event) do
       enqueue_for_status(repo, job, event, now, opts)
@@ -218,7 +221,7 @@ defmodule Ankole.AutomationJobs do
   which the run waits for its next attempt.
   """
   @spec pending_run(pos_integer()) ::
-          {:ok, %{agent_uid: String.t(), waiting_since: DateTime.t(), run: Run.t()}}
+          {:ok, %{agent_uid: String.t(), run: Run.t()}}
           | {:error, :automation_job_run_finished | :automation_job_run_not_found}
   def pending_run(run_id) when Ankole.ModelIntegerID.valid?(run_id) do
     Run
@@ -231,48 +234,145 @@ defmodule Ankole.AutomationJobs do
         {:error, :automation_job_run_finished}
 
       {%Run{} = run, agent_uid} ->
-        {:ok, %{agent_uid: agent_uid, waiting_since: run.updated_at, run: run}}
+        {:ok, %{agent_uid: agent_uid, run: run}}
 
       nil ->
         {:error, :automation_job_run_not_found}
     end
   end
 
-  @doc false
+  @impl Ankole.Sessions.AsyncWorkUnit
+  def dead_letter_notice_text(%Ankole.Signals.Signal{type: type, data: data})
+      when type in ["automation_job.emitted", "automation_job.run_failed"] do
+    job = data["automation_job"] || %{}
+    detail = data["error"] || Ankole.JSON.encode!(data["payload"])
+    "Automation Job #{job["id"]} #{job["label"]}: #{detail}"
+  end
+
+  def dead_letter_notice_text(%Ankole.Signals.Signal{}), do: nil
+
+  @doc "Admits an attempt or persists the Worker wait in the admission transaction."
   @spec start_attempt(pos_integer(), keyword()) ::
-          {:ok, :noop | %{automation_job: Job.t(), run: Run.t()}} | {:error, term()}
+          {:ok,
+           :noop
+           | %{status: :waiting_for_worker, worker: AgentWorkers.AgentWorker.t() | nil}
+           | %{automation_job: Job.t(), run: Run.t(), worker: AgentWorkers.AgentWorker.t() | nil}}
+          | {:error, term()}
   def start_attempt(run_id, opts \\ []) when Ankole.ModelIntegerID.valid?(run_id) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    capacity = AgentWorkers.SlotLock.capacity(:automation_jobs)
+
+    ready_timeout_ms =
+      Keyword.get_lazy(opts, :ready_timeout_ms, fn ->
+        AgentWorkers.Settings.current().ready_timeout_ms
+      end)
 
     Repo.transact(fn repo ->
-      with %Run{} = snapshot <- repo.get(Run, run_id),
-           :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
-           :ok <-
-             Ankole.Principals.WorkAccess.check_record_in_tx(
-               repo,
-               Job,
-               snapshot.automation_job_id
-             ) do
-        case lock_job_run(repo, run_id) do
+      with {:ok, {job, run}} <- lock_for_admission(repo, run_id) do
+        case {job, run} do
           {%Job{}, %Run{status: status}} when status in @finished_run_statuses ->
             {:ok, :noop}
 
-          {%Job{}, %Run{status: "running"}} ->
+          {%Job{}, %Run{status: :running}} ->
             {:error, :automation_job_attempt_in_progress}
+
+          {%Job{status: :active}, %Run{status: :queued}} ->
+            admit_attempt_in_tx(repo, job, run, capacity, now, ready_timeout_ms)
 
           {%Job{} = job, %Run{} = run} ->
             start_for_status(repo, job, run, now)
-
-          nil ->
-            {:error, :automation_job_run_not_found}
         end
       else
-        nil -> {:error, :automation_job_run_not_found}
+        {:rejected, reason, job, run} -> reject_admission_in_tx(repo, job, run, reason, now)
         error -> error
       end
     end)
     |> deliver_failure()
   end
+
+  defp admit_attempt_in_tx(repo, job, run, capacity, now, ready_timeout_ms) do
+    worker =
+      case AgentWorkers.ready_worker(job.agent_uid) do
+        {:ok, worker} -> worker
+        {:error, :agent_worker_unavailable} -> nil
+      end
+
+    capacity_available? = capacity_available_in_tx?(repo, job, capacity)
+
+    {status, started_at} =
+      AgentWorkers.wait_status(
+        worker,
+        capacity_available?,
+        run.worker_wait_started_at,
+        now,
+        ready_timeout_ms
+      )
+
+    with {:ok, run} <- persist_worker_wait_in_tx(run, started_at) do
+      if not capacity_available? or status == :wait do
+        {:ok, %{status: :waiting_for_worker, worker: worker}}
+      else
+        # An expired readiness wait starts one infrastructure-failure attempt.
+        with {:ok, attempt} <- start_for_status(repo, job, run, now),
+             do: {:ok, Map.put(attempt, :worker, worker)}
+      end
+    end
+  end
+
+  defp persist_worker_wait_in_tx(%Run{worker_wait_started_at: started_at} = run, started_at),
+    do: {:ok, run}
+
+  defp persist_worker_wait_in_tx(run, started_at),
+    do: Ankole.Ash.update(run, :wait_for_worker, %{worker_wait_started_at: started_at})
+
+  defp lock_for_admission(repo, run_id) do
+    with %Run{} = snapshot <- repo.get(Run, run_id),
+         %Job{} = job <- repo.get(Job, snapshot.automation_job_id) do
+      access =
+        with :ok <- Ankole.Tenants.check_work_admission_in_tx(repo, Repo.tenant_id!()),
+             do: Ankole.Principals.WorkAccess.check_in_tx(repo, job)
+
+      :ok = Ankole.AgentWorkers.SlotLock.lock(repo, :automation_jobs, job.agent_uid)
+      {job, run} = lock_job_run(repo, run_id)
+
+      case access do
+        :ok ->
+          {:ok, {job, run}}
+
+        {:error, reason} ->
+          {:rejected, reason, job, run}
+      end
+    else
+      nil -> {:error, :automation_job_run_not_found}
+    end
+  end
+
+  defp capacity_available_in_tx?(repo, job, capacity) do
+    running =
+      from(run in Run,
+        join: job in Job,
+        on: job.id == run.automation_job_id,
+        where: job.agent_uid == ^job.agent_uid and run.status == :running
+      )
+      |> repo.aggregate(:count)
+
+    running < capacity
+  end
+
+  defp reject_admission_in_tx(repo, job, %Run{status: :queued} = run, reason, now) do
+    with {:ok, run} <-
+           run
+           |> Ankole.Ash.update(:settle, %{
+             status: :failed,
+             attempt_id: nil,
+             finished_at: now,
+             error: Atom.to_string(reason)
+           }),
+         {:ok, {_run, event}} <- maybe_append_failure_event(repo, job, run, now),
+         do: {:ok, {:noop, event}}
+  end
+
+  defp reject_admission_in_tx(_repo, _job, _run, _reason, _now), do: {:ok, :noop}
 
   @doc false
   @spec finish_attempt(pos_integer(), Ecto.UUID.t(), map(), keyword()) ::
@@ -285,7 +385,7 @@ defmodule Ankole.AutomationJobs do
       with {%Job{} = job, %Run{} = run} <- lock_job_run(repo, run_id),
            true <- active_attempt?(run, attempt_id),
            {:ok, attrs} <- completion_attrs(result, now),
-           {:ok, run} <- run |> Run.changeset(attrs) |> repo.update(),
+           {:ok, run} <- run |> Ankole.Ash.update(:settle, attrs),
            {:ok, {run, event}} <- maybe_append_failure_event(repo, job, run, now) do
         {:ok, {run, event}}
       else
@@ -329,8 +429,10 @@ defmodule Ankole.AutomationJobs do
            true <- active_attempt?(run, attempt_id),
            {:ok, run} <-
              run
-             |> Run.changeset(infrastructure_failure_attrs(disposition, error, now))
-             |> repo.update(),
+             |> Ankole.Ash.update(
+               if(disposition == :retry, do: :retry, else: :settle),
+               infrastructure_failure_attrs(disposition, error, now)
+             ),
            {:ok, {run, event}} <- maybe_append_failure_event(repo, job, run, now) do
         {:ok, {run, event}}
       else
@@ -411,7 +513,7 @@ defmodule Ankole.AutomationJobs do
     %{
       "id" => job.id,
       "label" => job.label,
-      "status" => job.status,
+      "status" => Atom.to_string(job.status),
       "wake_on_failure" => job.wake_on_failure,
       "drive_prefix" => job.drive_prefix,
       "created_at" => iso8601(job.inserted_at)
@@ -435,7 +537,7 @@ defmodule Ankole.AutomationJobs do
         "drive_prefix" => job.drive_prefix,
         "label" => job.label,
         "wake_on_failure" => job.wake_on_failure,
-        "status" => job.status,
+        "status" => Atom.to_string(job.status),
         "cancelled_at" => iso8601(job.cancelled_at),
         "created_at" => iso8601(job.inserted_at),
         "updated_at" => iso8601(job.updated_at)
@@ -453,16 +555,12 @@ defmodule Ankole.AutomationJobs do
     Map.put(detail["automation_job"], "runs", detail["runs"])
   end
 
-  defp enqueue_for_status(repo, %Job{status: "active"} = job, event, _now, opts) do
+  defp enqueue_for_status(_repo, %Job{status: :active} = job, event, _now, opts) do
     with {:ok, run} <-
-           %Run{}
-           |> Run.changeset(%{
+           Ankole.Ash.create(Run, :enqueue, %{
              automation_job_id: job.id,
-             event: event,
-             status: "queued",
-             attempts: 0
-           })
-           |> repo.insert(),
+             event: event
+           }),
          {:ok, _oban_job} <- insert_execution_job(run, opts) do
       {:ok, %{status: :queued, automation_job_run: run}}
     end
@@ -472,16 +570,12 @@ defmodule Ankole.AutomationJobs do
     error = "automation job is #{status}"
 
     with {:ok, run} <-
-           %Run{}
-           |> Run.changeset(%{
+           Ankole.Ash.create(Run, :record_failed, %{
              automation_job_id: job.id,
              event: event,
-             status: "failed",
-             attempts: 0,
              finished_at: now,
              error: error
-           })
-           |> repo.insert(),
+           }),
          {:ok, {run, event}} <- maybe_append_failure_event(repo, job, run, now) do
       {:ok, %{status: :failed, automation_job_run: run, signal: event}}
     end
@@ -495,20 +589,17 @@ defmodule Ankole.AutomationJobs do
     |> insert.()
   end
 
-  defp start_for_status(repo, %Job{status: "active"} = job, run, now) do
+  defp start_for_status(_repo, %Job{status: :active} = job, run, now) do
     attempt_id = Ecto.UUID.generate()
 
     with {:ok, run} <-
            run
-           |> Run.changeset(%{
-             status: "running",
-             attempts: run.attempts + 1,
+           |> Ankole.Ash.update(:start, %{
              attempt_id: attempt_id,
-             started_at: run.started_at || now,
+             started_at: now,
              finished_at: nil,
              error: nil
-           })
-           |> repo.update() do
+           }) do
       {:ok, %{automation_job: job, run: run}}
     end
   end
@@ -516,22 +607,26 @@ defmodule Ankole.AutomationJobs do
   defp start_for_status(repo, %Job{status: status} = job, run, now) do
     with {:ok, run} <-
            run
-           |> Run.changeset(%{
-             status: "failed",
+           |> Ankole.Ash.update(:settle, %{
+             status: :failed,
              attempt_id: nil,
              finished_at: now,
              error: "automation job is #{status}"
-           })
-           |> repo.update(),
+           }),
          {:ok, {_run, event}} <- maybe_append_failure_event(repo, job, run, now) do
       {:ok, {:noop, event}}
     end
   end
 
   defp completion_attrs(result, now) do
-    status = Ankole.Attrs.get_truthy(result, "status")
+    status =
+      case Ankole.Attrs.get_truthy(result, "status") do
+        "succeeded" -> :succeeded
+        "failed" -> :failed
+        _ -> nil
+      end
 
-    if status in ["succeeded", "failed"] do
+    if status in [:succeeded, :failed] do
       {:ok,
        %{
          status: status,
@@ -550,15 +645,15 @@ defmodule Ankole.AutomationJobs do
   end
 
   defp infrastructure_failure_attrs(:retry, error, _now) do
-    %{status: "queued", attempt_id: nil, error: error}
+    %{attempt_id: nil, error: error}
   end
 
   defp infrastructure_failure_attrs(:exhausted, error, now) do
-    %{status: "failed", attempt_id: nil, finished_at: now, error: error}
+    %{status: :failed, attempt_id: nil, finished_at: now, error: error}
   end
 
   defp maybe_append_failure_event(_repo, _job, %Run{status: status} = run, _now)
-       when status != "failed",
+       when status != :failed,
        do: {:ok, {run, nil}}
 
   defp maybe_append_failure_event(_repo, %Job{wake_on_failure: false}, %Run{} = run, _now),
@@ -580,7 +675,7 @@ defmodule Ankole.AutomationJobs do
       {:error, :long_lived_reply_owner_not_found} ->
         error = bounded_text("#{run.error}; long_lived_reply_owner_not_found", @log_max_bytes)
 
-        with {:ok, run} <- run |> Run.changeset(%{error: error}) |> repo.update(),
+        with {:ok, run} <- run |> Ankole.Ash.update(:record_error, %{error: error}),
              do: {:ok, {run, nil}}
 
       error ->
@@ -651,20 +746,13 @@ defmodule Ankole.AutomationJobs do
         job.owner_session_id == ^owner_session_id
     )
     |> lock("FOR UPDATE")
-    |> repo.one()
-  end
-
-  defp lock_job(repo, job_id) do
-    Job
-    |> where([job], job.id == ^job_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
+    |> repo.one(lock_identity: {"automation_jobs", job_id})
   end
 
   # A Run keeps its parent for its entire lifetime. All paths lock Job before Run.
   defp lock_job_run(repo, run_id) do
     with %Run{automation_job_id: job_id} <- repo.get(Run, run_id),
-         %Job{} = job <- lock_job(repo, job_id),
+         %Job{} = job <- lock_job_in_tx(repo, job_id),
          %Run{} = run <- lock_run(repo, run_id) do
       {job, run}
     end
@@ -674,16 +762,16 @@ defmodule Ankole.AutomationJobs do
     Run
     |> where([run], run.id == ^run_id)
     |> lock("FOR UPDATE")
-    |> repo.one()
+    |> repo.one(lock_identity: {"automation_job_runs", run_id})
   end
 
-  defp active_attempt?(%Run{status: "running", attempt_id: attempt_id}, attempt_id), do: true
+  defp active_attempt?(%Run{status: :running, attempt_id: attempt_id}, attempt_id), do: true
   defp active_attempt?(_run, _attempt_id), do: false
 
   defp run_projection(%Run{} = run) do
     %{
       "id" => run.id,
-      "status" => run.status,
+      "status" => Atom.to_string(run.status),
       "attempts" => run.attempts,
       "started_at" => iso8601(run.started_at),
       "finished_at" => iso8601(run.finished_at),
@@ -743,18 +831,41 @@ defmodule Ankole.AutomationJobs do
   defp iso8601(_value), do: nil
 
   def stop_human_work_in_tx(repo, uid, version, now) do
-    jobs = from j in Job, where: j.human_uid == ^uid and j.human_access_version < ^version
+    jobs = from(j in Job, where: j.human_uid == ^uid and j.human_access_version < ^version)
+    ids = repo.all(from(j in jobs, select: j.id))
 
-    repo.update_all(from(j in jobs, where: j.status == "active"),
-      set: [status: "cancelled", cancelled_at: now, updated_at: now]
+    Job
+    |> Ash.Query.filter(id in ^ids and status == :active)
+    |> Ankole.Ash.bulk_update(:stop_human_work, %{cancelled_at: now},
+      strategy: [:atomic],
+      return_errors?: true
     )
+    |> case do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{errors: errors} -> repo.rollback(errors)
+    end
 
-    repo.update_all(
-      from(r in Run,
-        where:
-          r.automation_job_id in subquery(from j in jobs, select: j.id) and r.status == "queued"
-      ),
-      set: [status: "cancelled", finished_at: now, updated_at: now, error: "human_access_revoked"]
+    Run
+    |> Ash.Query.filter(automation_job_id in ^ids and status == :queued)
+    |> cancel_runs_in_tx(repo, now, "human_access_revoked")
+  end
+
+  defp cancel_runs_in_tx(query, repo, now, error) do
+    query
+    |> Ankole.Ash.bulk_update(
+      :stop_human_work,
+      %{
+        attempt_id: nil,
+        finished_at: now,
+        error: error
+      },
+      strategy: [:atomic],
+      return_records?: true,
+      return_errors?: true
     )
+    |> case do
+      %Ash.BulkResult{status: :success, records: records} -> {length(records), nil}
+      %Ash.BulkResult{errors: errors} -> repo.rollback(errors)
+    end
   end
 end

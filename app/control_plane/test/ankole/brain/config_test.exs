@@ -6,7 +6,6 @@ defmodule Ankole.Brain.ConfigTest do
   alias Ankole.Principals
 
   setup do
-    allow_cache_database_access()
     AppConfigure.Cache.clear_for_test()
     on_exit(fn -> AppConfigure.Cache.clear_for_test() end)
     :ok
