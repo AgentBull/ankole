@@ -12,13 +12,11 @@ defmodule Ankole.AIAgent.TokenQuota do
   current window at once and starts an empty one. No change touches the ledger.
   """
 
-  import Ecto.Query, warn: false
-
+  alias Ankole.AIAgent.Operations
   alias Ankole.AIGateway.UsageLedger
   alias Ankole.Attrs
   alias Ankole.Principals
   alias Ankole.Principals.Agent
-  alias Ankole.Repo
 
   @seconds_per_day 86_400
 
@@ -48,46 +46,63 @@ defmodule Ankole.AIAgent.TokenQuota do
   Validates and writes the token quota of one Agent.
   """
   @spec put(String.t(), map()) :: {:ok, quota()} | {:error, term()}
-  def put(agent_uid, attrs) do
-    Repo.transact(fn repo ->
-      with %Agent{} = agent <- lock_agent(repo, agent_uid),
-           {:ok, quota} <- normalize(attrs, quota_from_agent(agent)),
-           {:ok, _agent} <- write_quota(repo, agent, quota) do
-        {:ok, quota}
-      else
-        nil -> {:error, :agent_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
-  end
+  def put(agent_uid, attrs),
+    do: run(:put_token_quota, agent_uid, %{attrs: attrs})
 
   @doc """
   Removes the token quota of one Agent, which leaves it without a limit.
   """
   @spec delete(String.t()) :: {:ok, nil} | {:error, term()}
-  def delete(agent_uid) do
-    Repo.transact(fn repo ->
-      with %Agent{} = agent <- lock_agent(repo, agent_uid),
-           {:ok, _agent} <- write_quota(repo, agent, nil) do
-        {:ok, nil}
-      else
-        nil -> {:error, :agent_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
-  end
+  def delete(agent_uid), do: run(:delete_token_quota, agent_uid, %{})
 
   @doc """
   Starts a new period at this instant.
   """
   @spec reset(String.t()) :: {:ok, quota()} | {:error, term()}
-  def reset(agent_uid) do
-    Repo.transact(fn repo ->
-      case lock_agent(repo, agent_uid) do
-        %Agent{} = agent -> reset_locked_agent(repo, agent)
-        nil -> {:error, :agent_not_found}
-      end
-    end)
+  def reset(agent_uid), do: run(:reset_token_quota, agent_uid, %{})
+
+  @doc false
+  # Runs the `:put_token_quota` action of `Ankole.AIAgent.Operations`.
+  def put_locked(%{agent_uid: agent_uid, attrs: attrs}) do
+    with %Agent{} = agent <- lock_agent(agent_uid),
+         {:ok, quota} <- normalize(attrs, quota_from_agent(agent)),
+         {:ok, _agent} <- write_quota(agent, quota) do
+      {:ok, quota}
+    else
+      nil -> {:error, :agent_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  # Runs the `:delete_token_quota` action of `Ankole.AIAgent.Operations`.
+  def delete_locked(%{agent_uid: agent_uid}) do
+    with %Agent{} = agent <- lock_agent(agent_uid),
+         {:ok, _agent} <- write_quota(agent, nil) do
+      {:ok, nil}
+    else
+      nil -> {:error, :agent_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  # Runs the `:reset_token_quota` action of `Ankole.AIAgent.Operations`.
+  def reset_locked(%{agent_uid: agent_uid}) do
+    case lock_agent(agent_uid) do
+      %Agent{} = agent -> reset_locked_agent(agent)
+      nil -> {:error, :agent_not_found}
+    end
+  end
+
+  defp run(action, agent_uid, arguments) do
+    case Principals.normalize_uid(agent_uid) do
+      {:ok, agent_uid} ->
+        Ankole.Ash.run_action(Operations, action, Map.put(arguments, :agent_uid, agent_uid))
+
+      {:error, _reason} ->
+        {:error, :agent_not_found}
+    end
   end
 
   @doc """
@@ -110,12 +125,12 @@ defmodule Ankole.AIAgent.TokenQuota do
     end
   end
 
-  defp reset_locked_agent(repo, %Agent{} = agent) do
+  defp reset_locked_agent(%Agent{} = agent) do
     case quota_from_agent(agent) do
       %{} = quota ->
         quota = Map.put(quota, "period_start_at", DateTime.to_iso8601(DateTime.utc_now()))
 
-        with {:ok, _agent} <- write_quota(repo, agent, quota), do: {:ok, quota}
+        with {:ok, _agent} <- write_quota(agent, quota), do: {:ok, quota}
 
       nil ->
         {:error, :token_quota_not_configured}
@@ -206,28 +221,25 @@ defmodule Ankole.AIAgent.TokenQuota do
 
   defp fetch_agent(agent_uid) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
-      case Repo.get(Agent, agent_uid) do
-        %Agent{} = agent -> {:ok, agent}
-        nil -> {:error, :agent_not_found}
+      case Principals.get_agent(agent_uid) do
+        {:ok, %{agent: %Agent{} = agent}} -> {:ok, agent}
+        {:error, :not_found} -> {:error, :agent_not_found}
+        {:error, _error} = error -> error
       end
     end
   end
 
-  defp lock_agent(repo, agent_uid) do
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
-      Agent
-      |> where([agent], agent.uid == ^agent_uid)
-      |> lock("FOR UPDATE")
-      |> repo.one()
-    else
-      {:error, _reason} -> nil
-    end
+  defp lock_agent(agent_uid) do
+    {:ok, agent} = Ankole.Principals.Domain.get_agent(agent_uid, query: [lock: :for_update])
+    agent
   end
 
-  defp write_quota(_repo, %Agent{} = agent, quota) do
-    Ankole.Ash.update(agent, :options_in_tx, %{
+  defp write_quota(%Agent{} = agent, quota) do
+    agent
+    |> Ankole.Principals.Domain.options_agent(%{
       options: put_quota_options(agent.options || %{}, quota)
     })
+    |> Ankole.Errors.reason()
   end
 
   defp put_quota_options(options, nil) do

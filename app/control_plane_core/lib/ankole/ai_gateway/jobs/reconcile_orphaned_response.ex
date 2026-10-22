@@ -11,5 +11,5 @@ defmodule Ankole.AIGateway.Jobs.ReconcileOrphanedResponse do
 
   @impl true
   def run(%Oban.Job{args: args}),
-    do: Ankole.AIGateway.reconcile_orphaned_response(args["message_id"])
+    do: Ankole.AIGateway.ResponseCommit.reconcile_orphaned_response(args["message_id"])
 end

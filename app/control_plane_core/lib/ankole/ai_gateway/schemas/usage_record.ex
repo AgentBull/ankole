@@ -1,6 +1,6 @@
 defmodule Ankole.AIGateway.Schemas.UsageRecord do
   @moduledoc "Append-only provider-round token accounting for an Agent quota."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIGateway.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIGateway
 
   postgres do
     table("ai_gateway_usage_records")
@@ -40,8 +40,6 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
     defaults([:read])
 
     create :record_round do
-      transaction?(false)
-
       accept([
         :subject_uid,
         :origin,

@@ -1284,17 +1284,15 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     |> Repo.update!()
 
     assert {:ok, %{job: job, dispatch_event: input}} =
-             Repo.transact(fn _repo ->
-               Ankole.BackgroundAgentJobs.create_with_dispatch(%{
-                 "agent_uid" => agent.uid,
-                 "owner_session_id" => turn.session.session_id,
-                 "source_signal_id" => turn.signal_id,
-                 "source_tool_call_id" => "context-job-#{Ecto.UUID.generate()}",
-                 "title" => "Resolve Job context",
-                 "task" => "Read the owner conversation context.",
-                 "reply_route" => %{"binding_name" => "lark", "conversation_id" => channel_id}
-               })
-             end)
+             Ankole.BackgroundAgentJobs.create_with_dispatch(%{
+               "agent_uid" => agent.uid,
+               "owner_session_id" => turn.session.session_id,
+               "source_signal_id" => turn.signal_id,
+               "source_tool_call_id" => "context-job-#{Ecto.UUID.generate()}",
+               "title" => "Resolve Job context",
+               "task" => "Read the owner conversation context.",
+               "reply_route" => %{"binding_name" => "lark", "conversation_id" => channel_id}
+             })
 
     assert {:ok, %{"skills" => cached_skills}} = Library.runtime_catalog_for_agent(agent.uid)
     assert Enum.any?(cached_skills, &(&1["skill_name"] == "ocr"))

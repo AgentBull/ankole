@@ -179,14 +179,12 @@ defmodule Ankole.AIGateway.Artifacts do
 
   @spec cleanup_expired_and_failed(DateTime.t()) :: non_neg_integer()
   def cleanup_expired_and_failed(now \\ DateTime.utc_now(:microsecond)) do
-    case Ankole.Ash.bulk_destroy(Artifact, :collect, %{now: now},
-           strategy: [:atomic],
-           return_records?: true,
-           select: [:id],
-           return_errors?: true
+    case Ankole.Ash.destroy_where(Artifact, :collect,
+           private_arguments: %{now: now},
+           select: [:id]
          ) do
-      %Ash.BulkResult{status: :success, records: records} -> length(records)
-      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+      {:ok, records} -> length(records)
+      {:error, error} -> raise error
     end
   end
 
