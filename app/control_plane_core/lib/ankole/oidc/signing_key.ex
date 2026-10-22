@@ -9,8 +9,8 @@ defmodule Ankole.OIDC.SigningKey do
 
   use GenServer
 
+  require Ash.Query
   alias Ankole.OIDC.SigningKeyRecord
-  alias Ankole.Repo
 
   @name __MODULE__
   @record_id "primary"
@@ -76,29 +76,23 @@ defmodule Ankole.OIDC.SigningKey do
   end
 
   defp ensure_row do
-    Repo.transact(fn repo ->
-      case repo.get(SigningKeyRecord, @record_id) do
-        %SigningKeyRecord{} = row ->
-          {:ok, row}
+    case SigningKeyRecord |> Ash.Query.filter(id == ^@record_id) |> Ankole.Ash.read_one!() do
+      %SigningKeyRecord{} = row ->
+        {:ok, row}
 
-        nil ->
-          with {:ok, private_key_pem, public_jwk, kid} <- generate_key(),
-               {:ok, ciphertext} <- Ankole.OIDC.seal(private_key_pem, "signing_key", @record_id),
-               {:ok, _inserted} <-
-                 Ankole.Ash.create(SigningKeyRecord, :initialize_in_tx, %{
-                   id: @record_id,
-                   kid: kid,
-                   public_jwk: public_jwk,
-                   private_key_ciphertext: ciphertext
-                 }),
-               %SigningKeyRecord{} = row <- repo.get(SigningKeyRecord, @record_id) do
-            {:ok, row}
-          else
-            nil -> {:error, :signing_key_insert_failed}
-            {:error, reason} -> {:error, reason}
-          end
-      end
-    end)
+      nil ->
+        with {:ok, private_key_pem, public_jwk, kid} <- generate_key(),
+             {:ok, ciphertext} <- Ankole.OIDC.seal(private_key_pem, "signing_key", @record_id),
+             {:ok, row, _inserted_or_existing} <-
+               Ankole.Ash.insert_if_absent(SigningKeyRecord, :initialize_in_tx, %{
+                 id: @record_id,
+                 kid: kid,
+                 public_jwk: public_jwk,
+                 private_key_ciphertext: ciphertext
+               }) do
+          {:ok, row}
+        end
+    end
   end
 
   defp generate_key do

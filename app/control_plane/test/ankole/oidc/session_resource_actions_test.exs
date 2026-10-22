@@ -21,38 +21,35 @@ defmodule Ankole.OIDC.SessionResourceActionsTest do
     %{session: session}
   end
 
-  test "Session extension preserves identity and never reduces its deadline", %{session: session} do
+  test "a repeated authorization keeps the Session identity and never shortens it", %{
+    session: session
+  } do
     assert {:ok, shorter} =
-             Repo.transact(fn ->
-               Ankole.Ash.update(session, :extend_in_tx, %{
-                 expires_at: DateTime.add(session.expires_at, -60)
-               })
-             end)
+             Ankole.Ash.create(Session, :authorize_in_tx, %{
+               authorization(session)
+               | expires_at: DateTime.add(session.expires_at, -60)
+             })
 
+    assert shorter.id == session.id
     assert shorter.expires_at == session.expires_at
+    assert_persisted_equal(Repo.get!(Session, session.id), session)
     deadline = DateTime.add(session.expires_at, 3600)
 
     assert {:ok, extended} =
-             Repo.transact(fn ->
-               Ankole.Ash.update(shorter, :extend_in_tx, %{expires_at: deadline})
-             end)
+             Ankole.Ash.create(Session, :authorize_in_tx, %{
+               authorization(session)
+               | expires_at: deadline,
+                 access_version: session.access_version + 1,
+                 provider_id: "replaced-provider",
+                 auth_time: 1
+             })
 
+    assert extended.id == session.id
     assert extended.expires_at == deadline
-
-    assert {:error, rejected} =
-             Repo.transact(fn ->
-               Ankole.Ash.update(extended, :extend_in_tx, %{
-                 expires_at: deadline,
-                 client_id: Ankole.Ecto.UUIDv7.autogenerate(),
-                 principal_uid: "replaced-person",
-                 authentication_revision: session.authentication_revision + 1,
-                 access_version: session.access_version + 1
-               })
-             end)
-
-    assert MapSet.new(Enum.map(rejected.errors, & &1.input)) ==
-             MapSet.new([:client_id, :principal_uid, :authentication_revision, :access_version])
-
+    assert extended.access_version == session.access_version
+    assert extended.provider_id == session.provider_id
+    assert extended.auth_time == session.auth_time
+    assert Repo.aggregate(Session, :count) == 1
     Ankole.DataCase.assert_persisted_equal(Repo.get!(Session, session.id), extended)
   end
 
@@ -60,33 +57,38 @@ defmodule Ankole.OIDC.SessionResourceActionsTest do
     first = DateTime.utc_now()
     second = DateTime.add(first, 60)
 
-    assert {:ok, revoked} =
-             Repo.transact(fn -> Ankole.Ash.update(session, :revoke_in_tx, %{at: first}) end)
-
+    assert {:ok, revoked} = Ankole.Ash.update(session, :revoke_in_tx, %{at: first})
     assert {:ok, repeated} = Sessions.revoke(session.id)
     assert repeated.revoked_at == revoked.revoked_at
 
-    assert {:ok, ended} =
-             Repo.transact(fn ->
-               Ankole.Ash.update(repeated, :revoke_and_end_in_tx, %{at: second})
-             end)
-
+    assert {:ok, ended} = Ankole.Ash.update(repeated, :revoke_and_end_in_tx, %{at: second})
     assert ended.revoked_at == first
     assert ended.ended_at == second
 
     assert {:error, rejected} =
-             Repo.transact(fn ->
-               Ankole.Ash.update(ended, :extend_in_tx, %{
+             Ankole.Ash.create(
+               Session,
+               :authorize_in_tx,
+               Map.merge(authorization(ended), %{
                  expires_at: DateTime.add(session.expires_at, 3600),
                  revoked_at: nil,
                  ended_at: nil
                })
-             end)
+             )
 
     assert MapSet.new(Enum.map(rejected.errors, & &1.input)) ==
              MapSet.new([:revoked_at, :ended_at])
 
     Ankole.DataCase.assert_persisted_equal(Repo.get!(Session, session.id), ended)
+
+    assert {:ok, reauthorized} =
+             Ankole.Ash.create(Session, :authorize_in_tx, %{
+               authorization(ended)
+               | expires_at: DateTime.add(session.expires_at, 3600)
+             })
+
+    assert reauthorized.revoked_at == first
+    assert reauthorized.ended_at == second
   end
 
   test "a delivered logout cannot restart or consume another attempt", %{session: session} do
@@ -223,6 +225,20 @@ defmodule Ankole.OIDC.SessionResourceActionsTest do
       assert error.postgres.constraint == constraint
     end
   end
+
+  defp authorization(session),
+    do:
+      Map.take(session, [
+        :client_id,
+        :principal_uid,
+        :browser_id,
+        :authentication_id,
+        :authentication_revision,
+        :access_version,
+        :provider_id,
+        :auth_time,
+        :expires_at
+      ])
 
   defp delivery(session) do
     {:ok, delivery} =

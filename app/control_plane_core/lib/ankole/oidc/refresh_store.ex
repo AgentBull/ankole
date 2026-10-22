@@ -1,50 +1,50 @@
 defmodule Ankole.OIDC.RefreshStore do
   @moduledoc false
   @behaviour Attesto.RefreshStore
-  import Ecto.Query
   require Ash.Query
   alias Ankole.{OIDC, Repo, SecretKeyBase}
-  alias Ankole.OIDC.{RefreshToken, RefreshTokenFamily, Session, Sessions}
+  alias Ankole.OIDC.{RefreshToken, RefreshTokenFamily, Sessions}
 
   @context_keys ~w(subject scope resource client_id dpop_jkt acr auth_time claims family_expires_at attestation_jkt)a
 
+  # Attesto inserts the first token of a family when the authorization code
+  # exchange finalizes the code, so this callback runs in that transaction.
   @impl true
   def insert(entry) do
-    Repo.transact(fn ->
-      with :ok <-
-             Sessions.lock_credential_parents_in_tx(
-               entry.data.subject,
-               entry.data.client_id,
-               entry.data.claims["session_id"]
-             ),
-           {:ok, _family} <- ensure_family(entry),
-           {:ok, _} <- insert_token(entry) do
-        {:ok, :ok}
-      else
-        {:error, :family_revoked} = error -> error
-        {:error, _} -> {:error, :conflict}
-      end
-    end)
-    |> result()
+    unless Repo.in_transaction?(),
+      do:
+        raise(Ankole.Errors.Framework.TransactionRequired,
+          operation: {__MODULE__, :insert}
+        )
+
+    with :ok <-
+           Sessions.lock_credential_parents_in_tx(
+             entry.data.subject,
+             entry.data.client_id,
+             entry.data.claims["session_id"]
+           ),
+         {:ok, _family} <- ensure_family(entry),
+         {:ok, _} <- insert_token(entry) do
+      :ok
+    else
+      {:error, :family_revoked} = error -> error
+      {:error, _} -> {:error, :conflict}
+    end
   end
 
   @impl true
   def get(digest) do
-    case Repo.one(
-           from(t in RefreshToken,
-             join: f in RefreshTokenFamily,
-             on: f.id == t.family_id,
-             where: t.digest == ^digest and is_nil(f.revoked_at),
-             select: t
-           )
-         ) do
+    case RefreshToken
+         |> Ash.Query.filter(digest == ^digest and exists(family, is_nil(revoked_at)))
+         |> Ankole.Ash.read_one!() do
       nil -> :error
       row -> {:ok, entry(redact_successor(row, DateTime.utc_now(:microsecond)))}
     end
   end
 
   def redact_expired_successors(now) do
-    redact_successors(RefreshToken, now)
+    {:ok, _rows} = Ankole.Ash.update_where(RefreshToken, :redact_successor_in_tx, %{at: now})
+    :ok
   end
 
   defp redact_successor(%{successor_ciphertext: nil} = row, _now), do: row
@@ -57,35 +57,27 @@ defmodule Ankole.OIDC.RefreshStore do
     end
   end
 
-  defp redact_successors(query, now) do
-    {:ok, :ok} =
-      Repo.transact(fn ->
-        case Ankole.Ash.bulk_update(query, :redact_successor_in_tx, %{at: now},
-               strategy: [:atomic],
-               return_errors?: true
-             ) do
-          %Ash.BulkResult{status: :success} -> {:ok, :ok}
-          %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
-        end
-      end)
-
-    :ok
-  end
-
   @impl true
   def rotate(digest, child, successor, opts) do
     now = Keyword.fetch!(opts, :now)
 
     with {:ok, ciphertext} <-
            OIDC.seal(Ankole.JSON.encode!(successor), "refresh_successor", digest) do
-      Repo.transact(fn -> rotate_in_tx(digest, child, successor, ciphertext, now) end)
+      Ankole.Ash.run_action(RefreshToken, :rotate, %{
+        digest: digest,
+        child: child,
+        successor: successor,
+        ciphertext: ciphertext,
+        now: now
+      })
       |> result()
     else
       _ -> {:error, :retry_state_unavailable}
     end
   end
 
-  defp rotate_in_tx(digest, child, successor, ciphertext, now) do
+  @doc false
+  def rotate_in_tx(digest, child, successor, ciphertext, now) do
     with :ok <-
            Sessions.lock_credential_parents_in_tx(
              child.data.subject,
@@ -100,14 +92,18 @@ defmodule Ankole.OIDC.RefreshStore do
 
   defp rotate_locked(digest, child, successor, ciphertext, now) do
     family =
-      Repo.one(
-        from(f in RefreshTokenFamily,
-          where: f.id == ^child.family_id and f.session_id == ^child.data.claims["session_id"],
-          lock: "FOR UPDATE"
-        )
+      RefreshTokenFamily
+      |> Ash.Query.filter(
+        id == ^child.family_id and session_id == ^child.data.claims["session_id"]
       )
+      |> Ash.Query.lock(:for_update)
+      |> Ankole.Ash.read_one!()
 
-    parent = Repo.one(from(t in RefreshToken, where: t.digest == ^digest, lock: "FOR UPDATE"))
+    parent =
+      RefreshToken
+      |> Ash.Query.filter(digest == ^digest)
+      |> Ash.Query.lock(:for_update)
+      |> Ankole.Ash.read_one!()
 
     cond do
       is_nil(family) or is_nil(parent) ->
@@ -132,7 +128,9 @@ defmodule Ankole.OIDC.RefreshStore do
   end
 
   defp commit_rotation(parent, child, successor, ciphertext, now) do
-    case Repo.get_by(RefreshToken, family_id: child.family_id, generation: child.generation) do
+    case RefreshToken
+         |> Ash.Query.filter(family_id == ^child.family_id and generation == ^child.generation)
+         |> Ankole.Ash.read_one!() do
       nil ->
         with {:ok, _} <- insert_token(child),
              {:ok, updated} <-
@@ -147,7 +145,7 @@ defmodule Ankole.OIDC.RefreshStore do
         end
 
       _ ->
-        :ok = revoke_family(child.family_id)
+        :ok = revoke_family_in_tx(child.family_id)
         {:ok, {:error, :family_integrity_error}}
     end
   end
@@ -156,48 +154,47 @@ defmodule Ankole.OIDC.RefreshStore do
   def revoke_family(nil), do: :ok
 
   def revoke_family(id) do
-    {:ok, :ok} =
-      Repo.transact(fn ->
-        with {subject, client_id, session_id} <- family_context(id),
-             :ok <- Sessions.lock_credential_parents_in_tx(subject, client_id, session_id),
-             %RefreshTokenFamily{} = family <-
-               Repo.one(from(f in RefreshTokenFamily, where: f.id == ^id, lock: "FOR UPDATE")) do
-          {:ok, _} = Ankole.Ash.update(family, :revoke_in_tx, %{})
+    {:ok, :ok} = Ankole.Ash.run_action(RefreshTokenFamily, :revoke_family, %{id: id})
+    :ok
+  end
 
-          case RefreshToken
-               |> Ash.Query.filter(family_id == ^id)
-               |> Ankole.Ash.bulk_destroy(:remove_in_tx, %{},
-                 strategy: [:atomic],
-                 return_errors?: true
-               ) do
-            %Ash.BulkResult{status: :success} -> :ok
-            %Ash.BulkResult{errors: errors} -> Repo.rollback(Ash.Error.to_error_class(errors))
-          end
+  @doc false
+  def revoke_family_in_tx(id) do
+    with {subject, client_id, session_id} <- family_context(id),
+         :ok <- Sessions.lock_credential_parents_in_tx(subject, client_id, session_id),
+         %RefreshTokenFamily{} = family <-
+           RefreshTokenFamily
+           |> Ash.Query.filter(id == ^id)
+           |> Ash.Query.lock(:for_update)
+           |> Ankole.Ash.read_one!() do
+      {:ok, _} = Ankole.Ash.update(family, :revoke_in_tx, %{})
 
-          {:ok, _} = Sessions.revoke(family.session_id)
-        end
+      {:ok, _} =
+        RefreshToken
+        |> Ash.Query.filter(family_id == ^id)
+        |> Ankole.Ash.destroy_where(:remove_in_tx)
 
-        {:ok, :ok}
-      end)
+      {:ok, _} = Sessions.revoke(family.session_id)
+    end
 
     :ok
   end
 
   defp family_context(id) do
-    Repo.one(
-      from(f in RefreshTokenFamily,
-        join: s in Session,
-        on: s.id == f.session_id,
-        where: f.id == ^id,
-        select: {s.principal_uid, s.client_id, s.id}
-      )
-    )
+    case RefreshTokenFamily
+         |> Ash.Query.filter(id == ^id)
+         |> Ash.Query.load(:session)
+         |> Ankole.Ash.read_one!() do
+      %{session: %{} = session} -> {session.principal_uid, session.client_id, session.id}
+      _ -> nil
+    end
   end
 
   defp ensure_family(entry) do
-    case Repo.one(
-           from(f in RefreshTokenFamily, where: f.id == ^entry.family_id, lock: "FOR UPDATE")
-         ) do
+    case RefreshTokenFamily
+         |> Ash.Query.filter(id == ^entry.family_id)
+         |> Ash.Query.lock(:for_update)
+         |> Ankole.Ash.read_one!() do
       %{revoked_at: revoked} when not is_nil(revoked) ->
         {:error, :family_revoked}
 

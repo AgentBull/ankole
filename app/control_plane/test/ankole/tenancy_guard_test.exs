@@ -53,8 +53,6 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:../control_plane_core/lib/ankole/oidc/sessions.ex:end_browser_in_tx" => 1,
     "across_tenants:../control_plane_core/lib/ankole/oidc/sessions.ex:end_authentication_in_tx" =>
       1,
-    "across_tenants:../control_plane_core/lib/ankole/oidc/sessions.ex:lock_credential_parents_in_tx" =>
-      1,
     "across_tenants:../control_plane_core/lib/ankole/oidc/tokens.ex:access_context" => 1,
     "across_tenants:../control_plane_core/lib/ankole/plugins/channel_sync.ex:enqueue_enabled_bindings" =>
       1,

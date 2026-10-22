@@ -1,6 +1,6 @@
 defmodule Ankole.OIDC.Client do
   @moduledoc "Operator-managed OAuth client and its authorization boundary."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.OIDC.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.OIDC
 
   @scopes ~w(openid profile email offline_access ai_gateway.write)
   @lists [:redirect_uris, :scopes, :allowed_identity_provider_ids, :post_logout_redirect_uris]
@@ -135,22 +135,37 @@ defmodule Ankole.OIDC.Client do
 
     create :create_in_tx do
       accept([:id, :client_type, :secret_ciphertext] ++ @fields)
-      transaction?(false)
     end
 
-    in_tx_update :configure_in_tx do
+    update :configure_in_tx do
       accept(@fields)
     end
 
-    in_tx_update :rotate_secret_in_tx do
+    update :rotate_secret_in_tx do
       accept([:secret_ciphertext])
       validate(attribute_equals(:client_type, :confidential))
     end
 
-    destroy :delete_in_tx do
-      transaction?(false)
-      require_atomic?(false)
-      atomic_upgrade?(false)
+    destroy(:delete_in_tx)
+
+    action :create_client, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:attrs, :term)
+      argument(:group_ids, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.OIDC.create_client_in_tx(args.attrs, args.group_ids))
+      end)
+    end
+
+    action :update_client, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id, :term)
+      argument(:attrs, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.OIDC.update_client_in_tx(args.id, args.attrs))
+      end)
     end
   end
 

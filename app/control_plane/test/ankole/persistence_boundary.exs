@@ -224,12 +224,10 @@
     "ecto_resource:../control_plane_core/lib/ankole/brain/sources.ex" => 1,
     "repo_transact:../control_plane_core/lib/ankole/brain/sources.ex" => 2,
     "repo_transact:../control_plane_core/lib/ankole/brain/timelines.ex" => 1,
-    # browser_sessions
-    "bulk_result:../control_plane_core/lib/ankole/browser_sessions.ex" => 4,
-    "ecto_lock:../control_plane_core/lib/ankole/browser_sessions.ex" => 3,
-    "ecto_resource:../control_plane_core/lib/ankole/browser_sessions.ex" => 15,
-    "error_class:../control_plane_core/lib/ankole/browser_sessions.ex" => 3,
-    "repo_transact:../control_plane_core/lib/ankole/browser_sessions.ex" => 14,
+    # browser_sessions: a lock of a Human row and a read of bindings across tenants
+    # stay until Principals gives these reads.
+    "ecto_lock:../control_plane_core/lib/ankole/browser_sessions.ex" => 1,
+    "ecto_resource:../control_plane_core/lib/ankole/browser_sessions.ex" => 1,
     # control_plane application
     "ecto_resource:lib/ankole/release.ex" => 1,
     # conversations
@@ -305,34 +303,10 @@
     "repo_transact:../control_plane_core/lib/ankole/identity_providers/local_password.ex" => 3,
     # observability
     "ecto_resource:../control_plane_core/lib/ankole/observability/trace.ex" => 1,
-    # oidc
-    "bulk_result:../control_plane_core/lib/ankole/oidc.ex" => 4,
-    "ecto_lock:../control_plane_core/lib/ankole/oidc.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/oidc.ex" => 1,
-    "error_class:../control_plane_core/lib/ankole/oidc.ex" => 3,
-    "repo_transact:../control_plane_core/lib/ankole/oidc.ex" => 5,
-    "ecto_lock:../control_plane_core/lib/ankole/oidc/claims.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/oidc/claims.ex" => 2,
-    "bulk_result:../control_plane_core/lib/ankole/oidc/code_store.ex" => 6,
-    "error_class:../control_plane_core/lib/ankole/oidc/code_store.ex" => 3,
-    "repo_transact:../control_plane_core/lib/ankole/oidc/code_store.ex" => 3,
-    "repo_transact:../control_plane_core/lib/ankole/oidc/grants.ex" => 3,
-    "bulk_result:../control_plane_core/lib/ankole/oidc/logout.ex" => 2,
-    "ecto_lock:../control_plane_core/lib/ankole/oidc/logout.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/oidc/logout.ex" => 7,
-    "error_class:../control_plane_core/lib/ankole/oidc/logout.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/oidc/logout.ex" => 3,
-    "bulk_result:../control_plane_core/lib/ankole/oidc/refresh_store.ex" => 4,
-    "ecto_lock:../control_plane_core/lib/ankole/oidc/refresh_store.ex" => 4,
-    "ecto_resource:../control_plane_core/lib/ankole/oidc/refresh_store.ex" => 9,
-    "error_class:../control_plane_core/lib/ankole/oidc/refresh_store.ex" => 2,
-    "repo_transact:../control_plane_core/lib/ankole/oidc/refresh_store.ex" => 4,
-    "repo_transact:../control_plane_core/lib/ankole/oidc/rp_logout.ex" => 3,
-    "ecto_lock:../control_plane_core/lib/ankole/oidc/sessions.ex" => 8,
-    "ecto_resource:../control_plane_core/lib/ankole/oidc/sessions.ex" => 9,
-    "repo_transact:../control_plane_core/lib/ankole/oidc/sessions.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/oidc/signing_key.ex" => 2,
-    "repo_transact:../control_plane_core/lib/ankole/oidc/signing_key.ex" => 1,
+    # oidc: locks of tenant and Human rows stay until Tenants and Principals give
+    # these reads.
+    "ecto_lock:../control_plane_core/lib/ankole/oidc/claims.ex" => 2,
+    "ecto_lock:../control_plane_core/lib/ankole/oidc/sessions.ex" => 2,
     # plugins
     "repo_transact:../control_plane_core/lib/ankole/plugins/config.ex" => 1,
     "ecto_resource:../control_plane_core/lib/ankole/plugins/connection_lifecycle.ex" => 1,
