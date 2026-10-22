@@ -197,7 +197,7 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
                }) do
           {:ok, %{worker: worker, replaced_route: replaced_route}}
         else
-          {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} ->
+          {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} ->
             {:error, :worker_incarnation_active}
 
           {:error, _reason} = error ->

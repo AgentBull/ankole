@@ -108,7 +108,6 @@ defmodule Ankole.Principals.Agent do
       ])
 
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     in_tx_update :profile_in_tx do

@@ -73,7 +73,6 @@ defmodule Ankole.Pod.DbField do
 
     create :create_in_tx do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:id, :table_id, :name, :position, :type, :config, :is_primary])
     end
 
@@ -85,7 +84,6 @@ defmodule Ankole.Pod.DbField do
     destroy :remove do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

@@ -9,6 +9,7 @@ defmodule Ankole.Ash.Verifiers.Contracts do
     Ash.Resource.Change.AroundTransaction
   ]
   @action_hooks [Ash.Resource.Change.BeforeAction, Ash.Resource.Change.AfterAction]
+  @mutations [:create, :update, :destroy]
 
   def after?(module),
     do:
@@ -16,7 +17,8 @@ defmodule Ankole.Ash.Verifiers.Contracts do
         Ash.Resource.Transformers.DefaultAccept,
         Ash.Resource.Transformers.SetPrimaryActions,
         AshStateMachine.Transformers.AddState,
-        Ankole.Ash.Transformers.TenantUpsertCondition
+        Ankole.Ash.Transformers.TenantUpsertCondition,
+        Ankole.Ash.Transformers.CallerTransaction
       ]
 
   def transform(dsl) do
@@ -90,41 +92,26 @@ defmodule Ankole.Ash.Verifiers.Contracts do
     end
   end
 
+  # A resource action runs inside the transaction of a generic action. A hook
+  # failure would roll back that outer transaction and its compensation writes,
+  # so resource actions reject through changes and validations.
   defp verify_action_transaction(dsl, action, modules, deferred_validation?) do
-    in_tx? = Ankole.Ash.RequireTransaction in modules
-    atomic_in_tx? = Ankole.Ash.RequireTransaction.Atomic in modules
-    caller_transaction? = in_tx? or atomic_in_tx?
-
     cond do
       Enum.any?(modules, &(&1 in @transaction_hooks)) ->
         error(dsl, [:actions, action.name], "transaction hooks are forbidden")
 
-      caller_transaction? and action.transaction? ->
-        error(dsl, [:actions, action.name], "caller-owned actions require transaction? false")
-
-      atomic_in_tx? and not Map.get(action, :require_atomic?, false) ->
-        error(dsl, [:actions, action.name], "atomic in_tx actions require require_atomic? true")
-
-      in_tx? and action.type in [:update, :destroy] and
-          (Map.get(action, :require_atomic?, false) or Map.get(action, :atomic_upgrade?, false)) ->
+      action.type in @mutations and Enum.any?(modules, &(&1 in @action_hooks)) ->
         error(
           dsl,
           [:actions, action.name],
-          "in_tx updates require transaction?, require_atomic?, and atomic_upgrade? false"
+          "resource actions must reject through changes or validations, not action hooks"
         )
 
-      caller_transaction? and Enum.any?(modules, &(&1 in @action_hooks)) ->
+      action.type in @mutations and deferred_validation? ->
         error(
           dsl,
           [:actions, action.name],
-          "in_tx updates must reject through changes or validations, not action hooks"
-        )
-
-      caller_transaction? and deferred_validation? ->
-        error(
-          dsl,
-          [:actions, action.name],
-          "in_tx validations must reject before action hooks; before_action? is forbidden"
+          "resource action validations must reject before action hooks; before_action? is forbidden"
         )
 
       true ->

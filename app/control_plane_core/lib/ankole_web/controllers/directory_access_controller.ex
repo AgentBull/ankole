@@ -148,20 +148,14 @@ defmodule AnkoleWeb.DirectoryAccessController do
 
   defp fallback(conn, {:error, :forbidden}), do: ConsoleErrors.forbidden(conn, "Access denied")
 
-  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+  defp fallback(conn, failure),
+    do:
+      ConsoleErrors.fallback(conn, failure, &error/2,
+        validation: {"validation_failed", "request is invalid"}
+      )
 
   defp error(conn, :not_found),
     do: ConsoleErrors.not_found(conn, "Directory event was not found")
-
-  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid] do
-    ConsoleErrors.render(
-      conn,
-      422,
-      "validation_failed",
-      "request is invalid",
-      ConsoleErrors.changeset_details(error)
-    )
-  end
 
   defp error(conn, reason) when is_atom(reason),
     do:

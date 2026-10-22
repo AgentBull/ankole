@@ -117,8 +117,7 @@ defmodule AnkoleWeb.BrainControllerTest do
              )
 
     response = post(conn, ~p"/api/v1/brain/claims/#{claim.id}/supersede", %{"claim" => "Changed"})
-    assert %{"error" => %{"details" => [%{"reason" => reason}]}} = json_response(response, 422)
-    assert reason =~ "writer_not_in_claim_scope"
+    assert %{"error" => %{"code" => "writer_not_in_claim_scope"}} = json_response(response, 422)
     refute Repo.reload!(claim).superseded_by
   end
 

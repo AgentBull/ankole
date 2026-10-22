@@ -50,12 +50,14 @@ Ash uses for related resources and aggregates. Their declared schemas retain
 their site or tenant ownership.
 
 Tenant-owned Ash resources use attribute tenancy with `global? false`.
-`Ankole.Ash` supplies the process tenant before changeset preparation. Site-owned
-resources retain site scope and need no process tenant. Domains register resources;
-the existing context modules own their public operations. Ash assigns the tenant
-attribute. `ProcessTenant` checks the process context in changes and read preparations.
-A dedicated global read action also
-requires an explicit `Repo.across_tenants` block. UUID and Principal attributes
+`Ankole.Repo` owns the tenant context. `Ankole.Ash` and each domain code
+interface (`Ankole.Ash.default_options/0`) give Ash the tenant of the calling
+process. Site-owned resources retain site scope and need no process tenant. Ash
+assigns the tenant attribute. The Repo scopes each Ash read and write, so a
+forged tenant option cannot read or write the rows of another tenant. A
+dedicated global read action reads all tenants only in an explicit
+`Repo.across_tenants` block; in a tenant context, the Repo limits it to that
+tenant. UUID and Principal attributes
 use their existing domain codecs. Ash state fields use the transition list to
 configure the Ecto enum codec, so Ecto callers also receive canonical atoms.
 
@@ -66,24 +68,27 @@ Creates that must reject a conflict retain their explicit action condition.
 For tenant resources, compilation rejects writable or accepted `tenant_id`,
 upserts without explicit fields, tenant ownership in those fields, and atomic
 upserts. Resource policies are forbidden for both site and tenant resources.
-The process check also rejects runtime overrides of the upsert contract. Global
+`Ankole.Ash.DeclaredUpsert` rejects runtime overrides of the upsert contract. Global
 identities of tenant resources retain `all_tenants? true` and their existing PostgreSQL index names.
 The Repo scopes scalar queries inside batch rows and conflict queries. A CTE
 join uses its scoped inner query rather than a tenant column on its projection.
 
 Ash runs synchronously. All bulk actions use `Ankole.Ash`, which fixes their
-concurrency at one. Caller-owned updates use resource macros. `in_tx_update` disables transactions
-and atomic execution. Rejection occurs in changes or validations before database
-execution, so the caller can commit compensation. Transaction hooks and action
-hooks on these transitions are rejected. `atomic_in_tx_update` requires atomic
-execution in the caller's transaction. Actions declare their accepted inputs,
-filters, and changes without repeating the transaction flags. Standalone atomic
-writes retain their explicit action contract.
+concurrency at one. A generic action owns its transaction. It must be the
+top-level call, and its `after_commit` function runs only after its commit. A
+create, update, or destroy action runs in the transaction of its generic action,
+or alone as one statement. It does not upgrade itself to an atomic write; an
+action that must be atomic declares `require_atomic? true`. Rejection occurs in
+changes or validations before database execution, so the generic action can
+commit compensation. Transaction hooks and action hooks are rejected on resource
+actions. The default error handler of each resource action gives the declared
+exceptions of `Ankole.Errors`.
 Ecto migrations continue to own existing tables through `migrate? false` and
 install the SQL expression functions that Ash requires. The schema test checks
 resource constraint and index mappings against the selected edition's database.
 
-Work lock functions declare the table and row key with `lock_identity`. The test
+Work lock functions declare the table and row key with `lock_identity`;
+`Ankole.Ash.read/2` gives it for an Ash read with a lock. The test
 checker does not infer keys from query predicates. `Repo.lock_all` checks the
 actual returned keys for a selection after its single locking query. It retains
 query limits and `SKIP LOCKED` behavior. An application transaction with a tracked
@@ -91,8 +96,8 @@ row lock and no declared identity fails in tests.
 
 Native constraints can reject a write after validation. They roll back the
 current transaction. After rollback, `Repo.transact` and `Repo.transaction`
-return the same normalized Ash error as the action facade. They preserve
-rollback reasons from other sources.
+return the same Ash error shape as `Ankole.Ash` (`Ankole.Errors.boundary_result/1`).
+They preserve rollback reasons from other sources.
 
 PostgreSQL RLS is not enabled. Repo isolation tests cover every tenant schema,
 query forms, joins, bulk writes, upserts, and stale or foreign-tenant structs.

@@ -245,7 +245,11 @@ defmodule AnkoleWeb.WorkerEnvController do
     end
   end
 
-  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+  defp fallback(conn, failure),
+    do:
+      ConsoleErrors.fallback(conn, failure, &error/2,
+        validation: {"validation_failed", "worker env value is invalid"}
+      )
 
   defp error(conn, :not_found) do
     ConsoleErrors.not_found(conn, "worker env variable was not found")
@@ -286,9 +290,6 @@ defmodule AnkoleWeb.WorkerEnvController do
   defp error(conn, :missing_agent_uid) do
     ConsoleErrors.render(conn, 422, "validation_failed", "agent_uid is required")
   end
-
-  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid],
-    do: ConsoleErrors.changeset(conn, error, "worker env value is invalid")
 
   defp error(conn, reason),
     do: ConsoleErrors.unexpected(conn, "worker_env.api.unexpected_error", reason)

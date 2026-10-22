@@ -30,7 +30,7 @@ defmodule AnkoleWeb.IdentityMappingRequestControllerTest do
     conn = get(conn, ~p"/api/v1/identity-mapping-requests")
 
     assert json_response(conn, 403) ==
-             %{"error" => %{"code" => "forbidden", "message" => "access denied"}}
+             %{"error" => %{"code" => "forbidden", "message" => "access denied", "details" => []}}
   end
 
   test "admin lists, binds, and dismisses pending mapping requests", %{conn: conn} do

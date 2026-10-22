@@ -248,8 +248,12 @@ defmodule AnkoleWeb.AgentFileController do
     do: ConsoleErrors.render(conn, 422, "validation_failed", "invalid move target")
 
   defp error(conn, reason) do
-    ConsoleErrors.render(conn, 422, "file_operation_failed", "file operation failed", [
-      %{reason: inspect(reason)}
-    ])
+    ConsoleErrors.unexpected(
+      conn,
+      "files.agent_file_api.unexpected_error",
+      reason,
+      "file_operation_failed",
+      "file operation failed"
+    )
   end
 end

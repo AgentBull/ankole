@@ -75,7 +75,7 @@ defmodule Ankole.Files.Schemas.DriveFile do
     validate(fn changeset, _context ->
       case Ankole.Files.normalize_path(Ash.Changeset.get_attribute(changeset, :path)) do
         {:ok, _path} -> :ok
-        {:error, reason} -> {:error, Ankole.Ash.DomainError.exception(reason: reason)}
+        {:error, reason} -> {:error, Ankole.Errors.Invalid.Rejected.exception(reason: reason)}
       end
     end)
   end
@@ -85,7 +85,6 @@ defmodule Ankole.Files.Schemas.DriveFile do
 
     create :commit do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :agent_uid,
@@ -114,7 +113,6 @@ defmodule Ankole.Files.Schemas.DriveFile do
 
     create :move do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :agent_uid,
@@ -133,39 +131,37 @@ defmodule Ankole.Files.Schemas.DriveFile do
       upsert_fields([:path])
       upsert_condition(expr(false))
     end
+  end
 
-    action :remove_paths, {:array, :struct} do
-      transaction?(false)
-      constraints(items: [instance_of: __MODULE__])
-      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey)
-      argument(:path, :string, allow_nil?: false, constraints: [trim?: false])
+  @doc """
+  Deletes a drive path and its descendants in the caller's transaction.
 
-      run(fn input, _context ->
-        unless Ankole.Repo.in_transaction?(), do: raise(ArgumentError, "transaction required")
+  `nil` selects the Pod drive. The result gives the deleted rows.
+  """
+  def remove_paths_in_tx(agent_uid, path) do
+    unless Ankole.Repo.in_transaction?(),
+      do:
+        raise(Ankole.Errors.Framework.TransactionRequired,
+          operation: {__MODULE__, :remove_paths_in_tx}
+        )
 
-        case Ankole.Files.normalize_path(input.arguments.path) do
-          {:ok, path} ->
-            prefix = Ankole.Repo.escape_like(path) <> "/%"
+    with {:ok, path} <- Ankole.Files.normalize_path(path) do
+      prefix = Ankole.Repo.escape_like(path) <> "/%"
 
-            query =
-              Ecto.Query.from(file in __MODULE__,
-                where: file.path == ^path or like(file.path, ^prefix),
-                select: file
-              )
+      query =
+        Ecto.Query.from(file in __MODULE__,
+          where: file.path == ^path or like(file.path, ^prefix),
+          select: file
+        )
 
-            query =
-              case input.arguments.agent_uid do
-                nil -> Ecto.Query.where(query, [file], is_nil(file.agent_uid))
-                uid -> Ecto.Query.where(query, [file], file.agent_uid == ^uid)
-              end
-
-            {_count, files} = Ankole.Repo.delete_all(query)
-            {:ok, files}
-
-          {:error, reason} ->
-            {:error, Ankole.Ash.DomainError.exception(reason: reason)}
+      query =
+        case agent_uid do
+          nil -> Ecto.Query.where(query, [file], is_nil(file.agent_uid))
+          uid -> Ecto.Query.where(query, [file], file.agent_uid == ^uid)
         end
-      end)
+
+      {_count, files} = Ankole.Repo.delete_all(query)
+      {:ok, files}
     end
   end
 

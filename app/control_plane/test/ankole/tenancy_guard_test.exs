@@ -737,7 +737,7 @@ defmodule Ankole.TenancyGuardTest do
         function_exported?(module, :__schema__, 1),
         module.__schema__(:source) != nil do
       assert function_exported?(module, :__tenancy__, 0),
-             "#{inspect(module)} must declare its ownership through Ankole.Ash.Resource"
+             "#{inspect(module)} must declare its ownership through Ankole.Ash.Resource or Ankole.Schema"
 
       module
     end

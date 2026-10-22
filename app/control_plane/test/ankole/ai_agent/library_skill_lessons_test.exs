@@ -58,7 +58,7 @@ defmodule Ankole.AIAgent.LibrarySkillLessonsTest do
       assert {:error, %Ash.Error.Invalid{errors: errors}} =
                Repo.transact(fn -> Ankole.Ash.update(lesson, action, attrs) end)
 
-      assert Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
+      assert Enum.any?(errors, &match?(%Ankole.Errors.Invalid.Stale{}, &1))
       Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentSkillLesson, lesson.id), retired)
     end
   end

@@ -52,14 +52,12 @@ defmodule Ankole.Sessions.Receipts do
     create :commit_result do
       primary?(true)
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:response_id, :call_id, :agent_uid, :session_id, :result])
     end
 
     destroy :discard do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

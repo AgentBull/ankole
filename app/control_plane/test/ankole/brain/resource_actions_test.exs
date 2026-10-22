@@ -21,7 +21,7 @@ defmodule Ankole.Brain.ResourceActionsTest do
         :system
       )
 
-    assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} =
+    assert {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} =
              Repo.transact(fn _ ->
                Ankole.Ash.update(object, :edit, %{
                  body: "Stale",
@@ -37,14 +37,14 @@ defmodule Ankole.Brain.ResourceActionsTest do
     {:ok, source} =
       Ankole.Brain.Sources.create(%{kind: "file", upstream_id: "guard-source", name: "Guard"})
 
-    assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} =
+    assert {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} =
              Repo.transact(fn _ ->
                Ankole.Ash.update(object, :project, %{source_id: source.id, body: "Take over"})
              end)
 
     {:ok, archived} = Ankole.Brain.Sources.archive(source.id)
 
-    assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} =
+    assert {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} =
              Ankole.Ash.update(source, :record_revision, %{upstream_revision: "Too late"})
 
     Ankole.DataCase.assert_persisted_equal(
@@ -196,7 +196,7 @@ defmodule Ankole.Brain.ResourceActionsTest do
                Ankole.Ash.update(proposal, :approve, %{decided_by: actor})
              end)
 
-    assert Enum.any?(error.errors, &is_struct(&1, AshStateMachine.Errors.NoMatchingTransition))
+    assert Enum.any?(error.errors, &is_struct(&1, Ankole.Errors.Invalid.StatusTransition))
     Ankole.DataCase.assert_persisted_equal(Repo.get!(SchemaSuggestion, proposal.id), rejected)
     assert Repo.aggregate(SchemaSuggestion, :count) == 1
   end
@@ -221,7 +221,7 @@ defmodule Ankole.Brain.ResourceActionsTest do
                Ankole.Ash.update(proposal, :approve, %{decided_by: actor})
              end)
 
-    assert Enum.any?(error.errors, &is_struct(&1, AshStateMachine.Errors.NoMatchingTransition))
+    assert Enum.any?(error.errors, &is_struct(&1, Ankole.Errors.Invalid.StatusTransition))
     Ankole.DataCase.assert_persisted_equal(Repo.get!(MergeSuggestion, proposal.id), rejected)
   end
 
@@ -257,7 +257,7 @@ defmodule Ankole.Brain.ResourceActionsTest do
                Ankole.Ash.update(original, :resolve, %{resolution_note: "Late"})
              end)
 
-    assert Enum.any?(error.errors, &is_struct(&1, AshStateMachine.Errors.NoMatchingTransition))
+    assert Enum.any?(error.errors, &is_struct(&1, Ankole.Errors.Invalid.StatusTransition))
     Ankole.DataCase.assert_persisted_equal(Repo.get!(Contradiction, original.id), original)
   end
 

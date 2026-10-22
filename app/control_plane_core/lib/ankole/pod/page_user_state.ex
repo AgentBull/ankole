@@ -29,7 +29,6 @@ defmodule Ankole.Pod.PageUserState do
 
     create :put do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:principal_uid, :page_id, :favorited_at, :visited_at])
       upsert?(true)
       upsert_fields([:favorited_at, :visited_at])
@@ -38,14 +37,12 @@ defmodule Ankole.Pod.PageUserState do
     destroy :remove_empty do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
       change(filter(expr(is_nil(favorited_at) and is_nil(visited_at))))
     end
 
     destroy :purge do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

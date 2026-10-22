@@ -4,6 +4,7 @@ defmodule Ankole.Ash.Extension do
     transformers: [
       Ankole.Ash.Transformers.TenantUpsertCondition,
       Ankole.Ash.Transformers.StateEctoType,
+      Ankole.Ash.Transformers.CallerTransaction,
       Ankole.Ash.Verifiers.Contracts
     ]
 end

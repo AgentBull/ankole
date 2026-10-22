@@ -242,7 +242,8 @@ defmodule AnkoleWeb.PrincipalController do
   defp local_credential_json(nil), do: nil
   defp local_credential_json(status), do: %{status: Atom.to_string(status)}
 
-  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+  defp fallback(conn, failure),
+    do: ConsoleErrors.fallback(conn, failure, &error/2, validation: &validation_error/2)
 
   defp error(conn, :not_found),
     do: ConsoleErrors.not_found(conn, "principal was not found")
@@ -271,9 +272,17 @@ defmodule AnkoleWeb.PrincipalController do
   defp error(conn, :not_human),
     do: ConsoleErrors.render(conn, 422, "not_human", "local passwords apply to human users only")
 
-  defp error(conn, %module{} = changeset) when module in [Ash.Changeset, Ash.Error.Invalid] do
-    details = ConsoleErrors.changeset_details(changeset)
+  defp error(conn, reason),
+    do:
+      ConsoleErrors.unexpected(
+        conn,
+        "principals.api.unexpected_error",
+        reason,
+        "invalid_principal",
+        "principal request is invalid"
+      )
 
+  defp validation_error(conn, details) do
     case Enum.any?(details, &(&1.path == "email" and &1.message =~ "taken")) do
       true ->
         ConsoleErrors.render(
@@ -294,10 +303,4 @@ defmodule AnkoleWeb.PrincipalController do
         )
     end
   end
-
-  defp error(conn, reason),
-    do:
-      ConsoleErrors.render(conn, 422, "invalid_principal", "principal request is invalid", [
-        %{reason: inspect(reason)}
-      ])
 end

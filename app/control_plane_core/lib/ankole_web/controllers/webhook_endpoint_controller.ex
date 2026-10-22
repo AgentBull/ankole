@@ -146,7 +146,11 @@ defmodule AnkoleWeb.WebhookEndpointController do
 
   defp webhook_resource(agent_uid), do: "agent:#{agent_uid}:webhooks"
 
-  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+  defp fallback(conn, failure),
+    do:
+      ConsoleErrors.fallback(conn, failure, &error/2,
+        validation: {"invalid_webhook_endpoint", "webhook endpoint request is invalid"}
+      )
 
   defp error(conn, :webhook_endpoint_not_found),
     do: ConsoleErrors.not_found(conn, "webhook endpoint was not found")
@@ -159,25 +163,13 @@ defmodule AnkoleWeb.WebhookEndpointController do
     ConsoleErrors.render(conn, 422, "validation_failed", "#{key} must be a UUID")
   end
 
-  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid] do
-    ConsoleErrors.render(
-      conn,
-      422,
-      "invalid_webhook_endpoint",
-      "webhook endpoint request is invalid",
-      Ankole.Ash.validation_details(error)
-    )
-  end
-
   defp error(conn, reason) do
-    ConsoleErrors.render(
+    ConsoleErrors.unexpected(
       conn,
-      422,
+      "signals.webhook_endpoint_api.unexpected_error",
+      reason,
       "invalid_webhook_endpoint",
-      "webhook endpoint request is invalid",
-      [
-        %{reason: inspect(reason)}
-      ]
+      "webhook endpoint request is invalid"
     )
   end
 end

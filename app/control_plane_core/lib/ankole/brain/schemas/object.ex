@@ -83,20 +83,17 @@ defmodule Ankole.Brain.Schemas.Object do
 
     create :create do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept(@initial)
     end
 
     create :create_projection do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:managed_by_source_id | @initial])
       require_attributes([:managed_by_source_id])
     end
 
     create_if_absent :ensure_canonical do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept(@initial)
       upsert_identity(:slug)
     end
@@ -182,14 +179,12 @@ defmodule Ankole.Brain.Schemas.Object do
     destroy :purge do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
       change(filter(expr(not is_nil(deleted_at) and is_nil(managed_by_source_id))))
     end
 
     destroy :merge_duplicate do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
       change(filter(expr(is_nil(managed_by_source_id))))
     end
   end

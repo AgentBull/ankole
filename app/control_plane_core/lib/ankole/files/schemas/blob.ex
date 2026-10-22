@@ -110,7 +110,6 @@ defmodule Ankole.Files.Schemas.Blob do
     destroy :collect do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
       change(filter(expr(deleting)))
       change(filter(@unreferenced))
     end

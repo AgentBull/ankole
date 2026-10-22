@@ -167,13 +167,11 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     create :create_event do
       primary?(true)
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept(@create_fields)
     end
 
     create :record_cancelled do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept(@create_fields)
       argument(:cancelled_at, :utc_datetime_usec, allow_nil?: false)
       change(transition_state(:cancelled))
@@ -182,7 +180,6 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
 
     create :schedule_event do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept(@create_fields)
       upsert?(true)
       upsert_identity(:idempotency)

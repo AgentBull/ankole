@@ -65,7 +65,6 @@ defmodule Ankole.Pod.Page do
 
     create :create_in_tx do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :id,
@@ -130,7 +129,6 @@ defmodule Ankole.Pod.Page do
     destroy :purge do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
       change(filter(expr(not exists(children, true))))
     end
   end

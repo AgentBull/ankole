@@ -1,5 +1,12 @@
 defmodule Ankole.Ash.Resource do
-  @moduledoc "Declares the tenant and transaction contracts for a durable resource."
+  @moduledoc """
+  Declares the tenant and transaction contracts for a durable resource.
+
+  `Ankole.Ash.Transformers.CallerTransaction` gives the transaction owner of
+  each action. A generic action must be the top-level call
+  (`Ankole.Ash.TopLevel`) and can publish after its commit with
+  `after_commit/1`.
+  """
 
   defmacro __using__(opts) do
     {tenancy, opts} = Keyword.pop!(opts, :tenancy)
@@ -21,10 +28,20 @@ defmodule Ankole.Ash.Resource do
       use Ash.Resource, unquote(opts)
 
       import Ankole.Ash.Resource,
-        only: [create_if_absent: 2, create_if_absent: 3, in_tx_update: 2, atomic_in_tx_update: 2]
+        only: [
+          create_if_absent: 2,
+          create_if_absent: 3,
+          in_tx_update: 2,
+          atomic_in_tx_update: 2,
+          after_commit: 1
+        ]
 
       def __tenancy__, do: unquote(tenancy)
       @persist {:ankole_tenancy, unquote(tenancy)}
+
+      preparations do
+        prepare(Ankole.Ash.TopLevel, on: [:action])
+      end
 
       if unquote(tenancy) == :tenant do
         attributes do
@@ -43,12 +60,8 @@ defmodule Ankole.Ash.Resource do
           global?(false)
         end
 
-        preparations do
-          prepare(Ankole.Ash.ProcessTenant.Preparation, on: [:read, :action])
-        end
-
         changes do
-          change(Ankole.Ash.ProcessTenant, on: [:create, :update, :destroy])
+          change(Ankole.Ash.DeclaredUpsert, on: [:create])
         end
       end
     end
@@ -68,24 +81,34 @@ defmodule Ankole.Ash.Resource do
     end
   end
 
+  @doc """
+  Declares the publish function that a generic action runs after its commit.
+
+  Use it in an `action` block: `after_commit({Ankole.Signals, :publish_committed})`.
+  """
+  defmacro after_commit(publish) do
+    quote do
+      prepare({Ankole.Ash.AfterCommit, publish: unquote(publish)})
+    end
+  end
+
+  @doc "Declares an update action. New resources use `update` directly."
   defmacro in_tx_update(name, do: block) do
     quote do
       update unquote(name) do
-        transaction?(false)
-        require_atomic?(false)
-        atomic_upgrade?(false)
-        change(Ankole.Ash.RequireTransaction)
         unquote(block)
       end
     end
   end
 
+  @doc """
+  Declares an atomic update action. New resources use `update` with
+  `require_atomic?(true)`.
+  """
   defmacro atomic_in_tx_update(name, do: block) do
     quote do
       update unquote(name) do
-        transaction?(false)
         require_atomic?(true)
-        change(Ankole.Ash.RequireTransaction.Atomic)
         unquote(block)
       end
     end

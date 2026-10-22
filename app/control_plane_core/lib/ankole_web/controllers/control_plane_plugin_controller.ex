@@ -71,12 +71,12 @@ defmodule AnkoleWeb.ControlPlanePluginController do
         ConsoleErrors.render(conn, 409, "worker_provider_plugin_in_use", message, details)
 
       _other ->
-        ConsoleErrors.render(
+        ConsoleErrors.unexpected(
           conn,
-          422,
+          "plugins.control_plane_api.unexpected_error",
+          reason,
           "validation_failed",
-          "Control Plane Plugin configuration is invalid",
-          [%{reason: inspect(reason)}]
+          "Control Plane Plugin configuration is invalid"
         )
     end
   end

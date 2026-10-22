@@ -46,7 +46,6 @@ defmodule Ankole.Principals.MappingRequest do
     create :observe_in_tx do
       accept([:provider, :external_id, :display_name, :email, :mobile, :metadata])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       upsert?(true)
       upsert_identity(:subject)
       upsert_fields([:display_name, :email, :mobile, :metadata, :updated_at])
@@ -56,7 +55,6 @@ defmodule Ankole.Principals.MappingRequest do
       transaction?(false)
       require_atomic?(false)
       atomic_upgrade?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
   end
 

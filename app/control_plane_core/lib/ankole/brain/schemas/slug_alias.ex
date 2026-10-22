@@ -36,7 +36,6 @@ defmodule Ankole.Brain.Schemas.SlugAlias do
 
     create :add do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:id, :alias_slug, :canonical_slug, :notes, :created_at])
     end
 

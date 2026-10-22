@@ -1,5 +1,21 @@
 defmodule Ankole.Ash do
-  @moduledoc "Runs Ash actions in the calling process's tenant context."
+  @moduledoc """
+  Runs Ash actions in the calling process's tenant context.
+
+  The functions select the tenant from `Ankole.Repo`, give declared errors
+  (`Ankole.Errors`), and decode bulk results. Code outside the owning domain
+  calls the domain's code interface instead.
+  """
+
+  alias Ankole.Errors.Invalid.Stale
+
+  @doc """
+  Gives the default options of every domain code interface function.
+
+  `Ankole.Ash.Transformers.DomainDefaults` sets this function on each define.
+  `Ankole.Repo` owns the tenant; this function only reads it.
+  """
+  def default_options, do: [tenant: Ankole.Repo.tenant_id()]
 
   def for_create(resource, action, attrs, opts \\ []),
     do: Ash.Changeset.for_create(resource, action, attrs, options(resource, opts))
@@ -10,7 +26,7 @@ defmodule Ankole.Ash do
   def create(%Ash.Changeset{} = changeset) do
     changeset
     |> Ash.create(options(changeset.resource, tenant: changeset.tenant))
-    |> normalize_result()
+    |> Ankole.Errors.boundary_result()
   end
 
   def create(resource, action, attrs, opts \\ []),
@@ -18,19 +34,19 @@ defmodule Ankole.Ash do
       resource
       |> for_create(action, attrs, opts)
       |> Ash.create(options(resource, opts))
-      |> normalize_result()
+      |> Ankole.Errors.boundary_result()
 
   def update(%Ash.Changeset{} = changeset) do
     changeset
     |> Ash.update(options(changeset.resource, tenant: changeset.tenant))
-    |> normalize_result()
+    |> Ankole.Errors.boundary_result()
   end
 
   def update(record, action, attrs, opts \\ []) do
     record
     |> for_update(action, attrs, opts)
     |> Ash.update(options(record.__struct__, opts))
-    |> normalize_result()
+    |> Ankole.Errors.boundary_result()
   end
 
   def destroy(record, action, opts \\ []) do
@@ -39,26 +55,51 @@ defmodule Ankole.Ash do
     record
     |> Ash.Changeset.for_destroy(action, %{}, options)
     |> Ash.destroy(Keyword.put(options, :return_destroyed?, true))
-    |> normalize_result()
+    |> Ankole.Errors.boundary_result()
   end
 
-  def read(query, opts \\ []),
-    do:
+  @doc """
+  Reads a query in the caller's tenant.
+
+  A query with `Ash.Query.lock/2` gives `lock_identity:` for the lock-order
+  check: `{table, keys}` names the rows before the read, and
+  `{:rows, table, key}` checks the keys of the rows that the read locked.
+  """
+  def read(query, opts \\ []) do
+    {identity, opts} = Keyword.pop(opts, :lock_identity)
+
+    locked_read(identity, fn ->
       query
       |> Ash.read(options(query_resource(query), opts))
-      |> normalize_result()
+      |> Ankole.Errors.boundary_result()
+    end)
+  end
 
-  def read!(query, opts \\ []),
-    do: Ash.read!(query, options(query_resource(query), opts))
+  def read!(query, opts \\ []) do
+    {identity, opts} = Keyword.pop(opts, :lock_identity)
 
-  def read_one(query, opts \\ []),
-    do:
+    locked_read(identity, fn ->
+      Ash.read!(query, options(query_resource(query), opts))
+    end)
+  end
+
+  def read_one(query, opts \\ []) do
+    {identity, opts} = Keyword.pop(opts, :lock_identity)
+
+    locked_read(identity, fn ->
       query
       |> Ash.read_one(options(query_resource(query), opts))
-      |> normalize_result()
+      |> Ankole.Errors.boundary_result()
+    end)
+  end
 
-  def read_one!(query, opts \\ []),
-    do: Ash.read_one!(query, options(query_resource(query), opts))
+  def read_one!(query, opts \\ []) do
+    {identity, opts} = Keyword.pop(opts, :lock_identity)
+
+    locked_read(identity, fn ->
+      Ash.read_one!(query, options(query_resource(query), opts))
+    end)
+  end
 
   def aggregate!(query, aggregates, opts \\ []),
     do: Ash.aggregate!(query, aggregates, options(query_resource(query), opts))
@@ -72,7 +113,7 @@ defmodule Ankole.Ash do
     resource
     |> Ash.ActionInput.for_action(action, args, options)
     |> Ash.run_action(options)
-    |> normalize_result()
+    |> Ankole.Errors.boundary_result()
   end
 
   def bulk_create(inputs, resource, action, opts \\ []),
@@ -95,6 +136,61 @@ defmodule Ankole.Ash do
         input,
         bulk_options(bulk_resource(query_or_stream, opts), opts)
       )
+
+  @doc """
+  Runs an atomic update on one row in one statement.
+
+  The subject is a record or a query that selects at most one row. When no
+  current row matches, the result is an `Ash.Error.Invalid` error with
+  `Ankole.Errors.Invalid.Stale`.
+  """
+  def update_atomic(record_or_query, action, input \\ %{}, opts \\ []) do
+    query = row_query(record_or_query)
+
+    case update_where(query, action, input, opts) do
+      {:ok, [record]} ->
+        {:ok, record}
+
+      {:ok, []} ->
+        {:error,
+         Ash.Error.to_error_class(Stale.exception(resource: query.resource, filter: query.filter))}
+
+      {:ok, _records} ->
+        raise ArgumentError,
+              "update_atomic/4 changed more than one #{inspect(query.resource)} row"
+
+      {:error, _error} = error ->
+        error
+    end
+  end
+
+  @doc "Runs an update on every row that a query selects and gives the changed rows."
+  def update_where(query, action, input \\ %{}, opts \\ []) do
+    query
+    |> bulk_update(action, input, bulk_where_options(opts))
+    |> bulk_records()
+  end
+
+  @doc "Runs a destroy on every row that a query selects and gives the destroyed rows."
+  def destroy_where(query, action, opts \\ []) do
+    query
+    |> bulk_destroy(action, %{}, bulk_where_options(opts))
+    |> bulk_records()
+  end
+
+  @doc """
+  Runs a `create_if_absent` action and tells whether it inserted the row.
+
+  The result is `{:ok, record, :created}` or `{:ok, record, :existing}`. An
+  existing row of another tenant gives `Ankole.Errors.Invalid.Stale`.
+  """
+  def insert_if_absent(resource, action, attrs, opts \\ []) do
+    with {:ok, record} <- create(resource, action, attrs, opts) do
+      if Ash.Resource.get_metadata(record, :upsert_skipped),
+        do: {:ok, record, :existing},
+        else: {:ok, record, :created}
+    end
+  end
 
   @doc "Projects validation failures without records, input values, or internal error paths."
   def validation_details(%Ash.Changeset{errors: errors}), do: validation_details(errors)
@@ -120,6 +216,7 @@ defmodule Ankole.Ash do
 
   def validation_details(%module{field: field})
       when module in [
+             Ankole.Errors.Invalid.StatusTransition,
              AshStateMachine.Errors.NoMatchingTransition,
              AshStateMachine.Errors.InvalidInitialState
            ],
@@ -170,21 +267,41 @@ defmodule Ankole.Ash do
 
   defp enum_message(_values), do: "is not an allowed value"
 
-  @doc false
-  def normalize_result({:error, %module{} = subject}) when module in [Ash.Changeset, Ash.Query],
-    do: normalize_result({:error, Ash.Error.to_error_class(subject)})
+  defp locked_read(nil, fun), do: fun.()
 
-  def normalize_result({:error, %Ash.Error.Invalid{errors: errors} = invalid}) do
-    case Enum.find_value(errors, fn
-           %Ankole.Ash.DomainError{reason: reason} -> {:ok, reason}
-           _other -> nil
-         end) do
-      {:ok, reason} -> {:error, reason}
-      nil -> {:error, invalid}
-    end
+  defp locked_read({:rows, table, key} = identity, fun) do
+    result = Ankole.LockOrder.with_identity(identity, fun)
+
+    rows =
+      case result do
+        {:ok, rows} -> List.wrap(rows)
+        {:error, _error} -> []
+        rows -> List.wrap(rows)
+      end
+
+    Ankole.LockOrder.check_rows(table, Enum.map(rows, &Map.fetch!(&1, key)))
+    result
   end
 
-  def normalize_result(other), do: other
+  defp locked_read(identity, fun), do: Ankole.LockOrder.with_identity(identity, fun)
+
+  defp row_query(%Ash.Query{} = query), do: query
+
+  defp row_query(%resource{} = record) do
+    key = record |> Map.take(Ash.Resource.Info.primary_key(resource)) |> Enum.to_list()
+    Ash.Query.do_filter(resource, key)
+  end
+
+  defp bulk_where_options(opts),
+    do:
+      [strategy: [:atomic], return_errors?: true]
+      |> Keyword.merge(opts)
+      |> Keyword.put(:return_records?, true)
+
+  defp bulk_records(%Ash.BulkResult{status: :success, records: records}), do: {:ok, records}
+
+  defp bulk_records(%Ash.BulkResult{errors: errors}),
+    do: {:error, errors |> Ash.Error.to_error_class() |> Ankole.Errors.shape_errors()}
 
   defp options(resource, opts) do
     tenant =

@@ -56,7 +56,6 @@ defmodule Ankole.OIDC.LogoutRequest do
     create :prepare_in_tx do
       accept([:browser_id, :browser_revision, :client_id, :redirect_uri, :state, :expires_at])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     atomic_in_tx_update :confirm_in_tx do
@@ -68,14 +67,12 @@ defmodule Ankole.OIDC.LogoutRequest do
     destroy :cancel_in_tx do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
       change(filter(expr(is_nil(confirmed_at))))
     end
 
     destroy :expire_in_tx do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

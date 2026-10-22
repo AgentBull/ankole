@@ -75,7 +75,6 @@ defmodule Ankole.OIDC.Session do
       ])
 
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       validate(present([:authentication_id, :authentication_revision]))
     end
 
@@ -116,7 +115,6 @@ defmodule Ankole.OIDC.Session do
     destroy :expire_in_tx do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

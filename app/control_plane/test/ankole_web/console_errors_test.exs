@@ -19,24 +19,30 @@ defmodule AnkoleWeb.ConsoleErrorsTest do
 
     def show(conn, _params), do: conn.assigns.result
 
-    defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+    defp fallback(conn, failure),
+      do: ConsoleErrors.fallback(conn, failure, &error/2, validation: &validation/2)
 
     defp error(conn, :not_found), do: ConsoleErrors.not_found(conn, "schedule was not found")
 
     defp error(conn, {:missing, key}),
       do: ConsoleErrors.render(conn, 422, "invalid_body", "#{key} is missing", [%{path: key}])
 
-    defp error(conn, %Ash.Error.Invalid{
-           errors: [%Ash.Error.Changes.InvalidAttribute{field: :email}]
-         }),
-         do:
-           ConsoleErrors.render(conn, 422, "email_taken", "another user already uses this email")
-
-    defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid],
-      do: ConsoleErrors.changeset(conn, error)
-
     defp error(conn, reason),
       do: ConsoleErrors.render(conn, 409, "business_conflict", "operation was refused", [reason])
+
+    defp validation(conn, details) do
+      if Enum.any?(details, &(&1.path == "email")),
+        do:
+          ConsoleErrors.render(conn, 422, "email_taken", "another user already uses this email"),
+        else:
+          ConsoleErrors.render(
+            conn,
+            422,
+            "validation_failed",
+            "request validation failed",
+            details
+          )
+    end
   end
 
   test "a common failed action keeps the error envelope and pre-action response headers" do
@@ -108,6 +114,79 @@ defmodule AnkoleWeb.ConsoleErrorsTest do
 
     assert %{"error" => %{"code" => "business_conflict", "details" => ["changed"]}} =
              BusinessController |> dispatch({:error, "changed"}) |> json_response(409)
+  end
+
+  test "declared Ash errors give conflict, missing, rejection, and unexpected responses" do
+    alias Ankole.Errors.Invalid.{NotFound, Rejected, Stale, StatusTransition}
+
+    for error <- [
+          Stale.exception(resource: Ankole.Tenants.Tenant),
+          StatusTransition.exception(from: :done, to: :queued),
+          Ash.Error.Changes.StaleRecord.exception([]),
+          AshStateMachine.Errors.NoMatchingTransition.exception(old_state: :done, target: :queued)
+        ] do
+      assert %{"error" => %{"code" => "conflict"}} =
+               CommonController
+               |> dispatch({:error, Ash.Error.to_error_class(error)})
+               |> json_response(409)
+    end
+
+    assert %{"error" => %{"code" => "not_found"}} =
+             CommonController
+             |> dispatch({:error, Ash.Error.to_error_class(NotFound.exception(id: 1))})
+             |> json_response(404)
+
+    assert %{"error" => %{"message" => "schedule was not found"}} =
+             BusinessController
+             |> dispatch(
+               {:error, Ash.Error.to_error_class(Rejected.exception(reason: :not_found))}
+             )
+             |> json_response(404)
+
+    assert %{"error" => %{"code" => "business_conflict", "details" => ["changed"]}} =
+             BusinessController
+             |> dispatch(
+               {:error, Ash.Error.to_error_class(Rejected.exception(reason: "changed"))}
+             )
+             |> json_response(409)
+
+    framework =
+      Ash.Error.to_error_class(
+        Ankole.Errors.Framework.NestedOperation.exception(
+          resource: Ankole.Tenants.Tenant,
+          action: :x
+        )
+      )
+
+    assert %{"error" => %{"code" => "invalid_value", "details" => []}} =
+             BusinessController |> dispatch({:error, framework}) |> json_response(422)
+  end
+
+  test "an unlisted reason keeps the controller code without exposing the reason" do
+    secret = "private-reason-/srv/private"
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        conn =
+          Plug.Test.conn(:get, "/")
+          |> ConsoleErrors.unexpected(
+            "test.unexpected",
+            {:failed, secret},
+            "invalid_probe",
+            "probe failed"
+          )
+
+        assert json_response(conn, 422) == %{
+                 "error" => %{
+                   "code" => "invalid_probe",
+                   "message" => "probe failed",
+                   "details" => []
+                 }
+               }
+      end)
+
+    assert log =~ "console API request failed for an unhandled reason"
+    refute log =~ secret
   end
 
   test "Ash validation stays field scoped without exposing private action input" do

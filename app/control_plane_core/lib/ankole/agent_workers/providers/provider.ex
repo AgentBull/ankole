@@ -75,7 +75,6 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
       accept([:provider_id, :kind, :display_name, :config, :is_default])
       argument(:credential_input, :map, allow_nil?: false, default: %{}, sensitive?: true)
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       validate(present([:provider_id, :kind, :display_name, :config, :is_default]))
       change(Ankole.AgentWorkers.Providers.Changes.PrepareConfiguration, only_when_valid?: true)
     end
@@ -97,7 +96,6 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
       transaction?(false)
       require_atomic?(false)
       atomic_upgrade?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
   end
 

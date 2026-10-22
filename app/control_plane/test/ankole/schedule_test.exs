@@ -1684,7 +1684,7 @@ defmodule Ankole.ScheduleTest do
                    {:ok, error}
                  end)
 
-        assert Enum.any?(errors, &match?(%AshStateMachine.Errors.NoMatchingTransition{}, &1))
+        assert Enum.any?(errors, &match?(%Ankole.Errors.Invalid.StatusTransition{}, &1))
       end
 
       assert {:ok, %{status: :already_scheduled, scheduled_event: repeated}} =
@@ -1736,17 +1736,16 @@ defmodule Ankole.ScheduleTest do
       assert updated.status == :scheduled
     end
 
-    test "resource transitions require the caller transaction" do
+    test "a resource transition outside a transaction is one statement" do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
       assert {:ok, %{scheduled_event: event}} =
                Schedule.create_check_back_later(checkback_attrs(agent.uid, []), now: @base_time)
 
-      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+      assert {:ok, %{status: :cancelled}} =
                Ankole.Ash.update(event, :cancel, %{cancelled_at: @base_time})
 
-      assert Enum.any?(errors, &(&1.message == "transaction required"))
-      assert Repo.get!(ScheduledEvent, event.id).status == :scheduled
+      assert Repo.get!(ScheduledEvent, event.id).status == :cancelled
     end
 
     test "scheduled event correlation ids must reference durable rows" do

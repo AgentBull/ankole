@@ -91,7 +91,6 @@ defmodule Ankole.Brain.Schemas.Claim do
 
     create :record_fact do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :id,

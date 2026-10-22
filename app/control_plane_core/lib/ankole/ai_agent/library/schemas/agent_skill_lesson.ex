@@ -78,7 +78,6 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
     create :teach_human do
       accept([:agent_uid, :skill_name, :content, :author])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       change(set_attribute(:author_kind, :human))
       change(Ankole.AIAgent.Library.Changes.PrepareLesson, only_when_valid?: true)
     end
@@ -96,7 +95,6 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
       ])
 
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       change(set_attribute(:author_kind, :dreaming))
       change(Ankole.AIAgent.Library.Changes.PrepareLesson, only_when_valid?: true)
     end

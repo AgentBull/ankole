@@ -36,13 +36,11 @@ defmodule Ankole.Brain.Schemas.SchemaPack do
 
     create :install do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:id, :name, :version, :content_hash, :manifest, :installed_at])
     end
 
     create_if_absent :ensure_promoted do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([])
       change(set_attribute(:name, "promoted"))
       change(set_attribute(:version, "0"))

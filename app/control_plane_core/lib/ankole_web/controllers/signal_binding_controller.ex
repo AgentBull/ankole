@@ -348,7 +348,11 @@ defmodule AnkoleWeb.SignalBindingController do
     end
   end
 
-  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+  defp fallback(conn, failure),
+    do:
+      ConsoleErrors.fallback(conn, failure, &error/2,
+        validation: {"invalid_value", "signal binding configuration is invalid"}
+      )
 
   defp error(conn, {:platform_application_identity_unavailable, reference}),
     do:
@@ -419,26 +423,14 @@ defmodule AnkoleWeb.SignalBindingController do
     ConsoleErrors.required_field(conn, key)
   end
 
-  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid] do
-    ConsoleErrors.render(
-      conn,
-      422,
-      "invalid_value",
-      "signal binding configuration is invalid",
-      Ankole.Ash.validation_details(error)
-    )
-  end
-
   defp error(conn, reason) do
     with :unhandled <- ConsoleErrors.render_config_field_error(conn, reason) do
-      ConsoleErrors.render(
+      ConsoleErrors.unexpected(
         conn,
-        422,
+        "signals.binding_api.unexpected_error",
+        reason,
         "invalid_value",
-        "signal binding configuration is invalid",
-        [
-          %{reason: inspect(reason)}
-        ]
+        "signal binding configuration is invalid"
       )
     end
   end

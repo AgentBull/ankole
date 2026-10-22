@@ -357,13 +357,13 @@ defmodule AnkoleWeb.ScheduleController do
     )
   end
 
-  defp error(conn, %module{} = changeset) when module in [Ash.Changeset, Ash.Error.Invalid] do
-    ConsoleErrors.changeset(conn, changeset)
-  end
-
   defp error(conn, reason) do
-    ConsoleErrors.render(conn, 422, "invalid_schedule", "schedule request is invalid", [
-      %{reason: inspect(reason)}
-    ])
+    ConsoleErrors.unexpected(
+      conn,
+      "schedule.api.unexpected_error",
+      reason,
+      "invalid_schedule",
+      "schedule request is invalid"
+    )
   end
 end

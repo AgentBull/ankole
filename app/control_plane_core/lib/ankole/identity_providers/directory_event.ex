@@ -75,7 +75,6 @@ defmodule Ankole.IdentityProviders.DirectoryEvent do
     create :receive_in_tx do
       accept([:provider_id, :event_id, :event_type, :external_ids, :reason, :provider_time])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     in_tx_update :process_in_tx do

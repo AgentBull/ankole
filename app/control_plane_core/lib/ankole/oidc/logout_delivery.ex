@@ -69,7 +69,6 @@ defmodule Ankole.OIDC.LogoutDelivery do
     create :enqueue_in_tx do
       accept([:session_id, :endpoint, :deadline, :next_attempt_at])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     atomic_in_tx_update :restart_in_tx do

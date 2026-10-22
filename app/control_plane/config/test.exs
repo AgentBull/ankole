@@ -2,6 +2,10 @@ import Config
 
 config :ankole, :check_lock_order, true
 
+# Ankole has no Ash notifiers. A notification from a resource action in an
+# outer transaction has no consumer.
+config :ash, :missed_notifications, :ignore
+
 config :ankole, Ankole.Repo,
   template: "template0",
   pool: Ecto.Adapters.SQL.Sandbox,

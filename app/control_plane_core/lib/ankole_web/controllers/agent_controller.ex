@@ -505,19 +505,19 @@ defmodule AnkoleWeb.AgentController do
     ConsoleErrors.required_field(conn, key)
   end
 
-  defp error(conn, %module{} = changeset) when module in [Ash.Changeset, Ash.Error.Invalid] do
-    ConsoleErrors.changeset(conn, changeset)
-  end
-
   defp error(conn, reason) do
     case Providers.Errors.describe(reason) do
       {:invalid, message, details} ->
         ConsoleErrors.render(conn, 422, "invalid_worker_provider", message, details)
 
       _other ->
-        ConsoleErrors.render(conn, 422, "invalid_agent", "agent configuration is invalid", [
-          %{reason: inspect(reason)}
-        ])
+        ConsoleErrors.unexpected(
+          conn,
+          "ai_agent.agent_api.unexpected_error",
+          reason,
+          "invalid_agent",
+          "agent configuration is invalid"
+        )
     end
   end
 end

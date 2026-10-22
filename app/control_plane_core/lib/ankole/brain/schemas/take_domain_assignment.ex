@@ -44,7 +44,6 @@ defmodule Ankole.Brain.Schemas.TakeDomainAssignment do
 
     create_if_absent :assign_once do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :id,

@@ -297,7 +297,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       accept([:id | @create_fields])
       transaction?(false)
       primary?(true)
-      change(Ankole.Ash.RequireTransaction)
       validate(present([:source_tool_call_id, :title, :task]))
     end
 

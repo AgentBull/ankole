@@ -53,8 +53,8 @@ defmodule Ankole.AshTenancyTest do
       Ankole.Ash.read!(SiteProbe, tenant: other.id)
     end
 
-    assert {:error, error} = Ankole.Ash.update(row, :rename, %{value: "outside"})
-    assert Exception.message(error) =~ "transaction required"
+    assert {:ok, %{value: "outside"}} =
+             Repo.without_tenant(fn -> Ankole.Ash.update(row, :rename, %{value: "outside"}) end)
 
     assert {:ok, :committed} =
              Repo.without_tenant(fn ->
@@ -73,14 +73,12 @@ defmodule Ankole.AshTenancyTest do
     assert [%{value: "audit"}] = Repo.without_tenant(fn -> Ankole.Ash.read!(SiteProbe) end)
   end
 
-  test "atomic row updates require and use the caller's transaction" do
+  test "atomic row updates run as one statement or in the caller's transaction" do
     {:ok, row} = Ankole.Ash.create(Probe, :upsert_global, %{global_key: "atomic transaction"})
 
-    assert_raise Ash.Error.Unknown, ~r/transaction required/, fn ->
-      Ankole.Ash.update(row, :set_note, %{note: "outside"})
-    end
-
-    assert Repo.get!(Probe, row.id).note == nil
+    assert {:ok, %{note: "outside"}} = Ankole.Ash.update(row, :set_note, %{note: "outside"})
+    assert Repo.get!(Probe, row.id).note == "outside"
+    {:ok, row} = Ankole.Ash.update(row, :set_note, %{note: nil})
 
     assert {:error, :rollback} =
              Repo.transact(fn _repo ->
@@ -148,16 +146,17 @@ defmodule Ankole.AshTenancyTest do
     refute Repo.exists?(Probe)
   end
 
-  test "generic actions enforce the same process tenant before executing their owner" do
+  test "generic actions read only the process tenant, whatever tenant option Ash receives" do
     assert {:ok, _row} =
              Ankole.Ash.create(Probe, :upsert_global, %{global_key: "generic-owner"})
 
     assert {:ok, 1} = Ankole.Ash.run_action(Probe, :count_rows, %{})
     other = create_tenant()
 
-    assert_raise ArgumentError, ~r/action tenant/, fn ->
-      Ash.ActionInput.for_action(Probe, :count_rows, %{}, tenant: other.id, authorize?: false)
-    end
+    assert {:ok, 1} =
+             Probe
+             |> Ash.ActionInput.for_action(:count_rows, %{}, tenant: other.id, authorize?: false)
+             |> Ash.run_action()
 
     assert_raise ArgumentError, ~r/action tenant/, fn ->
       Ankole.Ash.run_action(Probe, :count_rows, %{}, tenant: other.id)
@@ -166,11 +165,13 @@ defmodule Ankole.AshTenancyTest do
     selected_tenant = Repo.tenant_id!()
 
     Repo.without_tenant(fn ->
-      assert_raise Ankole.TenantContextMissing, fn ->
-        Ash.ActionInput.for_action(Probe, :count_rows, %{},
+      assert_raise Ash.Error.Unknown, ~r/no tenant context/, fn ->
+        Probe
+        |> Ash.ActionInput.for_action(:count_rows, %{},
           tenant: selected_tenant,
           authorize?: false
         )
+        |> Ash.run_action()
       end
 
       assert_raise Ankole.TenantContextMissing, fn ->
@@ -266,15 +267,21 @@ defmodule Ankole.AshTenancyTest do
 
     assert Repo.with_tenant(other.id, fn -> Ankole.Ash.read!(Probe) end) == []
 
-    assert [global] =
-             Repo.across_tenants(fn -> Ash.read!(Probe, action: :global, authorize?: false) end)
+    {:ok, foreign} =
+      Repo.with_tenant(other.id, fn ->
+        Ankole.Ash.create(Probe, :upsert_global, %{global_key: "foreign", value: "other"})
+      end)
+
+    global =
+      Repo.across_tenants(fn -> Ash.read!(Probe, action: :global, authorize?: false) end)
 
     fields = Probe.__schema__(:fields)
-    assert Map.take(global, fields) == Map.take(row, fields)
 
-    assert_raise Ash.Error.Unknown, ~r/global reads require/, fn ->
-      Ash.read!(Probe, action: :global, authorize?: false)
-    end
+    assert global |> Enum.map(&Map.take(&1, fields)) |> MapSet.new() ==
+             MapSet.new([Map.take(row, fields), Map.take(foreign, fields)])
+
+    assert [scoped] = Ash.read!(Probe, action: :global, authorize?: false)
+    assert scoped.id == row.id
   end
 
   test "global identity and primary key upserts cannot transfer or change another tenant's row" do
@@ -361,7 +368,7 @@ defmodule Ankole.AshTenancyTest do
           {:insert_once_id, %{id: frozen.id, global_key: "frozen", value: "foreign"}}
         ] do
       Repo.with_tenant(other.id, fn ->
-        assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} =
+        assert {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} =
                  Ankole.Ash.create(Probe, action, attrs)
 
         assert Ankole.Ash.read!(Probe) == []
@@ -385,7 +392,7 @@ defmodule Ankole.AshTenancyTest do
     other = create_tenant()
 
     Repo.with_tenant(other.id, fn ->
-      assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} =
+      assert {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} =
                Ankole.Ash.create(Probe, :insert_once_calculated, attrs)
 
       assert Ankole.Ash.read!(Probe) == []
@@ -428,6 +435,9 @@ defmodule Ankole.AshTenancyTest do
   end
 
   test "atomic writes commit without notification warnings and return requested notifications" do
+    # The test configuration ignores missed notifications; this check needs the warning.
+    Application.put_env(:ash, :missed_notifications, :warn)
+    on_exit(fn -> Application.put_env(:ash, :missed_notifications, :ignore) end)
     assert {:ok, row} = Ankole.Ash.create(Probe, :upsert_global, %{global_key: "notifications"})
 
     log =
@@ -559,12 +569,12 @@ defmodule Ankole.AshTenancyTest do
            "atomics"},
           {"actions do in_tx_update :unsafe do change before_action(fn changeset -> changeset end) end end",
            "action hooks"},
+          {"actions do update :unsafe do change after_action(fn _changeset, record -> {:ok, record} end) end end",
+           "action hooks"},
           {"actions do in_tx_update :unsafe do validate present(:value), before_action?: true end end",
            "before_action\\?"},
           {"validations do validate present(:value), before_action?: true end; actions do in_tx_update :unsafe do end end",
            "before_action\\?"},
-          {"actions do update :unsafe do transaction? false; require_atomic? false; atomic_upgrade? true; change Ankole.Ash.RequireTransaction end end",
-           "atomic_upgrade"},
           {"actions do create :unsafe do change before_transaction(fn changeset -> changeset end) end end",
            "transaction hooks"}
         ] do

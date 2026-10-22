@@ -112,7 +112,6 @@ defmodule Ankole.Conversations.InboundBatch do
 
     create :open do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :agent_uid,

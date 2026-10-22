@@ -72,7 +72,6 @@ defmodule Ankole.Principals.Principal do
     create :create_in_tx do
       accept([:uid, :type, :display_name, :avatar_url])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     in_tx_update :profile_in_tx do
@@ -99,7 +98,6 @@ defmodule Ankole.Principals.Principal do
       transaction?(false)
       require_atomic?(false)
       atomic_upgrade?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
   end
 

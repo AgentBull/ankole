@@ -107,8 +107,6 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
         :wake_on_failure
       ])
 
-      change(Ankole.Ash.RequireTransaction)
-
       validate(
         fn changeset, _context ->
           case Ankole.Files.normalize_path(Ash.Changeset.get_attribute(changeset, :drive_prefix)) do

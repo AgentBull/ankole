@@ -26,10 +26,6 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
       credential_input: %{"adapterToken" => "action-secret"}
     }
 
-    assert {:error, outside_transaction} = Ankole.Ash.create(Provider, :create, input)
-    assert Exception.message(outside_transaction) =~ "transaction required"
-    refute Repo.exists?(Provider)
-
     assert {:ok, :committed} =
              Repo.transact(fn _repo ->
                assert {:ok, row} = Ankole.Ash.create(Provider, :create, input)

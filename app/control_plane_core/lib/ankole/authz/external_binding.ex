@@ -61,7 +61,6 @@ defmodule Ankole.AuthZ.ExternalBinding do
     create :bind_in_tx do
       accept([:provider, :external_kind, :external_id, :group_id, :metadata])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       upsert?(true)
       upsert_fields([:group_id, :metadata, :updated_at])
     end

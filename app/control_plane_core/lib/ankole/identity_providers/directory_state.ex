@@ -97,7 +97,6 @@ defmodule Ankole.IdentityProviders.DirectoryState do
     create_if_absent :ensure_in_tx, upsert_fields: [:provider_id] do
       accept([:provider_id])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       upsert_identity(:provider)
     end
 

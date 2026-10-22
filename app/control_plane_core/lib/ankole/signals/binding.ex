@@ -104,7 +104,6 @@ defmodule Ankole.Signals.Binding do
         :unavailable_reason
       ])
 
-      change(Ankole.Ash.RequireTransaction)
       change(set_attribute(:unavailable_reason, nil, new?: true))
       change(fn changeset, _context -> normalize_target(changeset) end)
 
@@ -129,7 +128,6 @@ defmodule Ankole.Signals.Binding do
     destroy :remove do
       transaction?(false)
       require_atomic?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
   end
 

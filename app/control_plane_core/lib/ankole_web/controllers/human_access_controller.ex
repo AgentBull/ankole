@@ -231,7 +231,11 @@ defmodule AnkoleWeb.HumanAccessController do
 
   defp fallback(conn, {:error, :forbidden}), do: ConsoleErrors.forbidden(conn, "Access denied")
 
-  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+  defp fallback(conn, failure),
+    do:
+      ConsoleErrors.fallback(conn, failure, &error/2,
+        validation: {"validation_failed", "The access change is invalid"}
+      )
 
   defp error(conn, :not_found),
     do: ConsoleErrors.not_found(conn, "Human or restriction was not found")
@@ -253,9 +257,6 @@ defmodule AnkoleWeb.HumanAccessController do
         Atom.to_string(reason),
         "Access change could not be applied: #{reason}"
       )
-
-  defp error(conn, %module{} = changeset) when module in [Ash.Changeset, Ash.Error.Invalid],
-    do: ConsoleErrors.changeset(conn, changeset, "The access change is invalid")
 
   defp error(conn, reason),
     do: ConsoleErrors.unexpected(conn, "principals.access_api.unexpected_error", reason)

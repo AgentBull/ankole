@@ -105,13 +105,11 @@ defmodule Ankole.AuthZ.Group do
     create :create_in_tx do
       accept(@fields)
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     create :ensure_in_tx do
       accept(@fields)
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       upsert?(true)
       upsert_identity(:name)
       upsert_fields([:name])
@@ -140,7 +138,6 @@ defmodule Ankole.AuthZ.Group do
       transaction?(false)
       require_atomic?(false)
       atomic_upgrade?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
   end
 

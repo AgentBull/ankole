@@ -93,7 +93,6 @@ defmodule Ankole.Conversations.ExternalMessageRef do
 
     create :record do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :message_id,

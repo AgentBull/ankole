@@ -50,7 +50,6 @@ defmodule Ankole.Sessions.AmbientJudgment do
     create :record do
       primary?(true)
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :signal_id,

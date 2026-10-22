@@ -93,13 +93,11 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
       primary?(true)
       transaction?(false)
       accept([:automation_job_id, :event])
-      change(Ankole.Ash.RequireTransaction)
     end
 
     create :record_failed do
       transaction?(false)
       accept([:automation_job_id, :event, :finished_at, :error])
-      change(Ankole.Ash.RequireTransaction)
       change(transition_state(:failed))
     end
 

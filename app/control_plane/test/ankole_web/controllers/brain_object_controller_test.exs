@@ -43,8 +43,7 @@ defmodule AnkoleWeb.BrainObjectControllerTest do
         "meta" => %{}
       })
 
-    assert %{"error" => %{"details" => [%{"reason" => reason}]}} = json_response(response, 422)
-    assert reason =~ "writer_not_in_scope_group"
+    assert %{"error" => %{"code" => "writer_not_in_scope_group"}} = json_response(response, 422)
     refute Repo.get_by(Object, slug: "notes/restricted")
   end
 

@@ -35,13 +35,11 @@ defmodule Ankole.OIDC.ClientGroup do
     create :link_in_tx do
       accept([:client_id, :group_id])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     destroy :unlink_in_tx do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

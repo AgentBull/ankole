@@ -50,7 +50,6 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
       accept([:signal_id])
       upsert?(true)
       upsert_fields([:signal_id])
-      change(Ankole.Ash.RequireTransaction)
     end
 
     in_tx_update :update_preview do

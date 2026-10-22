@@ -220,7 +220,12 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
     end
   end
 
-  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+  defp fallback(conn, failure),
+    do:
+      ConsoleErrors.fallback(conn, failure, &error/2,
+        validation:
+          {"invalid_background_agent_job_request", "background Agent Job request is invalid"}
+      )
 
   defp error(conn, :not_found),
     do: ConsoleErrors.not_found(conn, "background Agent Job was not found")
@@ -234,25 +239,13 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
         "background Agent Job already failed or stopped"
       )
 
-  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid] do
-    ConsoleErrors.render(
-      conn,
-      422,
-      "invalid_background_agent_job_request",
-      "background Agent Job request is invalid",
-      Ankole.Ash.validation_details(error)
-    )
-  end
-
   defp error(conn, reason) do
-    ConsoleErrors.render(
+    ConsoleErrors.unexpected(
       conn,
-      422,
+      "background_agent_jobs.api.unexpected_error",
+      reason,
       "invalid_background_agent_job_request",
-      "background Agent Job request is invalid",
-      [
-        %{reason: inspect(reason)}
-      ]
+      "background Agent Job request is invalid"
     )
   end
 end

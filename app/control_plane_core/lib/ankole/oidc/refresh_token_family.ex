@@ -28,7 +28,6 @@ defmodule Ankole.OIDC.RefreshTokenFamily do
     create :issue_in_tx do
       accept([:id, :session_id, :family_expires_at])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     atomic_in_tx_update :revoke_in_tx do
