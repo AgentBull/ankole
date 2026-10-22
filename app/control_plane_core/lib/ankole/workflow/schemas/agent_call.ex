@@ -5,7 +5,7 @@ defmodule Ankole.Workflow.Schemas.AgentCall do
 
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.Workflow.Domain,
+    domain: Ankole.Workflow,
     extensions: [AshStateMachine]
 
   @type status :: :queued | :running | :sleeping | :succeeded | :failed | :cancelled
@@ -102,6 +102,14 @@ defmodule Ankole.Workflow.Schemas.AgentCall do
     timestamps(type: :utc_datetime_usec)
   end
 
+  relationships do
+    belongs_to :run, Ankole.Workflow.Schemas.Run do
+      source_attribute(:run_id)
+      attribute_type(:integer)
+      define_attribute?(false)
+    end
+  end
+
   state_machine do
     state_attribute(:status)
     initial_states([:queued])
@@ -122,8 +130,53 @@ defmodule Ankole.Workflow.Schemas.AgentCall do
   actions do
     defaults([:read])
 
+    action :send_task_message, :term do
+      argument(:run_id, :integer, allow_nil?: false)
+      argument(:call_seq, :integer, allow_nil?: false)
+      argument(:agent_uid, :term, allow_nil?: false)
+      argument(:message, :term, allow_nil?: false)
+      argument(:source_tool_call_id, :term, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Workflow.Mail.send_task_message_in_tx(
+          args.run_id,
+          args.call_seq,
+          args.agent_uid,
+          args.message,
+          args.source_tool_call_id
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :defer_task_event, :term do
+      argument(:signal, :term, allow_nil?: false)
+      argument(:available_at, :utc_datetime_usec, allow_nil?: false)
+      argument(:reason, :atom, allow_nil?: false, constraints: [one_of: [:agent_capacity]])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Workflow.Mail.defer_task_event_in_tx(
+          args.signal,
+          args.available_at,
+          args.reason
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :release_capacity, :term do
+      argument(:agent_uid, :term, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Workflow.Mail.release_capacity_in_tx(args.agent_uid)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
     create :create_call do
-      transaction?(false)
       primary?(true)
 
       accept([
@@ -145,59 +198,60 @@ defmodule Ankole.Workflow.Schemas.AgentCall do
       ])
     end
 
-    in_tx_update :claim do
+    update :claim do
       accept([:attempts, :attention, :error, :wake_kind, :wake_at, :progress_at])
       change(set_attribute(:wake_kind, nil))
       change(set_attribute(:wake_at, nil))
       change(transition_state(:running))
     end
 
-    in_tx_update :defer_capacity do
+    update :defer_capacity do
       accept([:wake_kind, :wake_at])
       change(transition_state(:queued))
     end
 
-    in_tx_update :sleep do
+    update :sleep do
       accept([:wake_kind, :attempts, :sleep_note, :wake_at, :wake_count, :attention, :error])
       change(transition_state(:sleeping))
     end
 
-    in_tx_update :requeue_stale do
+    update :requeue_stale do
       accept([:wake_kind, :wake_at, :result, :error])
       change(set_attribute(:wake_kind, nil))
       change(set_attribute(:wake_at, nil))
       change(transition_state(:queued))
     end
 
-    in_tx_update :complete do
+    update :complete do
       accept([:result, :error])
       change(set_attribute(:wake_kind, nil))
       change(set_attribute(:wake_at, nil))
       change(transition_state(:succeeded))
     end
 
-    in_tx_update :fail do
+    update :fail do
       accept([:wake_kind, :wake_at, :result, :error])
       change(set_attribute(:wake_kind, nil))
       change(set_attribute(:wake_at, nil))
       change(transition_state(:failed))
     end
 
-    in_tx_update :cancel do
+    update :cancel do
       accept([:result, :error])
       change(set_attribute(:wake_kind, nil))
       change(set_attribute(:wake_at, nil))
       change(transition_state(:cancelled))
     end
 
-    atomic_in_tx_update :cancel_live_calls do
+    update :cancel_live_calls do
+      require_atomic?(true)
       accept([:error, :result])
       change(transition_state(:cancelled))
       change(set_attribute(:wake_kind, nil))
       change(set_attribute(:wake_at, nil))
     end
 
-    in_tx_update :update_metadata do
+    update :update_metadata do
       accept([:progress_at])
     end
   end

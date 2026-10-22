@@ -1,6 +1,11 @@
 defmodule Ankole.Workflow.ToolAdmission do
-  @moduledoc "Prepares work locks before a tool receipt locks its participating Sessions."
-  import Ecto.Query
+  @moduledoc """
+  Prepares work locks before a tool receipt locks its participating Sessions.
+
+  Each commit function runs in the receipt transaction, so it composes the
+  `_in_tx` functions of the owner modules.
+  """
+  require Ash.Query
   alias Ankole.Conversations.Route
   alias Ankole.Sessions.Run, as: SessionRun
   alias Ankole.Workflow.Lifecycle
@@ -11,7 +16,7 @@ defmodule Ankole.Workflow.ToolAdmission do
   alias Ankole.Workflow.Slot
   alias Ankole.Workflow.TaskLifecycle
 
-  def prepare_in_tx(_repo, source, %{"name" => "workflow"} = tool_call, args) do
+  def prepare_in_tx(repo, source, %{"name" => "workflow"} = tool_call, args) do
     attrs =
       args
       |> Map.take(~w(title script args concurrency max_agent_calls model_profile))
@@ -24,7 +29,7 @@ defmodule Ankole.Workflow.ToolAdmission do
         "reply_route" => Route.snapshot(source)
       })
 
-    with {:ok, value} <- Lifecycle.create_with_dispatch(attrs) do
+    with {:ok, value} <- Lifecycle.create_with_dispatch_in_tx(repo, attrs) do
       {:ok, source_sessions(source), fn -> {:ok, value} end}
     end
   end
@@ -32,17 +37,14 @@ defmodule Ankole.Workflow.ToolAdmission do
   def prepare_in_tx(repo, source, %{"name" => "send_message_to_workflow_task"} = tool_call, args) do
     with :ok <- Slot.lock_agent_slots(repo, source.agent_uid),
          %Run{} = run <- Slot.lock_run(repo, args["run_id"], source.agent_uid),
-         %AgentCall{} = snapshot <-
-           repo.one(
-             from call in AgentCall,
-               where: call.run_id == ^run.id and call.call_seq == ^args["call_seq"]
-           ),
+         {:ok, %AgentCall{} = snapshot} <- call_by_sequence(run.id, args["call_seq"]),
          %AgentCall{} = call <- Slot.lock_call(repo, snapshot.id, run.id, source.agent_uid) do
       sessions = work_sessions(source, run, [call])
 
       {:ok, sessions,
        fn ->
-         Mail.send_task_message(
+         Mail.send_task_message_in_tx(
+           repo,
            run.id,
            call.call_seq,
            source.agent_uid,
@@ -52,6 +54,7 @@ defmodule Ankole.Workflow.ToolAdmission do
        end}
     else
       nil -> {:error, :workflow_task_not_found}
+      {:ok, nil} -> {:error, :workflow_task_not_found}
       error -> error
     end
   end
@@ -100,6 +103,12 @@ defmodule Ankole.Workflow.ToolAdmission do
          })
        end}
     end
+  end
+
+  defp call_by_sequence(run_id, call_seq) do
+    AgentCall
+    |> Ash.Query.filter(run_id == ^run_id and call_seq == ^call_seq)
+    |> Ankole.Ash.read_one()
   end
 
   defp source_sessions(source), do: [{source.agent_uid, source.session_id}]

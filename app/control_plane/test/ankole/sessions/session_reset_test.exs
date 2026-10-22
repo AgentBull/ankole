@@ -425,9 +425,7 @@ defmodule Ankole.Sessions.SessionResetTest do
       assert cron_schedule.next_fire_at == first_cron_slot
 
       assert {:ok, %{signal: cron_input}} =
-               Repo.transact(fn _repo ->
-                 Ankole.Schedule.Fire.fire_cron(cron_schedule.id, now: first_cron_slot)
-               end)
+               Ankole.Schedule.fire_cron(cron_schedule.id, now: first_cron_slot)
 
       assert cron_input.session_id == execution_actor.session_id
 
