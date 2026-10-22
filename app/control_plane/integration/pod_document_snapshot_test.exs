@@ -64,15 +64,22 @@ defmodule Ankole.Pod.DocumentSnapshotTest do
     try do
       assert_receive {:read_paused, reader_pid}, 2_000
 
-      error =
-        assert_raise Postgrex.Error, fn ->
-          Repo.transact(fn repo ->
-            repo.query!("SET LOCAL lock_timeout = '100ms'")
-            Documents.write(ctx.owner, ctx.page.id, 1, "<page><p>After</p></page>")
-          end)
-        end
+      # The test sets the lock timeout, so it owns the transaction and runs the
+      # write body. AshPostgres gives `lock_not_available` as `Unavailable`.
+      assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Invalid.Unavailable{} = error]}} =
+               Repo.transact(fn repo ->
+                 repo.query!("SET LOCAL lock_timeout = '100ms'")
+                 xml = "<page><p>After</p></page>"
 
-      assert error.postgres.code == :lock_not_available
+                 Documents.write_in_tx(
+                   ctx.owner,
+                   ctx.page.id,
+                   1,
+                   Ankole.Kernel.page_validate(xml)
+                 )
+               end)
+
+      assert error.reason =~ "lock timeout"
       send(reader_pid, :continue_read)
       snapshot = Task.await(reader, 5_000)
 

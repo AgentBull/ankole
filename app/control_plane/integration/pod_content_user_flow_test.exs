@@ -158,12 +158,11 @@ defmodule Ankole.Pod.ContentUserFlowTest do
     )
 
     try do
-      error =
-        assert_raise Ash.Error.Unknown, fn ->
-          PurgePage.perform(%Oban.Job{
-            args: %{"tenant_id" => ctx.tenant.id, "page_id" => root.id}
-          })
-        end
+      # The purge returns the failed batch to Oban, which retries the job.
+      assert {:error, %Ash.Error.Unknown{} = error} =
+               PurgePage.perform(%Oban.Job{
+                 args: %{"tenant_id" => ctx.tenant.id, "page_id" => root.id}
+               })
 
       assert [%Ash.Error.Unknown.UnknownError{error: native_error}] = error.errors
 

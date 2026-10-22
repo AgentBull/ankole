@@ -29,7 +29,6 @@
     {Ankole.Workflow.Queries, [:capacity_candidate]} => :m4_read_model,
     # M7 dynamic schema: the Pod database subsystem owns db_records.
     Ankole.Pod.Database => :m7_dynamic_schema,
-    Ankole.Pod.Database.Write => :m7_dynamic_schema,
     Ankole.Pod.Database.Records => :m7_dynamic_schema,
     Ankole.Pod.Database.Schema => :m7_dynamic_schema,
     Ankole.Pod.Query => :m7_dynamic_schema,
@@ -79,7 +78,6 @@
     "ecto_resource:../control_plane_core/lib/ankole/agent_workers/worker_route_auth.ex" => 2,
     "repo_transact:../control_plane_core/lib/ankole/agent_workers/worker_route_auth.ex" => 1,
     # ankole_web
-    "ecto_resource:../control_plane_core/lib/ankole_web/channels/pod_room_channel.ex" => 1,
     "ecto_resource:../control_plane_core/lib/ankole_web/plugs/put_data_context.ex" => 1,
     # app_configure
     "repo_transact:../control_plane_core/lib/ankole/app_configure.ex" => 4,
@@ -239,17 +237,6 @@
     "repo_transact:../control_plane_core/lib/ankole/conversations/observe.ex" => 5,
     "ecto_resource:../control_plane_core/lib/ankole/conversations/route.ex" => 11,
     "ecto_resource:../control_plane_core/lib/ankole/conversations/target.ex" => 3,
-    # files
-    "bulk_result:../control_plane_core/lib/ankole/files.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/files.ex" => 3,
-    "error_class:../control_plane_core/lib/ankole/files.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/files.ex" => 4,
-    "bulk_result:../control_plane_core/lib/ankole/files/jobs/collect_unreferenced.ex" => 2,
-    "error_class:../control_plane_core/lib/ankole/files/jobs/collect_unreferenced.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/files/jobs/collect_unreferenced.ex" => 1,
-    "raw_sql_tenant:../control_plane_core/lib/ankole/files/schemas/blob.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/files/schemas/drive_file.ex" => 1,
-    "ecto_write:../control_plane_core/lib/ankole/files/schemas/drive_file.ex" => 1,
     # identity_providers
     "repo_transact:../control_plane_core/lib/ankole/identity_providers/config.ex" => 1,
     "repo_transact:../control_plane_core/lib/ankole/identity_providers/directory.ex" => 1,
@@ -328,25 +315,6 @@
       1,
     "ecto_resource:../../plugins/whatsapp_adapter/lib/ankole/plugins/whatsapp_adapter/inbound.ex" =>
       1,
-    # pod
-    "ecto_resource:../control_plane_core/lib/ankole/pod/access.ex" => 6,
-    "repo_transact:../control_plane_core/lib/ankole/pod/access.ex" => 2,
-    "repo_transact:../control_plane_core/lib/ankole/pod/applets.ex" => 1,
-    "raw_sql_tenant:../control_plane_core/lib/ankole/pod/copy.ex" => 1,
-    "raw_sql_tenant:../control_plane_core/lib/ankole/pod/database.ex" => 1,
-    "bulk_result:../control_plane_core/lib/ankole/pod/documents.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/pod/documents.ex" => 4,
-    "error_class:../control_plane_core/lib/ankole/pod/documents.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/pod/documents.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/pod/files.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/pod/files.ex" => 1,
-    "bulk_result:../control_plane_core/lib/ankole/pod/jobs/purge_page.ex" => 2,
-    "error_class:../control_plane_core/lib/ankole/pod/jobs/purge_page.ex" => 2,
-    "repo_transact:../control_plane_core/lib/ankole/pod/jobs/purge_page.ex" => 3,
-    "ecto_lock:../control_plane_core/lib/ankole/pod/pages.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/pod/pages.ex" => 15,
-    "repo_transact:../control_plane_core/lib/ankole/pod/pages.ex" => 2,
-    "raw_sql_tenant:../control_plane_core/lib/ankole/pod/query.ex" => 1,
     # principals
     "ecto_lock:../control_plane_core/lib/ankole/principals.ex" => 2,
     "ecto_resource:../control_plane_core/lib/ankole/principals.ex" => 17,

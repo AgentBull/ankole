@@ -1,8 +1,7 @@
 defmodule Ankole.Pod.Database.Write do
   @moduledoc false
-  import Ecto.Query
+  require Ash.Query
   alias Ankole.Pod.{Config, Database, DbTable}
-  alias Ankole.Repo
 
   # One immutable journal for the already locked Database. Versions advance once,
   # from these actual writes, rather than from clocks or intermediate increments.
@@ -19,12 +18,11 @@ defmodule Ankole.Pod.Database.Write do
     with {:ok, table} <- Database.table_access(uid, id, "page_edit"),
          {:ok, limits} <- Config.limits() do
       tables =
-        Repo.all(
-          from t in DbTable,
-            where: t.page_id == ^table.page_id,
-            order_by: t.id,
-            lock: "FOR UPDATE"
-        )
+        DbTable
+        |> Ash.Query.filter(page_id == ^table.page_id)
+        |> Ash.Query.sort(id: :asc)
+        |> Ash.Query.lock(:for_update)
+        |> Ankole.Ash.read!()
         |> Map.new(&{&1.id, &1})
 
       case tables[id] do

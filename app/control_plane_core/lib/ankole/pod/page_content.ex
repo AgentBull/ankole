@@ -1,6 +1,6 @@
 defmodule Ankole.Pod.PageContent do
   @moduledoc "Canonical page XML and the plain text derived by the kernel."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod
 
   postgres do
     table("page_contents")
@@ -28,16 +28,14 @@ defmodule Ankole.Pod.PageContent do
     defaults([:read])
 
     create :create_in_tx do
-      transaction?(false)
       accept([:page_id, :content, :plain_text, :updated_by, :updated_at])
     end
 
-    in_tx_update :replace do
+    update :replace do
       accept([:content, :plain_text, :updated_by, :updated_at])
     end
 
     destroy :purge do
-      transaction?(false)
       require_atomic?(true)
     end
   end
