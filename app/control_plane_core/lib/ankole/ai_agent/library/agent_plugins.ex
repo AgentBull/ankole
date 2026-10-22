@@ -270,12 +270,11 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
   end
 
   defp persist_agent_override(agent_uid, agent_plugin_id, nil) do
-    AgentPluginOverride
-    |> Ash.Query.filter(agent_uid == ^agent_uid and agent_plugin_id == ^agent_plugin_id)
-    |> Ankole.Ash.bulk_destroy(:reset, %{}, strategy: [:atomic], return_errors?: true)
-    |> case do
-      %Ash.BulkResult{status: :success} -> {:ok, nil}
-      %Ash.BulkResult{errors: errors} -> {:error, errors}
+    with {:ok, _removed} <-
+           AgentPluginOverride
+           |> Ash.Query.filter(agent_uid == ^agent_uid and agent_plugin_id == ^agent_plugin_id)
+           |> Ankole.Ash.destroy_where(:reset) do
+      {:ok, nil}
     end
   end
 
@@ -313,9 +312,9 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
   end
 
   defp ensure_agent(agent_uid) do
-    case Agent |> Ash.Query.filter(uid == ^agent_uid) |> Ankole.Ash.read_one!() do
-      %Agent{} -> :ok
-      nil -> {:error, :not_found}
+    case Principals.get_agent(agent_uid) do
+      {:ok, %{agent: %Agent{}}} -> :ok
+      {:error, _error} = error -> error
     end
   end
 

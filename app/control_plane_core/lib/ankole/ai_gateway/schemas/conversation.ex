@@ -1,6 +1,6 @@
 defmodule Ankole.AIGateway.Schemas.Conversation do
   @moduledoc "Durable subject-local conversation identity; response rows own continuation and liveness."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIGateway.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIGateway
 
   postgres do
     table("ai_gateway_conversations")
@@ -64,22 +64,21 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
     defaults([:read])
 
     create :open do
-      transaction?(false)
       accept([:subject_uid, :conversation_key, :metadata])
     end
 
     create_if_absent :ensure, upsert_fields: [:metadata] do
-      transaction?(false)
       accept([:subject_uid, :conversation_key, :metadata])
       upsert_identity(:active_key)
     end
 
-    atomic_in_tx_update :touch do
+    update :touch do
+      require_atomic?(true)
       accept([])
       change(set_attribute(:updated_at, &DateTime.utc_now/0))
     end
 
-    in_tx_update :finish do
+    update :finish do
       accept([:ended_at])
       validate(present(:ended_at))
       change(filter(expr(is_nil(ended_at))))

@@ -8,27 +8,25 @@ defmodule Ankole.AIGateway.OIDCClientConversations do
   single stored item list.
   """
 
-  import Ecto.Query
+  require Ash.Query
 
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.JSON
   alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.Repo
 
   def client_ids do
-    terminal_requests()
-    |> select([message], fragment("?->>'oidc_client_id'", message.metadata))
-    |> distinct(true)
-    |> Repo.all()
+    %{client_ids: client_ids} =
+      Ankole.Ash.aggregate!(terminal_requests(), [
+        {:client_ids, :list, field: :oidc_client_id, uniq?: true}
+      ])
+
+    client_ids
   end
 
   def conversations(client_id) do
     requests(client_id)
-    |> select(
-      [message],
-      map(message, [:id, :conversation_id, :subject_uid, :status, :updated_at])
-    )
-    |> Repo.all()
+    |> Ash.Query.select([:id, :conversation_id, :subject_uid, :status, :updated_at])
+    |> Ankole.Ash.read!()
     |> Enum.group_by(& &1.conversation_id)
     |> Enum.map(fn {id, messages} ->
       %{id: id, subject_uid: hd(messages).subject_uid, revision: revision(messages)}
@@ -37,9 +35,10 @@ defmodule Ankole.AIGateway.OIDCClientConversations do
 
   def read(client_id, conversation_id) do
     messages =
-      requests(client_id)
-      |> where([message], message.conversation_id == ^conversation_id)
-      |> Repo.all()
+      client_id
+      |> requests()
+      |> Ash.Query.filter(conversation_id == ^conversation_id)
+      |> Ankole.Ash.read!()
 
     evidence =
       messages
@@ -51,18 +50,17 @@ defmodule Ankole.AIGateway.OIDCClientConversations do
   end
 
   defp terminal_requests do
-    Message
-    |> where(
-      [message],
-      message.type == :message and message.status in [:complete, :error, :retracted]
+    Ash.Query.filter(
+      Message,
+      type == :message and status in [:complete, :error, :retracted] and
+        not is_nil(oidc_client_id)
     )
-    |> where([message], fragment("?->>'oidc_client_id' IS NOT NULL", message.metadata))
   end
 
   defp requests(client_id) do
     terminal_requests()
-    |> where([message], fragment("?->>'oidc_client_id'", message.metadata) == ^client_id)
-    |> order_by([message], asc: message.id)
+    |> Ash.Query.filter(oidc_client_id == ^client_id)
+    |> Ash.Query.sort(id: :asc)
   end
 
   defp revision(messages) do
