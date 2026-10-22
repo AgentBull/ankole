@@ -304,7 +304,7 @@ defmodule Ankole.Sessions.Commands do
       with :ok <- Run.lock_for_write_in_tx(repo, run),
            :ok <- Fence.check_in_tx(repo, run),
            {:ok, result} <-
-             Ankole.Workflow.submit_result_in_tx(
+             Ankole.Workflow.TaskLifecycle.submit_result_in_tx(
                repo,
                run.spec.request_context["call_id"],
                run.agent_uid,
@@ -322,7 +322,7 @@ defmodule Ankole.Sessions.Commands do
            :ok <- Fence.check_in_tx(repo, run),
            {:ok, _} <- Run.record_pending_in_tx(repo, run),
            do:
-             Ankole.Workflow.compensate_turn_error_in_tx(
+             Ankole.Workflow.TaskLifecycle.compensate_turn_error_in_tx(
                repo,
                run.event,
                error,

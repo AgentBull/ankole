@@ -143,7 +143,9 @@ defmodule Ankole.WorkAccessTest do
              )
 
     assert {:ok, _} =
-             Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 4) end)
+             Repo.transact(fn repo ->
+               Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 4)
+             end)
 
     assert {:ok, disabled} = HumanAccess.disable(human.uid, "Offboarding", nil, "disable")
 
@@ -172,7 +174,7 @@ defmodule Ankole.WorkAccessTest do
 
     assert {:ok, %{accepted: true, call: %{status: :succeeded}}} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(
+               Workflow.TaskLifecycle.submit_result_in_tx(
                  repo,
                  call.id,
                  agent.uid,

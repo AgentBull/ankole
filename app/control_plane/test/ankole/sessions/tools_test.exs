@@ -773,19 +773,17 @@ defmodule Ankole.Sessions.ToolsTest do
 
   defp task_run(parent, workflow_id, schema \\ %{"type" => "boolean"}) do
     {:ok, %{new_calls: [call]}} =
-      Repo.transact(fn _ ->
-        Ankole.Workflow.commit_replay_pending(
-          workflow_id,
-          [
-            %{
-              namespace: nil,
-              name: "agent",
-              arguments: %{"prompt" => "Check the facts.", "schema" => schema}
-            }
-          ],
-          0
-        )
-      end)
+      Ankole.Workflow.commit_replay_pending(
+        workflow_id,
+        [
+          %{
+            namespace: nil,
+            name: "agent",
+            arguments: %{"prompt" => "Check the facts.", "schema" => schema}
+          }
+        ],
+        0
+      )
 
     event =
       Repo.get_by!(Ankole.Signals.Signal,

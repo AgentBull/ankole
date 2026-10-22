@@ -1,6 +1,11 @@
 defmodule Ankole.Workflow.Replay do
-  @moduledoc "Commits deterministic program replay under its memo fence."
-  import Ecto.Query, warn: false
+  @moduledoc """
+  Commits deterministic program replay under its memo fence.
+
+  The `Ankole.Workflow` replay actions run these functions in their own
+  transaction.
+  """
+  require Ash.Query
   alias Ankole.Repo
   alias Ankole.Text
   alias Ankole.Workflow.Program
@@ -9,78 +14,97 @@ defmodule Ankole.Workflow.Replay do
   alias Ankole.Workflow.Schemas.Run
   @memo_budget_bytes 6 * 1024 * 1024
 
-  def commit_replay_pending(run_id, pending_calls, expected_memo_length)
+  @doc """
+  Reads the program and durable memo of a running run for one replay.
+
+  A run whose Human access was revoked stops here. The result tells the owner
+  process to replay, to clean up a terminal run, or to stop.
+  """
+  def replay_input_in_tx(repo, run_id) do
+    case Run |> Ash.Query.filter(id == ^run_id) |> Ankole.Ash.read_one() do
+      {:ok, %Run{status: :running} = run} ->
+        with :ok <- Ankole.Principals.WorkAccess.check_in_tx(repo, run),
+             {:ok, program} <- Program.source(run) do
+          {:ok, calls} =
+            AgentCall
+            |> Ash.Query.filter(run_id == ^run_id)
+            |> Ash.Query.sort(call_seq: :asc)
+            |> Ankole.Ash.read()
+
+          {memo, memo_length} = Program.memo_prefix(calls)
+          {:ok, %{program: program, memo: memo, memo_length: memo_length}}
+        else
+          {:error, :human_access_revoked} ->
+            run = Ankole.Workflow.Lifecycle.revoke_run_in_tx(repo, run)
+            {:ok, {:terminal, run.status}}
+
+          {:error, _reason} = error ->
+            error
+        end
+
+      {:ok, %Run{cleanup_completed_at: nil} = run} ->
+        {:ok, {:cleanup_pending, run}}
+
+      {:ok, %Run{status: status}} ->
+        {:ok, {:terminal, status}}
+
+      {:ok, nil} ->
+        {:error, :workflow_not_found}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  @doc false
+  def commit_replay_pending_in_tx(repo, run_id, pending_calls, expected_memo_length)
       when is_integer(run_id) and run_id > 0 and is_list(pending_calls) and
              is_integer(expected_memo_length) and expected_memo_length >= 0 do
-    Repo.transact(fn repo ->
-      with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Run, run_id) do
-        commit_replay_pending_in_tx(repo, run_id, pending_calls, expected_memo_length)
-      end
-    end)
+    with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Run, run_id) do
+      commit_pending_in_tx(repo, run_id, pending_calls, expected_memo_length)
+    end
   end
 
-  def complete_replay(run_id, result_text, expected_memo_length)
+  @doc false
+  def complete_replay_in_tx(repo, run_id, result_text, expected_memo_length)
       when is_integer(run_id) and run_id > 0 and is_binary(result_text) and
              is_integer(expected_memo_length) and expected_memo_length >= 0 do
-    Repo.transact(fn repo ->
-      case Ankole.Workflow.Slot.lock_run(repo, run_id) do
-        %Run{status: :running} = run ->
-          calls = Ankole.Workflow.Slot.lock_run_calls_by_sequence(repo, run.id)
-
-          with :ok <- ensure_replay_snapshot(calls, expected_memo_length) do
-            Ankole.Workflow.Lifecycle.conclude_run_in_tx(
-              repo,
-              run,
-              :completed,
-              result_text,
-              %{},
-              DateTime.utc_now()
-            )
-          end
-
-        %Run{} = run ->
-          {:ok, %{run: run, wakeup_event: nil}}
-
-        nil ->
-          {:error, :workflow_not_found}
-      end
-    end)
+    conclude_replay_in_tx(repo, run_id, expected_memo_length, :completed, result_text, %{})
   end
 
-  def fail_replay(run_id, code, summary, expected_memo_length)
+  @doc false
+  def fail_replay_in_tx(repo, run_id, code, summary, expected_memo_length)
       when is_integer(run_id) and run_id > 0 and is_binary(code) and is_binary(summary) and
              is_integer(expected_memo_length) and expected_memo_length >= 0 do
-    Repo.transact(fn repo ->
-      case Ankole.Workflow.Slot.lock_run(repo, run_id) do
-        %Run{status: :running} = run ->
-          calls = Ankole.Workflow.Slot.lock_run_calls_by_sequence(repo, run.id)
-
-          with :ok <- ensure_replay_snapshot(calls, expected_memo_length) do
-            error = %{
-              "code" => Text.utf8_prefix(code, 128),
-              "summary" => Text.utf8_prefix(summary, 2000)
-            }
-
-            Ankole.Workflow.Lifecycle.conclude_run_in_tx(
-              repo,
-              run,
-              :failed,
-              nil,
-              error,
-              DateTime.utc_now()
-            )
-          end
-
-        %Run{} = run ->
-          {:ok, %{run: run, wakeup_event: nil}}
-
-        nil ->
-          {:error, :workflow_not_found}
-      end
-    end)
+    error = %{"code" => Text.utf8_prefix(code, 128), "summary" => Text.utf8_prefix(summary, 2000)}
+    conclude_replay_in_tx(repo, run_id, expected_memo_length, :failed, nil, error)
   end
 
-  defp commit_replay_pending_in_tx(repo, run_id, pending_calls, expected_memo_length) do
+  defp conclude_replay_in_tx(repo, run_id, expected_memo_length, status, result_text, error) do
+    case Ankole.Workflow.Slot.lock_run(repo, run_id) do
+      %Run{status: :running} = run ->
+        calls = Ankole.Workflow.Slot.lock_run_calls_by_sequence(repo, run.id)
+
+        with :ok <- ensure_replay_snapshot(calls, expected_memo_length) do
+          Ankole.Workflow.Lifecycle.conclude_run_in_tx(
+            repo,
+            run,
+            status,
+            result_text,
+            error,
+            DateTime.utc_now()
+          )
+        end
+
+      %Run{} = run ->
+        {:ok, %{run: run, wakeup_event: nil}}
+
+      nil ->
+        {:error, :workflow_not_found}
+    end
+  end
+
+  defp commit_pending_in_tx(repo, run_id, pending_calls, expected_memo_length) do
     case Ankole.Workflow.Slot.lock_run(repo, run_id) do
       %Run{status: :running} = run ->
         calls = Ankole.Workflow.Slot.lock_run_calls_by_sequence(repo, run.id)
@@ -173,35 +197,41 @@ defmodule Ankole.Workflow.Replay do
   end
 
   defp insert_and_dispatch_calls(repo, run, call_inputs, inserted_at) do
-    created =
-      Ankole.Ash.bulk_create(call_inputs, AgentCall, :create_call,
-        transaction: false,
-        return_records?: true,
-        return_errors?: true,
-        stop_on_error?: true,
-        sorted?: true
-      )
+    with {:ok, calls} <- create_calls(call_inputs) do
+      sessions =
+        Enum.map(calls, &{&1.agent_uid, Ankole.Workflow.Queries.task_session_id(&1.id)})
 
-    case created do
-      %Ash.BulkResult{status: :success, records: calls} ->
-        sessions =
-          Enum.map(calls, &{&1.agent_uid, Ankole.Workflow.Queries.task_session_id(&1.id)})
+      :ok = Ankole.Sessions.Queue.lock_sessions_in_tx(repo, sessions)
 
-        :ok = Ankole.Sessions.Queue.lock_sessions_in_tx(repo, sessions)
-
-        Enum.reduce_while(calls, {:ok, []}, fn call, {:ok, events} ->
-          case Ankole.Workflow.Mail.append_dispatch_event(repo, run, call, inserted_at) do
-            {:ok, event} -> {:cont, {:ok, [event | events]}}
-            error -> {:halt, error}
-          end
-        end)
-        |> case do
-          {:ok, events} -> {:ok, calls, Enum.reverse(events)}
-          error -> error
+      Enum.reduce_while(calls, {:ok, []}, fn call, {:ok, events} ->
+        case Ankole.Workflow.Mail.append_dispatch_event(repo, run, call, inserted_at) do
+          {:ok, event} -> {:cont, {:ok, [event | events]}}
+          error -> {:halt, error}
         end
+      end)
+      |> case do
+        {:ok, events} -> {:ok, calls, Enum.reverse(events)}
+        error -> error
+      end
+    end
+  end
 
-      %Ash.BulkResult{errors: errors} ->
-        {:error, Ash.Error.to_error_class(errors)}
+  # One batched insert for all new calls. The stream gives each record or error.
+  defp create_calls(call_inputs) do
+    call_inputs
+    |> Ankole.Ash.bulk_create(AgentCall, :create_call,
+      return_stream?: true,
+      return_records?: true,
+      return_errors?: true,
+      stop_on_error?: true
+    )
+    |> Enum.reduce_while({:ok, []}, fn
+      {:ok, call}, {:ok, calls} -> {:cont, {:ok, [call | calls]}}
+      {:error, error}, _calls -> {:halt, {:error, error}}
+    end)
+    |> case do
+      {:ok, calls} -> {:ok, Enum.sort_by(calls, & &1.call_seq)}
+      error -> error
     end
   end
 

@@ -8,12 +8,19 @@ Automation Jobs does not own trigger time, webhook admission, or Agent turns.
 Schedule and Signals keep those rules. They call Automation Jobs only
 when they must create a durable run.
 
-The Job and Run resources use AshStateMachine actions in the existing owner
-transaction. A Job moves from `active` to `cancelled`. A Run starts as `queued`
-or as a failed trigger receipt. Only queued work can start an attempt. A running
-attempt can retry or finish, and cancellation only stops queued work. The attempt
-fence and both Worker-wait and execution deadlines keep their existing meaning.
-PostgreSQL also rejects incompatible lifecycle timestamps and attempt fences.
+`Ankole.AutomationJobs` is the domain module. Each write entry point
+(`create_job`, `cancel_job`, `start_attempt`, `finish_attempt`,
+`infrastructure_failure`, `emit_event`) is a generic action on the Job or Run
+resource. The action owns its transaction and must be the top-level call. A
+trigger domain composes `enqueue_run_in_tx`, `validate_bindable_in_tx`, and
+`lock_job_in_tx` in its own transaction. Reads and row locks use Ash queries.
+The Job and Run resources use AshStateMachine actions in the transaction of the
+generic action. A Job moves from `active` to `cancelled`. A Run starts as
+`queued` or as a failed trigger receipt. Only queued work can start an attempt.
+A running attempt can retry or finish, and cancellation only stops queued work.
+The attempt fence and both Worker-wait and execution deadlines keep their
+existing meaning. PostgreSQL also rejects incompatible lifecycle timestamps and
+attempt fences.
 
 ## Human Work Authorization
 
@@ -233,12 +240,13 @@ result, exit code, error, and bounded logs.
 
 Home can inspect queued and running Automation runs for an explicitly selected
 Agent, under the existing `agent:<agent_uid>:automation_jobs` read permission.
-The query starts from runs and joins their definitions without filtering the
-definition status. A cancelled definition can therefore still show its admitted
-running attempt, consistent with the cancellation contract above. Activity is
-filtered before the independent cursor page; labels, owner Session, attempt
-identity, bounded error text and known Schedule trigger ID are available without
-loading scripts, event bodies or stdout/stderr.
+The query starts from runs and reads their definitions through the Run `job`
+relationship without filtering the definition status. A cancelled definition can
+therefore still show its admitted running attempt, consistent with the
+cancellation contract above. Activity is filtered before the independent cursor
+page; labels, owner Session, attempt identity, bounded error text and known
+Schedule trigger ID are available without loading scripts, event bodies or
+stdout/stderr.
 
 The activity view is read-only and links to the existing definition detail. Its
 observation time describes the read, not proof that an external effect succeeded.

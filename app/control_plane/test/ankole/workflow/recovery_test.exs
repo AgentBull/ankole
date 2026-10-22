@@ -87,7 +87,9 @@ defmodule Ankole.Workflow.RecoveryTest do
     wait_for_idle_server(run.id, server)
 
     assert {:ok, %{run: %Run{status: :cancelled}}} =
-             Repo.transact(fn repo -> Workflow.cancel_in_tx(repo, run.id, agent.uid) end)
+             Repo.transact(fn repo ->
+               Workflow.Lifecycle.cancel_in_tx(repo, run.id, agent.uid)
+             end)
 
     assert %AgentCall{status: :cancelled} = Repo.get!(AgentCall, call.id)
     stop_server(server)
@@ -127,7 +129,7 @@ defmodule Ankole.Workflow.RecoveryTest do
     cleaned =
       for status <- Run.terminal_statuses() do
         terminal = run_fixture(agent.uid) |> terminalize(status)
-        assert {:ok, cleaned} = Workflow.cleanup_terminal_run(terminal)
+        assert {:ok, cleaned} = Workflow.Lifecycle.cleanup_terminal_run(terminal)
         cleaned
       end
 

@@ -68,7 +68,7 @@ defmodule Ankole.Sessions.MixedScheduleDeliveryTest do
              )
 
     assert {:ok, %{signal: event}} =
-             Ankole.Schedule.Fire.fire_cron(cron.id, now: cron.next_fire_at)
+             Ankole.Schedule.fire_cron(cron.id, now: cron.next_fire_at)
 
     assert event.producer == :kernel
     assert event.reply_binding_name == nil
