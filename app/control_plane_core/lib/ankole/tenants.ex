@@ -325,15 +325,28 @@ defmodule Ankole.Tenants do
     end
   end
 
-  defp lock_tenant(id) do
+  defp lock_tenant(id), do: lock_tenant_in_tx(Repo, id)
+
+  @doc """
+  Locks one tenant row in the caller's transaction.
+
+  The mode is `:update` (the default), `:share`, or `:key_share`.
+  """
+  @spec lock_tenant_in_tx(module(), String.t(), :update | :share | :key_share) ::
+          {:ok, Tenant.t()} | {:error, term()}
+  def lock_tenant_in_tx(_repo, id, mode \\ :update) do
     case Tenant
          |> Ash.Query.filter(id == ^id)
-         |> Ash.Query.lock(:for_update)
+         |> Ash.Query.lock(row_lock(mode))
          |> Ankole.Ash.read_one() do
       {:ok, nil} -> {:error, :not_found}
       result -> result
     end
   end
+
+  defp row_lock(:update), do: :for_update
+  defp row_lock(:share), do: "FOR SHARE"
+  defp row_lock(:key_share), do: "FOR KEY SHARE"
 
   defp not_deleting(%Tenant{deleting_at: nil}), do: :ok
   defp not_deleting(_), do: {:error, :tenant_deleting}

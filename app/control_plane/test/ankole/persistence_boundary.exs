@@ -365,7 +365,7 @@
     # principals: staged facades, as for authz. WorkCleanup counts admitted
     # Signal and automation attempts of all tenants until Signals and
     # AutomationJobs give that count.
-    "repo_transact:../control_plane_core/lib/ankole/principals.ex" => 5,
+    "repo_transact:../control_plane_core/lib/ankole/principals.ex" => 6,
     "repo_transact:../control_plane_core/lib/ankole/principals/mapping_requests.ex" => 1,
     "ecto_resource:../control_plane_core/lib/ankole/principals/work_cleanup.ex" => 4,
     # sessions

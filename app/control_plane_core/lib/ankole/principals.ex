@@ -29,6 +29,7 @@ defmodule Ankole.Principals do
 
   resources do
     resource Principal do
+      define(:get_principal_record, action: :read, get_by: [:uid], not_found_error?: false)
       define(:list_principals, action: :read)
 
       define(:get_principal_across_tenants,
@@ -39,6 +40,7 @@ defmodule Ankole.Principals do
     end
 
     resource Agent do
+      define(:get_agent_record, action: :read, get_by: [:uid], not_found_error?: false)
       define(:options_agent, action: :options_in_tx)
     end
 
@@ -321,9 +323,16 @@ defmodule Ankole.Principals do
   """
   @spec enable_agent(String.t()) :: principal_result()
   def enable_agent(uid) do
-    Principal
-    |> Ankole.Ash.run_action(:enable_agent, %{uid: uid})
-    |> changed_agent()
+    # Staged: a Conversations test still calls this function in its transaction.
+    # Change it to a generic action when that caller uses `enable_agent_in_tx/2`.
+    case Repo.transact(fn repo -> enable_agent_in_tx(repo, uid) end) do
+      {:ok, {%Principal{} = principal, _conversation_ids} = change} ->
+        unless Repo.in_transaction?(), do: publish_agent_changes(change)
+        {:ok, principal}
+
+      error ->
+        error
+    end
   end
 
   @doc false
@@ -391,15 +400,11 @@ defmodule Ankole.Principals do
     end
   end
 
-  @doc false
-  def publish_agent_changes({%Principal{} = principal, conversation_ids}) do
+  defp publish_agent_changes({%Principal{} = principal, conversation_ids}) do
     Repo.with_tenant(principal.tenant_id, fn ->
       Enum.each(conversation_ids, &Ankole.Conversations.Events.publish_status/1)
     end)
   end
-
-  defp changed_agent({:ok, {%Principal{} = principal, _conversation_ids}}), do: {:ok, principal}
-  defp changed_agent(error), do: error
 
   @doc """
   Creates a human Principal with a generated local initial password.
@@ -879,21 +884,69 @@ defmodule Ankole.Principals do
   end
 
   @doc """
-  Locks one Principal row for update in the caller's transaction.
+  Locks one Principal row in the caller's transaction.
 
-  The Principal lock has the first rank of the work lock order.
+  The mode is `:update` (the default), `:share`, or `:key_share`. The Principal
+  lock has the first rank of the work lock order.
   """
-  @spec lock_principal_in_tx(module(), term()) :: principal_result()
-  def lock_principal_in_tx(_repo, uid) do
+  @spec lock_principal_in_tx(module(), term(), :update | :share | :key_share) ::
+          principal_result()
+  def lock_principal_in_tx(_repo, uid, mode \\ :update) do
     with {:ok, normalized_uid} <- normalize_uid(uid) do
       case Principal
            |> Ash.Query.filter(uid == ^normalized_uid)
-           |> Ash.Query.lock(:for_update)
+           |> Ash.Query.lock(row_lock(mode))
            |> Ankole.Ash.read_one!(lock_identity: {"principals", normalized_uid}) do
         %Principal{} = principal -> {:ok, principal}
         nil -> {:error, :not_found}
       end
     end
+  end
+
+  @doc """
+  Locks an active Human and its profile row for share in the caller's
+  transaction.
+
+  The lock keeps the status and the access version stable until the commit.
+  """
+  @spec lock_active_human_in_tx(module(), term()) ::
+          {:ok, %{principal: Principal.t(), human_user: HumanUser.t()}} | {:error, term()}
+  def lock_active_human_in_tx(repo, uid) do
+    with {:ok, %Principal{type: :human, status: :active} = principal} <-
+           lock_principal_in_tx(repo, uid, :share),
+         %HumanUser{} = human_user <-
+           HumanUser
+           |> Ash.Query.filter(principal_uid == ^principal.uid)
+           |> Ash.Query.lock("FOR SHARE")
+           |> Ankole.Ash.read_one!() do
+      {:ok, %{principal: principal, human_user: human_user}}
+    else
+      {:ok, %Principal{}} -> {:error, :human_access_revoked}
+      nil -> {:error, :not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp row_lock(:update), do: :for_update
+  defp row_lock(:share), do: "FOR SHARE"
+  defp row_lock(:key_share), do: "FOR KEY SHARE"
+
+  @doc """
+  Lists the bindings of one provider subject in every tenant, in Principal UID
+  order.
+
+  A site sign-in uses this read to find the tenants where the subject has a
+  Principal.
+  """
+  @spec list_platform_subject_bindings(String.t(), String.t()) :: [ExternalIdentity.t()]
+  def list_platform_subject_bindings(provider, external_id) do
+    Repo.across_tenants(fn ->
+      ExternalIdentity
+      |> Ash.Query.for_read(:read_across_tenants)
+      |> Ash.Query.filter(provider == ^provider and external_id == ^external_id)
+      |> Ash.Query.sort(principal_uid: :asc)
+      |> Ash.read!(Ankole.Ash.default_options())
+    end)
   end
 
   @doc """

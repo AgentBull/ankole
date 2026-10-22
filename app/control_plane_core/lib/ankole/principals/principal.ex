@@ -159,16 +159,6 @@ defmodule Ankole.Principals.Principal do
       end)
     end
 
-    action :enable_agent, :term do
-      argument(:uid, :term, allow_nil?: false)
-      after_commit({Ankole.Principals, :publish_agent_changes})
-
-      run(fn input, _context ->
-        Ankole.Principals.enable_agent_in_tx(Ankole.Repo, input.arguments.uid)
-        |> Ankole.Errors.wrap()
-      end)
-    end
-
     action :recover_admin, :struct do
       constraints(instance_of: __MODULE__)
       argument(:uid, :term, allow_nil?: false)

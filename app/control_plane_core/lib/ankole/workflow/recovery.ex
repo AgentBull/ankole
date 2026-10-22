@@ -19,7 +19,7 @@ defmodule Ankole.Workflow.Recovery do
     runs =
       Repo.across_tenants(fn ->
         Run
-        |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
+        |> Ash.Query.for_read(:work_across_tenants, %{}, authorize?: false)
         |> Ash.Query.filter(
           status == :running or (status in ^terminal and is_nil(cleanup_completed_at))
         )

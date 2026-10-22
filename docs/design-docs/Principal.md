@@ -7,14 +7,19 @@ resources use the existing PostgreSQL tables and constraints. The Principal UID
 codec and tenant-qualified ActorRef codec remain the identity and attribution
 contracts.
 
-Each aggregate operation (create, update, enable, or delete an Agent; create or
-update a Human; upsert a platform subject; Human access changes; mapping
-reviews; work classification and cleanup) is a generic action of
-`Ankole.Principals.Principal` or `MappingRequest`. The generic action owns the
-transaction and the lock order, and the resource actions run in it. Another
-domain does the same steps in its own transaction through the `_in_tx`
-functions, for example `Principals.create_human_in_tx/2` and
-`Principals.lock_principal_in_tx/2`; it cannot call the generic action there.
+Each aggregate operation (update an Agent; update a Human; create a
+local account; Human access changes; mapping reviews; work classification and
+cleanup; local password writes) is a generic action of
+`Ankole.Principals.Principal`, `MappingRequest`, or `LocalCredential`. The
+generic action owns the transaction and the lock order, and the resource
+actions run in it. Another domain does the same steps in its own transaction
+through the `_in_tx` functions, for example `Principals.create_human_in_tx/2`
+and `Principals.lock_principal_in_tx/3`; it cannot call the generic action
+there. Human and Agent creation, Agent enablement and deletion, platform
+subject upserts, forced password changes, and mapping observations still open
+their own transaction, because callers of other subsystems call them in a
+transaction.
+They become generic actions when those callers use the `_in_tx` forms.
 A read of a Principal in any tenant uses the `allow_global` read action through
 `Principals.get_principal_across_tenants/1` in a `Repo.across_tenants` block.
 Profile actions accept only profile fields;

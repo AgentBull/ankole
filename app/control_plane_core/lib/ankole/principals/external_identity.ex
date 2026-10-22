@@ -53,6 +53,10 @@ defmodule Ankole.Principals.ExternalIdentity do
   actions do
     defaults([:read])
 
+    read :read_across_tenants do
+      multitenancy(:allow_global)
+    end
+
     create :bind_in_tx do
       accept([:principal_uid, :provider, :external_id, :metadata])
     end

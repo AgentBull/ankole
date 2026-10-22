@@ -57,6 +57,8 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:../control_plane_core/lib/ankole/plugins/channel_sync.ex:enqueue_enabled_bindings" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/authz/snapshot.ex:fetch_principal" => 1,
+    "across_tenants:../control_plane_core/lib/ankole/principals.ex:list_platform_subject_bindings" =>
+      1,
     "across_tenants:../control_plane_core/lib/ankole/principals.ex:resolve_tenant" => 1,
     "across_tenants:../control_plane_core/lib/ankole/principals/work_cleanup.ex:cleanup_in_tx" =>
       2,
