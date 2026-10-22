@@ -87,6 +87,15 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
     end
   end
 
+  @doc """
+  Declares that a WeCom login has no ID token.
+
+  WeCom web login is OAuth 2.0: the code exchange gives only the enterprise
+  user ID, so the login has no signed authentication time.
+  """
+  @spec id_token_verification(map()) :: Ankole.IdentityProviders.OIDC.verification()
+  def id_token_verification(_config), do: :none
+
   @doc "Exchanges a redirect `code` for a hydrated enterprise user."
   @spec exchange_code(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def exchange_code(config, code, _opts \\ [])

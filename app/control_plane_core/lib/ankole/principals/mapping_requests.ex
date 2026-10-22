@@ -9,12 +9,12 @@ defmodule Ankole.Principals.MappingRequests do
   and removes the row, so the next message from that sender resolves normally.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Principals
   alias Ankole.Principals.ExternalIdentity
   alias Ankole.Principals.MappingRequest
-  alias Ankole.Repo
+  alias Ankole.Principals.Principal
 
   @doc """
   Records one observation of an unmapped sender.
@@ -25,13 +25,18 @@ defmodule Ankole.Principals.MappingRequests do
   """
   @spec record_observation(map()) ::
           {:ok, MappingRequest.t() | :already_mapped} | {:error, term()}
-  def record_observation(attrs) when is_map(attrs) do
-    Repo.transact(fn repo ->
-      with changeset <- Ankole.Ash.for_create(MappingRequest, :observe_in_tx, attrs),
-           {:ok, incoming} <- Ash.Changeset.apply_attributes(changeset) do
-        record_observation_in_repo(repo, incoming)
-      end
-    end)
+  # Staged: Conversations identity admission still calls this function in its
+  # transaction. Change it to a generic action when that caller uses
+  # `record_observation_in_tx/2`.
+  def record_observation(attrs) when is_map(attrs),
+    do: Ankole.Repo.transact(fn repo -> record_observation_in_tx(repo, attrs) end)
+
+  @doc false
+  def record_observation_in_tx(repo, attrs) do
+    with changeset <- Ankole.Ash.for_create(MappingRequest, :observe_in_tx, attrs),
+         {:ok, incoming} <- Ash.Changeset.apply_attributes(changeset) do
+      record_observation_in_repo(repo, incoming)
+    end
   end
 
   @doc """
@@ -40,18 +45,16 @@ defmodule Ankole.Principals.MappingRequests do
   @spec list_requests() :: [MappingRequest.t()]
   def list_requests do
     MappingRequest
-    |> order_by([request], desc: request.updated_at)
-    |> Repo.all()
+    |> Ash.Query.sort(updated_at: :desc)
+    |> Ankole.Ash.read!()
   end
 
   # Fetches one pending mapping request.
   #
   @spec get_request(String.t()) :: {:ok, MappingRequest.t()} | {:error, :not_found}
-  defp get_request(id) when is_binary(id), do: get_request(Repo, id)
-
-  defp get_request(repo, id) do
+  defp get_request(id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         %MappingRequest{} = request <- repo.get(MappingRequest, id) do
+         {:ok, %MappingRequest{} = request} <- Principals.get_mapping_request(id) do
       {:ok, request}
     else
       _not_found -> {:error, :not_found}
@@ -67,30 +70,32 @@ defmodule Ankole.Principals.MappingRequests do
   @spec bind_request(String.t(), String.t()) ::
           {:ok, %{request: MappingRequest.t(), identity: struct()}} | {:error, term()}
   def bind_request(id, principal_uid) when is_binary(id) and is_binary(principal_uid) do
-    with {:ok, known_request} <- get_request(id) do
-      Repo.transact(fn repo ->
-        with :ok <-
-               Principals.lock_platform_subject(
-                 repo,
-                 known_request.provider,
-                 known_request.external_id
-               ),
-             {:ok, request} <- get_request(repo, id),
-             {:ok, identity} <-
-               bind_subject_in_repo(repo, principal_uid, %{
-                 provider: request.provider,
-                 external_id: request.external_id,
-                 metadata: bound_metadata(request)
-               }),
-             :ok <-
-               Principals.delete_pending_mapping_request(
-                 repo,
-                 request.provider,
-                 request.external_id
-               ) do
-          {:ok, %{request: request, identity: identity}}
-        end
-      end)
+    Ankole.Ash.run_action(MappingRequest, :bind_request, %{id: id, principal_uid: principal_uid})
+  end
+
+  @doc false
+  def bind_request_in_tx(repo, id, principal_uid) do
+    with {:ok, known_request} <- get_request(id),
+         :ok <-
+           Principals.lock_platform_subject(
+             repo,
+             known_request.provider,
+             known_request.external_id
+           ),
+         {:ok, request} <- get_request(id),
+         {:ok, identity} <-
+           bind_subject_in_repo(repo, principal_uid, %{
+             provider: request.provider,
+             external_id: request.external_id,
+             metadata: bound_metadata(request)
+           }),
+         :ok <-
+           Principals.delete_pending_mapping_request(
+             repo,
+             request.provider,
+             request.external_id
+           ) do
+      {:ok, %{request: request, identity: identity}}
     end
   end
 
@@ -104,18 +109,24 @@ defmodule Ankole.Principals.MappingRequests do
   @spec bind_subject(String.t(), map()) :: {:ok, struct()} | {:error, term()}
   def bind_subject(principal_uid, %{provider: provider, external_id: external_id} = attrs)
       when is_binary(principal_uid) and is_binary(provider) and is_binary(external_id) do
-    Repo.transact(fn repo ->
-      with :ok <- Principals.lock_platform_subject(repo, provider, external_id),
-           {:ok, identity} <- bind_subject_in_repo(repo, principal_uid, attrs),
-           :ok <-
-             Principals.delete_pending_mapping_request(
-               repo,
-               identity.provider,
-               identity.external_id
-             ) do
-        {:ok, identity}
-      end
-    end)
+    Ankole.Ash.run_action(MappingRequest, :bind_subject, %{
+      principal_uid: principal_uid,
+      attrs: attrs
+    })
+  end
+
+  @doc false
+  def bind_subject_in_tx(repo, principal_uid, attrs) do
+    with :ok <- Principals.lock_platform_subject(repo, attrs.provider, attrs.external_id),
+         {:ok, identity} <- bind_subject_in_repo(repo, principal_uid, attrs),
+         :ok <-
+           Principals.delete_pending_mapping_request(
+             repo,
+             identity.provider,
+             identity.external_id
+           ) do
+      {:ok, identity}
+    end
   end
 
   @doc """
@@ -125,18 +136,32 @@ defmodule Ankole.Principals.MappingRequests do
   """
   @spec delete_request(String.t()) :: {:ok, MappingRequest.t()} | {:error, :not_found}
   def delete_request(id) when is_binary(id) do
-    Repo.transact(fn repo ->
-      with {:ok, request} <- get_request(repo, id),
-           do: Ankole.Ash.destroy(request, :delete_in_tx)
-    end)
+    with {:ok, id} <- cast_request_id(id),
+         {:ok, [request]} <-
+           MappingRequest
+           |> Ash.Query.filter(id == ^id)
+           |> Ankole.Ash.destroy_where(:delete_in_tx) do
+      {:ok, request}
+    else
+      {:ok, []} -> {:error, :not_found}
+      error -> error
+    end
+  end
+
+  defp cast_request_id(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, :not_found}
+    end
   end
 
   defp record_observation_in_repo(repo, incoming) do
     with :ok <- Principals.lock_platform_subject(repo, incoming.provider, incoming.external_id) do
-      case repo.get_by(ExternalIdentity,
-             provider: incoming.provider,
-             external_id: incoming.external_id
-           ) do
+      case ExternalIdentity
+           |> Ash.Query.filter(
+             provider == ^incoming.provider and external_id == ^incoming.external_id
+           )
+           |> Ankole.Ash.read_one!() do
         %ExternalIdentity{} ->
           :ok =
             Principals.delete_pending_mapping_request(
@@ -149,10 +174,11 @@ defmodule Ankole.Principals.MappingRequests do
 
         nil ->
           merged =
-            case repo.get_by(MappingRequest,
-                   provider: incoming.provider,
-                   external_id: incoming.external_id
-                 ) do
+            case MappingRequest
+                 |> Ash.Query.filter(
+                   provider == ^incoming.provider and external_id == ^incoming.external_id
+                 )
+                 |> Ankole.Ash.read_one!() do
               %MappingRequest{} = existing -> merge_observation(existing, incoming)
               nil -> incoming_attrs(incoming)
             end
@@ -164,7 +190,7 @@ defmodule Ankole.Principals.MappingRequests do
 
   defp bind_subject_in_repo(repo, principal_uid, attrs) do
     with {:ok, principal_uid} <- Principals.normalize_uid(principal_uid),
-         {:ok, principal} <- fetch_human_principal(repo, principal_uid) do
+         {:ok, principal} <- fetch_human_principal(principal_uid) do
       Principals.bind_external_identity(repo, %{
         principal_uid: principal.uid,
         provider: Map.get(attrs, :provider),
@@ -174,12 +200,12 @@ defmodule Ankole.Principals.MappingRequests do
     end
   end
 
-  defp fetch_human_principal(repo, principal_uid) do
-    case repo.get(Ankole.Principals.Principal, principal_uid) do
-      %Ankole.Principals.Principal{type: :human, status: :active} = principal -> {:ok, principal}
-      %Ankole.Principals.Principal{type: :human} -> {:error, :principal_disabled}
-      %Ankole.Principals.Principal{} -> {:error, :not_human}
-      nil -> {:error, :principal_not_found}
+  defp fetch_human_principal(principal_uid) do
+    case Principals.get_principal(principal_uid) do
+      {:ok, %Principal{type: :human, status: :active} = principal} -> {:ok, principal}
+      {:ok, %Principal{type: :human}} -> {:error, :principal_disabled}
+      {:ok, %Principal{}} -> {:error, :not_human}
+      {:error, :not_found} -> {:error, :principal_not_found}
     end
   end
 

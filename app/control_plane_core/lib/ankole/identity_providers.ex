@@ -10,12 +10,28 @@ defmodule Ankole.IdentityProviders do
   both.
   """
 
+  use Ankole.Ash.Domain
+
   alias Ankole.AppConfigure
   alias Ankole.IdentityProviders.Config
+  alias Ankole.IdentityProviders.DirectoryEvent
+  alias Ankole.IdentityProviders.DirectoryState
   alias Ankole.IdentityProviders.DirectorySync
   alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Plugins
   alias Ankole.Plugins.ConfigSecrets
+
+  resources do
+    resource DirectoryEvent do
+      define(:get_directory_event, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_directory_events, action: :read)
+    end
+
+    resource DirectoryState do
+      define(:get_directory_state, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_directory_states, action: :read)
+    end
+  end
 
   @adapter_contract_id "principals.identity_provider"
   @credential_check_capability "credential_check"
@@ -420,15 +436,22 @@ defmodule Ankole.IdentityProviders do
     do: ensure_exported(module, :authorization_url, 2)
 
   # upsert_user is required exactly where the host calls it: the OIDC code
-  # exchange and the directory sync paths.
+  # exchange and the directory sync paths. A code exchange also declares the ID
+  # token that the host verifies (`Ankole.IdentityProviders.OIDC`).
   defp validate_identity_capability(module, "oidc_code_exchange"),
-    do: ensure_exported_all(module, [{:exchange_code, 3}, {:upsert_user, 2}])
+    do:
+      ensure_exported_all(module, [
+        {:exchange_code, 3},
+        {:id_token_verification, 1},
+        {:upsert_user, 2}
+      ])
 
   defp validate_identity_capability(module, "oidc_fresh_authentication"),
     do:
       ensure_exported_all(module, [
         {:authorization_url, 2},
         {:exchange_code, 3},
+        {:id_token_verification, 1},
         {:upsert_user, 2}
       ])
 

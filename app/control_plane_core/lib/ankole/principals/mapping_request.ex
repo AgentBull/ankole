@@ -1,6 +1,6 @@
 defmodule Ankole.Principals.MappingRequest do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals
 
   postgres do
     table("identity_mapping_requests")
@@ -45,16 +45,40 @@ defmodule Ankole.Principals.MappingRequest do
 
     create :observe_in_tx do
       accept([:provider, :external_id, :display_name, :email, :mobile, :metadata])
-      transaction?(false)
       upsert?(true)
       upsert_identity(:subject)
       upsert_fields([:display_name, :email, :mobile, :metadata, :updated_at])
     end
 
-    destroy :delete_in_tx do
-      transaction?(false)
-      require_atomic?(false)
-      atomic_upgrade?(false)
+    destroy(:delete_in_tx)
+
+    action :bind_request, :map do
+      argument(:id, :term, allow_nil?: false)
+      argument(:principal_uid, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Principals.MappingRequests.bind_request_in_tx(
+          Ankole.Repo,
+          input.arguments.id,
+          input.arguments.principal_uid
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :bind_subject, :struct do
+      constraints(instance_of: Ankole.Principals.ExternalIdentity)
+      argument(:principal_uid, :term, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Principals.MappingRequests.bind_subject_in_tx(
+          Ankole.Repo,
+          input.arguments.principal_uid,
+          input.arguments.attrs
+        )
+        |> Ankole.Errors.wrap()
+      end)
     end
   end
 

@@ -70,16 +70,28 @@ Bun code calls the control plane for permission decisions.
 
 ## Stored Groups and Grants
 
-`Ankole.AuthZ.Domain` declares the four stored resource types. Their typed
+`Ankole.AuthZ` is the Ash domain of the four stored resource types. Their typed
 actions own field validation, native constraint errors, and persistence.
 Group conditions and grant rules use the existing Kernel syntax validators.
 Metadata uses the durable JSON object type.
 
-`AuthZ`, `Root`, `Store`, and `Grants` keep the aggregate transaction and lock
-contracts. They protect the last administrator and distinguish operator groups
-from groups owned by directory and conversation synchronization. Grant writes
-retain the Pod tree lock. These owners call the resource actions inside their
-existing PostgreSQL transactions. Ash policies do not make permission decisions.
+Each aggregate write that locks a group, a Principal, or the Pod tree is a
+generic action of `Group`, `Membership`, `Grant`, or `ExternalBinding` that owns
+its transaction. `Store` and `Grants` keep the steps and the lock contracts for
+the caller's transaction: another domain's action calls them, for example
+`Store.replace_static_group_members/4` or `Grants.upsert_permission_grant/2`.
+They protect the last administrator and distinguish operator groups from
+groups owned by directory and conversation synchronization. Grant writes
+retain the Pod tree lock. `AuthZ.upsert_permission_grant/1` and
+`AuthZ.delete_permission_grant/1` still open their own transaction, because the
+Pod access owner calls them in its transaction; they become generic actions
+when that owner calls `Grants`. Ash policies do not make permission decisions.
+
+`Ankole.AuthZ.Snapshot` assembles the decision snapshot for each check. It is a
+read model in the persistence boundary: it selects maps and values from
+grants, groups, and memberships and reads the Principal through
+`Principals.get_principal_across_tenants/1`. `AuthZ.restoration_review/1` is
+the other read model. The other AuthZ reads use Ash queries.
 
 Membership admission preserves its first timestamp. External bindings retain
 their tenant-scoped composite key. Grant upserts use the existing partial

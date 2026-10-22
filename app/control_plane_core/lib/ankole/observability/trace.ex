@@ -46,7 +46,7 @@ defmodule Ankole.Observability.Trace do
 
   @doc "Adds the durable tenant identity when a root span starts."
   def with_tenant(context) do
-    tenant = Ankole.Repo.get!(Ankole.Tenants.Tenant, Ankole.Repo.tenant_id!())
+    %Ankole.Tenants.Tenant{} = tenant = Ankole.Tenants.get_tenant!(Ankole.Repo.tenant_id!())
     Map.merge(context, %{tenant_id: tenant.id, tenant_slug: tenant.slug})
   end
 

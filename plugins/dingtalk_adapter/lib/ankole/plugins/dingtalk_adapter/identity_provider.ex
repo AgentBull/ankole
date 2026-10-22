@@ -68,6 +68,15 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
     end
   end
 
+  @doc """
+  Declares that a DingTalk login has no ID token.
+
+  DingTalk login is OAuth 2.0: the user access token reads the user, so the
+  login has no signed authentication time.
+  """
+  @spec id_token_verification(map()) :: Ankole.IdentityProviders.OIDC.verification()
+  def id_token_verification(_config), do: :none
+
   @doc "Exchanges a redirect `authCode` for a hydrated enterprise user."
   @spec exchange_code(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def exchange_code(config, auth_code, _opts \\ [])

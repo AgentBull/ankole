@@ -1,13 +1,23 @@
 # Principal
 
-`Ankole.Principals.Domain` owns the typed persistence actions for Principals,
-Agent and Human profiles, external identities, local credentials, access
-restrictions, audit events, and pending identity mappings. These resources use
-the existing PostgreSQL tables and constraints. The Principal UID codec and
-tenant-qualified ActorRef codec remain the identity and attribution contracts.
+`Ankole.Principals` is the Ash domain of the typed persistence actions for
+Principals, Agent and Human profiles, external identities, local credentials,
+access restrictions, audit events, and pending identity mappings. These
+resources use the existing PostgreSQL tables and constraints. The Principal UID
+codec and tenant-qualified ActorRef codec remain the identity and attribution
+contracts.
 
-The existing aggregate operations own transactions and lock order. Resource
-actions require that transaction. Profile actions accept only profile fields;
+Each aggregate operation (create, update, enable, or delete an Agent; create or
+update a Human; upsert a platform subject; Human access changes; mapping
+reviews; work classification and cleanup) is a generic action of
+`Ankole.Principals.Principal` or `MappingRequest`. The generic action owns the
+transaction and the lock order, and the resource actions run in it. Another
+domain does the same steps in its own transaction through the `_in_tx`
+functions, for example `Principals.create_human_in_tx/2` and
+`Principals.lock_principal_in_tx/2`; it cannot call the generic action there.
+A read of a Principal in any tenant uses the `allow_global` read action through
+`Principals.get_principal_across_tenants/1` in a `Repo.across_tenants` block.
+Profile actions accept only profile fields;
 they cannot change identity, status, or access versions. Human revocation
 changes status and the access version in one Principal action. Audit events
 have no update or delete action. The cleanup audit action keeps the first
@@ -253,6 +263,24 @@ Manual mappings bypass the ladder on purpose: `MappingRequests.bind_request`
 and `MappingRequests.bind_subject` write the identity to exactly the Principal
 the operator chose. This explicit provider binding stays authoritative even
 when another provider uses the same external ID.
+
+## Verify Upstream Login
+
+`IdentityProviders.Login.complete_oidc_login/3` is the only place that accepts
+the proof of an identity-provider login. The adapter exchanges the code and
+returns the token, the claims of the provider's user endpoint, and the
+normalized user. The adapter declares the expected ID token with
+`id_token_verification/1`: the issuer, the client ID, and the claim that names
+the user (`sub` for Google and Slack, `oid` for Entra ID). The login boundary
+verifies the signature, issuer, audience, nonce, and authentication time with
+`IdentityProviders.OIDC.verify_login/3`. The user endpoint claim must equal the
+signed claim. Then the adapter writes the user.
+
+Lark, WeCom, and DingTalk login use OAuth 2.0 without an ID token. Their
+adapters declare `:none`, so their logins have no authentication time and
+cannot serve a fresh-authentication request. The plugin registry rejects an
+adapter with the `oidc_code_exchange` capability that does not export
+`id_token_verification/1`.
 
 ## Create and Update Humans
 

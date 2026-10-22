@@ -126,9 +126,20 @@ defmodule Ankole.PrincipalsTest do
     end
 
     test "create_agent/1 rolls back its Worker startup with the Agent", %{tenant: tenant} do
+      %{principal: owner} = human_fixture()
+
+      attrs = %{
+        uid: Ankole.Kernel.gen_uuid_v7(),
+        handle: unique_uid("agent"),
+        display_name: "Agent",
+        role: "Research Analyst",
+        owner_principal_uid: owner.uid,
+        worker_provider_id: worker_provider_fixture().provider_id
+      }
+
       assert {:error, :cancelled} =
                Repo.transact(fn repo ->
-                 %{principal: principal} = agent_fixture()
+                 {:ok, %{principal: principal}} = Principals.create_agent_in_tx(repo, attrs)
                  assert repo.get!(AgentWorker, principal.uid).initial_start_pending
                  assert_enqueued(worker: ReconcileJob, args: %{agent_uid: principal.uid})
                  {:error, :cancelled}

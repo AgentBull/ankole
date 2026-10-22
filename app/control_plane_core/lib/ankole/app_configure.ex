@@ -1,7 +1,13 @@
 defmodule Ankole.AppConfigure do
   @moduledoc """
   Database-backed runtime configuration for Ankole.
+
+  This module is the AppConfigure domain. A write that locks a key and reads
+  its current value is a generic action that owns its transaction; the
+  `_in_tx` functions let another domain's action do the same steps in its own
+  transaction and refresh the cache after its commit (`cache_committed_write/1`).
   """
+  use Ankole.Ash.Domain
 
   require Ash.Query
 
@@ -12,12 +18,27 @@ defmodule Ankole.AppConfigure do
   alias Ankole.AppConfigure.PatternDefinition
   alias Ankole.AppConfigure.Registry
   alias Ankole.AppConfigure.Resolution
+  alias Ankole.AppConfigure.SiteConfig
   alias Ankole.Logging
   alias Ankole.Repo
 
   @global_scope "global"
   @tenant_scope_prefix "tenant:"
   @agent_scope_prefix "agent:"
+
+  resources do
+    resource AppConfig do
+      define(:get_app_config, action: :read, get_by: [:scope, :key], not_found_error?: false)
+      define(:list_app_configs, action: :read)
+      define(:record_platform_application_app_config, action: :record_platform_application)
+    end
+
+    resource SiteConfig do
+      define(:get_site_config, action: :read, get_by: [:scope, :key], not_found_error?: false)
+      define(:list_site_configs, action: :read)
+      define(:record_platform_application_site_config, action: :record_platform_application)
+    end
+  end
 
   @type definition :: Definition.t() | PatternDefinition.t()
   @type console_item :: map()
@@ -146,30 +167,30 @@ defmodule Ankole.AppConfigure do
   @doc "Initializes a generated global value once and returns the persisted winner."
   @spec ensure_generated_global(Definition.t()) :: {:ok, term()} | {:error, term()}
   def ensure_generated_global(%Definition{} = definition) do
-    result =
-      Repo.transact(fn repo ->
-        with {:ok, registered} <- Registry.require_definition(definition),
-             :ok <- ensure_scope(registered, @global_scope),
-             :ok <- lock_global_key(repo, registered.key) do
-          case get_global_by_key_in_tx(repo, registered.key) do
-            {:ok, value} ->
-              {:ok, {:existing, value}}
-
-            :error ->
-              with {:ok, value} <- generate(registered),
-                   {:ok, write} <- put_row(repo, @global_scope, registered.key, registered, value),
-                   do: {:ok, {:created, write}}
-
-            error ->
-              error
-          end
-        end
-      end)
-
-    case result do
-      {:ok, {:created, committed}} -> cache_committed_write(committed)
+    case Ankole.Ash.run_action(SiteConfig, :ensure_generated_global, %{definition: definition}) do
+      {:ok, {:created, {parsed, _scope, _key}}} -> {:ok, parsed}
       {:ok, {:existing, value}} -> {:ok, value}
       error -> error
+    end
+  end
+
+  @doc false
+  def ensure_generated_global_in_tx(repo, %Definition{} = definition) do
+    with {:ok, registered} <- Registry.require_definition(definition),
+         :ok <- ensure_scope(registered, @global_scope),
+         :ok <- lock_global_key(repo, registered.key) do
+      case get_global_by_key_in_tx(repo, registered.key) do
+        {:ok, value} ->
+          {:ok, {:existing, value}}
+
+        :error ->
+          with {:ok, value} <- generate(registered),
+               {:ok, write} <- put_row(repo, @global_scope, registered.key, registered, value),
+               do: {:ok, {:created, write}}
+
+        error ->
+          error
+      end
     end
   end
 
@@ -184,16 +205,16 @@ defmodule Ankole.AppConfigure do
   @spec update_global(Definition.t(), (term() -> {:ok, term()} | {:error, term()})) ::
           {:ok, term()} | {:error, term()}
   def update_global(%Definition{} = definition, updater) when is_function(updater, 1) do
-    case Repo.transact(fn repo -> update_global_in_tx(repo, definition, updater) end) do
-      {:ok, committed_write} -> cache_committed_write(committed_write)
-      {:error, _reason} = error -> error
-    end
+    SiteConfig
+    |> Ankole.Ash.run_action(:update_global, %{definition: definition, updater: updater})
+    |> committed_value()
   end
 
+  @doc false
   @spec update_global_in_tx(module(), Definition.t(), (term() -> {:ok, term()} | {:error, term()})) ::
           {:ok, committed_write()} | {:error, term()}
-  defp update_global_in_tx(repo, %Definition{} = definition, updater)
-       when is_atom(repo) and is_function(updater, 1) do
+  def update_global_in_tx(repo, %Definition{} = definition, updater)
+      when is_atom(repo) and is_function(updater, 1) do
     with {:ok, registered} <- Registry.require_definition(definition),
          :ok <- lock_global_key(repo, registered.key),
          {:ok, current} <- current_global_value_in_tx(repo, registered),
@@ -217,18 +238,38 @@ defmodule Ankole.AppConfigure do
           {:ok, term()} | :error | {:error, term()}
   def get_global_by_key_in_tx(repo, key) when is_atom(repo) and is_binary(key) do
     with {:ok, registered} <- Registry.require_key(key) do
-      case read_row(@global_scope, key) do
-        %{value: envelope} ->
-          case Codec.load(registered, @global_scope, key, envelope) do
-            {:ok, value} -> {:ok, value}
-            {:error, reason} -> {:error, {:storage_error, @global_scope, key, reason}}
-          end
-
-        nil ->
-          :error
-      end
+      load_global_row(registered, key, read_row(@global_scope, key))
     end
   end
+
+  @doc """
+  Locks the `global` row of a key for update and reads its value.
+
+  The lock serializes the caller's transaction with every other write of the
+  row. A missing row gives `:error`.
+  """
+  @spec lock_global_by_key_in_tx(module(), String.t()) ::
+          {:ok, term()} | :error | {:error, term()}
+  def lock_global_by_key_in_tx(repo, key) when is_atom(repo) and is_binary(key) do
+    with {:ok, registered} <- Registry.require_key(key) do
+      row =
+        SiteConfig
+        |> Ash.Query.filter(scope == ^@global_scope and key == ^key)
+        |> Ash.Query.lock(:for_update)
+        |> Ankole.Ash.read_one!()
+
+      load_global_row(registered, key, row)
+    end
+  end
+
+  defp load_global_row(registered, key, %{value: envelope}) do
+    case Codec.load(registered, @global_scope, key, envelope) do
+      {:ok, value} -> {:ok, value}
+      {:error, reason} -> {:error, {:storage_error, @global_scope, key, reason}}
+    end
+  end
+
+  defp load_global_row(_registered, _key, nil), do: :error
 
   @doc false
   @spec put_global_by_key_in_tx(module(), String.t(), term()) ::
@@ -245,6 +286,14 @@ defmodule Ankole.AppConfigure do
     refresh_cache_after_commit(scope, key)
     {:ok, parsed}
   end
+
+  @doc false
+  def refresh_committed({:existing, _value}), do: :ok
+  def refresh_committed({:created, write}), do: refresh_committed(write)
+  def refresh_committed({_parsed, scope, key}), do: refresh_cache_after_commit(scope, key)
+
+  defp committed_value({:ok, {parsed, _scope, _key}}), do: {:ok, parsed}
+  defp committed_value(error), do: error
 
   @doc """
   Deletes the `global` row for an exact definition.
@@ -509,18 +558,9 @@ defmodule Ankole.AppConfigure do
   end
 
   defp delete(scope, key) do
-    result =
-      Repo.transact(fn _repo ->
-        case read_row(scope, key) do
-          nil ->
-            {:ok, :deleted}
+    query = Ash.Query.filter(AppConfig.for_scope(scope), scope == ^scope and key == ^key)
 
-          row ->
-            with {:ok, _deleted} <- Ankole.Ash.destroy(row, :remove), do: {:ok, :deleted}
-        end
-      end)
-
-    with {:ok, :deleted} <- result do
+    with {:ok, _deleted} <- Ankole.Ash.destroy_where(query, :remove) do
       refresh_cache_after_commit(scope, key)
       :ok
     end
@@ -719,11 +759,10 @@ defmodule Ankole.AppConfigure do
     end
   end
 
-  def update_tenant(%Definition{} = definition, updater) do
-    case Repo.transact(fn repo -> update_tenant_in_tx(repo, definition, updater) end) do
-      {:ok, write} -> cache_committed_write(write)
-      error -> error
-    end
+  def update_tenant(%Definition{} = definition, updater) when is_function(updater, 1) do
+    AppConfig
+    |> Ankole.Ash.run_action(:update_tenant, %{definition: definition, updater: updater})
+    |> committed_value()
   end
 
   defp tenant_scope, do: @tenant_scope_prefix <> Repo.tenant_id!()

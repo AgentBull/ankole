@@ -1,6 +1,6 @@
 defmodule Ankole.Principals.AccessEvent do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals
 
   postgres do
     table("human_access_events")
@@ -69,8 +69,6 @@ defmodule Ankole.Principals.AccessEvent do
         :provider_time,
         :details
       ])
-
-      transaction?(false)
     end
 
     create :record_once_in_tx do
@@ -88,7 +86,6 @@ defmodule Ankole.Principals.AccessEvent do
         :details
       ])
 
-      transaction?(false)
       upsert?(true)
       upsert_identity(:operation)
       upsert_fields([:operation_id])

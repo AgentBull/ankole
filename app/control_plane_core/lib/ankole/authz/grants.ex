@@ -1,5 +1,11 @@
 defmodule Ankole.AuthZ.Grants do
-  @moduledoc false
+  @moduledoc """
+  Permission grant writes that run in the caller's transaction.
+
+  Each write locks the Pod tree first, because Pod access reads grants.
+  """
+
+  require Ash.Query
 
   alias Ankole.AuthZ.Grant
   alias Ankole.AuthZ.Group
@@ -35,6 +41,18 @@ defmodule Ankole.AuthZ.Grants do
 
     with {:ok, attrs} <- grant_attrs(repo, attrs) do
       Ankole.Ash.update(grant, :update_in_tx, attrs)
+    end
+  end
+
+  def delete_permission_grant(repo, id) do
+    :ok = Ankole.Repo.require_transaction(repo)
+    Ankole.Pod.Pages.lock_tree()
+
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         %Grant{} = grant <- Grant |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!() do
+      Ankole.Ash.destroy(grant, :delete_in_tx)
+    else
+      _not_found -> {:error, :not_found}
     end
   end
 

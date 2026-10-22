@@ -1,6 +1,6 @@
 defmodule Ankole.AuthZ.Grant do
   @moduledoc "Permission grant owned by one Principal or one Principal group."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AuthZ.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AuthZ
 
   @fields [
     :principal_uid,
@@ -135,24 +135,33 @@ defmodule Ankole.AuthZ.Grant do
 
     create :create_in_tx do
       accept(@fields)
-      transaction?(false)
     end
 
     create :upsert_in_tx do
       accept(@fields)
-      transaction?(false)
       upsert?(true)
       upsert_fields([:description, :metadata, :updated_at])
     end
 
-    in_tx_update :update_in_tx do
+    update :update_in_tx do
       accept(@fields)
     end
 
-    destroy :delete_in_tx do
-      transaction?(false)
-      require_atomic?(false)
-      atomic_upgrade?(false)
+    destroy(:delete_in_tx)
+
+    action :update_permission_grant, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:grant, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.AuthZ.Grants.update_permission_grant(
+          input.arguments.grant,
+          input.arguments.attrs
+        )
+        |> Ankole.Errors.wrap()
+      end)
     end
   end
 
