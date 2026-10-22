@@ -42,7 +42,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   alias Ankole.Plugins.DingTalkAdapter.InteractiveCard
   alias Ankole.Plugins.DingTalkAdapter.Markdown
   alias Ankole.Plugins.DingTalkAdapter.Delivery
-  alias Ankole.Repo
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.Conversation
   alias Ankole.Conversations.Delivery.ReplyPresentation
@@ -634,7 +633,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   defp text_or_empty(_other), do: ""
 
   defp resolve_space(%Signal{conversation_id: conversation_id}) do
-    case Repo.get_by(Conversation, id: conversation_id) do
+    case Ankole.Conversations.get_conversation!(conversation_id) do
       %Conversation{external_kind: :im_dm, metadata: metadata} ->
         case metadata["dm_user_id"] do
           user_id when is_binary(user_id) -> {:ok, {:dm, user_id}}

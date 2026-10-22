@@ -1,14 +1,11 @@
 defmodule Ankole.Plugins.TelegramAdapter.Inbound do
   @moduledoc false
 
-  import Ecto.Query, warn: false
-
-  alias Ankole.{Principals, Repo}
+  alias Ankole.Principals
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.TelegramAdapter.Client
   alias Ankole.Plugins.UTF16Text
   alias Ankole.Conversations.AdapterContext
-  alias Ankole.Conversations.{Conversation, ExternalMessageRef}
   alias Ankole.Conversations.{Attachments, Observe}
   alias Ankole.Conversations.Delivery.ActionToken
 
@@ -598,17 +595,34 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
   defp reaction_channel_id(bot_id, chat_id, provider_message_id) do
     base = provider_conversation_id(bot_id, chat_id, nil)
 
-    Repo.one(
-      from ref in ExternalMessageRef,
-        join: conversation in Conversation,
-        on: conversation.id == ref.conversation_id,
-        where:
-          ref.provider_message_id == ^provider_message_id and
-            (conversation.provider_conversation_id == ^base or
-               like(conversation.provider_conversation_id, ^"#{base}:topic:%")),
+    channels =
+      Ankole.Conversations.list_conversations!(
+        query: [
+          filter: [
+            or: [
+              [provider_conversation_id: base],
+              [provider_conversation_id: [string_starts_with: base <> ":topic:"]]
+            ]
+          ],
+          select: [:id, :provider_conversation_id]
+        ]
+      )
+      |> Map.new(&{&1.id, &1.provider_conversation_id})
+
+    Ankole.Conversations.list_external_message_refs!(
+      query: [
+        filter: [
+          conversation_id: [in: Map.keys(channels)],
+          provider_message_id: provider_message_id
+        ],
         limit: 1,
-        select: conversation.provider_conversation_id
-    ) || base
+        select: [:conversation_id]
+      ]
+    )
+    |> case do
+      [ref] -> Map.fetch!(channels, ref.conversation_id)
+      [] -> base
+    end
   end
 
   @doc false

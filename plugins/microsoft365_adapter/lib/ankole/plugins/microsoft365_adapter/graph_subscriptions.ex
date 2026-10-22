@@ -397,43 +397,40 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
     end
   end
 
+  # The fresh reads skip the AppConfigure cache. They need no transaction.
   defp fresh_desired(provider_id, key) do
-    Repo.transact(fn repo ->
-      activation_key = Ankole.IdentityProviders.Config.active_definition().key
+    activation_key = Ankole.IdentityProviders.Config.active_definition().key
 
-      with {:ok, providers} <- AppConfigure.get_tenant_by_key_in_tx(repo, activation_key),
-           {:ok, config} <- AppConfigure.get_tenant_by_key_in_tx(repo, key) do
-        provider =
-          Enum.find(
-            providers,
-            &(&1["provider_id"] == provider_id and &1["config_key"] == key and
-                &1["adapter_id"] == "entra-id")
-          )
+    with {:ok, providers} <- AppConfigure.get_tenant_by_key_in_tx(Repo, activation_key),
+         {:ok, config} <- AppConfigure.get_tenant_by_key_in_tx(Repo, key) do
+      provider =
+        Enum.find(
+          providers,
+          &(&1["provider_id"] == provider_id and &1["config_key"] == key and
+              &1["adapter_id"] == "entra-id")
+        )
 
-        {:ok, {config, not is_nil(provider) and provider["enabled"] != false}}
-      else
-        :error -> {:error, :provider_config_missing}
-        error -> error
-      end
-    end)
+      {:ok, {config, not is_nil(provider) and provider["enabled"] != false}}
+    else
+      :error -> {:error, :provider_config_missing}
+      error -> error
+    end
   end
 
   defp fresh_state(provider_id) do
-    Repo.transact(fn repo ->
-      case AppConfigure.get_tenant_by_key_in_tx(repo, Config.subscription_state_key(provider_id)) do
-        {:ok, %{"subscriptions" => subscriptions}} when is_list(subscriptions) ->
-          {:ok, subscriptions}
+    case AppConfigure.get_tenant_by_key_in_tx(Repo, Config.subscription_state_key(provider_id)) do
+      {:ok, %{"subscriptions" => subscriptions}} when is_list(subscriptions) ->
+        {:ok, subscriptions}
 
-        :error ->
-          {:ok, []}
+      :error ->
+        {:ok, []}
 
-        {:error, _} = error ->
-          error
+      {:error, _} = error ->
+        error
 
-        _ ->
-          {:error, :invalid_graph_subscription_state}
-      end
-    end)
+      _ ->
+        {:error, :invalid_graph_subscription_state}
+    end
   end
 
   defp persist_state(provider_id, entries) do

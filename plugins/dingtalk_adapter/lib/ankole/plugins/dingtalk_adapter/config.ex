@@ -10,13 +10,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
   be assigned to two agents.
   """
 
-  import Ecto.Query, warn: false
-
   alias Ankole.Signals.Bindings
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Signals.Binding
   alias DingTalkOpenAPI.Client
 
   import Ankole.Plugins.MapHelpers,
@@ -120,7 +117,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
           :ok | {:error, term()}
   def validate_binding_assignment(repo, agent_uid, binding_name, config)
       when is_atom(repo) and is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
-    with :ok <- ensure_single_enabled_binding(repo, agent_uid, binding_name),
+    with :ok <- ensure_single_enabled_binding(agent_uid, binding_name),
          :ok <-
            ensure_app_not_bound_to_another_agent(
              repo,
@@ -201,27 +198,27 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
     |> Base.encode16(case: :lower)
   end
 
-  defp ensure_single_enabled_binding(repo, agent_uid, binding_name) do
+  defp ensure_single_enabled_binding(agent_uid, binding_name) do
     existing? =
-      Binding
-      |> where(
-        [binding],
-        binding.agent_uid == ^agent_uid and binding.adapter == "dingtalk" and
-          binding.enabled == true and binding.name != ^binding_name
-      )
-      |> repo.exists?()
+      Ankole.Signals.list_bindings!(
+        query: [
+          filter: [
+            agent_uid: agent_uid,
+            adapter: "dingtalk",
+            enabled: true,
+            name: [not_eq: binding_name]
+          ],
+          limit: 1
+        ]
+      ) != []
 
     if existing?, do: {:error, :dingtalk_binding_already_exists}, else: :ok
   end
 
   defp ensure_app_not_bound_to_another_agent(repo, agent_uid, client_id) do
-    Binding
-    |> where(
-      [binding],
-      binding.adapter == "dingtalk" and binding.enabled == true and
-        binding.agent_uid != ^agent_uid
+    Ankole.Signals.list_bindings!(
+      query: [filter: [adapter: "dingtalk", enabled: true, agent_uid: [not_eq: agent_uid]]]
     )
-    |> repo.all()
     |> Enum.reduce_while(:ok, fn binding, :ok ->
       case Bindings.binding_config_in_tx(repo, binding, __MODULE__) do
         {:ok, %{"clientId" => ^client_id}} ->

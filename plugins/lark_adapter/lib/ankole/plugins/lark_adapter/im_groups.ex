@@ -3,8 +3,6 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   Lark IM group synchronization for Signal Bindings for external conversations.
   """
 
-  import Ecto.Query, warn: false
-
   alias Ankole.Signals.Bindings
   alias Ankole.AuthZ.Store, as: AuthZStore
   alias Ankole.Logging

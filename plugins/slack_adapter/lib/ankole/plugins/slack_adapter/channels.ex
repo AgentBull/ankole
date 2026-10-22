@@ -1,8 +1,6 @@
 defmodule Ankole.Plugins.SlackAdapter.Channels do
   @moduledoc false
 
-  import Ecto.Query, warn: false
-
   alias Ankole.Signals.Bindings
   alias Ankole.{Logging, Principals, Repo}
   alias Ankole.AuthZ.Store

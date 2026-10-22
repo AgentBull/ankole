@@ -5,7 +5,6 @@ defmodule Ankole.Plugins.LarkAdapter.Delivery do
 
   @behaviour Ankole.Conversations.Delivery.Adapter
 
-  alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.Signals.Bindings
   alias Ankole.I18n
   alias Ankole.Plugins.LarkAdapter.Card
@@ -16,7 +15,6 @@ defmodule Ankole.Plugins.LarkAdapter.Delivery do
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.Conversation
   alias Ankole.Conversations.Delivery.Intent
-  alias Ankole.Repo
   alias FeishuOpenAPI.Error
 
   import MapHelpers,
@@ -828,7 +826,7 @@ defmodule Ankole.Plugins.LarkAdapter.Delivery do
     do: size > @max_im_file_bytes
 
   defp drive_recipient(%Intent{} = intent) do
-    case Repo.get_by(Conversation, id: intent.conversation_id) do
+    case Ankole.Conversations.get_conversation!(intent.conversation_id) do
       %Conversation{external_kind: :im_group} ->
         {:ok,
          %{
@@ -859,7 +857,7 @@ defmodule Ankole.Plugins.LarkAdapter.Delivery do
 
   defp signal_open_id(%Intent{source_signal_id: signal_id})
        when is_binary(signal_id) do
-    case PreviewState.load(Repo.get(Signal, signal_id), Repo) do
+    case Ankole.Signals.get_signal!(signal_id) do
       %Signal{data: data} when is_map(data) ->
         get_in(data, ["entry", "author", "metadata", "open_id"]) ||
           data

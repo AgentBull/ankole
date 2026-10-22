@@ -71,39 +71,13 @@
     # these reads.
     "ecto_lock:../control_plane_core/lib/ankole/oidc/claims.ex" => 2,
     "ecto_lock:../control_plane_core/lib/ankole/oidc/sessions.ex" => 2,
-    # plugins/dingtalk_adapter
-    "ecto_resource:../../plugins/dingtalk_adapter/lib/ankole/plugins/dingtalk_adapter/ai_card.ex" =>
-      1,
-    "ecto_resource:../../plugins/dingtalk_adapter/lib/ankole/plugins/dingtalk_adapter/delivery.ex" =>
-      1,
-    # plugins/email_adapter
-    "ecto_resource:../../plugins/email_adapter/lib/ankole/plugins/email_adapter/delivery.ex" => 1,
-    "ecto_resource:../../plugins/email_adapter/lib/ankole/plugins/email_adapter/inbound.ex" => 2,
-    # plugins/lark_adapter
-    "ecto_resource:../../plugins/lark_adapter/lib/ankole/plugins/lark_adapter/cardkit.ex" => 2,
-    "ecto_resource:../../plugins/lark_adapter/lib/ankole/plugins/lark_adapter/delivery.ex" => 2,
+    # plugins: each transaction calls a composition function of another domain
+    # (AuthZ synced IM group members, an external Conversation observation)
+    # until that domain gives a top-level operation (hey/T14.md).
     "repo_transact:../../plugins/lark_adapter/lib/ankole/plugins/lark_adapter/im_groups.ex" => 2,
-    # plugins/microsoft365_adapter
-    "ecto_resource:../../plugins/microsoft365_adapter/lib/ankole/plugins/microsoft365_adapter/delivery.ex" =>
-      1,
-    "repo_transact:../../plugins/microsoft365_adapter/lib/ankole/plugins/microsoft365_adapter/graph_subscriptions.ex" =>
-      2,
-    "ecto_resource:../../plugins/microsoft365_adapter/lib/ankole/plugins/microsoft365_adapter/subscription_reconciler.ex" =>
-      1,
     "repo_transact:../../plugins/microsoft365_adapter/lib/ankole/plugins/microsoft365_adapter/teams_channels.ex" =>
       1,
-    # plugins/slack_adapter
     "repo_transact:../../plugins/slack_adapter/lib/ankole/plugins/slack_adapter/channels.ex" => 2,
-    # plugins/telegram_adapter
-    "ecto_resource:../../plugins/telegram_adapter/lib/ankole/plugins/telegram_adapter/inbound.ex" =>
-      2,
-    # plugins/wecom_adapter
-    "ecto_resource:../../plugins/wecom_adapter/lib/ankole/plugins/wecom_adapter/delivery.ex" => 1,
-    # plugins/whatsapp_adapter
-    "ecto_resource:../../plugins/whatsapp_adapter/lib/ankole/plugins/whatsapp_adapter/delivery.ex" =>
-      1,
-    "ecto_resource:../../plugins/whatsapp_adapter/lib/ankole/plugins/whatsapp_adapter/inbound.ex" =>
-      1,
     # principals: staged facades, as for authz. WorkCleanup counts admitted
     # Signal and automation attempts of all tenants until Signals and
     # AutomationJobs give that count.

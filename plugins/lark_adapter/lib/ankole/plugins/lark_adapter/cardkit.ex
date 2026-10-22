@@ -18,7 +18,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Delivery, as: LarkDelivery
   alias Ankole.Logging
-  alias Ankole.Repo
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.Delivery
   alias Ankole.Conversations.Delivery.Intent
@@ -681,7 +680,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   # checkpoint past the request's copy.
   defp rebuild_latest_active_message(%Signal{id: signal_id}, request) do
     with %Signal{} = event <-
-           PreviewState.load(Repo.get(Signal, signal_id), Repo) ||
+           PreviewState.load_signal(signal_id) ||
              {:error, :signal_not_found},
          checkpoint when is_map(checkpoint) <-
            PreviewAdapter.adapter_checkpoint(PreviewState.get(event).checkpoint) do
@@ -1817,7 +1816,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
   defp undelivered_plain_text(%Signal{id: signal_id}, operation, text) do
     checkpoint =
-      case PreviewState.load(Repo.get(Signal, signal_id), Repo) do
+      case PreviewState.load_signal(signal_id) do
         %Signal{preview: %PreviewState{checkpoint: checkpoint}}
         when is_map(checkpoint) ->
           PreviewAdapter.adapter_checkpoint(checkpoint)

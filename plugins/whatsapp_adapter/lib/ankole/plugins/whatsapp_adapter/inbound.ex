@@ -1,8 +1,6 @@
 defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
   @moduledoc false
 
-  import Ecto.Query, warn: false
-
   alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.{Logging, Principals, Repo}
   alias Ankole.Kernel, as: NativeKernel
@@ -321,7 +319,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
           provider_message_id: ^surface_entry_id
         }
       },
-      PreviewState.load(Repo.get(Signal, signal_id), Repo)
+      PreviewState.load_signal(signal_id)
     )
   end
 
