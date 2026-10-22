@@ -88,7 +88,7 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
 
   defp active_agent_uids do
     {:ok, jobs} =
-      Ankole.BackgroundAgentJobs.Domain.list_jobs(
+      Ankole.BackgroundAgentJobs.list_jobs(
         query: [
           filter: [status: :running],
           distinct: [:agent_uid],
@@ -103,7 +103,7 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
 
   defp dispatch(skill_names, agent_uid) do
     {:ok, jobs} =
-      Ankole.BackgroundAgentJobs.Domain.list_jobs(
+      Ankole.BackgroundAgentJobs.list_jobs(
         query: [filter: [agent_uid: agent_uid, status: :running]]
       )
 
