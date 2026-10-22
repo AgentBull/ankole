@@ -82,13 +82,10 @@ defmodule Ankole.Brain.ConversationsLearning do
   # external reference. A withdrawn Message is not a public conversation fact.
   defp observations(conversation_id, query) do
     messages =
-      Ankole.Conversations.Domain.list_messages!(
+      Ankole.Conversations.list_messages!(
         query:
-          [
-            filter: [conversation_id: conversation_id],
-            filter: not_withdrawn(),
-            sort: [seq: :asc]
-          ] ++ query
+          [filter: [conversation_id: conversation_id, withdrawn: false], sort: [seq: :asc]] ++
+            query
       )
 
     refs =
@@ -98,22 +95,11 @@ defmodule Ankole.Brain.ConversationsLearning do
 
         messages ->
           [query: [filter: [message_id: [in: Enum.map(messages, & &1.id)]]]]
-          |> Ankole.Conversations.Domain.list_external_message_refs!()
+          |> Ankole.Conversations.list_external_message_refs!()
           |> Map.new(&{&1.message_id, &1})
       end
 
     Enum.map(messages, &%{message: &1, external_ref: Map.get(refs, &1.id)})
-  end
-
-  # Transitional: the Message calculation `withdrawn` of the Conversations
-  # domain replaces this expression.
-  defp not_withdrawn do
-    Ash.Expr.expr(
-      not exists(
-        Ankole.Signals.Signal,
-        message_id == parent(id) and fragment("? @> '{\"removed\": true}'::jsonb", data)
-      )
-    )
   end
 
   defp slice_after(conversation_id, watermark, limit) do
@@ -171,7 +157,7 @@ defmodule Ankole.Brain.ConversationsLearning do
               last_activity_at < ^threshold and
               exists(
                 Ankole.Conversations.Message,
-                conversation_id == parent(id) and ^not_withdrawn() and
+                conversation_id == parent(id) and not withdrawn and
                   not exists(
                     Source,
                     kind == "conversation" and
@@ -183,7 +169,7 @@ defmodule Ankole.Brain.ConversationsLearning do
         select: [:id]
       ]
     ]
-    |> Ankole.Conversations.Domain.list_conversations!()
+    |> Ankole.Conversations.list_conversations!()
     |> Enum.flat_map(fn conversation ->
       case pending_slice(conversation.id, 1) do
         [%{message: first}] ->
@@ -327,7 +313,7 @@ defmodule Ankole.Brain.ConversationsLearning do
   end
 
   defp lock_conversation(conversation_id),
-    do: Ankole.Conversations.Domain.get_conversation(conversation_id, query: [lock: "FOR SHARE"])
+    do: Ankole.Conversations.get_conversation(conversation_id, query: [lock: "FOR SHARE"])
 
   defp ensure_source_revision(%Source{upstream_revision: revision}, %Source{
          upstream_revision: revision
@@ -594,7 +580,7 @@ defmodule Ankole.Brain.ConversationsLearning do
           select: [:principal_uid]
         ]
       ]
-      |> Ankole.Conversations.Domain.list_participants!()
+      |> Ankole.Conversations.list_participants!()
       |> Enum.map(& &1.principal_uid)
       |> Enum.find(&match?({:ok, _principal}, Ankole.Principals.get_principal(&1)))
 
@@ -635,7 +621,7 @@ defmodule Ankole.Brain.ConversationsLearning do
         select: [:author_uid]
       ]
     ]
-    |> Ankole.Conversations.Domain.list_messages!()
+    |> Ankole.Conversations.list_messages!()
     |> Enum.map(& &1.author_uid)
   end
 
@@ -822,7 +808,7 @@ defmodule Ankole.Brain.ConversationsLearning do
   end
 
   defp fetch_conversation(conversation_id) do
-    case Ankole.Conversations.Domain.get_conversation(conversation_id) do
+    case Ankole.Conversations.get_conversation(conversation_id) do
       {:ok, %Conversation{} = channel} -> {:ok, channel}
       _missing -> {:error, :channel_not_found}
     end

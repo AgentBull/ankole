@@ -158,7 +158,8 @@ defmodule Ankole.ConversationsMemoryTest do
       valid_from: DateTime.utc_now(:microsecond)
     }
 
-    assert {:ok, %{claim: fact}} = Claims.write_fact(attrs, :system, embed: false)
+    assert {:ok, %{claim: fact}} =
+             Ankole.Brain.write_fact(attrs, :system, %{options: [embed: false]})
 
     assert {:ok, take} =
              Claims.write_take(

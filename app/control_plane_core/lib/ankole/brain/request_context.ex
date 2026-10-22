@@ -103,7 +103,7 @@ defmodule Ankole.Brain.RequestContext do
         select: [:author_uid]
       ]
     ]
-    |> Ankole.Conversations.Domain.list_messages!()
+    |> Ankole.Conversations.list_messages!()
     |> case do
       [message] -> message.author_uid
       [] -> nil
@@ -162,9 +162,7 @@ defmodule Ankole.Brain.RequestContext do
   defp disclosure_channels(%Signal{} = event) do
     with {:ok, conversation_ids} <- disclosure_conversation_ids(event) do
       channels =
-        Ankole.Conversations.Domain.list_conversations!(
-          query: [filter: [id: [in: conversation_ids]]]
-        )
+        Ankole.Conversations.list_conversations!(query: [filter: [id: [in: conversation_ids]]])
 
       if length(channels) == length(conversation_ids),
         do: {:ok, channels},
@@ -229,7 +227,7 @@ defmodule Ankole.Brain.RequestContext do
   defp strict_channel_recipient_uids(%Conversation{kind: :native, id: id}, _asker) do
     recipients =
       [query: [filter: [conversation_id: id], select: [:principal_uid]]]
-      |> Ankole.Conversations.Domain.list_participants!()
+      |> Ankole.Conversations.list_participants!()
       |> Enum.map(& &1.principal_uid)
 
     if recipients == [], do: {:error, :empty_native_recipient_set}, else: {:ok, recipients}
@@ -261,7 +259,7 @@ defmodule Ankole.Brain.RequestContext do
           select: [:author_uid]
         ]
       ]
-      |> Ankole.Conversations.Domain.list_messages!()
+      |> Ankole.Conversations.list_messages!()
       |> Enum.map(& &1.author_uid)
 
     case author_uids do
@@ -300,7 +298,7 @@ defmodule Ankole.Brain.RequestContext do
     channel =
       case event_conversation_id(event) do
         nil -> nil
-        id -> Ankole.Conversations.Domain.get_conversation!(id)
+        id -> Ankole.Conversations.get_conversation!(id)
       end
 
     asker = asker_uid(event)

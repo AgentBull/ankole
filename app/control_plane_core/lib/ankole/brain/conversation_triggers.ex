@@ -15,7 +15,7 @@ defmodule Ankole.Brain.ConversationTriggers do
   def conversation_ended_in_tx(_repo, key) do
     with {:conversation, id} <- Ankole.Sessions.Key.parse(key),
          true <- Config.enabled?(),
-         {:ok, %Conversation{} = conversation} <- Ankole.Conversations.Domain.get_conversation(id),
+         {:ok, %Conversation{} = conversation} <- Ankole.Conversations.get_conversation(id),
          true <- conversation.kind == :native or conversation.external_kind in [:im_dm, :im_group] do
       {:ok, _} = ProcessConversationSlice.enqueue(id)
       :ok

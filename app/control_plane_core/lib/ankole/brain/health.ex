@@ -245,7 +245,7 @@ defmodule Ankole.Brain.Health do
         select: [:id]
       ]
     ]
-    |> Ankole.Conversations.Domain.list_conversations!()
+    |> Ankole.Conversations.list_conversations!()
     |> Enum.map(& &1.id)
   end
 end
