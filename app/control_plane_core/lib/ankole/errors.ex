@@ -5,7 +5,9 @@ defmodule Ankole.Errors do
   A resource action shapes framework errors into these exceptions through its
   default error handler (`shape/2`). A generic action returns its domain
   reason through `wrap/1`. Domain code gets the reason back through
-  `reason/1`. `AnkoleWeb.ConsoleErrors` is the presentation mapping.
+  `reason/1`. `AnkoleWeb.ConsoleErrors` presents them in the v1 Console API.
+  Each exception implements `AshJsonApi.ToJsonApiError` for the v2 JSON:API
+  routers.
   """
 
   alias Ankole.Errors.Invalid.{NotFound, Rejected, Stale, StatusTransition}

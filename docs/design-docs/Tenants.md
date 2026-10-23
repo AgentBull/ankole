@@ -166,8 +166,11 @@ session response includes the Console URL only when the current Pod Human is a
 siteadmin. The Pod sidebar then shows a Console link. The Console
 requires its own Console login.
 
-Console data APIs accept `x-ankole-tenant`; without it they use the operator's
-tenant. `/api/v1/site` APIs manage site resources and ignore that header. An
+Console data APIs (`/api/v1` and the JSON:API `/api/v2`) accept
+`x-ankole-tenant`; without it they use the operator's tenant. `/api/v1/site`
+and `/api/v2/site` APIs manage site resources and ignore that header. The v2
+routers give the selected tenant of `Ankole.Repo` to the Ash action
+(`AnkoleWeb.JSONAPI.Policy`); a v2 site route gets no tenant. An
 unknown or deleting selected tenant returns `data_tenant_unavailable`. The
 Console clears an obsolete selection and reloads. Switching tenants reloads the
 Console so drafts and cached results cannot move to another tenant. The URL

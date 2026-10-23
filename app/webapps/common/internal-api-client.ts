@@ -64,5 +64,15 @@ function errorText(payload: unknown): string | undefined {
     return JSON.stringify(value)
   }
 
+  // A JSON:API error document: the first error gives the text.
+  if (payload && typeof payload === 'object' && 'errors' in payload) {
+    const [first] = Array.isArray(payload.errors) ? payload.errors : []
+    if (first && typeof first === 'object') {
+      const { detail, title } = first as { detail?: unknown; title?: unknown }
+      if (typeof detail === 'string') return detail
+      if (typeof title === 'string') return title
+    }
+  }
+
   return typeof payload === 'string' ? payload : undefined
 }
