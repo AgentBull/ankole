@@ -114,7 +114,7 @@ returns.
 
 Sessions reads and changes Signals only through `Ankole.Signals`: queue reads
 (`session_queue/3`, `session_status_signal/3`), row locks
-(`lock_signal_in_tx/2`, `lock_session_signal_in_tx/3`, `lock_signals_in_tx/2`),
+(`lock_signal_in_tx/2`, `lock_session_signal_in_tx/3`, `lock_signals_in_tx/3`),
 state changes (`transition_in_tx/4`, `reset_attempts_in_tx/3`), and the Signal
 defines. Rows of other domains are read through their domain defines; a locked
 read gives its lock identity to `Ankole.LockOrder`. Allocation locks the

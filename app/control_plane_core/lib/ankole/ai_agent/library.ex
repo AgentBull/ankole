@@ -573,7 +573,7 @@ defmodule Ankole.AIAgent.Library do
            {:ok, stale_rows} <-
              AgentSkill
              |> Ash.Query.filter(agent_uid == ^agent_uid and skill_name not in ^source_names)
-             |> Ankole.Ash.destroy_where(:remove_stale, select: [:id]) do
+             |> Ankole.Ash.destroy_where(:remove_stale, %{}, select: [:id]) do
         {:ok,
          %{
            changed: changed_rows != [] or stale_rows != [],

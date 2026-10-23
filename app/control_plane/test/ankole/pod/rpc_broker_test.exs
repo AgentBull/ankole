@@ -595,7 +595,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
                job.id,
                job.agent_uid,
                %{"status" => "succeeded"},
-               external_completion: true
+               transition_action: :external_complete
              )
 
     wake

@@ -603,7 +603,7 @@ defmodule Ankole.Brain.Dreaming do
       |> Ash.Query.filter(
         not is_nil(deleted_at) and deleted_at < ^threshold and is_nil(managed_by_source_id)
       )
-      |> Ankole.Ash.destroy_where(:purge, select: [:id])
+      |> Ankole.Ash.destroy_where(:purge, %{}, select: [:id])
 
     # Chunks of soft-deleted objects survive until this hard delete; expired
     # facts and superseded claims are never hard-deleted.

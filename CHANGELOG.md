@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.22 (2026-10-23)
+
+- Reject a Background Agent Job list cursor from an earlier version. Request
+  the first page of the list again.
+- Stop a Plugin selection change when the stored `plugins.enabled_ids` value
+  cannot be read, instead of replacing it. To recover, remove the value with
+  `Ankole.AppConfigure.delete_global_by_key("plugins.enabled_ids")` in a release
+  remote console, then select the Plugins again.
+
 ## Version 2.0.0-alpha.21 (2026-10-23)
 
 - Replace React Router with TanStack Router in the Console and Pod web

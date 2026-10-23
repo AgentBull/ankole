@@ -25,7 +25,6 @@ defmodule Ankole.BackgroundAgentJobs do
   alias Ankole.BackgroundAgentJobs.TurnEvidence
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.BackgroundAgentJobs.Wakeups
-  alias Ankole.Repo
   alias Ankole.Sessions.TurnErrorClassifier
 
   resources do
@@ -126,15 +125,9 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc """
   Creates one durable work item and its isolated dispatch event atomically.
 
-  Callers in other domains still call this function inside their own
-  transaction; there the creation joins that transaction. The integration task
-  moves them to `Dispatch.create_with_dispatch_in_tx/2` and removes that branch.
+  In a caller's transaction, use `Dispatch.create_with_dispatch_in_tx/2`.
   """
-  def create_with_dispatch(attrs) do
-    if Repo.in_transaction?(),
-      do: Dispatch.create_with_dispatch_in_tx(Repo, attrs),
-      else: Ankole.Ash.run_action(Job, :start, %{attrs: attrs})
-  end
+  def create_with_dispatch(attrs), do: Ankole.Ash.run_action(Job, :start, %{attrs: attrs})
 
   @doc "Creates one durable successor for a terminal Job and dispatches it atomically."
   def respawn_with_dispatch(source_job_id, attrs),
@@ -152,14 +145,6 @@ defmodule Ankole.BackgroundAgentJobs do
   the Job driver.
   """
   def commit_status_with_wakeup(job_id, agent_uid, attrs, opts \\ []) do
-    # Transitional: `test/ankole/pod/rpc_broker_test.exs` still selects an
-    # external completion with `external_completion: true`. The transition
-    # action is the only discriminator, so the option becomes that action.
-    {external?, opts} = Keyword.pop(opts, :external_completion, false)
-
-    opts =
-      if external?, do: Keyword.put_new(opts, :transition_action, :external_complete), else: opts
-
     Ankole.Ash.run_action(Job, :commit_status, %{
       job_id: job_id,
       agent_uid: agent_uid,

@@ -9,8 +9,6 @@ defmodule Ankole.Work.Owner do
 
   require Ash.Query
 
-  alias Ankole.Repo
-
   defp parent_schemas do
     [
       Ankole.AutomationJobs.Schemas.Job,
@@ -50,21 +48,6 @@ defmodule Ankole.Work.Owner do
     |> Ankole.Ash.read_one!(lock_identity: {schema.__schema__(:source), id})
   end
 
-  @doc """
-  Reads a query of an `allow_global` read action in all tenants.
-
-  `Ankole.Ash.read/2` requires the selected tenant, so this function reads
-  with the tenant of `Ankole.Ash.default_options/0`, which is `nil` across
-  tenants. A locked read gives its `lock_identity`.
-  """
-  def read_across_tenants(query, lock_identity \\ nil) do
-    Repo.across_tenants(fn ->
-      Ankole.LockOrder.with_identity(lock_identity, fn ->
-        Ash.read!(query, Ankole.Ash.default_options())
-      end)
-    end)
-  end
-
   def revoke_human_work_in_tx(repo, uid, version, now) do
     lock_revocation_parents_in_tx(uid, version)
 
@@ -76,7 +59,7 @@ defmodule Ankole.Work.Owner do
         schema
         |> human_work_query(uid, version)
         |> Ash.Query.select([:tenant_id])
-        |> read_across_tenants()
+        |> Ankole.Ash.read_across_tenants!()
         |> Enum.map(& &1.tenant_id)
         |> Enum.uniq()
 
@@ -101,7 +84,7 @@ defmodule Ankole.Work.Owner do
         |> human_work_query(uid, version)
         |> unresolved_query(schema)
         |> Ash.Query.select([:id])
-        |> read_across_tenants()
+        |> Ankole.Ash.read_across_tenants!()
         |> Enum.map(& &1.id)
 
       schema
@@ -109,7 +92,7 @@ defmodule Ankole.Work.Owner do
       |> Ash.Query.filter(id in ^ids)
       |> Ash.Query.sort(id: :asc)
       |> Ash.Query.lock(:for_update)
-      |> read_across_tenants({schema.__schema__(:source), ids})
+      |> Ankole.Ash.read_across_tenants!(lock_identity: {schema.__schema__(:source), ids})
     end)
   end
 

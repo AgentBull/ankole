@@ -149,6 +149,16 @@ defmodule Ankole.AuthZ.Grant do
 
     destroy(:delete_in_tx)
 
+    action :create_permission_grant, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.AuthZ.Grants.create_permission_grant(Ankole.Repo, input.arguments.attrs)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
     action :upsert_permission_grant, :struct do
       constraints(instance_of: __MODULE__)
       argument(:attrs, :map, allow_nil?: false)

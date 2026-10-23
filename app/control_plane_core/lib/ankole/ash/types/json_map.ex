@@ -15,6 +15,11 @@ defmodule Ankole.Ash.Types.JSONMap do
 
   @impl true
   def storage_type(_constraints), do: :map
+
+  # The value is a JSON object, so map functions such as `get_path` (the
+  # `at_path:` keyword filter) accept it.
+  @impl true
+  def acts_as(_constraints), do: :map
   @impl true
   def cast_input(nil, _constraints), do: {:ok, nil}
   def cast_input(value, constraints), do: normalize(value, constraints)

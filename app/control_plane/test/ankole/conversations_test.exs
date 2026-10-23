@@ -676,8 +676,8 @@ defmodule Ankole.ConversationsTest do
     input = Repo.get_by!(Signal, message_id: request.message_id)
 
     assert {:ok, %{job: job}} =
-             Repo.transact(fn _repo ->
-               Ankole.BackgroundAgentJobs.create_with_dispatch(%{
+             Repo.transact(fn repo ->
+               Ankole.BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(repo, %{
                  "source_signal_id" => input.id,
                  "agent_uid" => agent.uid,
                  "owner_session_id" => first.session_id,

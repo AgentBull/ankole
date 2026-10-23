@@ -13,7 +13,6 @@ defmodule Ankole.Setup.Completion do
 
   alias Ankole.AppConfigure
   alias Ankole.AuthZ
-  alias Ankole.Repo
   alias Ankole.Setup.Config
 
   @doc """
@@ -28,23 +27,23 @@ defmodule Ankole.Setup.Completion do
   @spec complete_with_first_site_admin(String.t(), [String.t()]) ::
           {:ok, map()} | {:error, term()}
   def complete_with_first_site_admin(principal_uid, brain_packs \\ []) do
-    complete_in_tenant(principal_uid, brain_packs)
-  end
-
-  defp complete_in_tenant(principal_uid, brain_packs) do
-    transact_result =
-      Repo.transact(fn repo ->
-        with {:ok, root} <- AuthZ.root_init_admin(principal_uid, repo),
-             :ok <- materialize_brain_packs(repo, brain_packs),
-             {:ok, completed_write} <- Config.put_completed_in_tx(repo, true) do
-          {:ok, {root, completed_write}}
-        end
-      end)
-
-    with {:ok, {root, completed_write}} <- transact_result,
+    with {:ok, {root, completed_write}} <-
+           Ankole.Ash.run_action(Ankole.Setup.Operations, :complete, %{
+             principal_uid: principal_uid,
+             brain_packs: brain_packs
+           }),
          {:ok, _completed} <- AppConfigure.cache_committed_write(completed_write),
          :ok <- Config.delete_bootstrap_activation_code() do
       {:ok, root}
+    end
+  end
+
+  @doc false
+  def complete_in_tx(repo, principal_uid, brain_packs) do
+    with {:ok, root} <- AuthZ.root_init_admin(principal_uid, repo),
+         :ok <- materialize_brain_packs(repo, brain_packs),
+         {:ok, completed_write} <- Config.put_completed_in_tx(repo, true) do
+      {:ok, {root, completed_write}}
     end
   end
 

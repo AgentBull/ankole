@@ -180,10 +180,7 @@ defmodule Ankole.Tenants do
     end
   end
 
-  # Staged: test setup and the SaaS Pod creation still call this function in
-  # their transaction. Change it to a generic action when they use
-  # `create_in_tx/2`.
-  def create(attrs), do: Repo.transact(fn repo -> create_in_tx(repo, attrs) end)
+  def create(attrs), do: Ankole.Ash.run_action(Tenant, :create_tenant, %{attrs: attrs})
 
   @doc false
   def create_in_tx(repo, attrs) do

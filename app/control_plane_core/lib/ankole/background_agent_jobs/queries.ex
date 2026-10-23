@@ -10,7 +10,6 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
 
   require Ash.Query
   require Ankole.ModelIntegerID
-  require Ecto.Query
 
   alias Ankole.BackgroundAgentJobs.JobState
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -414,34 +413,4 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
 
   defp console_search(_search), do: {:error, :invalid_background_agent_job_search}
 
-  # Ankole.Brain.SkillLessons still composes Ecto reads of Jobs with these two
-  # filters. Job reads use the `skill_lesson_reflection?` calculation. Remove
-  # both functions when SkillLessons reads Jobs through this domain.
-
-  @doc """
-  Keeps only skill-lesson reflection Jobs: the system Jobs the Brain runs to
-  reflect on finished work. The metadata flag at
-  `Ankole.Brain.SkillLessons` is the writer.
-  """
-  @spec reflection_jobs(Ecto.Queryable.t()) :: Ecto.Query.t()
-  def reflection_jobs(query) do
-    Ecto.Query.where(
-      query,
-      [job],
-      fragment("(? ->> 'skill_lesson_reflection') = 'true'", job.metadata)
-    )
-  end
-
-  @doc """
-  Excludes skill-lesson reflection Jobs, so user-facing listings and budgets
-  see only real work.
-  """
-  @spec excluding_reflection_jobs(Ecto.Queryable.t()) :: Ecto.Query.t()
-  def excluding_reflection_jobs(query) do
-    Ecto.Query.where(
-      query,
-      [job],
-      fragment("coalesce(? ->> 'skill_lesson_reflection', 'false') <> 'true'", job.metadata)
-    )
-  end
 end

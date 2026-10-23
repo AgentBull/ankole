@@ -98,6 +98,15 @@ defmodule Ankole.Tenants.Tenant do
       validate(present(:deleting_at))
     end
 
+    action :create_tenant, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(Ankole.Tenants.create_in_tx(Ankole.Repo, input.arguments.attrs))
+      end)
+    end
+
     action :ensure_scaffold do
       argument(:tenant, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
 

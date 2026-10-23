@@ -11,8 +11,6 @@ defmodule Ankole.AIGateway.HostedBrainRealLLMTest do
   use Ankole.AIGatewayCase
 
   import Ecto.Query
-
-  alias Ankole.Brain.Claims
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim
 
@@ -49,7 +47,7 @@ defmodule Ankole.AIGateway.HostedBrainRealLLMTest do
       })
 
     {:ok, %{claim: _seed}} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: "agents/" <> agent.uid,
           claim: "The internal launch codename is #{@codename}.",
