@@ -32,6 +32,9 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   # {resource, route type, action or relationship} => {AuthZ resource, AuthZ action}
   @rules %{
     site: %{
+      {Ankole.ControlPlanePlugins.Console, :route, :list} => {"control_plane_plugins", "read"},
+      {Ankole.ControlPlanePlugins.Console, :route, :configure} =>
+        {"control_plane_plugins", "update"},
       # J1 site tenants (v1: tenant_controller.ex)
       {Ankole.Tenants.Tenant, :index, :list} => {"site:tenants", "read"},
       {Ankole.Tenants.Tenant, :route, :brain_packs} => {"site:tenants", "read"},
@@ -63,6 +66,25 @@ defmodule AnkoleWeb.JSONAPI.Policy do
         {"ai_gateway_provider:{provider_id}", "update"}
     },
     console: %{
+      {Ankole.Brain.ConsoleViews, :route, :health} => {"brain", "read"},
+      {Ankole.Brain.ConsoleViews, :route, :dream} => {"brain", "update"},
+      {Ankole.Brain.ConsoleViews, :route, :object_types} => {"brain", "read"},
+      {Ankole.Brain.ConsoleViews, :route, :show_object} => {"brain", "read"},
+      {Ankole.Brain.ConsoleViews, :route, :search_preview} => {"brain", "read"},
+      {Ankole.Brain.ConsoleViews, :route, :principal_knowledge} => {"brain", "read"},
+      {Ankole.AIAgent.Library.Console, :route, :global_capabilities} => {"agent_library", "read"},
+      {Ankole.AIAgent.Library.Console, :route, :set_global_plugin} => {"agent_library", "update"},
+      {Ankole.AIAgent.Library.Console, :route, :set_global_skill} => {"agent_library", "update"},
+      {Ankole.AIAgent.Library.Console, :route, :agent_capabilities} =>
+        {"agent:{agent_uid}:library", "read"},
+      {Ankole.AIAgent.Library.Console, :route, :set_agent_plugin} =>
+        {"agent:{agent_uid}:library", "update"},
+      {Ankole.AIAgent.Library.Console, :route, :set_agent_skill} =>
+        {"agent:{agent_uid}:library", "update"},
+      {Ankole.AIAgent.Library.Console, :route, :documents} =>
+        {"agent:{agent_uid}:library", "read"},
+      {Ankole.AIAgent.Library.Console, :route, :replace_document} =>
+        {"agent:{agent_uid}:library", "update"},
       # J4 background agent jobs (v1: background_agent_job_controller.ex)
       {Ankole.BackgroundAgentJobs.Schemas.Job, :index, :console_list} =>
         {"background_agent_jobs", "read"},

@@ -1,14 +1,16 @@
 import type { QueryClient } from '@tanstack/react-query'
 import {
-  ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions,
-  ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions,
   ankoleWebAppConfigurationControllerIndexOptions,
-  ankoleWebControlPlanePluginControllerIndexOptions,
   ankoleWebIdentityProviderControllerIndexOptions,
   ankoleWebSignalBindingControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerTurnsOptions,
   ankoleWebWorkerEnvControllerIndexOptions
 } from './api/generated/@tanstack/react-query.gen'
+import {
+  getAgentLibraryCapabilitiesOptions,
+  getGlobalLibraryCapabilitiesOptions
+} from './api/v2/generated/@tanstack/react-query.gen'
+import { listControlPlanePluginsOptions } from './api/v2-site/generated/@tanstack/react-query.gen'
 import { agentWorkerListOptions } from './api/agent-workers'
 import { agentListOptions } from './api/agents'
 import { aiGatewayConversationsOptions } from './api/ai-gateway-conversations'
@@ -61,14 +63,10 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       const agents = ensure(agentListOptions())
 
       return scope === GLOBAL_LIBRARY_SCOPE
-        ? all(
-            agents,
-            ensure(ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions()),
-            ensure(ankoleWebControlPlanePluginControllerIndexOptions())
-          )
+        ? all(agents, ensure(getGlobalLibraryCapabilitiesOptions()), ensure(listControlPlanePluginsOptions()))
         : all(
             agents,
-            ensure(ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions({ path: { agent_uid: scope } })),
+            ensure(getAgentLibraryCapabilitiesOptions({ path: { agent_uid: scope } })),
             ensure(listAgentSkillLessonsOptions({ path: { agent_uid: scope } }))
           )
     },

@@ -4,6 +4,7 @@ import { queryOptions, type UseMutationOptions } from '@tanstack/react-query'
 
 import { client } from '../client.gen'
 import {
+  configureControlPlanePlugin,
   createTenant,
   createWorkerProvider,
   deleteAiGatewayProvider,
@@ -13,6 +14,7 @@ import {
   getAiGatewayProvider,
   getPrivilegedTenant,
   listAiGatewayProviders,
+  listControlPlanePlugins,
   listTenantBrainPacks,
   listTenants,
   listWorkerProviders,
@@ -25,6 +27,9 @@ import {
   updateWorkerProvider
 } from '../sdk.gen'
 import type {
+  ConfigureControlPlanePluginData,
+  ConfigureControlPlanePluginError,
+  ConfigureControlPlanePluginResponse,
   CreateTenantData,
   CreateTenantError,
   CreateTenantResponse,
@@ -49,6 +54,9 @@ import type {
   ListAiGatewayProvidersData,
   ListAiGatewayProvidersError,
   ListAiGatewayProvidersResponse,
+  ListControlPlanePluginsData,
+  ListControlPlanePluginsError,
+  ListControlPlanePluginsResponse,
   ListTenantBrainPacksData,
   ListTenantBrainPacksError,
   ListTenantBrainPacksResponse,
@@ -229,6 +237,58 @@ export const enableAiGatewayProviderMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await enableAiGatewayProvider({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listControlPlanePluginsQueryKey = (options?: Options<ListControlPlanePluginsData>) =>
+  createQueryKey('listControlPlanePlugins', options)
+
+/**
+ * list_control_plane_plugins operation on control_plane_plugin_console resource
+ */
+export const listControlPlanePluginsOptions = (options?: Options<ListControlPlanePluginsData>) =>
+  queryOptions<
+    ListControlPlanePluginsResponse,
+    ListControlPlanePluginsError,
+    ListControlPlanePluginsResponse,
+    ReturnType<typeof listControlPlanePluginsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listControlPlanePlugins({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listControlPlanePluginsQueryKey(options)
+  })
+
+/**
+ * configure_control_plane_plugin operation on control_plane_plugin_console resource
+ */
+export const configureControlPlanePluginMutation = (
+  options?: Partial<Options<ConfigureControlPlanePluginData>>
+): UseMutationOptions<
+  ConfigureControlPlanePluginResponse,
+  ConfigureControlPlanePluginError,
+  Options<ConfigureControlPlanePluginData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    ConfigureControlPlanePluginResponse,
+    ConfigureControlPlanePluginError,
+    Options<ConfigureControlPlanePluginData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await configureControlPlanePlugin({
         ...options,
         ...fnOptions,
         throwOnError: true

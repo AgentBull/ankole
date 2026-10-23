@@ -3,7 +3,7 @@ import type {
   AgentLibrarySkillCapabilityItem,
   AgentPluginCapabilityItem,
   ControlPlanePluginItem
-} from '../api/generated/types.gen'
+} from './agent-library-capabilities'
 import {
   GLOBAL_LIBRARY_SCOPE,
   agentLibraryOverrideValue,

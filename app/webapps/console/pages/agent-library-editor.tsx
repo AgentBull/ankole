@@ -5,10 +5,10 @@ import { useIsMutating, useMutation, useQuery } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  ankoleWebAgentLibraryControllerIndexOptions,
-  ankoleWebAgentLibraryControllerUpdateMutation
-} from '../api/generated/@tanstack/react-query.gen'
-import { requestErrorMessage } from '../../common/request-errors'
+  listAgentLibraryDocumentsOptions,
+  replaceAgentLibraryDocumentMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { SaveButton } from '../console-form'
 import { ErrorBlock } from '../../common/error-block'
 import {
@@ -38,7 +38,7 @@ export function AgentLibraryEditor({
   const saving = useIsMutating({ mutationKey }) > 0
   // A reopened editor waits for earlier saves before it loads its draft source.
   const documents = useQuery({
-    ...ankoleWebAgentLibraryControllerIndexOptions({ path: { agent_uid: agentUID } }),
+    ...listAgentLibraryDocumentsOptions({ path: { agent_uid: agentUID } }),
     enabled: !saving,
     staleTime: 0
   })
@@ -52,7 +52,7 @@ export function AgentLibraryEditor({
     absent: () => requestErrorCode(documents.error) === 'not_found'
   })
   const replaceDocument = useMutation({
-    ...ankoleWebAgentLibraryControllerUpdateMutation(),
+    ...replaceAgentLibraryDocumentMutation(),
     mutationKey,
     onSuccess: (response, variables) => {
       const savedAgentUID = variables.path.agent_uid
@@ -85,8 +85,10 @@ export function AgentLibraryEditor({
     pendingSubmissions.current.set(documentSubmissionKey(agentUID, kind), draft)
     replaceDocument.mutate({
       body: {
-        content: draft.content,
-        expected_content_hash: draft.expectedContentHash
+        data: {
+          content: draft.content,
+          expected_content_hash: draft.expectedContentHash
+        }
       },
       path: { agent_uid: agentUID, document_kind: kind }
     })
@@ -204,12 +206,4 @@ function isDocumentKind(value: string): value is AgentLibraryDocumentKind {
 
 function documentSubmissionKey(agentUID: string, kind: AgentLibraryDocumentKind): string {
   return `${agentUID}:${kind}`
-}
-
-function requestErrorCode(error: unknown): string | undefined {
-  if (!error || typeof error !== 'object' || !('error' in error)) return undefined
-  const envelope = (error as { error?: unknown }).error
-  if (!envelope || typeof envelope !== 'object' || !('code' in envelope)) return undefined
-  const code = (envelope as { code?: unknown }).code
-  return typeof code === 'string' ? code : undefined
 }

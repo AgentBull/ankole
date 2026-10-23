@@ -569,10 +569,16 @@ reason that conflicts with the current state (`content_hash_conflict`,
 `object_deleted`, `slug_taken`, `conflict`) gives 409; another domain reason
 gives 422 with the reason as the code. The routes for
 `fork_library_page`, `restore_object`, `decide`, `archive_source`, and
-`update_default_scope` give the operation actions directly. The health
-snapshot, the object page, the object types, the search preview, the
-per-principal audit, and the Dreaming trigger combine many resources, so they
-stay routes of `AnkoleWeb.BrainController` at `/api/v1/brain`.
+`update_default_scope` give the operation actions directly.
+
+`Ankole.Brain.ConsoleViews` supplies the health snapshot, the object page, the
+object types, the search preview, the per-principal audit, and the Dreaming
+trigger at `/api/v2/brain`. These generic transport actions return typed maps.
+They use the simple data layer and do not start a transaction. The Brain
+operations that they call own their transactions. The object page accepts
+`slug` as a query parameter, so slugs can contain `/`. Search preview applies
+the selected Principal's knowledge and disclosure boundaries; the operator
+audit can read the full claim detail.
 
 The background writes of the Brain modules are generic actions without a
 define. Each module function keeps its name and runs its action with

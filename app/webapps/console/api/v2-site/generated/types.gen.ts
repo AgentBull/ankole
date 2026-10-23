@@ -85,6 +85,26 @@ export type AiGatewayProvider = {
   type: string
 }
 
+/**
+ * A "Resource object" representing a control_plane_plugin_console
+ */
+export type ControlPlanePluginConsole = {
+  /**
+   * An attributes object for a control_plane_plugin_console
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a control_plane_plugin_console
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
 export type Error = {
   /**
    * An application-specific error code, expressed as a string value.
@@ -490,6 +510,84 @@ export type EnableAiGatewayProviderResponses = {
 }
 
 export type EnableAiGatewayProviderResponse = EnableAiGatewayProviderResponses[keyof EnableAiGatewayProviderResponses]
+
+export type ListControlPlanePluginsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/site/control-plane-plugins'
+}
+
+export type ListControlPlanePluginsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListControlPlanePluginsError = ListControlPlanePluginsErrors[keyof ListControlPlanePluginsErrors]
+
+export type ListControlPlanePluginsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    control_plane_plugins: Array<{
+      active: boolean
+      configured_enabled: boolean
+      description: unknown
+      display_name: unknown
+      id: string
+      restart_required: boolean
+    }>
+  }
+}
+
+export type ListControlPlanePluginsResponse = ListControlPlanePluginsResponses[keyof ListControlPlanePluginsResponses]
+
+export type ConfigureControlPlanePluginData = {
+  /**
+   * Request body for the configure_control_plane_plugin operation on control_plane_plugin_console resource
+   */
+  body: {
+    data: {
+      enabled: boolean
+      id: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/site/control-plane-plugins'
+}
+
+export type ConfigureControlPlanePluginErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ConfigureControlPlanePluginError =
+  ConfigureControlPlanePluginErrors[keyof ConfigureControlPlanePluginErrors]
+
+export type ConfigureControlPlanePluginResponses = {
+  /**
+   * Success
+   */
+  200: {
+    control_plane_plugins: Array<{
+      active: boolean
+      configured_enabled: boolean
+      description: unknown
+      display_name: unknown
+      id: string
+      restart_required: boolean
+    }>
+  }
+}
+
+export type ConfigureControlPlanePluginResponse =
+  ConfigureControlPlanePluginResponses[keyof ConfigureControlPlanePluginResponses]
 
 export type GetPrivilegedTenantData = {
   body?: never

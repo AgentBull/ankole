@@ -31,7 +31,7 @@ import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router'
-import { ankoleWebBrainControllerShowObjectOptions } from '../../api/generated/@tanstack/react-query.gen'
+import { showBrainObjectOptions } from '../../api/v2/generated/@tanstack/react-query.gen'
 import {
   forgetBrainObjectMutation,
   forkBrainObjectMutation,
@@ -190,7 +190,7 @@ export function BrainObjectDrawer() {
   const [rollbackVersionID, setRollbackVersionID] = useState<string>()
 
   const detail = useQuery({
-    ...ankoleWebBrainControllerShowObjectOptions({ query: { slug } }),
+    ...showBrainObjectOptions({ query: { slug } }),
     enabled: Boolean(slug)
   })
   const page = detail.data?.object
@@ -644,7 +644,7 @@ function LinkList({
   title
 }: {
   empty: string
-  links: Array<{ slug: string; linkType: string; context: string | null }>
+  links: Array<{ slug: string; linkType: string; context?: string | null }>
   title: string
 }) {
   return (

@@ -19,12 +19,9 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import {
-  ankoleWebBrainControllerObjectTypesOptions,
-  ankoleWebBrainControllerShowObjectOptions
-} from '../../api/generated/@tanstack/react-query.gen'
+import { listBrainObjectTypesOptions, showBrainObjectOptions } from '../../api/v2/generated/@tanstack/react-query.gen'
 import { createBrainObjectMutation, updateBrainObjectMutation } from '../../api/v2/generated/@tanstack/react-query.gen'
-import type { BrainObjectPage } from '../../api/generated/types.gen'
+import type { BrainObjectPage } from '../../state/brain-object-editor-model'
 import { requestErrorCode, requestErrorDetails } from '../../../common/request-errors'
 import { ErrorBlock } from '../../../common/error-block'
 import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../../console-form'
@@ -64,12 +61,12 @@ function BrainObjectEditor({ slug }: { slug: string }) {
   const mode = slug ? 'edit' : 'new'
 
   const detail = useQuery({
-    ...ankoleWebBrainControllerShowObjectOptions({ query: { slug } }),
+    ...showBrainObjectOptions({ query: { slug } }),
     enabled: mode === 'edit' && Boolean(slug),
     refetchOnMount: 'always'
   })
   const page = detail.data?.object
-  const types = useQuery({ ...ankoleWebBrainControllerObjectTypesOptions(), enabled: mode === 'new' })
+  const types = useQuery({ ...listBrainObjectTypesOptions(), enabled: mode === 'new' })
   const typeNames = types.data?.types ?? []
   const brainObjectDraft = useMemo(
     () => (mode === 'new' ? emptyBrainObjectSnapshot() : page ? brainObjectSnapshot(page) : undefined),
@@ -138,7 +135,7 @@ function BrainObjectEditor({ slug }: { slug: string }) {
     const result = await detail.refetch()
     if (active.current && result.isSuccess && result.data?.object) {
       setLatest(result.data.object)
-      model.useLatestContentHash(result.data.object.content_hash)
+      model.useLatestContentHash(result.data.object.content_hash ?? null)
     }
   }
 
@@ -354,7 +351,7 @@ function BrainObjectEditor({ slug }: { slug: string }) {
     </>
   )
 
-  const secondary = editBlockAction(page, t)
+  const secondary = editBlockAction(page ?? undefined, t)
   const editor = readOnly ? (
     <ResourceEditorPage
       backTo={brainObjectPath(slug)}

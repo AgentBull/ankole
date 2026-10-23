@@ -1504,6 +1504,26 @@ export type BrainSourceType = {
   upstream_revision?: string | null
 }
 
+/**
+ * A "Resource object" representing a brain_console_view
+ */
+export type BrainConsoleView = {
+  /**
+   * An attributes object for a brain_console_view
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a brain_console_view
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
 export type AgentSkillLessonType = {
   /**
    * Field included by default.
@@ -1997,6 +2017,26 @@ export type PrincipalGroupMembership = {
   id: string
   /**
    * A relationships object for a principal_group_membership
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a agent_library_console
+ */
+export type AgentLibraryConsole = {
+  /**
+   * An attributes object for a agent_library_console
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a agent_library_console
    */
   relationships?: {
     [key: string]: never
@@ -3075,6 +3115,69 @@ export type ListOidcLogoutDeliveriesResponses = {
 export type ListOidcLogoutDeliveriesResponse =
   ListOidcLogoutDeliveriesResponses[keyof ListOidcLogoutDeliveriesResponses]
 
+export type SetGlobalLibraryPluginData = {
+  /**
+   * Request body for the set_global_library_plugin operation on agent_library_console resource
+   */
+  body: {
+    data: {
+      enabled: boolean
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/agent-library/agent-plugins/{id}'
+}
+
+export type SetGlobalLibraryPluginErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SetGlobalLibraryPluginError = SetGlobalLibraryPluginErrors[keyof SetGlobalLibraryPluginErrors]
+
+export type SetGlobalLibraryPluginResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugins: Array<{
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      override_enabled?: boolean | null
+      skills: Array<{
+        agent_plugin_id?: string | null
+        description: string
+        effective_enabled: boolean
+        global_default_enabled: boolean
+        id: string
+        name: string
+        override_enabled?: boolean | null
+        source_kind: string
+      }>
+      version: string
+    }>
+    skills: Array<{
+      agent_plugin_id?: string | null
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      name: string
+      override_enabled?: boolean | null
+      source_kind: string
+    }>
+  }
+}
+
+export type SetGlobalLibraryPluginResponse = SetGlobalLibraryPluginResponses[keyof SetGlobalLibraryPluginResponses]
+
 export type ListBackgroundAgentJobsData = {
   body?: never
   path?: never
@@ -3553,6 +3656,50 @@ export type UpdatePermissionGrantResponses = {
 
 export type UpdatePermissionGrantResponse = UpdatePermissionGrantResponses[keyof UpdatePermissionGrantResponses]
 
+export type ReplaceAgentLibraryDocumentData = {
+  /**
+   * Request body for the replace_agent_library_document operation on agent_library_console resource
+   */
+  body: {
+    data: {
+      content: string
+      expected_content_hash: string
+    }
+  }
+  path: {
+    document_kind: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/library-documents/{document_kind}'
+}
+
+export type ReplaceAgentLibraryDocumentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ReplaceAgentLibraryDocumentError =
+  ReplaceAgentLibraryDocumentErrors[keyof ReplaceAgentLibraryDocumentErrors]
+
+export type ReplaceAgentLibraryDocumentResponses = {
+  /**
+   * Success
+   */
+  200: {
+    library_document: {
+      content: string
+      content_hash: string
+      kind: string
+    }
+  }
+}
+
+export type ReplaceAgentLibraryDocumentResponse =
+  ReplaceAgentLibraryDocumentResponses[keyof ReplaceAgentLibraryDocumentResponses]
+
 export type ListBrainObjectVersionsData = {
   body?: never
   path?: never
@@ -3752,6 +3899,67 @@ export type DecideBrainContradictionResponses = {
 export type DecideBrainContradictionResponse =
   DecideBrainContradictionResponses[keyof DecideBrainContradictionResponses]
 
+export type ListBrainPrincipalKnowledgeData = {
+  body?: never
+  path: {
+    principal_uid: string
+  }
+  query?: never
+  url: '/api/v2/brain/principals/{principal_uid}/knowledge'
+}
+
+export type ListBrainPrincipalKnowledgeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainPrincipalKnowledgeError =
+  ListBrainPrincipalKnowledgeErrors[keyof ListBrainPrincipalKnowledgeErrors]
+
+export type ListBrainPrincipalKnowledgeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    claims: Array<{
+      active?: boolean | null
+      audience_scope: string
+      author?: {
+        tenant_id: string
+        uid: string
+      } | null
+      claim: string
+      claim_type: string
+      confidence?: number | null
+      conversation_id?: string | null
+      created_at: string
+      expired_at?: string | null
+      graded_confidence?: number | null
+      graded_quality?: string | null
+      holder?: string | null
+      id: string
+      kind?: string | null
+      notability?: string | null
+      object_slug?: string | null
+      provenance?: string | null
+      resolved_at?: string | null
+      resolved_outcome?: boolean | null
+      resolved_quality?: string | null
+      since_date?: string | null
+      superseded_by?: string | null
+      until_date?: string | null
+      valid_from?: string | null
+      valid_until?: string | null
+      weight?: number | null
+    }>
+  }
+}
+
+export type ListBrainPrincipalKnowledgeResponse =
+  ListBrainPrincipalKnowledgeResponses[keyof ListBrainPrincipalKnowledgeResponses]
+
 export type SupersedeBrainClaimData = {
   /**
    * Request body for the supersede_brain_claim operation on brain_claim resource
@@ -3905,6 +4113,72 @@ export type CreateCronScheduleResponses = {
 }
 
 export type CreateCronScheduleResponse = CreateCronScheduleResponses[keyof CreateCronScheduleResponses]
+
+export type PreviewBrainSearchData = {
+  /**
+   * Request body for the preview_brain_search operation on brain_console_view resource
+   */
+  body: {
+    data: {
+      asker_uid?: string | null
+      disclosure_mode?: string | null
+      present_uids?: Array<string> | null
+      principal_uid: string
+      query: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/search-preview'
+}
+
+export type PreviewBrainSearchErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PreviewBrainSearchError = PreviewBrainSearchErrors[keyof PreviewBrainSearchErrors]
+
+export type PreviewBrainSearchResponses = {
+  /**
+   * Success
+   */
+  201: {
+    result: {
+      chunks: Array<{
+        audience_scope: string
+        chunk_index: number
+        content_kind?: string | null
+        object_slug: string
+        text: string
+        title: string
+        type: string
+      }>
+      claims: Array<{
+        audience_scope: string
+        claim: string
+        claim_type: string
+        confidence?: number | null
+        conversation_id?: string | null
+        holder?: string | null
+        id: string
+        kind?: string | null
+        notability?: string | null
+        object_slug?: string | null
+        provenance?: string | null
+        since_date?: string | null
+        until_date?: string | null
+        valid_from?: string | null
+        valid_until?: string | null
+        weight?: number | null
+      }>
+    }
+  }
+}
+
+export type PreviewBrainSearchResponse = PreviewBrainSearchResponses[keyof PreviewBrainSearchResponses]
 
 export type DeletePrincipalGroupData = {
   body?: never
@@ -4090,6 +4364,70 @@ export type LearnBrainSourceResponses = {
 
 export type LearnBrainSourceResponse = LearnBrainSourceResponses[keyof LearnBrainSourceResponses]
 
+export type SetAgentLibrarySkillData = {
+  /**
+   * Request body for the set_agent_library_skill operation on agent_library_console resource
+   */
+  body?: {
+    data: {
+      enabled?: boolean | null
+    }
+  }
+  path: {
+    id: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/library-capabilities/skills/{id}'
+}
+
+export type SetAgentLibrarySkillErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SetAgentLibrarySkillError = SetAgentLibrarySkillErrors[keyof SetAgentLibrarySkillErrors]
+
+export type SetAgentLibrarySkillResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugins: Array<{
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      override_enabled?: boolean | null
+      skills: Array<{
+        agent_plugin_id?: string | null
+        description: string
+        effective_enabled: boolean
+        global_default_enabled: boolean
+        id: string
+        name: string
+        override_enabled?: boolean | null
+        source_kind: string
+      }>
+      version: string
+    }>
+    skills: Array<{
+      agent_plugin_id?: string | null
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      name: string
+      override_enabled?: boolean | null
+      source_kind: string
+    }>
+  }
+}
+
+export type SetAgentLibrarySkillResponse = SetAgentLibrarySkillResponses[keyof SetAgentLibrarySkillResponses]
+
 export type PreviewComputedPrincipalGroupMembersData = {
   /**
    * Request body for the preview_computed_principal_group_members operation on principal_group resource
@@ -4165,6 +4503,199 @@ export type AssignAgentWorkerProviderResponses = {
 
 export type AssignAgentWorkerProviderResponse =
   AssignAgentWorkerProviderResponses[keyof AssignAgentWorkerProviderResponses]
+
+export type ShowBrainObjectData = {
+  body?: never
+  path?: never
+  query: {
+    slug: string
+  }
+  url: '/api/v2/brain/objects/show'
+}
+
+export type ShowBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ShowBrainObjectError = ShowBrainObjectErrors[keyof ShowBrainObjectErrors]
+
+export type ShowBrainObjectResponses = {
+  /**
+   * Success
+   */
+  200: {
+    candidates?: Array<{
+      slug: string
+      subtype?: string | null
+      title: string
+      type: string
+    }> | null
+    object?: {
+      body: string
+      content_hash?: string | null
+      contradictions: Array<{
+        axis?: string | null
+        claim_id: string
+        counterpart: {
+          claim: string
+          holder?: string | null
+          id: string
+        }
+        id: string
+        severity: string
+        verdict: string
+      }>
+      deleted: boolean
+      edit_block_reason?: string | null
+      editable: boolean
+      effective_date?: string | null
+      facts: Array<{
+        audience_scope: string
+        author?: {
+          tenant_id: string
+          uid: string
+        } | null
+        claim: string
+        confidence?: number | null
+        expired_at?: string | null
+        holder?: string | null
+        id: string
+        kind?: string | null
+        notability?: string | null
+        provenance?: string | null
+        superseded_by?: string | null
+        valid_from?: string | null
+        valid_until?: string | null
+      }>
+      library_managed?: boolean | null
+      links: {
+        incoming: Array<{
+          context?: string | null
+          from: string
+          link_type: string
+        }>
+        outgoing: Array<{
+          context?: string | null
+          link_type: string
+          to: string
+        }>
+      }
+      meta: {
+        [key: string]: unknown
+      }
+      rendered: string
+      slug: string
+      subtype?: string | null
+      tags: Array<string>
+      takes: Array<{
+        active?: boolean | null
+        audience_scope: string
+        author?: {
+          tenant_id: string
+          uid: string
+        } | null
+        claim: string
+        graded_at?: string | null
+        graded_confidence?: number | null
+        graded_quality?: string | null
+        holder?: string | null
+        id: string
+        kind?: string | null
+        provenance?: string | null
+        resolved_at?: string | null
+        resolved_outcome?: boolean | null
+        resolved_quality?: string | null
+        since_date?: string | null
+        superseded_by?: string | null
+        until_date?: string | null
+        weight?: number | null
+      }>
+      timelines: Array<{
+        audience_scope: string
+        author?: {
+          tenant_id: string
+          uid: string
+        } | null
+        date: string
+        detail?: string | null
+        event_object_slug?: string | null
+        id: string
+        provenance?: string | null
+        summary: string
+      }>
+      title: string
+      type: string
+    } | null
+  }
+}
+
+export type ShowBrainObjectResponse = ShowBrainObjectResponses[keyof ShowBrainObjectResponses]
+
+export type SetGlobalLibrarySkillData = {
+  /**
+   * Request body for the set_global_library_skill operation on agent_library_console resource
+   */
+  body: {
+    data: {
+      enabled: boolean
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/agent-library/skills/{id}'
+}
+
+export type SetGlobalLibrarySkillErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SetGlobalLibrarySkillError = SetGlobalLibrarySkillErrors[keyof SetGlobalLibrarySkillErrors]
+
+export type SetGlobalLibrarySkillResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugins: Array<{
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      override_enabled?: boolean | null
+      skills: Array<{
+        agent_plugin_id?: string | null
+        description: string
+        effective_enabled: boolean
+        global_default_enabled: boolean
+        id: string
+        name: string
+        override_enabled?: boolean | null
+        source_kind: string
+      }>
+      version: string
+    }>
+    skills: Array<{
+      agent_plugin_id?: string | null
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      name: string
+      override_enabled?: boolean | null
+      source_kind: string
+    }>
+  }
+}
+
+export type SetGlobalLibrarySkillResponse = SetGlobalLibrarySkillResponses[keyof SetGlobalLibrarySkillResponses]
 
 export type ForgetBrainObjectData = {
   /**
@@ -4360,6 +4891,33 @@ export type GetAutomationJobResponses = {
 }
 
 export type GetAutomationJobResponse = GetAutomationJobResponses[keyof GetAutomationJobResponses]
+
+export type ListBrainObjectTypesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/brain/object-types'
+}
+
+export type ListBrainObjectTypesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainObjectTypesError = ListBrainObjectTypesErrors[keyof ListBrainObjectTypesErrors]
+
+export type ListBrainObjectTypesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    types: Array<string>
+  }
+}
+
+export type ListBrainObjectTypesResponse = ListBrainObjectTypesResponses[keyof ListBrainObjectTypesResponses]
 
 export type CancelBackgroundAgentJobData = {
   body?: never
@@ -4798,6 +5356,57 @@ export type ListAutomationJobRunsResponses = {
 
 export type ListAutomationJobRunsResponse = ListAutomationJobRunsResponses[keyof ListAutomationJobRunsResponses]
 
+export type ListAgentLibraryDocumentsData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/library-documents'
+}
+
+export type ListAgentLibraryDocumentsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAgentLibraryDocumentsError = ListAgentLibraryDocumentsErrors[keyof ListAgentLibraryDocumentsErrors]
+
+export type ListAgentLibraryDocumentsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    library_documents: {
+      confidentiality_policy: {
+        content: string
+        content_hash: string
+        kind: string
+      }
+      design: {
+        content: string
+        content_hash: string
+        kind: string
+      }
+      mission: {
+        content: string
+        content_hash: string
+        kind: string
+      }
+      soul: {
+        content: string
+        content_hash: string
+        kind: string
+      }
+    }
+  }
+}
+
+export type ListAgentLibraryDocumentsResponse =
+  ListAgentLibraryDocumentsResponses[keyof ListAgentLibraryDocumentsResponses]
+
 export type ResumeCronScheduleData = {
   body?: never
   path: {
@@ -5115,6 +5724,64 @@ export type CreateLocalUserResponses = {
 
 export type CreateLocalUserResponse = CreateLocalUserResponses[keyof CreateLocalUserResponses]
 
+export type GetAgentLibraryCapabilitiesData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/library-capabilities'
+}
+
+export type GetAgentLibraryCapabilitiesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetAgentLibraryCapabilitiesError =
+  GetAgentLibraryCapabilitiesErrors[keyof GetAgentLibraryCapabilitiesErrors]
+
+export type GetAgentLibraryCapabilitiesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugins: Array<{
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      override_enabled?: boolean | null
+      skills: Array<{
+        agent_plugin_id?: string | null
+        description: string
+        effective_enabled: boolean
+        global_default_enabled: boolean
+        id: string
+        name: string
+        override_enabled?: boolean | null
+        source_kind: string
+      }>
+      version: string
+    }>
+    skills: Array<{
+      agent_plugin_id?: string | null
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      name: string
+      override_enabled?: boolean | null
+      source_kind: string
+    }>
+  }
+}
+
+export type GetAgentLibraryCapabilitiesResponse =
+  GetAgentLibraryCapabilitiesResponses[keyof GetAgentLibraryCapabilitiesResponses]
+
 export type ListIdentityMappingRequestsData = {
   body?: never
   path?: never
@@ -5165,6 +5832,116 @@ export type ListIdentityMappingRequestsResponses = {
 
 export type ListIdentityMappingRequestsResponse =
   ListIdentityMappingRequestsResponses[keyof ListIdentityMappingRequestsResponses]
+
+export type GetBrainHealthData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/brain/health'
+}
+
+export type GetBrainHealthErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetBrainHealthError = GetBrainHealthErrors[keyof GetBrainHealthErrors]
+
+export type GetBrainHealthResponses = {
+  /**
+   * Success
+   */
+  200: {
+    health: {
+      channels_without_member_group: Array<string>
+      config: {
+        [key: string]: unknown
+      }
+      context_pack: {
+        degraded: number
+        served: number
+      }
+      embedding_signature?: unknown | null
+      embeddings: {
+        failed_chunks: number
+        failed_claims: number
+        pending_chunks: number
+        recent_error?: string | null
+      }
+      enabled: boolean
+      grading?: {
+        [key: string]: unknown
+      } | null
+      maintainer_agent_uid?: string | null
+      models: {
+        dreaming: {
+          configured: boolean
+          model?: string | null
+          profile?: string | null
+          profile_error?: string | null
+          provider_available?: boolean | null
+          provider_error?: string | null
+          provider_id?: string | null
+        }
+        embedding: {
+          configured: boolean
+          model?: string | null
+          profile?: string | null
+          profile_error?: string | null
+          provider_available?: boolean | null
+          provider_error?: string | null
+          provider_id?: string | null
+        }
+        extraction: {
+          configured: boolean
+          model?: string | null
+          profile?: string | null
+          profile_error?: string | null
+          provider_available?: boolean | null
+          provider_error?: string | null
+          provider_id?: string | null
+        }
+        rerank: {
+          configured: boolean
+          model?: string | null
+          profile?: string | null
+          profile_error?: string | null
+          provider_available?: boolean | null
+          provider_error?: string | null
+          provider_id?: string | null
+        }
+        web_fetch: {
+          configured: boolean
+          model?: string | null
+          profile?: string | null
+          profile_error?: string | null
+          provider_available?: boolean | null
+          provider_error?: string | null
+          provider_id?: string | null
+        }
+      }
+      signals: {
+        oldest_pending_age_seconds?: number | null
+        pending_channels: number
+      }
+      skill_lessons: {
+        active_per_agent?: {
+          [key: string]: unknown
+        } | null
+        added_last_7d?: number | null
+        enabled?: boolean | null
+        oldest_active_days?: number | null
+        retired_last_7d?: {
+          [key: string]: unknown
+        } | null
+      }
+    }
+  }
+}
+
+export type GetBrainHealthResponse = GetBrainHealthResponses[keyof GetBrainHealthResponses]
 
 export type RejectBrainSuggestionData = {
   body?: never
@@ -5393,6 +6170,70 @@ export type RunCronScheduleResponses = {
 }
 
 export type RunCronScheduleResponse = RunCronScheduleResponses[keyof RunCronScheduleResponses]
+
+export type SetAgentLibraryPluginData = {
+  /**
+   * Request body for the set_agent_library_plugin operation on agent_library_console resource
+   */
+  body?: {
+    data: {
+      enabled?: boolean | null
+    }
+  }
+  path: {
+    id: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/library-capabilities/agent-plugins/{id}'
+}
+
+export type SetAgentLibraryPluginErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SetAgentLibraryPluginError = SetAgentLibraryPluginErrors[keyof SetAgentLibraryPluginErrors]
+
+export type SetAgentLibraryPluginResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugins: Array<{
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      override_enabled?: boolean | null
+      skills: Array<{
+        agent_plugin_id?: string | null
+        description: string
+        effective_enabled: boolean
+        global_default_enabled: boolean
+        id: string
+        name: string
+        override_enabled?: boolean | null
+        source_kind: string
+      }>
+      version: string
+    }>
+    skills: Array<{
+      agent_plugin_id?: string | null
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      name: string
+      override_enabled?: boolean | null
+      source_kind: string
+    }>
+  }
+}
+
+export type SetAgentLibraryPluginResponse = SetAgentLibraryPluginResponses[keyof SetAgentLibraryPluginResponses]
 
 export type ArchiveBrainSourceData = {
   body?: never
@@ -6199,6 +7040,62 @@ export type ListAiGatewayConversationsResponses = {
 export type ListAiGatewayConversationsResponse =
   ListAiGatewayConversationsResponses[keyof ListAiGatewayConversationsResponses]
 
+export type GetGlobalLibraryCapabilitiesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/agent-library/capabilities'
+}
+
+export type GetGlobalLibraryCapabilitiesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetGlobalLibraryCapabilitiesError =
+  GetGlobalLibraryCapabilitiesErrors[keyof GetGlobalLibraryCapabilitiesErrors]
+
+export type GetGlobalLibraryCapabilitiesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugins: Array<{
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      override_enabled?: boolean | null
+      skills: Array<{
+        agent_plugin_id?: string | null
+        description: string
+        effective_enabled: boolean
+        global_default_enabled: boolean
+        id: string
+        name: string
+        override_enabled?: boolean | null
+        source_kind: string
+      }>
+      version: string
+    }>
+    skills: Array<{
+      agent_plugin_id?: string | null
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      name: string
+      override_enabled?: boolean | null
+      source_kind: string
+    }>
+  }
+}
+
+export type GetGlobalLibraryCapabilitiesResponse =
+  GetGlobalLibraryCapabilitiesResponses[keyof GetGlobalLibraryCapabilitiesResponses]
+
 export type ListGroupsOfPrincipalData = {
   body?: never
   path: {
@@ -6577,6 +7474,35 @@ export type ApproveBrainSuggestionResponses = {
 }
 
 export type ApproveBrainSuggestionResponse = ApproveBrainSuggestionResponses[keyof ApproveBrainSuggestionResponses]
+
+export type EnqueueBrainDreamData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/brain/dream'
+}
+
+export type EnqueueBrainDreamErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type EnqueueBrainDreamError = EnqueueBrainDreamErrors[keyof EnqueueBrainDreamErrors]
+
+export type EnqueueBrainDreamResponses = {
+  /**
+   * Success
+   */
+  201: {
+    result: {
+      status: string
+    }
+  }
+}
+
+export type EnqueueBrainDreamResponse = EnqueueBrainDreamResponses[keyof EnqueueBrainDreamResponses]
 
 export type RetireAgentSkillLessonData = {
   body?: never

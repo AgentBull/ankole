@@ -57,22 +57,30 @@ defmodule AnkoleWeb.BrainObjectControllerTest do
              }
            } =
              conn
-             |> get(~p"/api/v1/brain/objects/show?slug=notes%2Frepair-invalid-markdoc")
+             |> api(:get, ~p"/api/v2/brain/objects/show?slug=notes%2Frepair-invalid-markdoc")
              |> json_response(200)
 
-    assert %{"error" => %{"code" => "not_found"}} =
+    assert %{"errors" => [%{"code" => "not_found"}]} =
              conn
              |> recycle_api()
-             |> get(~p"/api/v1/brain/objects/show?slug=notes%2Fmissing")
+             |> api(:get, ~p"/api/v2/brain/objects/show?slug=notes%2Fmissing")
              |> json_response(404)
 
     assert %{"types" => types} =
              conn
              |> recycle_api()
-             |> get(~p"/api/v1/brain/object-types")
+             |> api(:get, ~p"/api/v2/brain/object-types")
              |> json_response(200)
 
     assert "note" in types
     refute "agent-skills" in types
+  end
+
+  defp api(conn, method, path) do
+    conn
+    |> recycle_api()
+    |> delete_req_header("content-type")
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> dispatch(@endpoint, method, path, nil)
   end
 end

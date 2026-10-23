@@ -733,6 +733,12 @@ application.
   and does not match `Ash.Error` structs. `AnkoleWeb.ConsoleErrors.fallback/4`
   maps the errors to HTTP responses.
 
+JSON:API transport actions can combine domain operations without a subject
+resource. They use `Ash.DataLayer.Simple` and `transaction?(false)`, hold no
+durable state, and call the owning domain interfaces. Each domain operation
+keeps its transaction and commit notifications. Principal/AuthZ checks the
+route before dispatch.
+
 Some modules do not match Ash resource semantics.
 `app/control_plane/test/ankole/persistence_boundary.exs` lists them, each with
 its mismatch pattern: M2 process coordination, M4 read model, M7 dynamic

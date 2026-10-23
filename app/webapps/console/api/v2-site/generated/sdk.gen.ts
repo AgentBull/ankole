@@ -3,6 +3,9 @@
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client'
 import { client } from './client.gen'
 import type {
+  ConfigureControlPlanePluginData,
+  ConfigureControlPlanePluginErrors,
+  ConfigureControlPlanePluginResponses,
   CreateTenantData,
   CreateTenantErrors,
   CreateTenantResponses,
@@ -30,6 +33,9 @@ import type {
   ListAiGatewayProvidersData,
   ListAiGatewayProvidersErrors,
   ListAiGatewayProvidersResponses,
+  ListControlPlanePluginsData,
+  ListControlPlanePluginsErrors,
+  ListControlPlanePluginsResponses,
   ListTenantBrainPacksData,
   ListTenantBrainPacksErrors,
   ListTenantBrainPacksResponses,
@@ -144,6 +150,36 @@ export const enableAiGatewayProvider = <ThrowOnError extends boolean = false>(
       ...options.headers
     }
   })
+
+/**
+ * list_control_plane_plugins operation on control_plane_plugin_console resource
+ */
+export const listControlPlanePlugins = <ThrowOnError extends boolean = false>(
+  options?: Options<ListControlPlanePluginsData, ThrowOnError>
+): RequestResult<ListControlPlanePluginsResponses, ListControlPlanePluginsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListControlPlanePluginsResponses, ListControlPlanePluginsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/control-plane-plugins',
+    ...options
+  })
+
+/**
+ * configure_control_plane_plugin operation on control_plane_plugin_console resource
+ */
+export const configureControlPlanePlugin = <ThrowOnError extends boolean = false>(
+  options: Options<ConfigureControlPlanePluginData, ThrowOnError>
+): RequestResult<ConfigureControlPlanePluginResponses, ConfigureControlPlanePluginErrors, ThrowOnError> =>
+  (options.client ?? client).put<ConfigureControlPlanePluginResponses, ConfigureControlPlanePluginErrors, ThrowOnError>(
+    {
+      security: [{ name: 'Cookie', type: 'apiKey' }],
+      url: '/api/v2/site/control-plane-plugins',
+      ...options,
+      headers: {
+        'Content-Type': 'application/vnd.api+json',
+        ...options.headers
+      }
+    }
+  )
 
 /**
  * get_privileged_tenant operation on tenant resource

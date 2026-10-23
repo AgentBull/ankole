@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
-import { ankoleWebBrainControllerPrincipalKnowledgeOptions } from '../../api/generated/@tanstack/react-query.gen'
+import { listBrainPrincipalKnowledgeOptions } from '../../api/v2/generated/@tanstack/react-query.gen'
 import { listPrincipalsOptions } from '../../api/v2/generated/@tanstack/react-query.gen'
 import { fromDocument } from '../../api/json-api'
 import { ErrorBlock } from '../../../common/error-block'
@@ -26,7 +26,7 @@ export function BrainPrincipalAuditPage() {
     select: data => fromDocument(data)
   })
   const knowledge = useQuery({
-    ...ankoleWebBrainControllerPrincipalKnowledgeOptions({ path: { principal_uid: principalUID } }),
+    ...listBrainPrincipalKnowledgeOptions({ path: { principal_uid: principalUID } }),
     enabled: Boolean(principalUID)
   })
   const rows = knowledge.data?.claims ?? []
