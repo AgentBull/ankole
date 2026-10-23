@@ -815,21 +815,21 @@ Run `test:garfish` separately for sandbox effects and entry-style scoping.
 
 ### Console API and OpenAPI
 
-The Console API has two versions. Both versions use the same session, CSRF,
-and data context pipelines in `AnkoleWeb.Router`.
+The Console JSON API uses `/api/v2` for tenant data and `/api/v2/site` for
+site administration. Both use the session, CSRF, and data context pipelines in
+`AnkoleWeb.Router` and JSON:API (`application/vnd.api+json`) through AshJsonApi.
+The `json_api` section of an Ash domain declares its routes. The `json_api`
+section of a resource declares its type and default fields.
+`AnkoleWeb.JSONAPI.ConsoleRouter` and `AnkoleWeb.JSONAPI.SiteRouter` mount the
+domains; a domain is in one router only.
 
-- `/api/v2` (tenant data) and `/api/v2/site` (site administration) use
-  JSON:API (`application/vnd.api+json`) through AshJsonApi. The `json_api`
-  section of an Ash domain declares its routes. The `json_api` section of a
-  resource declares its type and its default fields.
-  `AnkoleWeb.JSONAPI.ConsoleRouter` and `AnkoleWeb.JSONAPI.SiteRouter` mount
-  the domains; a domain is in one router only. Use v2 for an endpoint that
-  exposes a read, create, update, or destroy action of a resource, or a generic
-  action of a domain.
-- `/api/v1` and `/api/v1/site` are hand-written Phoenix controllers with
-  OpenApiSpex `operation` declarations. These routes include configuration
-  registries, aggregate views, secrets and credentials, protocol and OAuth
-  flows, file transfers, and streams.
+Resource actions use JSON:API resource documents. Generic actions receive their
+arguments directly in `data`, for example `{"data":{"value":true}}`. A route
+with `wrap_in_result?: false` returns its declared typed result directly. Read
+the generated operation type before you consume its response. File upload and
+download use native multipart and byte responses under `/api/v1/agents`.
+OpenAI-compatible APIs, authentication, webhooks, and internal APIs use their
+own protocol handlers.
 
 Each v2 route has these properties:
 
@@ -837,21 +837,22 @@ Each v2 route has these properties:
   name in the generated client.
 - One rule in the `@rules` table of `AnkoleWeb.JSONAPI.Policy`. The rule gives
   the AuthZ resource and action that `AnkoleWeb.ConsolePolicy` checks. A route
-  without a rule returns 403. Ash policies stay disabled.
+  without a rule returns 403. Principal/AuthZ owns authorization; Ash policies
+  stay disabled.
 - No derived filter or sort parameters. Each resource sets
   `derive_filter? false` and `derive_sort? false`. AshJsonApi 1.7.1 ignores the
   resource option `derive_sort?`, so each `index` and `related` route also sets
   `derive_sort?: false`.
 
 `test/ankole_web/json_api/router_test.exs` and `policy_test.exs` check these
-properties.
+properties. HTTP tests also check the domain result, permissions, and tenant
+isolation.
 
-`app/webapps/openapi/` holds four committed OpenAPI documents: `console.json`
-(the v1 Console API, `AnkoleWeb.APISpec`), `internal.json` (`/.internal-apis`,
-`AnkoleWeb.InternalAPISpec`), `console-v2.json`, and `site-v2.json` (the two
-JSON:API routers). `mix ankole.openapi.check` compares each document with the
-code. After you change a route, a schema, or a resource field, write the
-documents and generate the clients:
+`app/webapps/openapi/` holds three committed OpenAPI documents: `internal.json`
+(`/.internal-apis`, `AnkoleWeb.InternalAPISpec`), `console-v2.json`, and
+`site-v2.json` (the two JSON:API routers). `mix ankole.openapi.check` compares
+each document with the code. After you change a route, a schema, or a resource
+field, write the documents and generate the clients:
 
 ```bash
 cd app/control_plane
@@ -860,11 +861,11 @@ cd ../webapps
 bun run openapi:generate
 ```
 
-`openapi:generate` writes `console/api/generated`, `console/api/v2/generated`,
+`openapi:generate` writes `console/api/v2/generated`,
 `console/api/v2-site/generated`, and `common/api/generated`. Do not edit these
-files. A Console page reads a v2 document as flat records through `fromDocument`
-in `console/api/json-api.ts`. The v2 clients change a JSON:API error to the
-Console error shape.
+files. Use `fromDocument` in `console/api/json-api.ts` to read resource documents
+as flat records. Use typed generic results directly. The v2 clients convert
+JSON:API errors to the error shape that Console forms display.
 
 ### Full local quality gate
 
