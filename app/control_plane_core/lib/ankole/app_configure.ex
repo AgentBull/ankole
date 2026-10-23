@@ -308,6 +308,40 @@ defmodule Ankole.AppConfigure do
   end
 
   @doc """
+  Deletes the `global` row of a key in the caller's transaction.
+
+  The function does not check the key registry and does not refresh the cache.
+  """
+  @spec delete_global_by_key_in_tx(module(), String.t()) :: :ok | {:error, term()}
+  def delete_global_by_key_in_tx(_repo, key) when is_binary(key) do
+    @global_scope
+    |> AppConfig.for_scope()
+    |> Ash.Query.filter(scope == @global_scope and key == ^key)
+    |> Ankole.Ash.destroy_where(:remove)
+    |> case do
+      {:ok, _removed} -> :ok
+      {:error, _error} = error -> error
+    end
+  end
+
+  @doc """
+  Tells whether a tenant configuration of another tenant names the platform
+  application.
+  """
+  @spec platform_application_in_other_tenant?(String.t(), Ecto.UUID.t()) :: boolean()
+  def platform_application_in_other_tenant?(application, tenant_id) do
+    AppConfig
+    |> Ash.Query.for_read(:across_tenants)
+    |> Ash.Query.filter(
+      fragment("?->>'platform_application' = ?", value, ^application) and
+        tenant_id != ^tenant_id
+    )
+    |> Ash.Query.limit(1)
+    |> Ankole.Ash.read_across_tenants!()
+    |> Enum.any?()
+  end
+
+  @doc """
   Deletes the `global` row for a concrete exact or pattern-backed key.
   """
   @spec delete_global_by_key(String.t()) :: :ok | {:error, term()}

@@ -9,7 +9,6 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   require Ash.Query
 
   alias Ankole.Conversations.Delivery.PreviewState
-  alias Ankole.Conversations.Locks
   alias Ankole.Logging
   alias Ankole.Signals.Signal
   alias Ankole.Signals.Types
@@ -248,8 +247,8 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   end
 
   defp lock_source_event(binding, fact, callback) do
-    [filter: source_event_filter(binding, fact, callback)]
-    |> Locks.signals()
+    Ankole.Repo
+    |> Ankole.Signals.lock_signals_in_tx(source_event_filter(binding, fact, callback))
     |> List.first()
     |> accepted_reply_surface(fact.provider_message_id, binding)
   end
@@ -387,14 +386,11 @@ defmodule Ankole.Conversations.Delivery.Interactions do
       |> Ankole.Ash.read!()
       |> Enum.map(& &1.signal_id)
 
-    Locks.signals(
-      filter: [
-        id: [in: signal_ids],
-        agent_uid: newer_event.agent_uid,
-        session_id: newer_event.session_id,
-        queue_sequence: [less_than: newer_event.queue_sequence]
-      ],
-      sort: [queue_sequence: :asc]
+    Ankole.Signals.lock_signals_in_tx(Ankole.Repo,
+      id: [in: signal_ids],
+      agent_uid: newer_event.agent_uid,
+      session_id: newer_event.session_id,
+      queue_sequence: [less_than: newer_event.queue_sequence]
     )
   end
 

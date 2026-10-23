@@ -395,6 +395,24 @@ defmodule Ankole.Conversations.Conversation do
       end)
     end
 
+    action :observe_external_conversation, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:binding, :map, allow_nil?: false)
+      argument(:observation, :map, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.External.observe_conversation_in_tx(
+            Ankole.Repo,
+            args.binding,
+            args.observation,
+            args.now
+          )
+        )
+      end)
+    end
+
     action :native_detail, :term do
       argument(:human_uid, :term)
       argument(:id, :term)

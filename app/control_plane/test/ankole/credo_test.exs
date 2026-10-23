@@ -1,5 +1,4 @@
 Code.require_file("../../credo/append_in_loop.ex", __DIR__)
-Code.require_file("../../credo/ash_actions.ex", __DIR__)
 Code.require_file("../../credo/persistence_boundary.ex", __DIR__)
 Code.require_file("../../credo/ash_boundary.ex", __DIR__)
 Code.require_file("../../credo/raw_sql_tenant.ex", __DIR__)
@@ -38,36 +37,40 @@ defmodule Ankole.CredoTest do
              """)
   end
 
-  test "Ash mutations execute their filters and bulk actions use the tenant facade" do
+  test "Ash mutations execute their filters and bulk actions and hooks stay in the owners" do
     source = """
     defmodule Sample do
-      atomic_in_tx_update :finish do
+      update :finish do
+        require_atomic?(true)
         filter(expr(status == :queued))
       end
       def bulk(query), do: Ash.bulk_update(query, :finish, %{})
+      def hook(changeset), do: Ash.Changeset.after_transaction(changeset, fn _, r -> r end)
     end
     """
 
-    assert [_, _] =
-             source |> Credo.SourceFile.parse("sample.ex") |> Ankole.Credo.AshActions.run([])
+    assert [_, _, _] = check(Ankole.Credo.AshBoundary, source, "sample.ex")
 
     assert [] ==
-             """
-             defmodule Sample do
-               atomic_in_tx_update :finish do
-                 change(filter(expr(status == :queued)))
+             check(
+               Ankole.Credo.AshBoundary,
+               """
+               defmodule Sample do
+                 update :finish do
+                   require_atomic?(true)
+                   change(filter(expr(status == :queued)))
+                 end
+                 read :queued do
+                   filter(expr(status == :queued))
+                 end
+                 def bulk(query), do: Ankole.Ash.bulk_update(query, :finish, %{})
                end
-               read :queued do
-                 filter(expr(status == :queued))
-               end
-               def bulk(query), do: Ankole.Ash.bulk_update(query, :finish, %{})
-             end
-             """
-             |> Credo.SourceFile.parse("sample.ex")
-             |> Ankole.Credo.AshActions.run([])
+               """,
+               "sample.ex"
+             )
   end
 
-  test "the persistence boundary allows a crossing only in an exception or within its baseline" do
+  test "the persistence boundary allows a crossing only in a registered exception" do
     source = """
     defmodule Sample do
       alias Ankole.Repo

@@ -3,7 +3,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
 
   alias Ankole.Signals.Bindings
   alias Ankole.{Logging, Principals, Repo}
-  alias Ankole.AuthZ.Store
+  alias Ankole.AuthZ
   alias Ankole.Plugins.ChannelSync
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.SlackAdapter.Config
@@ -143,9 +143,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
       with {:ok, group} <- IMGroupProjection.get_group(namespace(consumer.config), channel_id),
            {:ok, observed} <- upsert_member(consumer.config, user_id),
            {:ok, _membership} <-
-             Repo.transact(fn repo ->
-               Store.add_synced_group_member(repo, group.id, :im_group, observed.principal.uid)
-             end) do
+             AuthZ.add_synced_group_member(group.id, :im_group, observed.principal.uid) do
         {:ok, %{status: :member_added, group_id: group.id, principal_uid: observed.principal.uid}}
       else
         {:error, :not_found} ->
@@ -169,9 +167,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
       with {:ok, group} <- IMGroupProjection.get_group(namespace(consumer.config), channel_id),
            {:ok, principal_uid} <-
              Principals.resolve_platform_subject_uid(namespace(consumer.config), user_id) do
-        case Repo.transact(fn repo ->
-               Store.remove_synced_group_member(repo, group.id, :im_group, principal_uid)
-             end) do
+        case AuthZ.remove_synced_group_member(group.id, :im_group, principal_uid) do
           {:ok, :deleted} -> {:ok, %{status: :member_removed}}
           {:error, :not_found} -> {:ok, %{status: :member_already_removed}}
           {:error, _reason} = error -> error

@@ -11,7 +11,7 @@ defmodule Ankole.Conversations do
 
   alias Ankole.Conversations.Target, as: StatementTarget
   alias Ankole.AIGateway
-  alias Ankole.Conversations.{Conversation, Locks, Message, ModelPreferences, Participant}
+  alias Ankole.Conversations.{Conversation, Message, ModelPreferences, Participant}
   alias Ankole.Conversations.Delivery.Intent
   alias Ankole.Principals.WorkAccess
   alias Ankole.Signals.Signal
@@ -46,6 +46,12 @@ defmodule Ankole.Conversations do
       )
 
       define(:update_external_metadata, action: :update_external_metadata, args: [:id, :update])
+
+      define(:observe_external_conversation,
+        action: :observe_external_conversation,
+        args: [:binding, :observation, :now]
+      )
+
       define(:observe_entry, action: :observe_entry, args: [:binding, :fact, :now])
       define(:observe_reaction, action: :observe_reaction, args: [:binding, :fact, :now])
       define(:observe_action, action: :observe_action, args: [:binding, :fact, :now])
@@ -119,7 +125,6 @@ defmodule Ankole.Conversations do
 
       define(:list_input_tombstones, action: :read)
       define(:record_input_tombstone, action: :record)
-      define(:expire_input_tombstone, action: :expire)
     end
 
     resource Ankole.Conversations.InboundBatch do
@@ -514,7 +519,7 @@ defmodule Ankole.Conversations do
          :ok <- check_human_in_tx(repo, human_uid),
          :ok <- authorize_page(human_uid, visible.page_id),
          %Conversation{} = conversation <- visible_conversation(human_uid, id, lock: true),
-         inputs = Locks.signals(pending_query(id)),
+         inputs = Signals.lock_signals_in_tx(repo, pending_filter(id)),
          true <- Enum.all?(inputs, &(&1.human_uid == human_uid)),
          {:ok, accepted_retry} <- accepted_retry(conversation, agent, attrs),
          :ok <-
@@ -708,21 +713,17 @@ defmodule Ankole.Conversations do
   end
 
   defp retry_input(
-         _repo,
+         repo,
          human_uid,
          %Message{author_type: :human, author_uid: human_uid} = message,
          "edit_last"
        ) do
-    [
-      filter: [
-        message_id: message.id,
-        conversation_id: message.conversation_id,
-        type: @addressed
-      ],
+    repo
+    |> Signals.lock_signals_in_tx(
+      [message_id: message.id, conversation_id: message.conversation_id, type: @addressed],
       sort: [queue_sequence: :desc],
       limit: 1
-    ]
-    |> Locks.signals()
+    )
     |> List.first()
   end
 
@@ -1083,37 +1084,6 @@ defmodule Ankole.Conversations do
     end
   end
 
-  @doc """
-  Returns the native host IDs for model-history lifecycle queries.
-
-  This Ecto query stays for the Sessions callers that compose it into their
-  own Ecto queries. New callers filter `list_conversations/1` by `kind`.
-  """
-  def native_ids_query do
-    import Ecto.Query, only: [from: 2]
-    from(c in Conversation, where: c.kind == :native, select: c.id)
-  end
-
-  @doc """
-  The retained Message identities withdrawn from public conversation facts.
-
-  This Ecto query stays for the Brain callers that compose it into their own
-  Ecto queries. New callers filter Messages by the `withdrawn` calculation.
-  """
-  def removed_message_ids_query(conversation_id \\ nil) do
-    import Ecto.Query, only: [from: 2]
-
-    query =
-      from(input in Signal,
-        where: input.data["removed"] == true and not is_nil(input.message_id),
-        select: input.message_id
-      )
-
-    if is_nil(conversation_id),
-      do: query,
-      else: from(input in query, where: input.conversation_id == ^conversation_id)
-  end
-
   @doc "Reads a bounded snapshot of statements not yet included by the caller."
   def context_snapshot(id, key, read_seq, excluded_ids, opts \\ []),
     do: id |> read_context_snapshot(key, read_seq, excluded_ids, opts) |> Errors.reason()
@@ -1418,15 +1388,12 @@ defmodule Ankole.Conversations do
   defp delivery_mode(_mode), do: {:error, :invalid_request}
 
   # The native inputs of a conversation that a turn has not admitted yet.
-  defp pending_query(conversation_id) do
+  defp pending_filter(conversation_id) do
     [
-      filter: [
-        conversation_id: conversation_id,
-        type: @addressed,
-        status: [in: [:queued, :running]],
-        last_attempt_at: [is_nil: true]
-      ],
-      sort: [queue_sequence: :asc]
+      conversation_id: conversation_id,
+      type: @addressed,
+      status: [in: [:queued, :running]],
+      last_attempt_at: [is_nil: true]
     ]
   end
 
@@ -1452,6 +1419,35 @@ defmodule Ankole.Conversations do
     |> Ash.Query.lock(:for_update)
     |> Ankole.Ash.read_one!()
   end
+
+  @doc "Deletes the input tombstones whose hold ended at `now` and gives their count."
+  @spec expire_input_tombstones(DateTime.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def expire_input_tombstones(now) do
+    with {:ok, removed} <-
+           Ankole.Ash.destroy_where(Ankole.Conversations.InputTombstone, :expire, %{now: now}),
+         do: {:ok, length(removed)}
+  end
+
+  @doc """
+  Locks one Conversation row in the caller's transaction.
+
+  `mode` is `:update`, `:share`, or `:key_share`.
+  """
+  @spec lock_conversation_in_tx(module(), Ecto.UUID.t(), :update | :share | :key_share) ::
+          {:ok, Conversation.t()} | {:error, :not_found}
+  def lock_conversation_in_tx(_repo, id, mode \\ :update) do
+    case Conversation
+         |> Ash.Query.filter(id == ^id)
+         |> Ash.Query.lock(row_lock(mode))
+         |> Ankole.Ash.read_one() do
+      {:ok, nil} -> {:error, :not_found}
+      result -> result
+    end
+  end
+
+  defp row_lock(:update), do: :for_update
+  defp row_lock(:share), do: "FOR SHARE"
+  defp row_lock(:key_share), do: "FOR KEY SHARE"
 
   defp message(id), do: Message |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!()
 
@@ -1563,7 +1559,10 @@ defmodule Ankole.Conversations do
       )
       |> List.first()
 
-    pending_inputs = Ankole.Signals.list_signals!(query: pending_query(conversation.id))
+    pending_inputs =
+      Signals.list_signals!(
+        query: [filter: pending_filter(conversation.id), sort: [queue_sequence: :asc]]
+      )
 
     %{
       conversation: conversation,

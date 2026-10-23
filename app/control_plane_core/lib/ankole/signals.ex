@@ -92,13 +92,17 @@ defmodule Ankole.Signals do
   end
 
   @doc """
-  Locks the Signals that a keyword filter selects, in queue order, inside the
-  caller-owned transaction.
+  Locks the Signals that a keyword filter selects inside the caller-owned
+  transaction.
+
+  The rows come in queue order. `sort:` gives another order and `limit:` keeps
+  only the first rows.
   """
-  def lock_signals_in_tx(_repo, filter) do
+  def lock_signals_in_tx(_repo, filter, opts \\ []) do
     Signal
     |> Ash.Query.do_filter(filter)
-    |> Ash.Query.sort(queue_sequence: :asc)
+    |> Ash.Query.sort(Keyword.get(opts, :sort, queue_sequence: :asc))
+    |> then(&if(limit = opts[:limit], do: Ash.Query.limit(&1, limit), else: &1))
     |> Ash.Query.lock(:for_update)
     |> Ankole.Ash.read!(lock_identity: {:rows, "signals", :id})
   end

@@ -405,11 +405,15 @@ defmodule AnkoleWeb.AuthController do
   def local_password_change(conn, params) do
     with {:ok, %{status: :pending, password_ticket: %{} = ticket} = transaction} <-
            login_transaction(conn),
-         {:ok, password} <- required_param(params, "newPassword") do
+         {:ok, password} <- required_param(params, "newPassword"),
+         {:ok, uid, password_hash} <-
+           LocalPassword.forced_password_hash(ticket["principal_uid"], password) do
+      # The callback runs in the login transaction of BrowserSessions.
       finish_json_login(conn, transaction.id, ticket, fn ->
-        case LocalPassword.complete_forced_password_change(
-               ticket["principal_uid"],
-               password,
+        case Ankole.Principals.complete_forced_password_change_in_tx(
+               Ankole.Repo,
+               uid,
+               password_hash,
                ticket["credential_version"]
              ) do
           {:ok, _} -> :ok

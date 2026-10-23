@@ -426,7 +426,7 @@ defmodule Ankole.Sessions.Commands do
       ) do
     with %Signal{} = input <-
            PreviewState.load(Ankole.Signals.lock_signal_in_tx(repo, input.id)),
-         {:ok, intents} <- command_feedback_intents(repo, input, "Conversation compressed."),
+         {:ok, intents} <- command_feedback_intents(input, "Conversation compressed."),
          intents = Enum.map(intents, &Map.put(&1, :ai_message_id, compaction_id)),
          {:ok, _} <- commit_feedback_in_tx(repo, input, intents),
          {:ok, completed_event} <-
@@ -446,7 +446,7 @@ defmodule Ankole.Sessions.Commands do
   end
 
   defp consume_command_feedback(repo, %Signal{} = input, text, now) do
-    with {:ok, intents} <- command_feedback_intents(repo, input, text),
+    with {:ok, intents} <- command_feedback_intents(input, text),
          {:ok, _} <- commit_feedback_in_tx(repo, input, intents),
          {:ok, completed_event} <-
            Queue.complete_command_event_in_tx(repo, input, completed_at: now) do
@@ -513,15 +513,15 @@ defmodule Ankole.Sessions.Commands do
     |> Ankole.Attrs.collect_results()
   end
 
-  defp command_feedback_intents(_repo, %Signal{conversation_id: nil}, _text),
+  defp command_feedback_intents(%Signal{conversation_id: nil}, _text),
     do: {:ok, []}
 
-  defp command_feedback_intents(_repo, %Signal{provider_message_id: nil}, _text),
+  defp command_feedback_intents(%Signal{provider_message_id: nil}, _text),
     do: {:ok, []}
 
-  defp command_feedback_intents(repo, %Signal{} = input, text) do
+  defp command_feedback_intents(%Signal{} = input, text) do
     with {:ok, operation} <-
-           Ankole.Conversations.Delivery.operation_for_signal(input, repo) do
+           Ankole.Conversations.Delivery.operation_for_signal(input) do
       command_name = String.replace_prefix(input.type, "command.", "")
 
       {:ok,

@@ -22,7 +22,6 @@ defmodule Ankole.AgentWorkers do
 
   require Ash.Query
 
-  alias Ankole.LockOrder
   alias Ankole.Repo
   alias Ankole.AgentWorkers.Providers
   alias Ankole.AgentWorkers.ReconcileJob
@@ -449,13 +448,9 @@ defmodule Ankole.AgentWorkers do
       |> Ash.Query.lock(:for_update)
 
     workers =
-      Repo.across_tenants(fn ->
-        LockOrder.with_identity({:rows, "agent_workers", :agent_uid}, fn ->
-          list_agent_workers_across_tenants!(query: query)
-        end)
-      end)
-
-    LockOrder.check_rows("agent_workers", Enum.map(workers, & &1.agent_uid))
+      query
+      |> Ash.Query.for_read(:across_tenants)
+      |> Ankole.Ash.read_across_tenants!(lock_identity: {:rows, "agent_workers", :agent_uid})
 
     Enum.reduce_while(workers, :ok, fn worker, :ok ->
       Repo.with_tenant(worker.tenant_id, fn ->

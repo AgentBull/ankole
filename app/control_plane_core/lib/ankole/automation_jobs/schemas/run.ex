@@ -126,6 +126,10 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
   actions do
     defaults([:read])
 
+    read :across_tenants do
+      multitenancy(:allow_global)
+    end
+
     # The Console run history of one job of one Agent, the newest run first.
     read :console_list do
       argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)

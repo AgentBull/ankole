@@ -45,9 +45,15 @@ defmodule Ankole.DataCase do
   defp persisted_fields(%schema{} = record),
     do: {schema, Map.take(record, schema.__schema__(:fields))}
 
-  @doc "Creates a committed tenant through its lifecycle owner."
+  @doc """
+  Creates a committed tenant through its lifecycle owner.
+
+  Tests also call it inside their own transaction, so it uses the composition
+  function, not the top-level action.
+  """
   def create_committed_tenant(attrs \\ %{}) do
-    {:ok, tenant} = Ankole.Tenants.create(Map.merge(tenant_attributes(), attrs))
+    attrs = Map.merge(tenant_attributes(), attrs)
+    {:ok, tenant} = Ankole.Repo.transact(&Ankole.Tenants.create_in_tx(&1, attrs))
     tenant
   end
 
