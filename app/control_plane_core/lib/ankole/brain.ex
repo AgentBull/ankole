@@ -28,6 +28,32 @@ defmodule Ankole.Brain do
     show_raised_errors?(false)
 
     routes do
+      base_route "/brain", Ankole.Brain.ConsoleViews do
+        route(:get, "/health", :health, name: "get_brain_health", wrap_in_result?: false)
+        route(:post, "/dream", :dream, name: "enqueue_brain_dream", wrap_in_result?: false)
+
+        route(:get, "/object-types", :object_types,
+          name: "list_brain_object_types",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/objects/show", :show_object,
+          name: "show_brain_object",
+          query_params: [:slug],
+          wrap_in_result?: false
+        )
+
+        route(:post, "/search-preview", :search_preview,
+          name: "preview_brain_search",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/principals/:principal_uid/knowledge", :principal_knowledge,
+          name: "list_brain_principal_knowledge",
+          wrap_in_result?: false
+        )
+      end
+
       base_route "/brain/objects", Object do
         index(:console_list, name: "list_brain_objects", derive_sort?: false)
         route(:post, "/", :console_create, name: "create_brain_object")
@@ -87,6 +113,8 @@ defmodule Ankole.Brain do
   end
 
   resources do
+    resource(Ankole.Brain.ConsoleViews)
+
     resource Ankole.Brain.Schemas.Object do
       define(:get_object, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_objects, action: :read)

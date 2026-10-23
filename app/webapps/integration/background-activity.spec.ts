@@ -152,7 +152,7 @@ async function home(page: Page, failures = false) {
         }
         return route.fulfill({ json: { observed_at, runs: [automation], next_cursor: null } })
       }
-      if (path.includes('readiness'))
+      if (path.includes('readiness')) {
         return route.fulfill({
           json: {
             ready: true,
@@ -165,7 +165,11 @@ async function home(page: Page, failures = false) {
             worker: { complete: true, ready_count: 1 }
           }
         })
-      if (path === '/api/v2/agents')
+      }
+      if (path === '/api/v2/identity-providers') {
+        return route.fulfill({ json: { identity_providers: [{ enabled: true }] } })
+      }
+      if (path === '/api/v2/agents') {
         return route.fulfill({
           json: {
             data: [
@@ -182,6 +186,7 @@ async function home(page: Page, failures = false) {
             ]
           }
         })
+      }
       return route.fulfill({ json: { running_count: 0, queued_count: 0 } })
     }
   )

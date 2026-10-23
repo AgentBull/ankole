@@ -1,7 +1,7 @@
 import { Badge, Button, Checkbox, Input, Textarea, toast } from '@ankole/uikit'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { oidcLoginSourcesOptions } from '../api/generated/@tanstack/react-query.gen'
+import { listOidcLoginSourcesOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import { fromDocument } from '../api/json-api'
 import {
   listOidcLogoutDeliveriesOptions,
@@ -22,7 +22,7 @@ export function OIDCSessionSettings({
   setDraft: (draft: ClientDraft) => void
 }) {
   const { t } = useTranslation()
-  const providers = useQuery(oidcLoginSourcesOptions())
+  const providers = useQuery(listOidcLoginSourcesOptions())
   return (
     <section className="grid gap-5 border-b border-border pb-6">
       <h3 className="text-base font-semibold">{t('console.access_sessions.title')}</h3>

@@ -4,11 +4,16 @@ import { queryOptions, type UseMutationOptions } from '@tanstack/react-query'
 
 import { client } from '../client.gen'
 import {
+  addAiGatewayCredential,
+  addChatgptEnterpriseCredential,
   checkWorkerProvider,
+  completeChatgptBrowserLogin,
+  configureControlPlanePlugin,
   createTenant,
   createWorkerProvider,
   decryptSiteAppConfiguration,
   decryptSiteWorkerEnv,
+  deleteAiGatewayCredential,
   deleteAiGatewayProvider,
   deleteSiteWorkerEnv,
   deleteTenant,
@@ -17,7 +22,10 @@ import {
   getAiGatewayProvider,
   getPrivilegedTenant,
   getSiteAppConfiguration,
+  listAiGatewayModels,
+  listAiGatewayProviderKinds,
   listAiGatewayProviders,
+  listControlPlanePlugins,
   listSiteAppConfigurations,
   listSiteWorkerEnvs,
   listTenantBrainPacks,
@@ -25,9 +33,13 @@ import {
   listWorkerProviderKinds,
   listWorkerProviders,
   type Options,
+  pollChatgptLogin,
+  putAiGatewayCredential,
+  putAiGatewayCredentialStrategy,
   putAiGatewayProvider,
   resetSiteAppConfiguration,
   resumeTenant,
+  startChatgptLogin,
   suspendTenant,
   transferSiteAdministration,
   updateSiteAppConfiguration,
@@ -36,9 +48,21 @@ import {
   updateWorkerProvider
 } from '../sdk.gen'
 import type {
+  AddAiGatewayCredentialData,
+  AddAiGatewayCredentialError,
+  AddAiGatewayCredentialResponse,
+  AddChatgptEnterpriseCredentialData,
+  AddChatgptEnterpriseCredentialError,
+  AddChatgptEnterpriseCredentialResponse,
   CheckWorkerProviderData,
   CheckWorkerProviderError,
   CheckWorkerProviderResponse,
+  CompleteChatgptBrowserLoginData,
+  CompleteChatgptBrowserLoginError,
+  CompleteChatgptBrowserLoginResponse,
+  ConfigureControlPlanePluginData,
+  ConfigureControlPlanePluginError,
+  ConfigureControlPlanePluginResponse,
   CreateTenantData,
   CreateTenantError,
   CreateTenantResponse,
@@ -51,6 +75,8 @@ import type {
   DecryptSiteWorkerEnvData,
   DecryptSiteWorkerEnvError,
   DecryptSiteWorkerEnvResponse,
+  DeleteAiGatewayCredentialData,
+  DeleteAiGatewayCredentialError,
   DeleteAiGatewayProviderData,
   DeleteAiGatewayProviderError,
   DeleteSiteWorkerEnvData,
@@ -72,9 +98,18 @@ import type {
   GetSiteAppConfigurationData,
   GetSiteAppConfigurationError,
   GetSiteAppConfigurationResponse,
+  ListAiGatewayModelsData,
+  ListAiGatewayModelsError,
+  ListAiGatewayModelsResponse,
+  ListAiGatewayProviderKindsData,
+  ListAiGatewayProviderKindsError,
+  ListAiGatewayProviderKindsResponse,
   ListAiGatewayProvidersData,
   ListAiGatewayProvidersError,
   ListAiGatewayProvidersResponse,
+  ListControlPlanePluginsData,
+  ListControlPlanePluginsError,
+  ListControlPlanePluginsResponse,
   ListSiteAppConfigurationsData,
   ListSiteAppConfigurationsError,
   ListSiteAppConfigurationsResponse,
@@ -93,6 +128,15 @@ import type {
   ListWorkerProvidersData,
   ListWorkerProvidersError,
   ListWorkerProvidersResponse,
+  PollChatgptLoginData,
+  PollChatgptLoginError,
+  PollChatgptLoginResponse,
+  PutAiGatewayCredentialData,
+  PutAiGatewayCredentialError,
+  PutAiGatewayCredentialResponse,
+  PutAiGatewayCredentialStrategyData,
+  PutAiGatewayCredentialStrategyError,
+  PutAiGatewayCredentialStrategyResponse,
   PutAiGatewayProviderData,
   PutAiGatewayProviderError,
   PutAiGatewayProviderResponse,
@@ -101,6 +145,9 @@ import type {
   ResetSiteAppConfigurationResponse,
   ResumeTenantData,
   ResumeTenantError,
+  StartChatgptLoginData,
+  StartChatgptLoginError,
+  StartChatgptLoginResponse,
   SuspendTenantData,
   SuspendTenantError,
   SuspendTenantResponse,
@@ -159,6 +206,56 @@ const createQueryKey = <TOptions extends Options>(
   }
   return [params]
 }
+
+export const listAiGatewayModelsQueryKey = (options?: Options<ListAiGatewayModelsData>) =>
+  createQueryKey('listAiGatewayModels', options)
+
+/**
+ * list_ai_gateway_models operation on chatgpt_login resource
+ */
+export const listAiGatewayModelsOptions = (options?: Options<ListAiGatewayModelsData>) =>
+  queryOptions<
+    ListAiGatewayModelsResponse,
+    ListAiGatewayModelsError,
+    ListAiGatewayModelsResponse,
+    ReturnType<typeof listAiGatewayModelsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAiGatewayModels({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listAiGatewayModelsQueryKey(options)
+  })
+
+export const listAiGatewayProviderKindsQueryKey = (options?: Options<ListAiGatewayProviderKindsData>) =>
+  createQueryKey('listAiGatewayProviderKinds', options)
+
+/**
+ * list_ai_gateway_provider_kinds operation on chatgpt_login resource
+ */
+export const listAiGatewayProviderKindsOptions = (options?: Options<ListAiGatewayProviderKindsData>) =>
+  queryOptions<
+    ListAiGatewayProviderKindsResponse,
+    ListAiGatewayProviderKindsError,
+    ListAiGatewayProviderKindsResponse,
+    ReturnType<typeof listAiGatewayProviderKindsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAiGatewayProviderKinds({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listAiGatewayProviderKindsQueryKey(options)
+  })
 
 export const listAiGatewayProvidersQueryKey = (options?: Options<ListAiGatewayProvidersData>) =>
   createQueryKey('listAiGatewayProviders', options)
@@ -246,6 +343,210 @@ export const putAiGatewayProviderMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await putAiGatewayProvider({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * add_chatgpt_enterprise_credential operation on chatgpt_login resource
+ */
+export const addChatgptEnterpriseCredentialMutation = (
+  options?: Partial<Options<AddChatgptEnterpriseCredentialData>>
+): UseMutationOptions<
+  AddChatgptEnterpriseCredentialResponse,
+  AddChatgptEnterpriseCredentialError,
+  Options<AddChatgptEnterpriseCredentialData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AddChatgptEnterpriseCredentialResponse,
+    AddChatgptEnterpriseCredentialError,
+    Options<AddChatgptEnterpriseCredentialData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await addChatgptEnterpriseCredential({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * start_chatgpt_login operation on chatgpt_login resource
+ */
+export const startChatgptLoginMutation = (
+  options?: Partial<Options<StartChatgptLoginData>>
+): UseMutationOptions<StartChatgptLoginResponse, StartChatgptLoginError, Options<StartChatgptLoginData>> => {
+  const mutationOptions: UseMutationOptions<
+    StartChatgptLoginResponse,
+    StartChatgptLoginError,
+    Options<StartChatgptLoginData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await startChatgptLogin({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * complete_chatgpt_browser_login operation on chatgpt_login resource
+ */
+export const completeChatgptBrowserLoginMutation = (
+  options?: Partial<Options<CompleteChatgptBrowserLoginData>>
+): UseMutationOptions<
+  CompleteChatgptBrowserLoginResponse,
+  CompleteChatgptBrowserLoginError,
+  Options<CompleteChatgptBrowserLoginData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CompleteChatgptBrowserLoginResponse,
+    CompleteChatgptBrowserLoginError,
+    Options<CompleteChatgptBrowserLoginData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await completeChatgptBrowserLogin({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * poll_chatgpt_login operation on chatgpt_login resource
+ */
+export const pollChatgptLoginMutation = (
+  options?: Partial<Options<PollChatgptLoginData>>
+): UseMutationOptions<PollChatgptLoginResponse, PollChatgptLoginError, Options<PollChatgptLoginData>> => {
+  const mutationOptions: UseMutationOptions<
+    PollChatgptLoginResponse,
+    PollChatgptLoginError,
+    Options<PollChatgptLoginData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await pollChatgptLogin({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * put_ai_gateway_credential_strategy operation on ai_gateway_provider resource
+ */
+export const putAiGatewayCredentialStrategyMutation = (
+  options?: Partial<Options<PutAiGatewayCredentialStrategyData>>
+): UseMutationOptions<
+  PutAiGatewayCredentialStrategyResponse,
+  PutAiGatewayCredentialStrategyError,
+  Options<PutAiGatewayCredentialStrategyData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    PutAiGatewayCredentialStrategyResponse,
+    PutAiGatewayCredentialStrategyError,
+    Options<PutAiGatewayCredentialStrategyData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await putAiGatewayCredentialStrategy({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * add_ai_gateway_credential operation on ai_gateway_provider resource
+ */
+export const addAiGatewayCredentialMutation = (
+  options?: Partial<Options<AddAiGatewayCredentialData>>
+): UseMutationOptions<
+  AddAiGatewayCredentialResponse,
+  AddAiGatewayCredentialError,
+  Options<AddAiGatewayCredentialData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AddAiGatewayCredentialResponse,
+    AddAiGatewayCredentialError,
+    Options<AddAiGatewayCredentialData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await addAiGatewayCredential({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * delete_ai_gateway_credential operation on ai_gateway_provider resource
+ */
+export const deleteAiGatewayCredentialMutation = (
+  options?: Partial<Options<DeleteAiGatewayCredentialData>>
+): UseMutationOptions<unknown, DeleteAiGatewayCredentialError, Options<DeleteAiGatewayCredentialData>> => {
+  const mutationOptions: UseMutationOptions<
+    unknown,
+    DeleteAiGatewayCredentialError,
+    Options<DeleteAiGatewayCredentialData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteAiGatewayCredential({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * put_ai_gateway_credential operation on ai_gateway_provider resource
+ */
+export const putAiGatewayCredentialMutation = (
+  options?: Partial<Options<PutAiGatewayCredentialData>>
+): UseMutationOptions<
+  PutAiGatewayCredentialResponse,
+  PutAiGatewayCredentialError,
+  Options<PutAiGatewayCredentialData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    PutAiGatewayCredentialResponse,
+    PutAiGatewayCredentialError,
+    Options<PutAiGatewayCredentialData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await putAiGatewayCredential({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -404,6 +705,58 @@ export const decryptSiteAppConfigurationMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await decryptSiteAppConfiguration({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listControlPlanePluginsQueryKey = (options?: Options<ListControlPlanePluginsData>) =>
+  createQueryKey('listControlPlanePlugins', options)
+
+/**
+ * list_control_plane_plugins operation on control_plane_plugin_console resource
+ */
+export const listControlPlanePluginsOptions = (options?: Options<ListControlPlanePluginsData>) =>
+  queryOptions<
+    ListControlPlanePluginsResponse,
+    ListControlPlanePluginsError,
+    ListControlPlanePluginsResponse,
+    ReturnType<typeof listControlPlanePluginsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listControlPlanePlugins({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listControlPlanePluginsQueryKey(options)
+  })
+
+/**
+ * configure_control_plane_plugin operation on control_plane_plugin_console resource
+ */
+export const configureControlPlanePluginMutation = (
+  options?: Partial<Options<ConfigureControlPlanePluginData>>
+): UseMutationOptions<
+  ConfigureControlPlanePluginResponse,
+  ConfigureControlPlanePluginError,
+  Options<ConfigureControlPlanePluginData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    ConfigureControlPlanePluginResponse,
+    ConfigureControlPlanePluginError,
+    Options<ConfigureControlPlanePluginData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await configureControlPlanePlugin({
         ...options,
         ...fnOptions,
         throwOnError: true

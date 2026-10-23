@@ -1,4 +1,4 @@
-import type { AiGatewayModelCatalogEntry as AIGatewayModelCatalogEntry } from '../api/generated/types.gen'
+import type { AIGatewayModelCatalogEntry } from '../state/provider-settings'
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { Button, Input, Skeleton, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
@@ -7,10 +7,10 @@ import { useMutation } from '@tanstack/react-query'
 import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  ankoleWebAgentControllerDeleteModelProfileMutation,
-  ankoleWebAgentControllerPutModelProfileMutation
-} from '../api/generated/@tanstack/react-query.gen'
-import type { AiGatewayProviderKindItem as AIGatewayProviderKindItem } from '../api/generated/types.gen'
+  deleteAgentModelProfileMutation,
+  putAgentModelProfileMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import type { AIGatewayProviderKindItem } from '../state/provider-settings'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ErrorBlock } from '../../common/error-block'
 import { LabeledField } from '../console-form'
@@ -116,7 +116,7 @@ function NewCustomModelProfileEditor({
   // the render that follows the first mutate.
   const pendingSubmission = useRef(false)
   const save = useMutation({
-    ...ankoleWebAgentControllerPutModelProfileMutation(),
+    ...putAgentModelProfileMutation(),
     onSuccess: (_response, variables) => {
       toast.success(t('console.models.saved', { profile: variables.path.profile }))
       onClose()
@@ -151,7 +151,7 @@ function NewCustomModelProfileEditor({
 
     setDraft(current => ({ ...current, error: undefined }))
     pendingSubmission.current = true
-    save.mutate({ body: built.body, path: { agent_uid: agentUID, profile } })
+    save.mutate({ body: { data: { attrs: built.body } }, path: { agent_uid: agentUID, profile } })
   }
 
   return (
@@ -217,7 +217,7 @@ function StoredCustomModelProfileEditor({
   })
 
   const save = useMutation({
-    ...ankoleWebAgentControllerPutModelProfileMutation(),
+    ...putAgentModelProfileMutation(),
     onSuccess: (response, variables) => {
       const submission = pendingSubmission.current
       pendingSubmission.current = undefined
@@ -233,7 +233,7 @@ function StoredCustomModelProfileEditor({
     }
   })
   const remove = useMutation({
-    ...ankoleWebAgentControllerDeleteModelProfileMutation(),
+    ...deleteAgentModelProfileMutation(),
     onSuccess: () => {
       toast.success(t('console.models.custom_deleted', { profile: name }))
     },
@@ -257,7 +257,7 @@ function StoredCustomModelProfileEditor({
 
     model.update({ error: undefined })
     pendingSubmission.current = model.submission()
-    save.mutate({ body: built.body, path: { agent_uid: agentUID, profile: name } })
+    save.mutate({ body: { data: { attrs: built.body } }, path: { agent_uid: agentUID, profile: name } })
   }
 
   if (draftStatus !== 'ready') return <Skeleton className="h-48 w-full" aria-busy="true" />

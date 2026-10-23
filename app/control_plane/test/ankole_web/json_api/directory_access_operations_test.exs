@@ -1,4 +1,4 @@
-defmodule AnkoleWeb.DirectoryAccessControllerTest do
+defmodule AnkoleWeb.JSONAPI.DirectoryAccessOperationsTest do
   use AnkoleWeb.ConnCase, async: false
   alias Ankole.IdentityProviders.DirectoryAccess
   alias Ankole.Principals
@@ -28,7 +28,7 @@ defmodule AnkoleWeb.DirectoryAccessControllerTest do
     response =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/identity-providers/lark/directory")
+      |> v2_get(~p"/api/v2/identity-providers/lark/directory")
       |> json_response(200)
 
     assert response["snapshot"]["missing_uids"] == [person.principal.uid]
@@ -41,16 +41,16 @@ defmodule AnkoleWeb.DirectoryAccessControllerTest do
 
     assert conn
            |> recycle_api()
-           |> post(~p"/api/v1/identity-providers/lark/directory-reviews", body)
+           |> v2_post(~p"/api/v2/identity-providers/lark/directory-reviews", body)
            |> json_response(409)
 
     assert conn
            |> recycle_api()
-           |> post(~p"/api/v1/identity-providers/lark/directory-reviews", %{
+           |> v2_post(~p"/api/v2/identity-providers/lark/directory-reviews", %{
              body
              | confirm_removals: true
            })
-           |> json_response(200)
+           |> json_response(201)
            |> get_in(["snapshot", "reviewed_by"]) == admin_ref
 
     assert {:ok, %{status: :disabled}} = Principals.get_principal(person.principal.uid)
@@ -72,8 +72,8 @@ defmodule AnkoleWeb.DirectoryAccessControllerTest do
 
     assert conn
            |> recycle_api()
-           |> post(
-             ~p"/api/v1/identity-providers/other/directory-events/#{event.id}/reviews",
+           |> v2_post(
+             ~p"/api/v2/identity-providers/other/directory-events/#{event.id}/reviews",
              body
            )
            |> json_response(404)
@@ -81,10 +81,19 @@ defmodule AnkoleWeb.DirectoryAccessControllerTest do
     response =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/identity-providers/lark/directory-events/#{event.id}/reviews", body)
-      |> json_response(200)
+      |> v2_post(~p"/api/v2/identity-providers/lark/directory-events/#{event.id}/reviews", body)
+      |> json_response(201)
 
     assert [%{"status" => "dismissed", "review_reason" => "Verified reassigned provider ID"}] =
              response["events"]
+  end
+
+  defp v2_get(conn, path), do: get(json_api(conn), path)
+  defp v2_post(conn, path, body), do: post(json_api(conn), path, %{data: body})
+
+  defp json_api(conn) do
+    conn
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
   end
 end

@@ -846,6 +846,26 @@ export type BrainContradiction = {
 }
 
 /**
+ * A "Resource object" representing a human_access
+ */
+export type HumanAccess = {
+  /**
+   * An attributes object for a human_access
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a human_access
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a files_operation
  */
 export type FilesOperation = {
@@ -1584,6 +1604,46 @@ export type SessionsOperation = {
   type: string
 }
 
+/**
+ * A "Resource object" representing a brain_console_view
+ */
+export type BrainConsoleView = {
+  /**
+   * An attributes object for a brain_console_view
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a brain_console_view
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a identity_provider_operation
+ */
+export type IdentityProviderOperation = {
+  /**
+   * An attributes object for a identity_provider_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a identity_provider_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
 export type AgentSkillLessonType = {
   /**
    * Field included by default.
@@ -2117,6 +2177,26 @@ export type AppConfigurationOperation = {
   id: string
   /**
    * A relationships object for a app_configuration_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a agent_library_console
+ */
+export type AgentLibraryConsole = {
+  /**
+   * An attributes object for a agent_library_console
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a agent_library_console
    */
   relationships?: {
     [key: string]: never
@@ -3038,6 +3118,26 @@ export type AgentType = {
 }
 
 /**
+ * A "Resource object" representing a agent_model_configuration
+ */
+export type AgentModelConfiguration = {
+  /**
+   * An attributes object for a agent_model_configuration
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a agent_model_configuration
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a oidc_logout_delivery
  */
 export type OidcLogoutDelivery = {
@@ -3425,6 +3525,69 @@ export type GetBackgroundAgentJobTurnsResponses = {
 export type GetBackgroundAgentJobTurnsResponse =
   GetBackgroundAgentJobTurnsResponses[keyof GetBackgroundAgentJobTurnsResponses]
 
+export type SetGlobalLibraryPluginData = {
+  /**
+   * Request body for the set_global_library_plugin operation on agent_library_console resource
+   */
+  body: {
+    data: {
+      enabled: boolean
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/agent-library/agent-plugins/{id}'
+}
+
+export type SetGlobalLibraryPluginErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SetGlobalLibraryPluginError = SetGlobalLibraryPluginErrors[keyof SetGlobalLibraryPluginErrors]
+
+export type SetGlobalLibraryPluginResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugins: Array<{
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      override_enabled?: boolean | null
+      skills: Array<{
+        agent_plugin_id?: string | null
+        description: string
+        effective_enabled: boolean
+        global_default_enabled: boolean
+        id: string
+        name: string
+        override_enabled?: boolean | null
+        source_kind: string
+      }>
+      version: string
+    }>
+    skills: Array<{
+      agent_plugin_id?: string | null
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      name: string
+      override_enabled?: boolean | null
+      source_kind: string
+    }>
+  }
+}
+
+export type SetGlobalLibraryPluginResponse = SetGlobalLibraryPluginResponses[keyof SetGlobalLibraryPluginResponses]
+
 export type ListBackgroundAgentJobsData = {
   body?: never
   path?: never
@@ -3722,6 +3885,56 @@ export type CreatePermissionGrantResponses = {
 
 export type CreatePermissionGrantResponse = CreatePermissionGrantResponses[keyof CreatePermissionGrantResponses]
 
+export type SaveIdentityProviderData = {
+  /**
+   * Request body for the save_identity_provider operation on identity_provider_operation resource
+   */
+  body: {
+    data: {
+      adapter_id: string
+      config: {
+        [key: string]: unknown
+      }
+      enabled?: boolean | null
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/identity-providers/{provider_id}'
+}
+
+export type SaveIdentityProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SaveIdentityProviderError = SaveIdentityProviderErrors[keyof SaveIdentityProviderErrors]
+
+export type SaveIdentityProviderResponses = {
+  /**
+   * Success
+   */
+  200: {
+    identity_provider: {
+      adapter_id: string
+      config: {
+        [key: string]: unknown
+      }
+      config_key: string
+      enabled: boolean
+      plugin_id?: string | null
+      provider_id: string
+      stored_secret_paths: Array<string>
+    }
+  }
+}
+
+export type SaveIdentityProviderResponse = SaveIdentityProviderResponses[keyof SaveIdentityProviderResponses]
+
 export type CancelCheckbackData = {
   body?: never
   path: {
@@ -3902,6 +4115,50 @@ export type UpdatePermissionGrantResponses = {
 }
 
 export type UpdatePermissionGrantResponse = UpdatePermissionGrantResponses[keyof UpdatePermissionGrantResponses]
+
+export type ReplaceAgentLibraryDocumentData = {
+  /**
+   * Request body for the replace_agent_library_document operation on agent_library_console resource
+   */
+  body: {
+    data: {
+      content: string
+      expected_content_hash: string
+    }
+  }
+  path: {
+    document_kind: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/library-documents/{document_kind}'
+}
+
+export type ReplaceAgentLibraryDocumentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ReplaceAgentLibraryDocumentError =
+  ReplaceAgentLibraryDocumentErrors[keyof ReplaceAgentLibraryDocumentErrors]
+
+export type ReplaceAgentLibraryDocumentResponses = {
+  /**
+   * Success
+   */
+  200: {
+    library_document: {
+      content: string
+      content_hash: string
+      kind: string
+    }
+  }
+}
+
+export type ReplaceAgentLibraryDocumentResponse =
+  ReplaceAgentLibraryDocumentResponses[keyof ReplaceAgentLibraryDocumentResponses]
 
 export type ListBrainObjectVersionsData = {
   body?: never
@@ -4135,6 +4392,131 @@ export type DecryptAgentWorkerEnvResponses = {
 
 export type DecryptAgentWorkerEnvResponse = DecryptAgentWorkerEnvResponses[keyof DecryptAgentWorkerEnvResponses]
 
+export type GetIdentityDirectoryData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/identity-providers/{provider_id}/directory'
+}
+
+export type GetIdentityDirectoryErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetIdentityDirectoryError = GetIdentityDirectoryErrors[keyof GetIdentityDirectoryErrors]
+
+export type GetIdentityDirectoryResponses = {
+  /**
+   * Success
+   */
+  200: {
+    events: Array<{
+      event_id: string
+      event_type: string
+      external_ids: Array<string>
+      id: string
+      inserted_at: string
+      last_error?: string | null
+      processed_at?: string | null
+      provider_time?: string | null
+      reason?: string | null
+      review_reason?: string | null
+      reviewed_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      status: string
+    }>
+    snapshot?: {
+      approved_scope_fingerprint?: string | null
+      last_error?: string | null
+      last_started_at?: string | null
+      last_success_at?: string | null
+      member_uids: Array<string>
+      missing_uids: Array<string>
+      provider_id: string
+      review_reason?: string | null
+      reviewed_at?: string | null
+      reviewed_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      revision: number
+      scope_fingerprint?: string | null
+      snapshot_fingerprint?: string | null
+      status: string
+    } | null
+  }
+}
+
+export type GetIdentityDirectoryResponse = GetIdentityDirectoryResponses[keyof GetIdentityDirectoryResponses]
+
+export type ListBrainPrincipalKnowledgeData = {
+  body?: never
+  path: {
+    principal_uid: string
+  }
+  query?: never
+  url: '/api/v2/brain/principals/{principal_uid}/knowledge'
+}
+
+export type ListBrainPrincipalKnowledgeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainPrincipalKnowledgeError =
+  ListBrainPrincipalKnowledgeErrors[keyof ListBrainPrincipalKnowledgeErrors]
+
+export type ListBrainPrincipalKnowledgeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    claims: Array<{
+      active?: boolean | null
+      audience_scope: string
+      author?: {
+        tenant_id: string
+        uid: string
+      } | null
+      claim: string
+      claim_type: string
+      confidence?: number | null
+      conversation_id?: string | null
+      created_at: string
+      expired_at?: string | null
+      graded_confidence?: number | null
+      graded_quality?: string | null
+      holder?: string | null
+      id: string
+      kind?: string | null
+      notability?: string | null
+      object_slug?: string | null
+      provenance?: string | null
+      resolved_at?: string | null
+      resolved_outcome?: boolean | null
+      resolved_quality?: string | null
+      since_date?: string | null
+      superseded_by?: string | null
+      until_date?: string | null
+      valid_from?: string | null
+      valid_until?: string | null
+      weight?: number | null
+    }>
+  }
+}
+
+export type ListBrainPrincipalKnowledgeResponse =
+  ListBrainPrincipalKnowledgeResponses[keyof ListBrainPrincipalKnowledgeResponses]
+
 export type RequeueSignalDeliveryData = {
   /**
    * Request body for the requeue_signal_delivery operation on signals_operation resource
@@ -4326,6 +4708,72 @@ export type CreateCronScheduleResponses = {
 
 export type CreateCronScheduleResponse = CreateCronScheduleResponses[keyof CreateCronScheduleResponses]
 
+export type PreviewBrainSearchData = {
+  /**
+   * Request body for the preview_brain_search operation on brain_console_view resource
+   */
+  body: {
+    data: {
+      asker_uid?: string | null
+      disclosure_mode?: string | null
+      present_uids?: Array<string> | null
+      principal_uid: string
+      query: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/search-preview'
+}
+
+export type PreviewBrainSearchErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PreviewBrainSearchError = PreviewBrainSearchErrors[keyof PreviewBrainSearchErrors]
+
+export type PreviewBrainSearchResponses = {
+  /**
+   * Success
+   */
+  201: {
+    result: {
+      chunks: Array<{
+        audience_scope: string
+        chunk_index: number
+        content_kind?: string | null
+        object_slug: string
+        text: string
+        title: string
+        type: string
+      }>
+      claims: Array<{
+        audience_scope: string
+        claim: string
+        claim_type: string
+        confidence?: number | null
+        conversation_id?: string | null
+        holder?: string | null
+        id: string
+        kind?: string | null
+        notability?: string | null
+        object_slug?: string | null
+        provenance?: string | null
+        since_date?: string | null
+        until_date?: string | null
+        valid_from?: string | null
+        valid_until?: string | null
+        weight?: number | null
+      }>
+    }
+  }
+}
+
+export type PreviewBrainSearchResponse = PreviewBrainSearchResponses[keyof PreviewBrainSearchResponses]
+
 export type DeletePrincipalGroupData = {
   body?: never
   path: {
@@ -4481,6 +4929,42 @@ export type UpdatePrincipalGroupResponses = {
 
 export type UpdatePrincipalGroupResponse = UpdatePrincipalGroupResponses[keyof UpdatePrincipalGroupResponses]
 
+export type ResetLocalPasswordData = {
+  /**
+   * Request body for the reset_local_password operation on human_access resource
+   */
+  body?: {
+    data: {
+      must_change_password?: boolean | null
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/principals/{uid}/local-password-resets'
+}
+
+export type ResetLocalPasswordErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResetLocalPasswordError = ResetLocalPasswordErrors[keyof ResetLocalPasswordErrors]
+
+export type ResetLocalPasswordResponses = {
+  /**
+   * Success
+   */
+  201: {
+    initial_password: string
+  }
+}
+
+export type ResetLocalPasswordResponse = ResetLocalPasswordResponses[keyof ResetLocalPasswordResponses]
+
 export type BackgroundActivityJobsData = {
   body?: never
   path: {
@@ -4558,6 +5042,70 @@ export type LearnBrainSourceResponses = {
 
 export type LearnBrainSourceResponse = LearnBrainSourceResponses[keyof LearnBrainSourceResponses]
 
+export type SetAgentLibrarySkillData = {
+  /**
+   * Request body for the set_agent_library_skill operation on agent_library_console resource
+   */
+  body?: {
+    data: {
+      enabled?: boolean | null
+    }
+  }
+  path: {
+    id: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/library-capabilities/skills/{id}'
+}
+
+export type SetAgentLibrarySkillErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SetAgentLibrarySkillError = SetAgentLibrarySkillErrors[keyof SetAgentLibrarySkillErrors]
+
+export type SetAgentLibrarySkillResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugins: Array<{
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      override_enabled?: boolean | null
+      skills: Array<{
+        agent_plugin_id?: string | null
+        description: string
+        effective_enabled: boolean
+        global_default_enabled: boolean
+        id: string
+        name: string
+        override_enabled?: boolean | null
+        source_kind: string
+      }>
+      version: string
+    }>
+    skills: Array<{
+      agent_plugin_id?: string | null
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      name: string
+      override_enabled?: boolean | null
+      source_kind: string
+    }>
+  }
+}
+
+export type SetAgentLibrarySkillResponse = SetAgentLibrarySkillResponses[keyof SetAgentLibrarySkillResponses]
+
 export type PreviewComputedPrincipalGroupMembersData = {
   /**
    * Request body for the preview_computed_principal_group_members operation on principal_group resource
@@ -4633,6 +5181,136 @@ export type AssignAgentWorkerProviderResponses = {
 
 export type AssignAgentWorkerProviderResponse =
   AssignAgentWorkerProviderResponses[keyof AssignAgentWorkerProviderResponses]
+
+export type ShowBrainObjectData = {
+  body?: never
+  path?: never
+  query: {
+    slug: string
+  }
+  url: '/api/v2/brain/objects/show'
+}
+
+export type ShowBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ShowBrainObjectError = ShowBrainObjectErrors[keyof ShowBrainObjectErrors]
+
+export type ShowBrainObjectResponses = {
+  /**
+   * Success
+   */
+  200: {
+    candidates?: Array<{
+      slug: string
+      subtype?: string | null
+      title: string
+      type: string
+    }> | null
+    object?: {
+      body: string
+      content_hash?: string | null
+      contradictions: Array<{
+        axis?: string | null
+        claim_id: string
+        counterpart: {
+          claim: string
+          holder?: string | null
+          id: string
+        }
+        id: string
+        severity: string
+        verdict: string
+      }>
+      deleted: boolean
+      edit_block_reason?: string | null
+      editable: boolean
+      effective_date?: string | null
+      facts: Array<{
+        audience_scope: string
+        author?: {
+          tenant_id: string
+          uid: string
+        } | null
+        claim: string
+        confidence?: number | null
+        expired_at?: string | null
+        holder?: string | null
+        id: string
+        kind?: string | null
+        notability?: string | null
+        provenance?: string | null
+        superseded_by?: string | null
+        valid_from?: string | null
+        valid_until?: string | null
+      }>
+      library_managed?: boolean | null
+      links: {
+        incoming: Array<{
+          context?: string | null
+          from: string
+          link_type: string
+        }>
+        outgoing: Array<{
+          context?: string | null
+          link_type: string
+          to: string
+        }>
+      }
+      meta: {
+        [key: string]: unknown
+      }
+      rendered: string
+      slug: string
+      subtype?: string | null
+      tags: Array<string>
+      takes: Array<{
+        active?: boolean | null
+        audience_scope: string
+        author?: {
+          tenant_id: string
+          uid: string
+        } | null
+        claim: string
+        graded_at?: string | null
+        graded_confidence?: number | null
+        graded_quality?: string | null
+        holder?: string | null
+        id: string
+        kind?: string | null
+        provenance?: string | null
+        resolved_at?: string | null
+        resolved_outcome?: boolean | null
+        resolved_quality?: string | null
+        since_date?: string | null
+        superseded_by?: string | null
+        until_date?: string | null
+        weight?: number | null
+      }>
+      timelines: Array<{
+        audience_scope: string
+        author?: {
+          tenant_id: string
+          uid: string
+        } | null
+        date: string
+        detail?: string | null
+        event_object_slug?: string | null
+        id: string
+        provenance?: string | null
+        summary: string
+      }>
+      title: string
+      type: string
+    } | null
+  }
+}
+
+export type ShowBrainObjectResponse = ShowBrainObjectResponses[keyof ShowBrainObjectResponses]
 
 export type DeleteAgentWorkerEnvData = {
   body?: never
@@ -4716,6 +5394,169 @@ export type UpdateAgentWorkerEnvResponses = {
 }
 
 export type UpdateAgentWorkerEnvResponse = UpdateAgentWorkerEnvResponses[keyof UpdateAgentWorkerEnvResponses]
+
+export type GetHumanAccessData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/principals/{uid}/access'
+}
+
+export type GetHumanAccessErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetHumanAccessError = GetHumanAccessErrors[keyof GetHumanAccessErrors]
+
+export type GetHumanAccessResponses = {
+  /**
+   * Success
+   */
+  200: {
+    access_revoked_at?: string | null
+    access_version: number
+    cleanup_jobs: Array<{
+      attempt: number
+      completed_at?: string | null
+      discarded_at?: string | null
+      id: number
+      max_attempts: number
+      scheduled_at?: string | null
+      state: string
+    }>
+    history: Array<{
+      access_version: number
+      action: string
+      actor?: {
+        tenant_id: string
+        uid: string
+      } | null
+      details?: unknown | null
+      id: string
+      inserted_at: string
+      reason: string
+      source: string
+    }>
+    permission_review: {
+      fingerprint: string
+      permissions: {
+        grants: Array<{
+          action: string
+          condition?: unknown | null
+          group_id?: string | null
+          id: string
+          principal_uid?: string | null
+          resource_pattern: string
+        }>
+        groups: Array<{
+          condition?: unknown | null
+          domain: string
+          id: string
+          kind: string
+          name: string
+        }>
+        principal: {
+          access_version: number
+          avatar_url?: string | null
+          display_name?: string | null
+          uid: string
+        }
+      }
+    }
+    restrictions: Array<{
+      cleared_at?: string | null
+      id: string
+      inserted_at: string
+      provider_time?: string | null
+      reason: string
+      recovery_verified_at?: string | null
+      source: string
+    }>
+    status: string
+    uid: string
+    work: Array<{
+      agent_uid: string
+      authorization_kind: string
+      can_reauthorize: boolean
+      human_access_version?: number | null
+      human_uid?: string | null
+      id: string
+      kind: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type GetHumanAccessResponse = GetHumanAccessResponses[keyof GetHumanAccessResponses]
+
+export type SetGlobalLibrarySkillData = {
+  /**
+   * Request body for the set_global_library_skill operation on agent_library_console resource
+   */
+  body: {
+    data: {
+      enabled: boolean
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/agent-library/skills/{id}'
+}
+
+export type SetGlobalLibrarySkillErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SetGlobalLibrarySkillError = SetGlobalLibrarySkillErrors[keyof SetGlobalLibrarySkillErrors]
+
+export type SetGlobalLibrarySkillResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugins: Array<{
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      override_enabled?: boolean | null
+      skills: Array<{
+        agent_plugin_id?: string | null
+        description: string
+        effective_enabled: boolean
+        global_default_enabled: boolean
+        id: string
+        name: string
+        override_enabled?: boolean | null
+        source_kind: string
+      }>
+      version: string
+    }>
+    skills: Array<{
+      agent_plugin_id?: string | null
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      name: string
+      override_enabled?: boolean | null
+      source_kind: string
+    }>
+  }
+}
+
+export type SetGlobalLibrarySkillResponse = SetGlobalLibrarySkillResponses[keyof SetGlobalLibrarySkillResponses]
 
 export type ForgetBrainObjectData = {
   /**
@@ -4863,6 +5704,101 @@ export type ListBrainClaimsResponses = {
 
 export type ListBrainClaimsResponse = ListBrainClaimsResponses[keyof ListBrainClaimsResponses]
 
+export type DeleteAgentModelProfileData = {
+  body?: never
+  path: {
+    profile: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/model-profiles/{profile}'
+}
+
+export type DeleteAgentModelProfileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteAgentModelProfileError = DeleteAgentModelProfileErrors[keyof DeleteAgentModelProfileErrors]
+
+export type DeleteAgentModelProfileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    model_profile: {
+      configured: boolean
+      context_length?: number | null
+      description?: string | null
+      model?: string | null
+      profile: string
+      provider_id?: string | null
+      provider_options?: {
+        [key: string]: unknown
+      } | null
+    }
+  }
+}
+
+export type DeleteAgentModelProfileResponse = DeleteAgentModelProfileResponses[keyof DeleteAgentModelProfileResponses]
+
+export type PutAgentModelProfileData = {
+  /**
+   * Request body for the put_agent_model_profile operation on agent_model_configuration resource
+   */
+  body: {
+    data: {
+      attrs: {
+        context_length?: number | null
+        description?: string | null
+        model?: string | null
+        provider_id?: string | null
+        provider_options?: {
+          [key: string]: unknown
+        } | null
+      }
+    }
+  }
+  path: {
+    profile: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/model-profiles/{profile}'
+}
+
+export type PutAgentModelProfileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutAgentModelProfileError = PutAgentModelProfileErrors[keyof PutAgentModelProfileErrors]
+
+export type PutAgentModelProfileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    model_profile: {
+      configured: boolean
+      context_length?: number | null
+      description?: string | null
+      model?: string | null
+      profile: string
+      provider_id?: string | null
+      provider_options?: {
+        [key: string]: unknown
+      } | null
+    }
+  }
+}
+
+export type PutAgentModelProfileResponse = PutAgentModelProfileResponses[keyof PutAgentModelProfileResponses]
+
 export type ListSignalBindingsData = {
   body?: never
   path?: never
@@ -4965,6 +5901,62 @@ export type GetAutomationJobResponses = {
 
 export type GetAutomationJobResponse = GetAutomationJobResponses[keyof GetAutomationJobResponses]
 
+export type ListBrainObjectTypesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/brain/object-types'
+}
+
+export type ListBrainObjectTypesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainObjectTypesError = ListBrainObjectTypesErrors[keyof ListBrainObjectTypesErrors]
+
+export type ListBrainObjectTypesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    types: Array<string>
+  }
+}
+
+export type ListBrainObjectTypesResponse = ListBrainObjectTypesResponses[keyof ListBrainObjectTypesResponses]
+
+export type RotateOidcClientSecretData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/oidc-clients/{id}/secret-rotations'
+}
+
+export type RotateOidcClientSecretErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RotateOidcClientSecretError = RotateOidcClientSecretErrors[keyof RotateOidcClientSecretErrors]
+
+export type RotateOidcClientSecretResponses = {
+  /**
+   * Success
+   */
+  201: {
+    client_secret: string
+  }
+}
+
+export type RotateOidcClientSecretResponse = RotateOidcClientSecretResponses[keyof RotateOidcClientSecretResponses]
+
 export type CancelBackgroundAgentJobData = {
   body?: never
   path: {
@@ -4992,6 +5984,187 @@ export type CancelBackgroundAgentJobResponses = {
 
 export type CancelBackgroundAgentJobResponse =
   CancelBackgroundAgentJobResponses[keyof CancelBackgroundAgentJobResponses]
+
+export type RunIdentityProviderSyncData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/identity-providers/{provider_id}/sync-runs'
+}
+
+export type RunIdentityProviderSyncErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RunIdentityProviderSyncError = RunIdentityProviderSyncErrors[keyof RunIdentityProviderSyncErrors]
+
+export type RunIdentityProviderSyncResponses = {
+  /**
+   * Success
+   */
+  201: {
+    sync_run: {
+      job_id?: number | null
+      provider_id: string
+      status: string
+    }
+  }
+}
+
+export type RunIdentityProviderSyncResponse = RunIdentityProviderSyncResponses[keyof RunIdentityProviderSyncResponses]
+
+export type ListIdentityProviderAdaptersData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/identity-provider-adapters'
+}
+
+export type ListIdentityProviderAdaptersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListIdentityProviderAdaptersError =
+  ListIdentityProviderAdaptersErrors[keyof ListIdentityProviderAdaptersErrors]
+
+export type ListIdentityProviderAdaptersResponses = {
+  /**
+   * Success
+   */
+  200: {
+    identity_provider_adapters: Array<{
+      adapter_id: string
+      capabilities: Array<string>
+      default_provider_id: string
+      display_name?: {
+        [key: string]: unknown
+      } | null
+      fields: Array<{
+        [key: string]: unknown
+      }>
+      plugin_id?: string | null
+    }>
+  }
+}
+
+export type ListIdentityProviderAdaptersResponse =
+  ListIdentityProviderAdaptersResponses[keyof ListIdentityProviderAdaptersResponses]
+
+export type DisableHumanAccessData = {
+  /**
+   * Request body for the disable_human_access operation on human_access resource
+   */
+  body: {
+    data: {
+      operation_id: string
+      reason: string
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/principals/{uid}/access-disables'
+}
+
+export type DisableHumanAccessErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DisableHumanAccessError = DisableHumanAccessErrors[keyof DisableHumanAccessErrors]
+
+export type DisableHumanAccessResponses = {
+  /**
+   * Success
+   */
+  201: {
+    access_revoked_at?: string | null
+    access_version: number
+    cleanup_jobs: Array<{
+      attempt: number
+      completed_at?: string | null
+      discarded_at?: string | null
+      id: number
+      max_attempts: number
+      scheduled_at?: string | null
+      state: string
+    }>
+    history: Array<{
+      access_version: number
+      action: string
+      actor?: {
+        tenant_id: string
+        uid: string
+      } | null
+      details?: unknown | null
+      id: string
+      inserted_at: string
+      reason: string
+      source: string
+    }>
+    permission_review: {
+      fingerprint: string
+      permissions: {
+        grants: Array<{
+          action: string
+          condition?: unknown | null
+          group_id?: string | null
+          id: string
+          principal_uid?: string | null
+          resource_pattern: string
+        }>
+        groups: Array<{
+          condition?: unknown | null
+          domain: string
+          id: string
+          kind: string
+          name: string
+        }>
+        principal: {
+          access_version: number
+          avatar_url?: string | null
+          display_name?: string | null
+          uid: string
+        }
+      }
+    }
+    restrictions: Array<{
+      cleared_at?: string | null
+      id: string
+      inserted_at: string
+      provider_time?: string | null
+      reason: string
+      recovery_verified_at?: string | null
+      source: string
+    }>
+    status: string
+    uid: string
+    work: Array<{
+      agent_uid: string
+      authorization_kind: string
+      can_reauthorize: boolean
+      human_access_version?: number | null
+      human_uid?: string | null
+      id: string
+      kind: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type DisableHumanAccessResponse = DisableHumanAccessResponses[keyof DisableHumanAccessResponses]
 
 export type GetPrincipalData = {
   body?: never
@@ -5103,6 +6276,80 @@ export type UpdateHumanResponses = {
 }
 
 export type UpdateHumanResponse = UpdateHumanResponses[keyof UpdateHumanResponses]
+
+export type ApproveIdentityDirectoryData = {
+  /**
+   * Request body for the approve_identity_directory operation on identity_provider_operation resource
+   */
+  body: {
+    data: {
+      confirm_removals: boolean
+      reason: string
+      snapshot_fingerprint: string
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/identity-providers/{provider_id}/directory-reviews'
+}
+
+export type ApproveIdentityDirectoryErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ApproveIdentityDirectoryError = ApproveIdentityDirectoryErrors[keyof ApproveIdentityDirectoryErrors]
+
+export type ApproveIdentityDirectoryResponses = {
+  /**
+   * Success
+   */
+  201: {
+    events: Array<{
+      event_id: string
+      event_type: string
+      external_ids: Array<string>
+      id: string
+      inserted_at: string
+      last_error?: string | null
+      processed_at?: string | null
+      provider_time?: string | null
+      reason?: string | null
+      review_reason?: string | null
+      reviewed_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      status: string
+    }>
+    snapshot?: {
+      approved_scope_fingerprint?: string | null
+      last_error?: string | null
+      last_started_at?: string | null
+      last_success_at?: string | null
+      member_uids: Array<string>
+      missing_uids: Array<string>
+      provider_id: string
+      review_reason?: string | null
+      reviewed_at?: string | null
+      reviewed_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      revision: number
+      scope_fingerprint?: string | null
+      snapshot_fingerprint?: string | null
+      status: string
+    } | null
+  }
+}
+
+export type ApproveIdentityDirectoryResponse =
+  ApproveIdentityDirectoryResponses[keyof ApproveIdentityDirectoryResponses]
 
 export type GetSignalBindingData = {
   body?: never
@@ -5294,6 +6541,41 @@ export type ListAutomationJobsResponses = {
 
 export type ListAutomationJobsResponse = ListAutomationJobsResponses[keyof ListAutomationJobsResponses]
 
+export type ListAgentModelProfilesData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/model-profiles'
+}
+
+export type ListAgentModelProfilesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAgentModelProfilesError = ListAgentModelProfilesErrors[keyof ListAgentModelProfilesErrors]
+
+export type ListAgentModelProfilesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    model_profiles: {
+      [key: string]: unknown
+    }
+    provider_hosted: {
+      image_generate: boolean
+      web_search: boolean
+    }
+  }
+}
+
+export type ListAgentModelProfilesResponse = ListAgentModelProfilesResponses[keyof ListAgentModelProfilesResponses]
+
 export type ListPrincipalGroupGrantsData = {
   body?: never
   path: {
@@ -5398,6 +6680,81 @@ export type BackgroundActivityAutomationRunsResponses = {
 export type BackgroundActivityAutomationRunsResponse =
   BackgroundActivityAutomationRunsResponses[keyof BackgroundActivityAutomationRunsResponses]
 
+export type ReviewIdentityDirectoryEventData = {
+  /**
+   * Request body for the review_identity_directory_event operation on identity_provider_operation resource
+   */
+  body: {
+    data: {
+      action: 'retry' | 'dismiss'
+      reason: string
+    }
+  }
+  path: {
+    event_id: string
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/identity-providers/{provider_id}/directory-events/{event_id}/reviews'
+}
+
+export type ReviewIdentityDirectoryEventErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ReviewIdentityDirectoryEventError =
+  ReviewIdentityDirectoryEventErrors[keyof ReviewIdentityDirectoryEventErrors]
+
+export type ReviewIdentityDirectoryEventResponses = {
+  /**
+   * Success
+   */
+  201: {
+    events: Array<{
+      event_id: string
+      event_type: string
+      external_ids: Array<string>
+      id: string
+      inserted_at: string
+      last_error?: string | null
+      processed_at?: string | null
+      provider_time?: string | null
+      reason?: string | null
+      review_reason?: string | null
+      reviewed_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      status: string
+    }>
+    snapshot?: {
+      approved_scope_fingerprint?: string | null
+      last_error?: string | null
+      last_started_at?: string | null
+      last_success_at?: string | null
+      member_uids: Array<string>
+      missing_uids: Array<string>
+      provider_id: string
+      review_reason?: string | null
+      reviewed_at?: string | null
+      reviewed_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      revision: number
+      scope_fingerprint?: string | null
+      snapshot_fingerprint?: string | null
+      status: string
+    } | null
+  }
+}
+
+export type ReviewIdentityDirectoryEventResponse =
+  ReviewIdentityDirectoryEventResponses[keyof ReviewIdentityDirectoryEventResponses]
+
 export type ListCheckbacksData = {
   body?: never
   path?: never
@@ -5494,6 +6851,82 @@ export type ResolveBrainTakeResponses = {
 
 export type ResolveBrainTakeResponse = ResolveBrainTakeResponses[keyof ResolveBrainTakeResponses]
 
+export type ListIdentityProvidersData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/identity-providers'
+}
+
+export type ListIdentityProvidersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListIdentityProvidersError = ListIdentityProvidersErrors[keyof ListIdentityProvidersErrors]
+
+export type ListIdentityProvidersResponses = {
+  /**
+   * Success
+   */
+  200: {
+    identity_providers: Array<{
+      adapter_id: string
+      config: {
+        [key: string]: unknown
+      }
+      config_key: string
+      enabled: boolean
+      plugin_id?: string | null
+      provider_id: string
+      stored_secret_paths: Array<string>
+    }>
+  }
+}
+
+export type ListIdentityProvidersResponse = ListIdentityProvidersResponses[keyof ListIdentityProvidersResponses]
+
+export type ResetAgentTokenQuotaData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/token-quota/reset'
+}
+
+export type ResetAgentTokenQuotaErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResetAgentTokenQuotaError = ResetAgentTokenQuotaErrors[keyof ResetAgentTokenQuotaErrors]
+
+export type ResetAgentTokenQuotaResponses = {
+  /**
+   * Success
+   */
+  201: {
+    token_quota?: {
+      limit_tokens: number
+      period_days: number
+      period_start_at: string
+    } | null
+    usage?: {
+      exceeded: boolean
+      used_tokens: number
+      window_ends_at: string
+      window_started_at: string
+    } | null
+  }
+}
+
+export type ResetAgentTokenQuotaResponse = ResetAgentTokenQuotaResponses[keyof ResetAgentTokenQuotaResponses]
+
 export type ListAutomationJobRunsData = {
   body?: never
   path: {
@@ -5553,6 +6986,183 @@ export type ListAutomationJobRunsResponses = {
 }
 
 export type ListAutomationJobRunsResponse = ListAutomationJobRunsResponses[keyof ListAutomationJobRunsResponses]
+
+export type DeleteAgentTokenQuotaData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/token-quota'
+}
+
+export type DeleteAgentTokenQuotaErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteAgentTokenQuotaError = DeleteAgentTokenQuotaErrors[keyof DeleteAgentTokenQuotaErrors]
+
+export type DeleteAgentTokenQuotaResponses = {
+  /**
+   * Success
+   */
+  200: {
+    token_quota?: {
+      limit_tokens: number
+      period_days: number
+      period_start_at: string
+    } | null
+    usage?: {
+      exceeded: boolean
+      used_tokens: number
+      window_ends_at: string
+      window_started_at: string
+    } | null
+  }
+}
+
+export type DeleteAgentTokenQuotaResponse = DeleteAgentTokenQuotaResponses[keyof DeleteAgentTokenQuotaResponses]
+
+export type GetAgentTokenQuotaData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/token-quota'
+}
+
+export type GetAgentTokenQuotaErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetAgentTokenQuotaError = GetAgentTokenQuotaErrors[keyof GetAgentTokenQuotaErrors]
+
+export type GetAgentTokenQuotaResponses = {
+  /**
+   * Success
+   */
+  200: {
+    token_quota?: {
+      limit_tokens: number
+      period_days: number
+      period_start_at: string
+    } | null
+    usage?: {
+      exceeded: boolean
+      used_tokens: number
+      window_ends_at: string
+      window_started_at: string
+    } | null
+  }
+}
+
+export type GetAgentTokenQuotaResponse = GetAgentTokenQuotaResponses[keyof GetAgentTokenQuotaResponses]
+
+export type PutAgentTokenQuotaData = {
+  /**
+   * Request body for the put_agent_token_quota operation on agent_model_configuration resource
+   */
+  body: {
+    data: {
+      limit_tokens: number
+      period_days: number
+      period_start_at?: string | null
+    }
+  }
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/token-quota'
+}
+
+export type PutAgentTokenQuotaErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutAgentTokenQuotaError = PutAgentTokenQuotaErrors[keyof PutAgentTokenQuotaErrors]
+
+export type PutAgentTokenQuotaResponses = {
+  /**
+   * Success
+   */
+  200: {
+    token_quota?: {
+      limit_tokens: number
+      period_days: number
+      period_start_at: string
+    } | null
+    usage?: {
+      exceeded: boolean
+      used_tokens: number
+      window_ends_at: string
+      window_started_at: string
+    } | null
+  }
+}
+
+export type PutAgentTokenQuotaResponse = PutAgentTokenQuotaResponses[keyof PutAgentTokenQuotaResponses]
+
+export type ListAgentLibraryDocumentsData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/library-documents'
+}
+
+export type ListAgentLibraryDocumentsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAgentLibraryDocumentsError = ListAgentLibraryDocumentsErrors[keyof ListAgentLibraryDocumentsErrors]
+
+export type ListAgentLibraryDocumentsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    library_documents: {
+      confidentiality_policy: {
+        content: string
+        content_hash: string
+        kind: string
+      }
+      design: {
+        content: string
+        content_hash: string
+        kind: string
+      }
+      mission: {
+        content: string
+        content_hash: string
+        kind: string
+      }
+      soul: {
+        content: string
+        content_hash: string
+        kind: string
+      }
+    }
+  }
+}
+
+export type ListAgentLibraryDocumentsResponse =
+  ListAgentLibraryDocumentsResponses[keyof ListAgentLibraryDocumentsResponses]
 
 export type DeleteWorkerEnvData = {
   body?: never
@@ -5751,6 +7361,106 @@ export type PutSignalBindingResponses = {
 
 export type PutSignalBindingResponse = PutSignalBindingResponses[keyof PutSignalBindingResponses]
 
+export type RetryHumanWorkCleanupData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/principals/{uid}/work-cleanup-retries'
+}
+
+export type RetryHumanWorkCleanupErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RetryHumanWorkCleanupError = RetryHumanWorkCleanupErrors[keyof RetryHumanWorkCleanupErrors]
+
+export type RetryHumanWorkCleanupResponses = {
+  /**
+   * Success
+   */
+  201: {
+    access_revoked_at?: string | null
+    access_version: number
+    cleanup_jobs: Array<{
+      attempt: number
+      completed_at?: string | null
+      discarded_at?: string | null
+      id: number
+      max_attempts: number
+      scheduled_at?: string | null
+      state: string
+    }>
+    history: Array<{
+      access_version: number
+      action: string
+      actor?: {
+        tenant_id: string
+        uid: string
+      } | null
+      details?: unknown | null
+      id: string
+      inserted_at: string
+      reason: string
+      source: string
+    }>
+    permission_review: {
+      fingerprint: string
+      permissions: {
+        grants: Array<{
+          action: string
+          condition?: unknown | null
+          group_id?: string | null
+          id: string
+          principal_uid?: string | null
+          resource_pattern: string
+        }>
+        groups: Array<{
+          condition?: unknown | null
+          domain: string
+          id: string
+          kind: string
+          name: string
+        }>
+        principal: {
+          access_version: number
+          avatar_url?: string | null
+          display_name?: string | null
+          uid: string
+        }
+      }
+    }
+    restrictions: Array<{
+      cleared_at?: string | null
+      id: string
+      inserted_at: string
+      provider_time?: string | null
+      reason: string
+      recovery_verified_at?: string | null
+      source: string
+    }>
+    status: string
+    uid: string
+    work: Array<{
+      agent_uid: string
+      authorization_kind: string
+      can_reauthorize: boolean
+      human_access_version?: number | null
+      human_uid?: string | null
+      id: string
+      kind: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type RetryHumanWorkCleanupResponse = RetryHumanWorkCleanupResponses[keyof RetryHumanWorkCleanupResponses]
+
 export type ListGrantsOfPrincipalData = {
   body?: never
   path: {
@@ -5926,6 +7636,46 @@ export type CreateOidcClientResponses = {
 
 export type CreateOidcClientResponse = CreateOidcClientResponses[keyof CreateOidcClientResponses]
 
+export type PutAgentProviderHostedData = {
+  /**
+   * Request body for the put_agent_provider_hosted operation on agent_model_configuration resource
+   */
+  body?: {
+    data: {
+      image_generate?: boolean | null
+      web_search?: boolean | null
+    }
+  }
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/provider-hosted'
+}
+
+export type PutAgentProviderHostedErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutAgentProviderHostedError = PutAgentProviderHostedErrors[keyof PutAgentProviderHostedErrors]
+
+export type PutAgentProviderHostedResponses = {
+  /**
+   * Success
+   */
+  200: {
+    provider_hosted: {
+      image_generate: boolean
+      web_search: boolean
+    }
+  }
+}
+
+export type PutAgentProviderHostedResponse = PutAgentProviderHostedResponses[keyof PutAgentProviderHostedResponses]
+
 export type ListPrincipalsData = {
   body?: never
   path?: never
@@ -6040,6 +7790,64 @@ export type CreateLocalUserResponses = {
 
 export type CreateLocalUserResponse = CreateLocalUserResponses[keyof CreateLocalUserResponses]
 
+export type GetAgentLibraryCapabilitiesData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/library-capabilities'
+}
+
+export type GetAgentLibraryCapabilitiesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetAgentLibraryCapabilitiesError =
+  GetAgentLibraryCapabilitiesErrors[keyof GetAgentLibraryCapabilitiesErrors]
+
+export type GetAgentLibraryCapabilitiesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugins: Array<{
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      override_enabled?: boolean | null
+      skills: Array<{
+        agent_plugin_id?: string | null
+        description: string
+        effective_enabled: boolean
+        global_default_enabled: boolean
+        id: string
+        name: string
+        override_enabled?: boolean | null
+        source_kind: string
+      }>
+      version: string
+    }>
+    skills: Array<{
+      agent_plugin_id?: string | null
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      name: string
+      override_enabled?: boolean | null
+      source_kind: string
+    }>
+  }
+}
+
+export type GetAgentLibraryCapabilitiesResponse =
+  GetAgentLibraryCapabilitiesResponses[keyof GetAgentLibraryCapabilitiesResponses]
+
 export type ListIdentityMappingRequestsData = {
   body?: never
   path?: never
@@ -6090,6 +7898,116 @@ export type ListIdentityMappingRequestsResponses = {
 
 export type ListIdentityMappingRequestsResponse =
   ListIdentityMappingRequestsResponses[keyof ListIdentityMappingRequestsResponses]
+
+export type GetBrainHealthData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/brain/health'
+}
+
+export type GetBrainHealthErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetBrainHealthError = GetBrainHealthErrors[keyof GetBrainHealthErrors]
+
+export type GetBrainHealthResponses = {
+  /**
+   * Success
+   */
+  200: {
+    health: {
+      channels_without_member_group: Array<string>
+      config: {
+        [key: string]: unknown
+      }
+      context_pack: {
+        degraded: number
+        served: number
+      }
+      embedding_signature?: unknown | null
+      embeddings: {
+        failed_chunks: number
+        failed_claims: number
+        pending_chunks: number
+        recent_error?: string | null
+      }
+      enabled: boolean
+      grading?: {
+        [key: string]: unknown
+      } | null
+      maintainer_agent_uid?: string | null
+      models: {
+        dreaming: {
+          configured: boolean
+          model?: string | null
+          profile?: string | null
+          profile_error?: string | null
+          provider_available?: boolean | null
+          provider_error?: string | null
+          provider_id?: string | null
+        }
+        embedding: {
+          configured: boolean
+          model?: string | null
+          profile?: string | null
+          profile_error?: string | null
+          provider_available?: boolean | null
+          provider_error?: string | null
+          provider_id?: string | null
+        }
+        extraction: {
+          configured: boolean
+          model?: string | null
+          profile?: string | null
+          profile_error?: string | null
+          provider_available?: boolean | null
+          provider_error?: string | null
+          provider_id?: string | null
+        }
+        rerank: {
+          configured: boolean
+          model?: string | null
+          profile?: string | null
+          profile_error?: string | null
+          provider_available?: boolean | null
+          provider_error?: string | null
+          provider_id?: string | null
+        }
+        web_fetch: {
+          configured: boolean
+          model?: string | null
+          profile?: string | null
+          profile_error?: string | null
+          provider_available?: boolean | null
+          provider_error?: string | null
+          provider_id?: string | null
+        }
+      }
+      signals: {
+        oldest_pending_age_seconds?: number | null
+        pending_channels: number
+      }
+      skill_lessons: {
+        active_per_agent?: {
+          [key: string]: unknown
+        } | null
+        added_last_7d?: number | null
+        enabled?: boolean | null
+        oldest_active_days?: number | null
+        retired_last_7d?: {
+          [key: string]: unknown
+        } | null
+      }
+    }
+  }
+}
+
+export type GetBrainHealthResponse = GetBrainHealthResponses[keyof GetBrainHealthResponses]
 
 export type ListAppConfigurationsData = {
   body?: never
@@ -6411,6 +8329,91 @@ export type RunCronScheduleResponses = {
 
 export type RunCronScheduleResponse = RunCronScheduleResponses[keyof RunCronScheduleResponses]
 
+export type ListWorkAccessReviewsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/work-access-reviews'
+}
+
+export type ListWorkAccessReviewsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListWorkAccessReviewsError = ListWorkAccessReviewsErrors[keyof ListWorkAccessReviewsErrors]
+
+export type ListWorkAccessReviewsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    work: Array<{
+      agent_uid: string
+      authorization_kind: string
+      can_reauthorize: boolean
+      human_access_version?: number | null
+      human_uid?: string | null
+      id: string
+      kind: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type ListWorkAccessReviewsResponse = ListWorkAccessReviewsResponses[keyof ListWorkAccessReviewsResponses]
+
+export type ClassifyWorkAccessData = {
+  /**
+   * Request body for the classify_work_access operation on human_access resource
+   */
+  body: {
+    data: {
+      authorization_kind: 'human' | 'service'
+      human_uid?: string | null
+      id: string
+      kind: string
+      reason: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/work-access-reviews'
+}
+
+export type ClassifyWorkAccessErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ClassifyWorkAccessError = ClassifyWorkAccessErrors[keyof ClassifyWorkAccessErrors]
+
+export type ClassifyWorkAccessResponses = {
+  /**
+   * Success
+   */
+  201: {
+    work: Array<{
+      agent_uid: string
+      authorization_kind: string
+      can_reauthorize: boolean
+      human_access_version?: number | null
+      human_uid?: string | null
+      id: string
+      kind: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type ClassifyWorkAccessResponse = ClassifyWorkAccessResponses[keyof ClassifyWorkAccessResponses]
+
 export type DecryptWorkerEnvData = {
   body?: never
   path: {
@@ -6443,6 +8446,70 @@ export type DecryptWorkerEnvResponses = {
 
 export type DecryptWorkerEnvResponse = DecryptWorkerEnvResponses[keyof DecryptWorkerEnvResponses]
 
+export type SetAgentLibraryPluginData = {
+  /**
+   * Request body for the set_agent_library_plugin operation on agent_library_console resource
+   */
+  body?: {
+    data: {
+      enabled?: boolean | null
+    }
+  }
+  path: {
+    id: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/library-capabilities/agent-plugins/{id}'
+}
+
+export type SetAgentLibraryPluginErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SetAgentLibraryPluginError = SetAgentLibraryPluginErrors[keyof SetAgentLibraryPluginErrors]
+
+export type SetAgentLibraryPluginResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugins: Array<{
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      override_enabled?: boolean | null
+      skills: Array<{
+        agent_plugin_id?: string | null
+        description: string
+        effective_enabled: boolean
+        global_default_enabled: boolean
+        id: string
+        name: string
+        override_enabled?: boolean | null
+        source_kind: string
+      }>
+      version: string
+    }>
+    skills: Array<{
+      agent_plugin_id?: string | null
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      name: string
+      override_enabled?: boolean | null
+      source_kind: string
+    }>
+  }
+}
+
+export type SetAgentLibraryPluginResponse = SetAgentLibraryPluginResponses[keyof SetAgentLibraryPluginResponses]
+
 export type ArchiveBrainSourceData = {
   body?: never
   path: {
@@ -6469,6 +8536,116 @@ export type ArchiveBrainSourceResponses = {
 }
 
 export type ArchiveBrainSourceResponse = ArchiveBrainSourceResponses[keyof ArchiveBrainSourceResponses]
+
+export type RestoreHumanAccessData = {
+  /**
+   * Request body for the restore_human_access operation on human_access resource
+   */
+  body: {
+    data: {
+      identity_verified: boolean
+      operation_id: string
+      reason: string
+      review_fingerprint: string
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/principals/{uid}/access-restorations'
+}
+
+export type RestoreHumanAccessErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RestoreHumanAccessError = RestoreHumanAccessErrors[keyof RestoreHumanAccessErrors]
+
+export type RestoreHumanAccessResponses = {
+  /**
+   * Success
+   */
+  201: {
+    access_revoked_at?: string | null
+    access_version: number
+    cleanup_jobs: Array<{
+      attempt: number
+      completed_at?: string | null
+      discarded_at?: string | null
+      id: number
+      max_attempts: number
+      scheduled_at?: string | null
+      state: string
+    }>
+    history: Array<{
+      access_version: number
+      action: string
+      actor?: {
+        tenant_id: string
+        uid: string
+      } | null
+      details?: unknown | null
+      id: string
+      inserted_at: string
+      reason: string
+      source: string
+    }>
+    permission_review: {
+      fingerprint: string
+      permissions: {
+        grants: Array<{
+          action: string
+          condition?: unknown | null
+          group_id?: string | null
+          id: string
+          principal_uid?: string | null
+          resource_pattern: string
+        }>
+        groups: Array<{
+          condition?: unknown | null
+          domain: string
+          id: string
+          kind: string
+          name: string
+        }>
+        principal: {
+          access_version: number
+          avatar_url?: string | null
+          display_name?: string | null
+          uid: string
+        }
+      }
+    }
+    restrictions: Array<{
+      cleared_at?: string | null
+      id: string
+      inserted_at: string
+      provider_time?: string | null
+      reason: string
+      recovery_verified_at?: string | null
+      source: string
+    }>
+    status: string
+    uid: string
+    work: Array<{
+      agent_uid: string
+      authorization_kind: string
+      can_reauthorize: boolean
+      human_access_version?: number | null
+      human_uid?: string | null
+      id: string
+      kind: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type RestoreHumanAccessResponse = RestoreHumanAccessResponses[keyof RestoreHumanAccessResponses]
 
 export type ListAgentSessionsData = {
   body?: never
@@ -6948,6 +9125,36 @@ export type UpdateBrainSourceResponses = {
 }
 
 export type UpdateBrainSourceResponse = UpdateBrainSourceResponses[keyof UpdateBrainSourceResponses]
+
+export type ListOidcLoginSourcesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/oidc-clients/login-sources'
+}
+
+export type ListOidcLoginSourcesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListOidcLoginSourcesError = ListOidcLoginSourcesErrors[keyof ListOidcLoginSourcesErrors]
+
+export type ListOidcLoginSourcesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    sources: Array<{
+      enabled: boolean
+      provider_id: string
+    }>
+  }
+}
+
+export type ListOidcLoginSourcesResponse = ListOidcLoginSourcesResponses[keyof ListOidcLoginSourcesResponses]
 
 export type BackgroundActivityWorkflowData = {
   body?: never
@@ -7660,6 +9867,62 @@ export type ListAiGatewayConversationsResponses = {
 export type ListAiGatewayConversationsResponse =
   ListAiGatewayConversationsResponses[keyof ListAiGatewayConversationsResponses]
 
+export type GetGlobalLibraryCapabilitiesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/agent-library/capabilities'
+}
+
+export type GetGlobalLibraryCapabilitiesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetGlobalLibraryCapabilitiesError =
+  GetGlobalLibraryCapabilitiesErrors[keyof GetGlobalLibraryCapabilitiesErrors]
+
+export type GetGlobalLibraryCapabilitiesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent_plugins: Array<{
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      override_enabled?: boolean | null
+      skills: Array<{
+        agent_plugin_id?: string | null
+        description: string
+        effective_enabled: boolean
+        global_default_enabled: boolean
+        id: string
+        name: string
+        override_enabled?: boolean | null
+        source_kind: string
+      }>
+      version: string
+    }>
+    skills: Array<{
+      agent_plugin_id?: string | null
+      description: string
+      effective_enabled: boolean
+      global_default_enabled: boolean
+      id: string
+      name: string
+      override_enabled?: boolean | null
+      source_kind: string
+    }>
+  }
+}
+
+export type GetGlobalLibraryCapabilitiesResponse =
+  GetGlobalLibraryCapabilitiesResponses[keyof GetGlobalLibraryCapabilitiesResponses]
+
 export type ListGroupsOfPrincipalData = {
   body?: never
   path: {
@@ -8120,6 +10383,35 @@ export type ApproveBrainSuggestionResponses = {
 
 export type ApproveBrainSuggestionResponse = ApproveBrainSuggestionResponses[keyof ApproveBrainSuggestionResponses]
 
+export type EnqueueBrainDreamData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/brain/dream'
+}
+
+export type EnqueueBrainDreamErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type EnqueueBrainDreamError = EnqueueBrainDreamErrors[keyof EnqueueBrainDreamErrors]
+
+export type EnqueueBrainDreamResponses = {
+  /**
+   * Success
+   */
+  201: {
+    result: {
+      status: string
+    }
+  }
+}
+
+export type EnqueueBrainDreamResponse = EnqueueBrainDreamResponses[keyof EnqueueBrainDreamResponses]
+
 export type RetireAgentSkillLessonData = {
   body?: never
   path: {
@@ -8470,6 +10762,117 @@ export type CreateBrainSourceResponses = {
 }
 
 export type CreateBrainSourceResponse = CreateBrainSourceResponses[keyof CreateBrainSourceResponses]
+
+export type ClearHumanAccessRestrictionData = {
+  /**
+   * Request body for the clear_human_access_restriction operation on human_access resource
+   */
+  body: {
+    data: {
+      operation_id: string
+      reason: string
+    }
+  }
+  path: {
+    restriction_id: string
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/principals/{uid}/access-restrictions/{restriction_id}/clear'
+}
+
+export type ClearHumanAccessRestrictionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ClearHumanAccessRestrictionError =
+  ClearHumanAccessRestrictionErrors[keyof ClearHumanAccessRestrictionErrors]
+
+export type ClearHumanAccessRestrictionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    access_revoked_at?: string | null
+    access_version: number
+    cleanup_jobs: Array<{
+      attempt: number
+      completed_at?: string | null
+      discarded_at?: string | null
+      id: number
+      max_attempts: number
+      scheduled_at?: string | null
+      state: string
+    }>
+    history: Array<{
+      access_version: number
+      action: string
+      actor?: {
+        tenant_id: string
+        uid: string
+      } | null
+      details?: unknown | null
+      id: string
+      inserted_at: string
+      reason: string
+      source: string
+    }>
+    permission_review: {
+      fingerprint: string
+      permissions: {
+        grants: Array<{
+          action: string
+          condition?: unknown | null
+          group_id?: string | null
+          id: string
+          principal_uid?: string | null
+          resource_pattern: string
+        }>
+        groups: Array<{
+          condition?: unknown | null
+          domain: string
+          id: string
+          kind: string
+          name: string
+        }>
+        principal: {
+          access_version: number
+          avatar_url?: string | null
+          display_name?: string | null
+          uid: string
+        }
+      }
+    }
+    restrictions: Array<{
+      cleared_at?: string | null
+      id: string
+      inserted_at: string
+      provider_time?: string | null
+      reason: string
+      recovery_verified_at?: string | null
+      source: string
+    }>
+    status: string
+    uid: string
+    work: Array<{
+      agent_uid: string
+      authorization_kind: string
+      can_reauthorize: boolean
+      human_access_version?: number | null
+      human_uid?: string | null
+      id: string
+      kind: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type ClearHumanAccessRestrictionResponse =
+  ClearHumanAccessRestrictionResponses[keyof ClearHumanAccessRestrictionResponses]
 
 export type ListAgentSkillLessonsData = {
   body?: never

@@ -169,6 +169,33 @@ defmodule Ankole.OIDC.Client do
   end
 
   actions do
+    action :login_sources, :map do
+      constraints(
+        fields: [
+          sources: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [
+              items: [
+                fields: [
+                  provider_id: [type: :string, allow_nil?: false],
+                  enabled: [type: :boolean, allow_nil?: false]
+                ]
+              ]
+            ]
+          ]
+        ]
+      )
+
+      run(__MODULE__.Actions)
+    end
+
+    action :console_rotate_secret, :map do
+      constraints(fields: [client_secret: [type: :string, allow_nil?: false]])
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      run(__MODULE__.Actions)
+    end
+
     defaults([:read])
 
     read :lookup_across_tenants do

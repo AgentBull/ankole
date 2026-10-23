@@ -58,6 +58,17 @@ also binds the stored protocol JSON to those native columns.
 - Only confidential Clients can introspect tokens. A Client can inspect only its
   own tokens.
 
+## Console Client Management
+
+The tenant Console manages Clients through `/api/v2/oidc-clients`.
+`GET /api/v2/oidc-clients/login-sources` lists tenant providers and registered
+site login sources for the Client's sign-in policy.
+`POST /api/v2/oidc-clients/:id/secret-rotations` requires the Client update
+permission and a confidential Client. It returns the new plaintext secret
+once with `Cache-Control: private, no-store`. Client reads exclude the secret
+and its ciphertext. The editor shows the rotation result in a dialog and
+clears it when the operator leaves that Client.
+
 ## Protocol and product ownership
 
 `Attesto.AuthorizationRequest` validates the protocol request and decides whether

@@ -37,19 +37,19 @@ defmodule AnkoleWeb.BrainControllerTest do
     worker_name = Oban.Worker.to_string(worker)
 
     assert %{"result" => %{"status" => "enqueued"}} =
-             conn |> post(~p"/api/v1/brain/dream") |> json_response(200)
+             conn |> api(:post, ~p"/api/v2/brain/dream") |> json_response(201)
 
     job = Repo.one!(from(job in Oban.Job, where: job.worker == ^worker_name))
     assert job.state == "available"
     assert job.args == %{"tenant_id" => Repo.tenant_id!()}
 
     assert %{"result" => %{"status" => "already_pending"}} =
-             conn |> recycle_api() |> post(~p"/api/v1/brain/dream") |> json_response(200)
+             conn |> recycle_api() |> api(:post, ~p"/api/v2/brain/dream") |> json_response(201)
 
     Repo.update!(Ecto.Changeset.change(job, state: "executing"))
 
     assert %{"result" => %{"status" => "already_pending"}} =
-             conn |> recycle_api() |> post(~p"/api/v1/brain/dream") |> json_response(200)
+             conn |> recycle_api() |> api(:post, ~p"/api/v2/brain/dream") |> json_response(201)
 
     assert {:ok, %{id: id, conflict?: true}} = Oban.insert(worker.new(%{}))
     assert id == job.id
@@ -70,22 +70,22 @@ defmodule AnkoleWeb.BrainControllerTest do
                metadata: %{}
              })
 
-    assert conn |> recycle_api() |> get(~p"/api/v1/brain/health") |> response(200)
+    assert conn |> recycle_api() |> api(:get, ~p"/api/v2/brain/health") |> response(200)
 
-    assert %{"error" => %{"code" => "forbidden"}} =
-             conn |> recycle_api() |> post(~p"/api/v1/brain/dream") |> json_response(403)
+    assert %{"errors" => [%{"code" => "forbidden"}]} =
+             conn |> recycle_api() |> api(:post, ~p"/api/v2/brain/dream") |> json_response(403)
 
     worker = Oban.Worker.to_string(Ankole.Brain.Jobs.Dreaming)
     assert Repo.aggregate(from(job in Oban.Job, where: job.worker == ^worker), :count) == 0
   end
 
   test "manual Dreaming rejects a disabled Brain and unauthenticated callers", %{conn: conn} do
-    assert conn |> post(~p"/api/v1/brain/dream") |> response(401)
+    assert conn |> api(:post, ~p"/api/v2/brain/dream") |> response(401)
     {conn, _principal_uid} = console_conn_with_principal(conn)
     assert {:ok, false} = AppConfigure.put_global_by_key("brain.enabled", false)
 
-    assert %{"error" => %{"code" => "brain_disabled"}} =
-             conn |> post(~p"/api/v1/brain/dream") |> json_response(422)
+    assert %{"errors" => [%{"detail" => "Brain is disabled"}]} =
+             conn |> api(:post, ~p"/api/v2/brain/dream") |> json_response(422)
 
     worker = Oban.Worker.to_string(Ankole.Brain.Jobs.Dreaming)
     assert Repo.aggregate(from(job in Oban.Job, where: job.worker == ^worker), :count) == 0
@@ -123,7 +123,7 @@ defmodule AnkoleWeb.BrainControllerTest do
 
     assert %{"health" => health} =
              conn
-             |> get(~p"/api/v1/brain/health")
+             |> api(:get, ~p"/api/v2/brain/health")
              |> json_response(200)
 
     assert health["maintainer_agent_uid"] == maintainer_uid
@@ -147,7 +147,8 @@ defmodule AnkoleWeb.BrainControllerTest do
   test "health reports that grading is skipped without a Dreaming model", %{conn: conn} do
     {conn, _principal_uid} = console_conn_with_principal(conn)
 
-    assert %{"health" => health} = conn |> get(~p"/api/v1/brain/health") |> json_response(200)
+    assert %{"health" => health} =
+             conn |> api(:get, ~p"/api/v2/brain/health") |> json_response(200)
 
     assert health["grading"] == %{
              "status" => "skipped",
@@ -171,7 +172,7 @@ defmodule AnkoleWeb.BrainControllerTest do
 
     assert %{"health" => health} =
              conn
-             |> get(~p"/api/v1/brain/health")
+             |> api(:get, ~p"/api/v2/brain/health")
              |> json_response(200)
 
     assert health["maintainer_agent_uid"] == maintainer.uid
@@ -238,7 +239,7 @@ defmodule AnkoleWeb.BrainControllerTest do
       capture_log([metadata: [:reason]], fn ->
         response =
           conn
-          |> get(~p"/api/v1/brain/health")
+          |> api(:get, ~p"/api/v2/brain/health")
           |> json_response(200)
 
         send(test_process, {:health_response, response})
@@ -251,5 +252,90 @@ defmodule AnkoleWeb.BrainControllerTest do
     refute inspect(health) =~ "cred-secret-123"
     refute inspect(health) =~ "OPEN_ROUTER_API_KEY"
     assert log =~ internal_reason
+  end
+
+  test "search preview applies the selected Principal's knowledge and disclosure boundary", %{
+    conn: conn
+  } do
+    {:ok, _} = Ankole.Brain.SchemaPacks.install_packs([])
+    {conn, writer_uid} = console_conn_with_principal(conn)
+    %{principal: member} = human_fixture()
+    %{principal: outsider} = human_fixture()
+
+    {:ok, object} =
+      Ankole.Brain.create_object(
+        %{
+          slug: "notes/zirconium-preview",
+          type: "note",
+          title: "Zirconium preview",
+          body: "Zirconium public research passage."
+        },
+        writer_uid
+      )
+
+    {:ok, %{claim: claim}} =
+      Ankole.Brain.write_fact(
+        %{
+          object_slug: object.slug,
+          claim: "Zirconium confidential plan",
+          kind: "fact",
+          holder: "people/#{member.uid}",
+          audience_scope: "principal:#{member.uid}",
+          notability: "high",
+          confidence: 0.9,
+          valid_from: DateTime.utc_now(:microsecond),
+          provenance: "Console preview test"
+        },
+        writer_uid
+      )
+
+    preview = fn uid, extra ->
+      conn
+      |> api(
+        :post,
+        ~p"/api/v2/brain/search-preview",
+        Map.merge(%{principal_uid: uid, query: "Zirconium"}, extra)
+      )
+      |> json_response(201)
+      |> Map.fetch!("result")
+    end
+
+    member_result = preview.(member.uid, %{})
+    assert Enum.any?(member_result["claims"], &(&1["id"] == claim.id))
+    assert Enum.any?(member_result["chunks"], &(&1["object_slug"] == object.slug))
+    refute Enum.any?(preview.(outsider.uid, %{})["claims"], &(&1["id"] == claim.id))
+
+    refute Enum.any?(
+             preview.(member.uid, %{disclosure_mode: "strict", present_uids: [outsider.uid]})[
+               "claims"
+             ],
+             &(&1["id"] == claim.id)
+           )
+
+    audit =
+      conn
+      |> api(:get, ~p"/api/v2/brain/principals/#{member.uid}/knowledge")
+      |> json_response(200)
+
+    assert %{
+             "claim" => "Zirconium confidential plan",
+             "provenance" => "Console preview test",
+             "confidence" => 0.9
+           } = Enum.find(audit["claims"], &(&1["id"] == claim.id))
+  end
+
+  defp api(conn, method, path, data \\ nil) do
+    conn =
+      if get_req_header(conn, "x-csrf-token") == [], do: recycle(conn), else: recycle_api(conn)
+
+    conn =
+      conn
+      |> delete_req_header("content-type")
+      |> put_req_header("accept", "application/vnd.api+json")
+
+    conn =
+      if data, do: put_req_header(conn, "content-type", "application/vnd.api+json"), else: conn
+
+    dispatch(conn, @endpoint, method, path, data && Jason.encode!(%{data: data}))
   end
 end

@@ -26,7 +26,7 @@ defmodule AnkoleWeb.Plugs.RequireSiteAdminSessionTest do
       conn
       |> recycle()
       |> put_private(:plug_skip_csrf_protection, false)
-      |> post(~p"/api/v1/agents/#{uid}/token-quota/reset", %{})
+      |> post(~p"/api/v2/agents/#{uid}/token-quota/reset", %{})
     end
   end
 

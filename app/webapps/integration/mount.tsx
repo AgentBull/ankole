@@ -1,3 +1,6 @@
+import { IdentityProviderEditorPage } from '../console/pages/identity'
+import { PrincipalDetailPage } from '../console/pages/principals'
+import { OIDCClientEditorPage } from '../console/pages/oidc-clients'
 import '@ankole/uikit/styles.css'
 import '../common/styles.css'
 import { createRoot } from 'react-dom/client'
@@ -44,7 +47,7 @@ const consoleSurface =
   provider ||
   home ||
   brain ||
-  /^\/(settings|tenants|webhooks|files|schedules|library|worker-env|worker-providers)(\/|$)/.test(
+  /^\/(settings|tenants|webhooks|files|schedules|library|worker-env|worker-providers|identity|access|oidc-clients)(\/|$)/.test(
     window.location.pathname
   )
 const client = createQueryClient(consoleSurface ? createConsoleMutationCache() : undefined)
@@ -116,6 +119,17 @@ const app = setupSurface ? (
           component: () => <WorkerEnvAgentSection agentUID="agent-one" />
         })
       ]),
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: '/identity/$providerID',
+        component: IdentityProviderEditorPage
+      }),
+      createRoute({ getParentRoute: () => rootRoute, path: '/access/principals/$uid', component: PrincipalDetailPage }),
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: '/oidc-clients/$clientID',
+        component: OIDCClientEditorPage
+      }),
       createRoute({ getParentRoute: () => rootRoute, path: '/console-home', component: HomePage }),
       createRoute({ getParentRoute: () => rootRoute, path: '/providers', component: ProvidersListPage }),
       createRoute({ getParentRoute: () => rootRoute, path: '/providers/new', component: ProviderEditorPage }),

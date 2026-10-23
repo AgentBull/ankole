@@ -63,7 +63,11 @@
   contradiction keeps `…/decide`. The default audience parameter of a Source is
   `scope`. The error code `reserved_slug` is now `reserved_object_slug`. Brain
   health, dream, object types, search preview, `principals/:uid/knowledge`, and
-  `objects/show` stay at `/api/v1/brain`.
+  `objects/show` are also at `/api/v2/brain`.
+- Move Agent Library capability defaults, Agent overrides, and document
+  editing to `/api/v2`. Move Control Plane Plugin selection to
+  `/api/v2/site/control-plane-plugins`. Document edits reject a stale content
+  hash; Plugin selection shows both active and next-start state.
 
 ## Version 2.0.0-alpha.21 (2026-10-23)
 

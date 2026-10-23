@@ -202,63 +202,10 @@ defmodule AnkoleWeb.Router do
 
     get "/control-plane-plugins", ControlPlanePluginController, :index
     put "/control-plane-plugins", ControlPlanePluginController, :update
-    get "/ai-gateway/models", AIGatewayProviderController, :models
-    get "/ai-gateway/provider-kinds", AIGatewayProviderController, :provider_kinds
-
-    post "/ai-gateway/providers/:provider_id/credentials",
-         AIGatewayProviderController,
-         :add_credential
-
-    put "/ai-gateway/providers/:provider_id/credentials/:credential_id",
-        AIGatewayProviderController,
-        :put_credential
-
-    delete "/ai-gateway/providers/:provider_id/credentials/:credential_id",
-           AIGatewayProviderController,
-           :delete_credential
-
-    put "/ai-gateway/providers/:provider_id/credential-pool/strategy",
-        AIGatewayProviderController,
-        :put_credential_strategy
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-login",
-         AIGatewayProviderController,
-         :start_chatgpt_login
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-login/poll",
-         AIGatewayProviderController,
-         :poll_chatgpt_login
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback",
-         AIGatewayProviderController,
-         :complete_chatgpt_browser_login
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials",
-         AIGatewayProviderController,
-         :add_chatgpt_enterprise_credential
   end
 
   scope "/api/v1", AnkoleWeb do
     pipe_through [:session_api, :site_admin, :data_context]
-
-    get "/work-access-reviews", HumanAccessController, :unresolved_work
-    post "/work-access-reviews", HumanAccessController, :classify_work
-    get "/principals/:uid/access", HumanAccessController, :show
-    post "/principals/:uid/access-disables", HumanAccessController, :disable
-    post "/principals/:uid/access-restorations", HumanAccessController, :restore
-
-    post "/principals/:uid/access-restrictions/:restriction_id/clear",
-         HumanAccessController,
-         :clear_restriction
-
-    post "/principals/:uid/work-cleanup-retries", HumanAccessController, :retry_cleanup
-
-    post "/principals/:uid/local-password-resets",
-         PrincipalController,
-         :create_local_password_reset
-
-    get "/oidc-clients/login-sources", OIDCClientController, :login_sources
-    post "/oidc-clients/:id/secret-rotations", OIDCClientController, :rotate_secret
 
     get "/brain/health", BrainController, :health
     post "/brain/dream", BrainController, :dream
@@ -300,35 +247,6 @@ defmodule AnkoleWeb.Router do
 
     get "/agents/:agent_uid/files/content", AgentFileController, :download
     post "/agents/:agent_uid/files", AgentFileController, :upload
-
-    get "/agents/:agent_uid/model-profiles", AgentController, :index_model_profiles
-
-    get "/identity-provider-adapters", IdentityProviderController, :adapters
-    get "/identity-providers/:provider_id/directory", DirectoryAccessController, :show
-    post "/identity-providers/:provider_id/directory-reviews", DirectoryAccessController, :approve
-
-    post "/identity-providers/:provider_id/directory-events/:event_id/reviews",
-         DirectoryAccessController,
-         :review_event
-
-    get "/identity-providers", IdentityProviderController, :index
-    put "/identity-providers/:provider_id", IdentityProviderController, :put_provider
-    post "/identity-providers/:provider_id/sync-runs", IdentityProviderController, :run_sync
-
-    put "/agents/:agent_uid/provider-hosted", AgentController, :put_provider_hosted
-
-    put "/agents/:agent_uid/model-profiles/:profile",
-        AgentController,
-        :put_model_profile
-
-    delete "/agents/:agent_uid/model-profiles/:profile",
-           AgentController,
-           :delete_model_profile
-
-    get "/agents/:agent_uid/token-quota", AgentController, :show_token_quota
-    put "/agents/:agent_uid/token-quota", AgentController, :put_token_quota
-    delete "/agents/:agent_uid/token-quota", AgentController, :delete_token_quota
-    post "/agents/:agent_uid/token-quota/reset", AgentController, :reset_token_quota
   end
 
   # The JSON:API routers serve the routes that the Ash domains declare. The site

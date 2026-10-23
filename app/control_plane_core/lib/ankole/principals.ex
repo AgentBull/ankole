@@ -33,6 +33,29 @@ defmodule Ankole.Principals do
     show_raised_errors?(false)
 
     routes do
+      base_route "/work-access-reviews", Ankole.Principals.Access do
+        route(:get, "/", :unresolved_work, name: "list_work_access_reviews")
+        route(:post, "/", :classify_work, name: "classify_work_access")
+      end
+
+      base_route "/principals", Ankole.Principals.Access do
+        route(:get, "/:uid/access", :show, name: "get_human_access")
+        route(:post, "/:uid/access-disables", :disable, name: "disable_human_access")
+        route(:post, "/:uid/access-restorations", :restore, name: "restore_human_access")
+
+        route(:post, "/:uid/access-restrictions/:restriction_id/clear", :clear_restriction,
+          name: "clear_human_access_restriction"
+        )
+
+        route(:post, "/:uid/work-cleanup-retries", :retry_cleanup,
+          name: "retry_human_work_cleanup"
+        )
+
+        route(:post, "/:uid/local-password-resets", :reset_local_password,
+          name: "reset_local_password"
+        )
+      end
+
       base_route "/principals", Principal do
         index(:console_list, name: "list_principals", derive_sort?: false)
         get(:read, route: "/:uid", name: "get_principal")
@@ -67,6 +90,8 @@ defmodule Ankole.Principals do
   end
 
   resources do
+    resource(Ankole.Principals.Access)
+
     resource Principal do
       define(:get_principal_record, action: :read, get_by: [:uid], not_found_error?: false)
       define(:list_principals, action: :read)

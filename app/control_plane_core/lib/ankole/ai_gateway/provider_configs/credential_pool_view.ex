@@ -4,7 +4,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.CredentialPoolView do
   for each credential, its metadata, account facts, and current health.
 
   It contains no credential value. `Ankole.AIGateway.ProviderConfigs.projection/1`
-  gives the same fields to the v1 credential routes.
+  gives these fields to credential and sign-in responses.
   """
 
   @entry_fields [

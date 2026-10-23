@@ -204,7 +204,7 @@ test('a library reload keeps edits made while the response is pending', async ({
   const release = Promise.withResolvers<void>()
   let reloading = false
   let failRead = false
-  await page.route('**/api/v1/agents/agent-one/library-documents**', async route => {
+  await page.route('**/api/v2/agents/agent-one/library-documents**', async route => {
     if (route.request().method() === 'PUT') {
       return route.fulfill({
         status: 409,
@@ -261,7 +261,7 @@ test('a library save completed after leaving the editor supplies the next visit 
     ])
   )
   const writes: Route[] = []
-  await page.route('**/api/v1/agents/agent-one/library-documents**', route => {
+  await page.route('**/api/v2/agents/agent-one/library-documents**', route => {
     if (route.request().method() === 'PUT') {
       writes.push(route)
       return
@@ -289,7 +289,9 @@ test('a library save completed after leaving the editor supplies the next visit 
   await panel.getByRole('textbox').fill('Next revision')
   await panel.getByRole('button', { name: 'Save', exact: true }).click()
   await expect.poll(() => writes.length).toBe(2)
-  expect(writes[1]!.request().postDataJSON()).toEqual({ content: 'Next revision', expected_content_hash: 'saved-hash' })
+  expect(writes[1]!.request().postDataJSON()).toEqual({
+    data: { content: 'Next revision', expected_content_hash: 'saved-hash' }
+  })
   await writes[1]!.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'Fixture stopped' } } })
 })
 

@@ -18,7 +18,7 @@ import {
 } from '@ankole/uikit'
 import { RiArrowDownSLine } from '@remixicon/react'
 import { useEffect, useId, useRef, useState } from 'react'
-import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import i18n from './i18n'
 import { requestErrorCode, requestErrorDetails } from './request-errors'
 
@@ -337,9 +337,11 @@ export function configFieldServerError(
   fields: ConfigFieldDefinition[],
   locale: string
 ): string | undefined {
-  if (requestErrorCode(error) !== 'validation_failed') return undefined
   const details = requestErrorDetails(error)
   if (typeof details.path !== 'string') return undefined
+  if (requestErrorCode(error) !== 'validation_failed' && details.kind !== 'missing' && details.kind !== 'invalid') {
+    return undefined
+  }
   const field = fields.find(item => item.path === details.path)
   const label = field ? (localizedText(field.label, locale) ?? field.path) : details.path
   const key = details.kind === 'missing' ? 'common.field_required' : 'common.field_invalid'
@@ -353,11 +355,11 @@ function configFieldValueEmpty(value: unknown): boolean {
   return false
 }
 
-export function localizedText(value: LocalizedText, locale: string): string | undefined {
-  if (!value) return undefined
-  if (typeof value !== 'object' || Array.isArray(value)) return undefined
-
-  return value[locale] ?? value.default
+export function localizedText(value: unknown, locale: string): string | undefined {
+  const text = recordValue(value)
+  if (!text) return undefined
+  const selected = text[locale] ?? text.default
+  return typeof selected === 'string' ? selected : undefined
 }
 
 export function defaultConfig(fields: ConfigFieldDefinition[]): JSONObject {

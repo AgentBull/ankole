@@ -75,6 +75,11 @@ an explicit binding already exists. `manual_review` holds it for an
 administrator; `create_standalone` creates a separate Principal and binds the
 address. The local account's email alone does not link that mail to the account.
 
+The Console reset action is `POST /api/v2/principals/:uid/local-password-resets`.
+It requires the Principal reset permission and an enabled local provider. The
+response returns a new password once and uses `Cache-Control: private, no-store`. List and detail reads return only credential status. The Console
+keeps the result in the reset dialog and clears it before another reset.
+
 ## Sign-in Flow
 
 `POST /.internal-apis/sessions/local-password` verifies the email and

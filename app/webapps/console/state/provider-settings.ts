@@ -1,8 +1,8 @@
 import { recordValue } from '@agentbull/active-support'
 import type {
-  AiGatewayProviderSetting as AIGatewayProviderSetting,
-  AiGatewayProviderKindItem as AIGatewayProviderKindItem
-} from '../api/generated/types.gen'
+  ListAiGatewayModelsResponse,
+  ListAiGatewayProviderKindsResponse
+} from '../api/v2-site/generated/types.gen'
 import { type Flat, fromDocument } from '../api/json-api'
 import type { AiGatewayProvider } from '../api/v2-site/generated/types.gen'
 import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
@@ -15,7 +15,9 @@ import i18n from '../../common/i18n'
  * combination, so secrets live only in the sealed credential pool.
  */
 
-export type ProviderSetting = AIGatewayProviderSetting
+export type AIGatewayModelCatalogEntry = ListAiGatewayModelsResponse['models'][number]
+export type AIGatewayProviderKindItem = ListAiGatewayProviderKindsResponse['provider_kinds'][number]
+export type ProviderSetting = AIGatewayProviderKindItem['settings'][number]
 
 type AIGatewayProviderRecord = Flat<AiGatewayProvider>
 

@@ -1,4 +1,4 @@
-defmodule AnkoleWeb.OIDCClientControllerTest do
+defmodule AnkoleWeb.JSONAPI.OIDCClientOperationsTest do
   use AnkoleWeb.ConnCase, async: false
 
   alias Ankole.OIDC
@@ -18,7 +18,7 @@ defmodule AnkoleWeb.OIDCClientControllerTest do
     conn = console_conn(conn)
 
     catalog =
-      conn |> recycle_api() |> get("/api/v1/oidc-clients/login-sources") |> json_response(200)
+      conn |> recycle_api() |> v2_get("/api/v2/oidc-clients/login-sources") |> json_response(200)
 
     assert %{"provider_id" => "test-site", "enabled" => true} in catalog["sources"]
 
@@ -65,14 +65,18 @@ defmodule AnkoleWeb.OIDCClientControllerTest do
     rotate_conn =
       conn
       |> recycle_api()
-      |> post("/api/v1/oidc-clients/#{client.id}/secret-rotations", %{})
+      |> v2_post("/api/v2/oidc-clients/#{client.id}/secret-rotations", %{})
 
-    rotate = json_response(rotate_conn, 200)
+    rotate = json_response(rotate_conn, 201)
 
-    assert rotate["oidc_client"]["id"] == client.id
     assert is_binary(rotate["client_secret"])
     assert rotate["client_secret"] != initial_secret
-    assert get_resp_header(rotate_conn, "cache-control") == ["no-store"]
+    {:ok, saved} = OIDC.get_client(client.id)
+    assert {:ok, secret} = OIDC.client_secret(saved)
+    assert secret == rotate["client_secret"]
+    detail = conn |> v2_get("/api/v2/oidc-clients/#{client.id}") |> json_response(200)
+    refute inspect(detail) =~ secret
+    assert get_resp_header(rotate_conn, "cache-control") == ["private, no-store"]
 
     {:ok, %{client: public, client_secret: nil}} =
       OIDC.create_client(Map.put(attrs, "type", "public"))
@@ -80,8 +84,54 @@ defmodule AnkoleWeb.OIDCClientControllerTest do
     rotate =
       conn
       |> recycle_api()
-      |> post("/api/v1/oidc-clients/#{public.id}/secret-rotations", %{})
+      |> v2_post("/api/v2/oidc-clients/#{public.id}/secret-rotations", %{})
 
-    assert %{"error" => %{"code" => "public_client"}} = json_response(rotate, 409)
+    assert %{"errors" => [%{"code" => "public_client"}]} = json_response(rotate, 409)
+  end
+
+  test "secret rotation refuses an ungranted operator and another data tenant", %{conn: conn} do
+    import Ecto.Query
+    alias Ankole.Repo
+    conn = console_conn(conn)
+
+    attrs = %{
+      name: "Confidential client",
+      type: "confidential",
+      enabled: true,
+      redirect_uris: ["https://client.example.test/callback"],
+      scopes: ["openid"]
+    }
+
+    {:ok, %{client: client, client_secret: before}} = OIDC.create_client(attrs)
+    other = Ankole.DataCase.create_tenant()
+
+    {:ok, %{client: other_client, client_secret: other_before}} =
+      Repo.with_tenant(other.id, fn -> OIDC.create_client(attrs) end)
+
+    assert conn
+           |> recycle_api()
+           |> v2_post("/api/v2/oidc-clients/#{other_client.id}/secret-rotations", %{})
+           |> json_response(404)
+
+    {:ok, still_other} = Repo.with_tenant(other.id, fn -> OIDC.get_client(other_client.id) end)
+    assert {:ok, ^other_before} = OIDC.client_secret(still_other)
+    Repo.delete_all(from grant in Ankole.AuthZ.Grant, where: grant.resource_pattern == "**")
+
+    assert conn
+           |> recycle_api()
+           |> v2_post("/api/v2/oidc-clients/#{client.id}/secret-rotations", %{})
+           |> json_response(403)
+
+    {:ok, still_client} = OIDC.get_client(client.id)
+    assert {:ok, ^before} = OIDC.client_secret(still_client)
+  end
+
+  defp v2_get(conn, path), do: get(json_api(conn), path)
+  defp v2_post(conn, path, body), do: post(json_api(conn), path, %{data: body})
+
+  defp json_api(conn) do
+    conn
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
   end
 end

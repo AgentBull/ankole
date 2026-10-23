@@ -1,3 +1,4 @@
+import { listIdentityProvidersOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import { IDLE_REFRESH_MS, LIST_REFRESH_MS } from '../refresh-intervals'
 import { Button, buttonVariants, Skeleton, cn } from '@ankole/uikit'
 import {
@@ -18,7 +19,6 @@ import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from '@tanstack/react-router'
 import { requestErrorMessage } from '../../common/request-errors'
 import { linkTarget } from '../../common/router'
-import { ankoleWebIdentityProviderControllerIndexOptions } from '../api/generated/@tanstack/react-query.gen'
 import {
   getBackgroundAgentJobHealthOptions,
   getConsoleReadinessOptions
@@ -62,7 +62,7 @@ export function HomePage() {
     refetchInterval: LIST_REFRESH_MS
   })
   const identityProviders = useQuery({
-    ...ankoleWebIdentityProviderControllerIndexOptions(),
+    ...listIdentityProvidersOptions(),
     refetchInterval: LIST_REFRESH_MS
   })
   const jobs = useQuery({

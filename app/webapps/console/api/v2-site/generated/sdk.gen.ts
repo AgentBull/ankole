@@ -3,9 +3,21 @@
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client'
 import { client } from './client.gen'
 import type {
+  AddAiGatewayCredentialData,
+  AddAiGatewayCredentialErrors,
+  AddAiGatewayCredentialResponses,
+  AddChatgptEnterpriseCredentialData,
+  AddChatgptEnterpriseCredentialErrors,
+  AddChatgptEnterpriseCredentialResponses,
   CheckWorkerProviderData,
   CheckWorkerProviderErrors,
   CheckWorkerProviderResponses,
+  CompleteChatgptBrowserLoginData,
+  CompleteChatgptBrowserLoginErrors,
+  CompleteChatgptBrowserLoginResponses,
+  ConfigureControlPlanePluginData,
+  ConfigureControlPlanePluginErrors,
+  ConfigureControlPlanePluginResponses,
   CreateTenantData,
   CreateTenantErrors,
   CreateTenantResponses,
@@ -18,6 +30,9 @@ import type {
   DecryptSiteWorkerEnvData,
   DecryptSiteWorkerEnvErrors,
   DecryptSiteWorkerEnvResponses,
+  DeleteAiGatewayCredentialData,
+  DeleteAiGatewayCredentialErrors,
+  DeleteAiGatewayCredentialResponses,
   DeleteAiGatewayProviderData,
   DeleteAiGatewayProviderErrors,
   DeleteAiGatewayProviderResponses,
@@ -42,9 +57,18 @@ import type {
   GetSiteAppConfigurationData,
   GetSiteAppConfigurationErrors,
   GetSiteAppConfigurationResponses,
+  ListAiGatewayModelsData,
+  ListAiGatewayModelsErrors,
+  ListAiGatewayModelsResponses,
+  ListAiGatewayProviderKindsData,
+  ListAiGatewayProviderKindsErrors,
+  ListAiGatewayProviderKindsResponses,
   ListAiGatewayProvidersData,
   ListAiGatewayProvidersErrors,
   ListAiGatewayProvidersResponses,
+  ListControlPlanePluginsData,
+  ListControlPlanePluginsErrors,
+  ListControlPlanePluginsResponses,
   ListSiteAppConfigurationsData,
   ListSiteAppConfigurationsErrors,
   ListSiteAppConfigurationsResponses,
@@ -63,6 +87,15 @@ import type {
   ListWorkerProvidersData,
   ListWorkerProvidersErrors,
   ListWorkerProvidersResponses,
+  PollChatgptLoginData,
+  PollChatgptLoginErrors,
+  PollChatgptLoginResponses,
+  PutAiGatewayCredentialData,
+  PutAiGatewayCredentialErrors,
+  PutAiGatewayCredentialResponses,
+  PutAiGatewayCredentialStrategyData,
+  PutAiGatewayCredentialStrategyErrors,
+  PutAiGatewayCredentialStrategyResponses,
   PutAiGatewayProviderData,
   PutAiGatewayProviderErrors,
   PutAiGatewayProviderResponses,
@@ -72,6 +105,9 @@ import type {
   ResumeTenantData,
   ResumeTenantErrors,
   ResumeTenantResponses,
+  StartChatgptLoginData,
+  StartChatgptLoginErrors,
+  StartChatgptLoginResponses,
   SuspendTenantData,
   SuspendTenantErrors,
   SuspendTenantResponses,
@@ -109,6 +145,30 @@ export type Options<
    */
   meta?: keyof ClientMeta extends never ? Record<string, unknown> : ClientMeta
 }
+
+/**
+ * list_ai_gateway_models operation on chatgpt_login resource
+ */
+export const listAiGatewayModels = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAiGatewayModelsData, ThrowOnError>
+): RequestResult<ListAiGatewayModelsResponses, ListAiGatewayModelsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListAiGatewayModelsResponses, ListAiGatewayModelsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/models',
+    ...options
+  })
+
+/**
+ * list_ai_gateway_provider_kinds operation on chatgpt_login resource
+ */
+export const listAiGatewayProviderKinds = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAiGatewayProviderKindsData, ThrowOnError>
+): RequestResult<ListAiGatewayProviderKindsResponses, ListAiGatewayProviderKindsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListAiGatewayProviderKindsResponses, ListAiGatewayProviderKindsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/provider-kinds',
+    ...options
+  })
 
 /**
  * list_ai_gateway_providers operation on ai_gateway_provider resource
@@ -155,6 +215,142 @@ export const putAiGatewayProvider = <ThrowOnError extends boolean = false>(
   (options.client ?? client).patch<PutAiGatewayProviderResponses, PutAiGatewayProviderErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/site/ai-gateway/providers/{provider_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * add_chatgpt_enterprise_credential operation on chatgpt_login resource
+ */
+export const addChatgptEnterpriseCredential = <ThrowOnError extends boolean = false>(
+  options: Options<AddChatgptEnterpriseCredentialData, ThrowOnError>
+): RequestResult<AddChatgptEnterpriseCredentialResponses, AddChatgptEnterpriseCredentialErrors, ThrowOnError> =>
+  (options.client ?? client).post<
+    AddChatgptEnterpriseCredentialResponses,
+    AddChatgptEnterpriseCredentialErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-enterprise-credentials',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * start_chatgpt_login operation on chatgpt_login resource
+ */
+export const startChatgptLogin = <ThrowOnError extends boolean = false>(
+  options: Options<StartChatgptLoginData, ThrowOnError>
+): RequestResult<StartChatgptLoginResponses, StartChatgptLoginErrors, ThrowOnError> =>
+  (options.client ?? client).post<StartChatgptLoginResponses, StartChatgptLoginErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-login',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * complete_chatgpt_browser_login operation on chatgpt_login resource
+ */
+export const completeChatgptBrowserLogin = <ThrowOnError extends boolean = false>(
+  options: Options<CompleteChatgptBrowserLoginData, ThrowOnError>
+): RequestResult<CompleteChatgptBrowserLoginResponses, CompleteChatgptBrowserLoginErrors, ThrowOnError> =>
+  (options.client ?? client).post<
+    CompleteChatgptBrowserLoginResponses,
+    CompleteChatgptBrowserLoginErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-login/browser-callback',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * poll_chatgpt_login operation on chatgpt_login resource
+ */
+export const pollChatgptLogin = <ThrowOnError extends boolean = false>(
+  options: Options<PollChatgptLoginData, ThrowOnError>
+): RequestResult<PollChatgptLoginResponses, PollChatgptLoginErrors, ThrowOnError> =>
+  (options.client ?? client).post<PollChatgptLoginResponses, PollChatgptLoginErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-login/poll',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * put_ai_gateway_credential_strategy operation on ai_gateway_provider resource
+ */
+export const putAiGatewayCredentialStrategy = <ThrowOnError extends boolean = false>(
+  options: Options<PutAiGatewayCredentialStrategyData, ThrowOnError>
+): RequestResult<PutAiGatewayCredentialStrategyResponses, PutAiGatewayCredentialStrategyErrors, ThrowOnError> =>
+  (options.client ?? client).patch<
+    PutAiGatewayCredentialStrategyResponses,
+    PutAiGatewayCredentialStrategyErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/credential-pool/strategy',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * add_ai_gateway_credential operation on ai_gateway_provider resource
+ */
+export const addAiGatewayCredential = <ThrowOnError extends boolean = false>(
+  options: Options<AddAiGatewayCredentialData, ThrowOnError>
+): RequestResult<AddAiGatewayCredentialResponses, AddAiGatewayCredentialErrors, ThrowOnError> =>
+  (options.client ?? client).post<AddAiGatewayCredentialResponses, AddAiGatewayCredentialErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/credentials',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * delete_ai_gateway_credential operation on ai_gateway_provider resource
+ */
+export const deleteAiGatewayCredential = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAiGatewayCredentialData, ThrowOnError>
+): RequestResult<DeleteAiGatewayCredentialResponses, DeleteAiGatewayCredentialErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteAiGatewayCredentialResponses, DeleteAiGatewayCredentialErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}',
+    ...options
+  })
+
+/**
+ * put_ai_gateway_credential operation on ai_gateway_provider resource
+ */
+export const putAiGatewayCredential = <ThrowOnError extends boolean = false>(
+  options: Options<PutAiGatewayCredentialData, ThrowOnError>
+): RequestResult<PutAiGatewayCredentialResponses, PutAiGatewayCredentialErrors, ThrowOnError> =>
+  (options.client ?? client).patch<PutAiGatewayCredentialResponses, PutAiGatewayCredentialErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -245,6 +441,36 @@ export const decryptSiteAppConfiguration = <ThrowOnError extends boolean = false
     url: '/api/v2/site/app-configurations/{key}/decryptions',
     ...options
   })
+
+/**
+ * list_control_plane_plugins operation on control_plane_plugin_console resource
+ */
+export const listControlPlanePlugins = <ThrowOnError extends boolean = false>(
+  options?: Options<ListControlPlanePluginsData, ThrowOnError>
+): RequestResult<ListControlPlanePluginsResponses, ListControlPlanePluginsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListControlPlanePluginsResponses, ListControlPlanePluginsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/control-plane-plugins',
+    ...options
+  })
+
+/**
+ * configure_control_plane_plugin operation on control_plane_plugin_console resource
+ */
+export const configureControlPlanePlugin = <ThrowOnError extends boolean = false>(
+  options: Options<ConfigureControlPlanePluginData, ThrowOnError>
+): RequestResult<ConfigureControlPlanePluginResponses, ConfigureControlPlanePluginErrors, ThrowOnError> =>
+  (options.client ?? client).put<ConfigureControlPlanePluginResponses, ConfigureControlPlanePluginErrors, ThrowOnError>(
+    {
+      security: [{ name: 'Cookie', type: 'apiKey' }],
+      url: '/api/v2/site/control-plane-plugins',
+      ...options,
+      headers: {
+        'Content-Type': 'application/vnd.api+json',
+        ...options.headers
+      }
+    }
+  )
 
 /**
  * get_privileged_tenant operation on tenant resource

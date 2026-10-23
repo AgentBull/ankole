@@ -1,4 +1,4 @@
-defmodule AnkoleWeb.HumanAccessControllerTest do
+defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
   use AnkoleWeb.ConnCase, async: false
   import Ankole.PrincipalsFixtures
   alias Ankole.{AuthZ, Principals, Repo}
@@ -22,8 +22,8 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
     disabled =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/principals/#{uid}/access-disables", body)
-      |> json_response(200)
+      |> v2_post(~p"/api/v2/principals/#{uid}/access-disables", body)
+      |> json_response(201)
 
     assert disabled["status"] == "disabled"
     assert disabled["access_version"] == person.access_version + 1
@@ -32,8 +32,8 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
 
     assert conn
            |> recycle_api()
-           |> post(~p"/api/v1/principals/#{uid}/access-disables", body)
-           |> json_response(200) == disabled
+           |> v2_post(~p"/api/v2/principals/#{uid}/access-disables", body)
+           |> json_response(201) == disabled
 
     restore = %{
       reason: "Verified return",
@@ -44,29 +44,29 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
 
     assert conn
            |> recycle_api()
-           |> post(~p"/api/v1/principals/#{uid}/access-restorations", restore)
+           |> v2_post(~p"/api/v2/principals/#{uid}/access-restorations", restore)
            |> json_response(409)
-           |> get_in(["error", "code"]) == "active_restrictions"
+           |> get_in(["errors", Access.at(0), "code"]) == "active_restrictions"
 
     clear = %{reason: "Departure restriction no longer applies", operation_id: "clear"}
 
     assert conn
            |> recycle_api()
-           |> post(
-             ~p"/api/v1/principals/#{uid}/access-restrictions/#{restriction_id}/clear",
+           |> v2_post(
+             ~p"/api/v2/principals/#{uid}/access-restrictions/#{restriction_id}/clear",
              clear
            )
-           |> json_response(200)
+           |> json_response(201)
            |> Map.fetch!("status") == "disabled"
 
     assert conn
            |> recycle_api()
-           |> post(~p"/api/v1/principals/#{uid}/access-restorations", %{
+           |> v2_post(~p"/api/v2/principals/#{uid}/access-restorations", %{
              restore
              | identity_verified: false
            })
            |> json_response(409)
-           |> get_in(["error", "code"]) == "identity_review_required"
+           |> get_in(["errors", Access.at(0), "code"]) == "identity_review_required"
 
     Repo.put_tenant_id(tenant.id)
 
@@ -79,12 +79,12 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
 
     assert conn
            |> recycle_api()
-           |> post(~p"/api/v1/principals/#{uid}/access-restorations", restore)
+           |> v2_post(~p"/api/v2/principals/#{uid}/access-restorations", restore)
            |> json_response(409)
-           |> get_in(["error", "code"]) == "permission_review_changed"
+           |> get_in(["errors", Access.at(0), "code"]) == "permission_review_changed"
 
     state =
-      conn |> recycle_api() |> get(~p"/api/v1/principals/#{uid}/access") |> json_response(200)
+      conn |> recycle_api() |> v2_get(~p"/api/v2/principals/#{uid}/access") |> json_response(200)
 
     assert state["permission_review"]["permissions"]["grants"] != []
     restore = %{restore | review_fingerprint: state["permission_review"]["fingerprint"]}
@@ -92,8 +92,8 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
     restored =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/principals/#{uid}/access-restorations", restore)
-      |> json_response(200)
+      |> v2_post(~p"/api/v2/principals/#{uid}/access-restorations", restore)
+      |> json_response(201)
 
     assert restored["status"] == "active"
     Repo.put_tenant_id(tenant.id)
@@ -108,23 +108,23 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
 
     assert conn
            |> recycle_api()
-           |> post(~p"/api/v1/principals/#{uid}/access-restorations", restore)
-           |> json_response(200) == restored
+           |> v2_post(~p"/api/v2/principals/#{uid}/access-restorations", restore)
+           |> json_response(201) == restored
   end
 
   test "read and mutations require a live Console administrator", %{conn: conn, tenant: tenant} do
     %{principal: person} = human_fixture()
-    assert conn |> get(~p"/api/v1/principals/#{person.uid}/access") |> json_response(401)
+    assert conn |> v2_get(~p"/api/v2/principals/#{person.uid}/access") |> json_response(401)
     {admin, admin_uid} = console_conn_with_principal(conn)
 
     assert admin
            |> recycle_api()
-           |> post(~p"/api/v1/principals/#{admin_uid}/access-disables", %{
+           |> v2_post(~p"/api/v2/principals/#{admin_uid}/access-disables", %{
              reason: "self",
              operation_id: "self"
            })
            |> json_response(409)
-           |> get_in(["error", "code"]) == "cannot_disable_self"
+           |> get_in(["errors", Access.at(0), "code"]) == "cannot_disable_self"
 
     Repo.put_tenant_id(tenant.id)
 
@@ -133,7 +133,7 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
 
     assert admin
            |> recycle_api()
-           |> get(~p"/api/v1/principals/#{person.uid}/access")
+           |> v2_get(~p"/api/v2/principals/#{person.uid}/access")
            |> json_response(401)
   end
 
@@ -155,7 +155,10 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
       })
 
     assert event.authorization_kind == "review_required"
-    response = conn |> recycle_api() |> get(~p"/api/v1/work-access-reviews") |> json_response(200)
+
+    response =
+      conn |> recycle_api() |> v2_get(~p"/api/v2/work-access-reviews") |> json_response(200)
+
     assert [%{"id" => id, "kind" => "signal"}] = response["work"]
 
     body = %{
@@ -167,14 +170,14 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
 
     assert conn
            |> recycle_api()
-           |> post(~p"/api/v1/work-access-reviews", body)
-           |> json_response(409)
-           |> get_in(["error", "code"]) == "human_uid_required"
+           |> v2_post(~p"/api/v2/work-access-reviews", body)
+           |> json_response(422)
+           |> get_in(["errors", Access.at(0), "code"]) == "human_uid_required"
 
     assert conn
            |> recycle_api()
-           |> post(~p"/api/v1/work-access-reviews", %{body | authorization_kind: "service"})
-           |> json_response(200) == %{"work" => []}
+           |> v2_post(~p"/api/v2/work-access-reviews", %{body | authorization_kind: "service"})
+           |> json_response(201) == %{"work" => []}
 
     Repo.put_tenant_id(tenant.id)
 
@@ -183,10 +186,59 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
 
     assert conn
            |> recycle_api()
-           |> post(~p"/api/v1/work-access-reviews", %{body | authorization_kind: "service"})
+           |> v2_post(~p"/api/v2/work-access-reviews", %{body | authorization_kind: "service"})
            |> json_response(409)
 
     Repo.put_tenant_id(tenant.id)
     assert {:ok, %{status: :active}} = Principals.get_principal(agent.uid)
+  end
+
+  test "access reads and changes cannot reach a Human in another data tenant", %{conn: conn} do
+    conn = console_conn(conn)
+    other = Ankole.DataCase.create_tenant()
+    %{principal: person} = Repo.with_tenant(other.id, fn -> human_fixture() end)
+
+    assert conn
+           |> recycle_api()
+           |> v2_get("/api/v2/principals/#{person.uid}/access")
+           |> json_response(404)
+
+    assert conn
+           |> recycle_api()
+           |> v2_post("/api/v2/principals/#{person.uid}/access-disables", %{
+             reason: "Wrong data tenant",
+             operation_id: "wrong-tenant"
+           })
+           |> json_response(404)
+
+    assert {:ok, %{status: :active, access_version: 1}} =
+             Repo.with_tenant(other.id, fn -> Principals.get_principal(person.uid) end)
+  end
+
+  test "a refused access write keeps the Human active", %{conn: conn} do
+    import Ecto.Query
+    conn = console_conn(conn)
+    %{principal: person} = human_fixture()
+    Repo.delete_all(from grant in Ankole.AuthZ.Grant, where: grant.resource_pattern == "**")
+
+    assert conn
+           |> recycle_api()
+           |> v2_post("/api/v2/principals/#{person.uid}/access-disables", %{
+             reason: "Unauthorized",
+             operation_id: "refused"
+           })
+           |> json_response(403)
+
+    assert {:ok, %{status: :active, access_version: 1}} = Principals.get_principal(person.uid)
+    assert HumanAccess.restrictions(person.uid) == []
+  end
+
+  defp v2_get(conn, path), do: get(json_api(conn), path)
+  defp v2_post(conn, path, body), do: post(json_api(conn), path, %{data: body})
+
+  defp json_api(conn) do
+    conn
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
   end
 end

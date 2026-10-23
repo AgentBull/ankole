@@ -1,15 +1,13 @@
+import { listIdentityProvidersOptions } from './api/v2/generated/@tanstack/react-query.gen'
 import type { QueryClient } from '@tanstack/react-query'
 import {
-  ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions,
-  ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions,
-  ankoleWebControlPlanePluginControllerIndexOptions,
-  ankoleWebIdentityProviderControllerIndexOptions
-} from './api/generated/@tanstack/react-query.gen'
-import {
   listSignalBindingsOptions,
-  getBackgroundAgentJobTurnsOptions
+  getBackgroundAgentJobTurnsOptions,
+  getAgentLibraryCapabilitiesOptions,
+  getGlobalLibraryCapabilitiesOptions
 } from './api/v2/generated/@tanstack/react-query.gen'
 import {
+  listControlPlanePluginsOptions,
   listSiteAppConfigurationsOptions,
   listSiteWorkerEnvsOptions
 } from './api/v2-site/generated/@tanstack/react-query.gen'
@@ -55,7 +53,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
         ensure(agentListOptions()),
         ensure(agentWorkerListOptions()),
         ensure(listAiGatewayProvidersOptions()),
-        ensure(ankoleWebIdentityProviderControllerIndexOptions()),
+        ensure(listIdentityProvidersOptions()),
         ensure(backgroundAgentJobsOptions({ limit: 20 })),
         ensure(aiGatewayConversationsOptions({ limit: 5, min_messages: 2 }))
       ),
@@ -65,19 +63,15 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       const agents = ensure(agentListOptions())
 
       return scope === GLOBAL_LIBRARY_SCOPE
-        ? all(
-            agents,
-            ensure(ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions()),
-            ensure(ankoleWebControlPlanePluginControllerIndexOptions())
-          )
+        ? all(agents, ensure(getGlobalLibraryCapabilitiesOptions()), ensure(listControlPlanePluginsOptions()))
         : all(
             agents,
-            ensure(ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions({ path: { agent_uid: scope } })),
+            ensure(getAgentLibraryCapabilitiesOptions({ path: { agent_uid: scope } })),
             ensure(listAgentSkillLessonsOptions({ path: { agent_uid: scope } }))
           )
     },
     providers: () => ensure(listAiGatewayProvidersOptions()).then(() => null),
-    identity: () => ensure(ankoleWebIdentityProviderControllerIndexOptions()).then(() => null),
+    identity: () => ensure(listIdentityProvidersOptions()).then(() => null),
     oidcClients: () => all(ensure(listOidcClientsOptions()), ensure(listPrincipalGroupsOptions())),
     identityMappings: () => all(ensure(listIdentityMappingRequestsOptions()), ensure(listPrincipalsOptions())),
     principalGroups: () => ensure(listPrincipalGroupsOptions()).then(() => null),

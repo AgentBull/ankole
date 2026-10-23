@@ -28,7 +28,7 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
   } do
     conn = console_conn(conn)
 
-    response = conn |> get(~p"/api/v1/site/control-plane-plugins") |> json_response(200)
+    response = conn |> api(:get, ~p"/api/v2/site/control-plane-plugins") |> json_response(200)
     assert [first | _rest] = response["control_plane_plugins"]
 
     assert Map.keys(first) |> Enum.sort() ==
@@ -39,7 +39,10 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
     changed =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/site/control-plane-plugins", %{"id" => first["id"], "enabled" => desired})
+      |> api(:put, ~p"/api/v2/site/control-plane-plugins", %{
+        "id" => first["id"],
+        "enabled" => desired
+      })
       |> json_response(200)
       |> Map.fetch!("control_plane_plugins")
       |> Enum.find(&(&1["id"] == first["id"]))
@@ -51,7 +54,7 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
     restored =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/site/control-plane-plugins", %{
+      |> api(:put, ~p"/api/v2/site/control-plane-plugins", %{
         "id" => first["id"],
         "enabled" => first["active"]
       })
@@ -63,12 +66,12 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
   end
 
   test "requires authentication and rejects unknown Control Plane Plugins", %{conn: conn} do
-    assert conn |> get(~p"/api/v1/site/control-plane-plugins") |> json_response(401)
+    assert conn |> api(:get, ~p"/api/v2/site/control-plane-plugins") |> json_response(401)
 
-    assert %{"error" => %{"code" => "not_found"}} =
+    assert %{"errors" => [%{"code" => "not_found"}]} =
              conn
              |> console_conn()
-             |> put(~p"/api/v1/site/control-plane-plugins", %{
+             |> api(:put, ~p"/api/v2/site/control-plane-plugins", %{
                "id" => "missing",
                "enabled" => false
              })
@@ -99,15 +102,30 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
     response =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/site/control-plane-plugins", %{
+      |> api(:put, ~p"/api/v2/site/control-plane-plugins", %{
         id: "vercel-worker-provider",
         enabled: false
       })
       |> json_response(409)
 
-    assert response["error"]["code"] == "worker_provider_plugin_in_use"
-    assert response["error"]["message"] =~ provider.provider_id
+    assert [%{"detail" => detail}] = response["errors"]
+    assert detail =~ provider.provider_id
     assert {:ok, ids} = Ankole.Plugins.enabled_ids()
     assert "vercel-worker-provider" in ids
+  end
+
+  defp api(conn, method, path, data \\ nil) do
+    conn =
+      if get_req_header(conn, "x-csrf-token") == [], do: recycle(conn), else: recycle_api(conn)
+
+    conn =
+      conn
+      |> delete_req_header("content-type")
+      |> put_req_header("accept", "application/vnd.api+json")
+
+    conn =
+      if data, do: put_req_header(conn, "content-type", "application/vnd.api+json"), else: conn
+
+    dispatch(conn, @endpoint, method, path, data && Jason.encode!(%{data: data}))
   end
 end

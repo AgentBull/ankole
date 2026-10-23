@@ -5,11 +5,11 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  ankoleWebAgentControllerDeleteTokenQuotaMutation,
-  ankoleWebAgentControllerPutTokenQuotaMutation,
-  ankoleWebAgentControllerResetTokenQuotaMutation,
-  ankoleWebAgentControllerShowTokenQuotaOptions
-} from '../api/generated/@tanstack/react-query.gen'
+  deleteAgentTokenQuotaMutation,
+  putAgentTokenQuotaMutation,
+  resetAgentTokenQuotaMutation,
+  getAgentTokenQuotaOptions
+} from '../api/v2/generated/@tanstack/react-query.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ErrorBlock } from '../../common/error-block'
 import { ConfirmDeleteButton, LabeledField, SaveButton, StatusIndicator } from '../console-form'
@@ -48,7 +48,7 @@ export function TokenQuotaEditor({
   const periodStartAtInput = useRef<HTMLInputElement>(null)
   const limitTokensInput = useRef<HTMLInputElement>(null)
 
-  const quota = useQuery(ankoleWebAgentControllerShowTokenQuotaOptions({ path: { agent_uid: agentUID } }))
+  const quota = useQuery(getAgentTokenQuotaOptions({ path: { agent_uid: agentUID } }))
   const storedQuota = quota.data?.token_quota ?? null
   const usage = quota.data?.usage ?? null
   // A failed read still opens the fields, on an empty draft, so the section
@@ -66,7 +66,7 @@ export function TokenQuotaEditor({
   // that caused it. The removal and the reset carry no field context, so they
   // report through a toast instead.
   const save = useMutation({
-    ...ankoleWebAgentControllerPutTokenQuotaMutation(),
+    ...putAgentTokenQuotaMutation(),
     onMutate: () => model.captureSave(),
     onSuccess: (response, _variables, confirm) => {
       if (!confirm?.(draftFromTokenQuota(response.token_quota))) return
@@ -74,7 +74,7 @@ export function TokenQuotaEditor({
     }
   })
   const clear = useMutation({
-    ...ankoleWebAgentControllerDeleteTokenQuotaMutation(),
+    ...deleteAgentTokenQuotaMutation(),
     onMutate: () => model.captureSave(),
     onSuccess: (_response, _variables, confirm) => {
       if (!confirm?.(emptyTokenQuotaDraft())) return
@@ -85,7 +85,7 @@ export function TokenQuotaEditor({
   // A reset writes a new period start, so the draft adopts the stored quota
   // again. An unsaved edit of the start time cannot survive it.
   const reset = useMutation({
-    ...ankoleWebAgentControllerResetTokenQuotaMutation(),
+    ...resetAgentTokenQuotaMutation(),
     onMutate: () => model.captureSave(),
     onSuccess: (response, _variables, confirm) => {
       if (!confirm?.(draftFromTokenQuota(response.token_quota))) return
@@ -106,7 +106,7 @@ export function TokenQuotaEditor({
         .exhaustive()
       return
     }
-    save.mutate({ body: submission.body, path: { agent_uid: agentUID } })
+    save.mutate({ body: { data: submission.body }, path: { agent_uid: agentUID } })
   }
 
   // Blur-time required and pattern feedback comes from LabeledField; these

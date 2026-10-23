@@ -3,11 +3,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
-import {
-  ankoleWebBrainControllerDreamMutation,
-  ankoleWebBrainControllerHealthOptions
-} from '../../api/generated/@tanstack/react-query.gen'
-import type { BrainHealth, BrainModelStatus } from '../../api/generated/types.gen'
+import { enqueueBrainDreamMutation, getBrainHealthOptions } from '../../api/v2/generated/@tanstack/react-query.gen'
+import type { GetBrainHealthResponse } from '../../api/v2/generated/types.gen'
 import { ErrorBlock } from '../../../common/error-block'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { PageHeader, PageStack } from '../../console-page'
@@ -15,15 +12,18 @@ import { formatDuration, formatJSON } from '../../console-primitives'
 import { IDLE_REFRESH_MS } from '../../refresh-intervals'
 import { BrainSubNav } from './brain-nav'
 
+type BrainHealth = GetBrainHealthResponse['health']
+type BrainModelStatus = BrainHealth['models']['embedding']
+
 export function BrainHealthPage() {
   const { t } = useTranslation()
   const health = useQuery({
-    ...ankoleWebBrainControllerHealthOptions(),
+    ...getBrainHealthOptions(),
     refetchInterval: IDLE_REFRESH_MS
   })
   const snapshot = health.data?.health
   const dream = useMutation({
-    ...ankoleWebBrainControllerDreamMutation(),
+    ...enqueueBrainDreamMutation(),
     onSuccess: ({ result }) => toast.success(t(`console.brain.dream_${result.status}`)),
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -156,7 +156,7 @@ export function BrainHealthPage() {
 function SkillLessonsSection({ lessons }: { lessons: BrainHealth['skill_lessons'] }) {
   const { t } = useTranslation()
   const perAgent = Object.entries(lessons.active_per_agent ?? {}).sort(([a], [b]) => a.localeCompare(b))
-  const totalActive = perAgent.reduce((sum, [, count]) => sum + count, 0)
+  const totalActive = perAgent.reduce((sum, [, count]) => sum + Number(count), 0)
   const retired = Object.entries(lessons.retired_last_7d ?? {}).sort(([a], [b]) => a.localeCompare(b))
 
   return (

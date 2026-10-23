@@ -7,6 +7,7 @@ defmodule AnkoleWeb.JSONAPI.SiteRouter do
     domains: [
       Ankole.Tenants,
       Ankole.AppConfigure.Site,
+      Ankole.ControlPlanePlugins,
       Ankole.AgentWorkers.Providers,
       Ankole.AIGateway.ProviderConfigs
     ]

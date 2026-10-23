@@ -13,12 +13,14 @@ defmodule AnkoleWeb.JSONAPI.ConsoleRouter do
       Ankole.AppConfigure,
       Ankole.Brain,
       Ankole.OIDC,
+      Ankole.IdentityProviders,
       Ankole.Schedule,
       Ankole.Signals,
       Ankole.Principals,
       Ankole.AuthZ,
       Ankole.BackgroundAgentJobs,
       Ankole.AIAgent,
+      Ankole.AIAgent.Library,
       Ankole.AgentWorkers,
       Ankole.AIGateway
     ]

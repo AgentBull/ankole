@@ -13,6 +13,62 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
   alias Ankole.Principals
   alias Ankole.Principals.HumanAccess
 
+  @doc "Returns the directory snapshot and the recent event evidence."
+  def console_view(id) do
+    snapshot =
+      case state(id) do
+        nil ->
+          nil
+
+        value ->
+          Map.take(value, [
+            :provider_id,
+            :status,
+            :revision,
+            :scope_fingerprint,
+            :snapshot_fingerprint,
+            :approved_scope_fingerprint,
+            :member_uids,
+            :missing_uids,
+            :last_started_at,
+            :last_success_at,
+            :last_error,
+            :reviewed_by,
+            :reviewed_at,
+            :review_reason
+          ])
+      end
+
+    events =
+      Enum.map(
+        events(id),
+        &Map.take(&1, [
+          :id,
+          :event_id,
+          :event_type,
+          :external_ids,
+          :reason,
+          :provider_time,
+          :status,
+          :last_error,
+          :processed_at,
+          :reviewed_by,
+          :review_reason,
+          :inserted_at
+        ])
+      )
+
+    snapshot = if snapshot, do: Map.update!(snapshot, :reviewed_by, &actor_projection/1)
+
+    events =
+      Enum.map(events, &Map.update!(&1, :reviewed_by, fn actor -> actor_projection(actor) end))
+
+    %{snapshot: snapshot, events: events}
+  end
+
+  defp actor_projection(nil), do: nil
+  defp actor_projection(reference), do: Map.from_struct(reference)
+
   def state(provider_id),
     do: DirectoryState |> Ash.Query.filter(provider_id == ^provider_id) |> Ankole.Ash.read_one!()
 

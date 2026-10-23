@@ -10,30 +10,6 @@ import {
 } from './client'
 import { client } from './client.gen'
 import type {
-  AnkoleWebAgentControllerDeleteModelProfileData,
-  AnkoleWebAgentControllerDeleteModelProfileErrors,
-  AnkoleWebAgentControllerDeleteModelProfileResponses,
-  AnkoleWebAgentControllerDeleteTokenQuotaData,
-  AnkoleWebAgentControllerDeleteTokenQuotaErrors,
-  AnkoleWebAgentControllerDeleteTokenQuotaResponses,
-  AnkoleWebAgentControllerIndexModelProfilesData,
-  AnkoleWebAgentControllerIndexModelProfilesErrors,
-  AnkoleWebAgentControllerIndexModelProfilesResponses,
-  AnkoleWebAgentControllerPutModelProfileData,
-  AnkoleWebAgentControllerPutModelProfileErrors,
-  AnkoleWebAgentControllerPutModelProfileResponses,
-  AnkoleWebAgentControllerPutProviderHostedData,
-  AnkoleWebAgentControllerPutProviderHostedErrors,
-  AnkoleWebAgentControllerPutProviderHostedResponses,
-  AnkoleWebAgentControllerPutTokenQuotaData,
-  AnkoleWebAgentControllerPutTokenQuotaErrors,
-  AnkoleWebAgentControllerPutTokenQuotaResponses,
-  AnkoleWebAgentControllerResetTokenQuotaData,
-  AnkoleWebAgentControllerResetTokenQuotaErrors,
-  AnkoleWebAgentControllerResetTokenQuotaResponses,
-  AnkoleWebAgentControllerShowTokenQuotaData,
-  AnkoleWebAgentControllerShowTokenQuotaErrors,
-  AnkoleWebAgentControllerShowTokenQuotaResponses,
   AnkoleWebAgentLibraryCapabilityControllerAgentIndexData,
   AnkoleWebAgentLibraryCapabilityControllerAgentIndexErrors,
   AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses,
@@ -94,36 +70,6 @@ import type {
   AnkoleWebAiGatewayFilesControllerShowData,
   AnkoleWebAiGatewayFilesControllerShowErrors,
   AnkoleWebAiGatewayFilesControllerShowResponses,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialData,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerAddCredentialData,
-  AnkoleWebAiGatewayProviderControllerAddCredentialErrors,
-  AnkoleWebAiGatewayProviderControllerAddCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialData,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerModelsData,
-  AnkoleWebAiGatewayProviderControllerModelsErrors,
-  AnkoleWebAiGatewayProviderControllerModelsResponses,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginData,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses,
-  AnkoleWebAiGatewayProviderControllerProviderKindsData,
-  AnkoleWebAiGatewayProviderControllerProviderKindsErrors,
-  AnkoleWebAiGatewayProviderControllerProviderKindsResponses,
-  AnkoleWebAiGatewayProviderControllerPutCredentialData,
-  AnkoleWebAiGatewayProviderControllerPutCredentialErrors,
-  AnkoleWebAiGatewayProviderControllerPutCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginData,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses,
   AnkoleWebAuthControllerDeleteSessionData,
   AnkoleWebAuthControllerDeleteSessionResponses,
   AnkoleWebBrainControllerDreamData,
@@ -143,53 +89,7 @@ import type {
   AnkoleWebControlPlanePluginControllerIndexResponses,
   AnkoleWebControlPlanePluginControllerUpdateData,
   AnkoleWebControlPlanePluginControllerUpdateErrors,
-  AnkoleWebControlPlanePluginControllerUpdateResponses,
-  AnkoleWebDirectoryAccessControllerApproveData,
-  AnkoleWebDirectoryAccessControllerApproveResponses,
-  AnkoleWebDirectoryAccessControllerReviewEventData,
-  AnkoleWebDirectoryAccessControllerReviewEventResponses,
-  AnkoleWebDirectoryAccessControllerShowData,
-  AnkoleWebDirectoryAccessControllerShowResponses,
-  AnkoleWebHumanAccessControllerClassifyWorkData,
-  AnkoleWebHumanAccessControllerClassifyWorkErrors,
-  AnkoleWebHumanAccessControllerClassifyWorkResponses,
-  AnkoleWebHumanAccessControllerClearRestrictionData,
-  AnkoleWebHumanAccessControllerClearRestrictionErrors,
-  AnkoleWebHumanAccessControllerClearRestrictionResponses,
-  AnkoleWebHumanAccessControllerDisableData,
-  AnkoleWebHumanAccessControllerDisableErrors,
-  AnkoleWebHumanAccessControllerDisableResponses,
-  AnkoleWebHumanAccessControllerRestoreData,
-  AnkoleWebHumanAccessControllerRestoreErrors,
-  AnkoleWebHumanAccessControllerRestoreResponses,
-  AnkoleWebHumanAccessControllerRetryCleanupData,
-  AnkoleWebHumanAccessControllerRetryCleanupResponses,
-  AnkoleWebHumanAccessControllerShowData,
-  AnkoleWebHumanAccessControllerShowErrors,
-  AnkoleWebHumanAccessControllerShowResponses,
-  AnkoleWebHumanAccessControllerUnresolvedWorkData,
-  AnkoleWebHumanAccessControllerUnresolvedWorkResponses,
-  AnkoleWebIdentityProviderControllerAdaptersData,
-  AnkoleWebIdentityProviderControllerAdaptersErrors,
-  AnkoleWebIdentityProviderControllerAdaptersResponses,
-  AnkoleWebIdentityProviderControllerIndexData,
-  AnkoleWebIdentityProviderControllerIndexErrors,
-  AnkoleWebIdentityProviderControllerIndexResponses,
-  AnkoleWebIdentityProviderControllerPutProviderData,
-  AnkoleWebIdentityProviderControllerPutProviderErrors,
-  AnkoleWebIdentityProviderControllerPutProviderResponses,
-  AnkoleWebIdentityProviderControllerRunSyncData,
-  AnkoleWebIdentityProviderControllerRunSyncErrors,
-  AnkoleWebIdentityProviderControllerRunSyncResponses,
-  AnkoleWebOidcClientControllerRotateSecretData,
-  AnkoleWebOidcClientControllerRotateSecretErrors,
-  AnkoleWebOidcClientControllerRotateSecretResponses,
-  AnkoleWebPrincipalControllerCreateLocalPasswordResetData,
-  AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors,
-  AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses,
-  OidcLoginSourcesData,
-  OidcLoginSourcesErrors,
-  OidcLoginSourcesResponses
+  AnkoleWebControlPlanePluginControllerUpdateResponses
 } from './types.gen'
 
 export type Options<
@@ -211,945 +111,6 @@ export type Options<
 }
 
 /**
- * Download AIGateway vision file content
- */
-export const ankoleWebAiGatewayFilesControllerContent = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayFilesControllerContentData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayFilesControllerContentResponses,
-  AnkoleWebAiGatewayFilesControllerContentErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAiGatewayFilesControllerContentResponses,
-    AnkoleWebAiGatewayFilesControllerContentErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/api/v1/ai-gateway/files/{file_id}/content',
-    ...options
-  })
-
-/**
- * List configured identity providers
- */
-export const ankoleWebIdentityProviderControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebIdentityProviderControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebIdentityProviderControllerIndexResponses,
-  AnkoleWebIdentityProviderControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebIdentityProviderControllerIndexResponses,
-    AnkoleWebIdentityProviderControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-providers',
-    ...options
-  })
-
-/**
- * Start a ChatGPT device or browser-paste login
- */
-export const ankoleWebAiGatewayProviderControllerStartChatgptLogin = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerStartChatgptLoginData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses,
-    AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-login',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Delete an AIGateway vision file
- */
-export const ankoleWebAiGatewayFilesControllerDelete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayFilesControllerDeleteData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayFilesControllerDeleteResponses,
-  AnkoleWebAiGatewayFilesControllerDeleteErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAiGatewayFilesControllerDeleteResponses,
-    AnkoleWebAiGatewayFilesControllerDeleteErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/api/v1/ai-gateway/files/{file_id}',
-    ...options
-  })
-
-/**
- * Retrieve an AIGateway vision file
- */
-export const ankoleWebAiGatewayFilesControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayFilesControllerShowData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayFilesControllerShowResponses,
-  AnkoleWebAiGatewayFilesControllerShowErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAiGatewayFilesControllerShowResponses,
-    AnkoleWebAiGatewayFilesControllerShowErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/api/v1/ai-gateway/files/{file_id}',
-    ...options
-  })
-
-/**
- * Replace one user's local password with a new one-time password
- */
-export const ankoleWebPrincipalControllerCreateLocalPasswordReset = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebPrincipalControllerCreateLocalPasswordResetData, ThrowOnError>
-): RequestResult<
-  AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses,
-  AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses,
-    AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}/local-password-resets',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Start a new token quota period at this instant
- */
-export const ankoleWebAgentControllerResetTokenQuota = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerResetTokenQuotaData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerResetTokenQuotaResponses,
-  AnkoleWebAgentControllerResetTokenQuotaErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAgentControllerResetTokenQuotaResponses,
-    AnkoleWebAgentControllerResetTokenQuotaErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/token-quota/reset',
-    ...options
-  })
-
-/**
- * Add one credential-pool member
- */
-export const ankoleWebAiGatewayProviderControllerAddCredential = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerAddCredentialData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerAddCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerAddCredentialErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerAddCredentialResponses,
-    AnkoleWebAiGatewayProviderControllerAddCredentialErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/credentials',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Set or clear one Agent Plugin override
- */
-export const ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverride = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponses,
-  AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponses,
-    AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/library-capabilities/agent-plugins/{id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Approve a current directory snapshot and its removals
- */
-export const ankoleWebDirectoryAccessControllerApprove = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebDirectoryAccessControllerApproveData, ThrowOnError>
-): RequestResult<AnkoleWebDirectoryAccessControllerApproveResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebDirectoryAccessControllerApproveResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-providers/{provider_id}/directory-reviews',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Set the provider credential-pool selection strategy
- */
-export const ankoleWebAiGatewayProviderControllerPutCredentialStrategy = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses,
-    AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/credential-pool/strategy',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Create a stateless OpenResponses response
- */
-export const ankoleWebAiGatewayControllerResponses = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayControllerResponsesData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayControllerResponsesResponses,
-  AnkoleWebAiGatewayControllerResponsesErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayControllerResponsesResponses,
-    AnkoleWebAiGatewayControllerResponsesErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/api/v1/ai-gateway/responses',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Retry cleanup of revoked future work
- */
-export const ankoleWebHumanAccessControllerRetryCleanup = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebHumanAccessControllerRetryCleanupData, ThrowOnError>
-): RequestResult<AnkoleWebHumanAccessControllerRetryCleanupResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebHumanAccessControllerRetryCleanupResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}/work-cleanup-retries',
-    ...options
-  })
-
-/**
- * Read resolved Agent Library capabilities for one Agent
- */
-export const ankoleWebAgentLibraryCapabilityControllerAgentIndex = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentLibraryCapabilityControllerAgentIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses,
-  AnkoleWebAgentLibraryCapabilityControllerAgentIndexErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses,
-    AnkoleWebAgentLibraryCapabilityControllerAgentIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/library-capabilities',
-    ...options
-  })
-
-/**
- * List AIGateway vision files
- */
-export const ankoleWebAiGatewayFilesControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAiGatewayFilesControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayFilesControllerIndexResponses,
-  AnkoleWebAiGatewayFilesControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAiGatewayFilesControllerIndexResponses,
-    AnkoleWebAiGatewayFilesControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/api/v1/ai-gateway/files',
-    ...options
-  })
-
-/**
- * Upload an AIGateway vision file
- */
-export const ankoleWebAiGatewayFilesControllerCreate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayFilesControllerCreateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayFilesControllerCreateResponses,
-  AnkoleWebAiGatewayFilesControllerCreateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayFilesControllerCreateResponses,
-    AnkoleWebAiGatewayFilesControllerCreateErrors,
-    ThrowOnError
-  >({
-    ...formDataBodySerializer,
-    security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/api/v1/ai-gateway/files',
-    ...options,
-    headers: {
-      'Content-Type': null,
-      ...options.headers
-    }
-  })
-
-/**
- * List AIGateway model selectors
- */
-export const ankoleWebAiGatewayControllerModels = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAiGatewayControllerModelsData, ThrowOnError>
-): RequestResult<AnkoleWebAiGatewayControllerModelsResponses, AnkoleWebAiGatewayControllerModelsErrors, ThrowOnError> =>
-  (options?.client ?? client).get<
-    AnkoleWebAiGatewayControllerModelsResponses,
-    AnkoleWebAiGatewayControllerModelsErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/api/v1/ai-gateway/models',
-    ...options
-  })
-
-/**
- * Run recall as any Principal for diagnosis
- */
-export const ankoleWebBrainControllerSearchPreview = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerSearchPreviewData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerSearchPreviewResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebBrainControllerSearchPreviewResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/search-preview',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Set one global Skill default
- */
-export const ankoleWebAgentLibraryCapabilityControllerPutGlobalSkill = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponses,
-  AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponses,
-    AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agent-library/skills/{id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Fetch web pages through AIGateway
- */
-export const ankoleWebAiGatewayControllerWebFetch = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayControllerWebFetchData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayControllerWebFetchResponses,
-  AnkoleWebAiGatewayControllerWebFetchErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayControllerWebFetchResponses,
-    AnkoleWebAiGatewayControllerWebFetchErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/api/v1/ai-gateway/web_fetch',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Create or update one identity provider
- */
-export const ankoleWebIdentityProviderControllerPutProvider = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebIdentityProviderControllerPutProviderData, ThrowOnError>
-): RequestResult<
-  AnkoleWebIdentityProviderControllerPutProviderResponses,
-  AnkoleWebIdentityProviderControllerPutProviderErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebIdentityProviderControllerPutProviderResponses,
-    AnkoleWebIdentityProviderControllerPutProviderErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-providers/{provider_id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Delete one credential-pool member
- */
-export const ankoleWebAiGatewayProviderControllerDeleteCredential = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerDeleteCredentialData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses,
-    AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}',
-    ...options
-  })
-
-/**
- * Update one credential-pool member
- */
-export const ankoleWebAiGatewayProviderControllerPutCredential = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerPutCredentialData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerPutCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerPutCredentialErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAiGatewayProviderControllerPutCredentialResponses,
-    AnkoleWebAiGatewayProviderControllerPutCredentialErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Clear one optional model profile for an agent
- */
-export const ankoleWebAgentControllerDeleteModelProfile = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerDeleteModelProfileData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerDeleteModelProfileResponses,
-  AnkoleWebAgentControllerDeleteModelProfileErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAgentControllerDeleteModelProfileResponses,
-    AnkoleWebAgentControllerDeleteModelProfileErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/model-profiles/{profile}',
-    ...options
-  })
-
-/**
- * Create or update one model profile for an agent
- */
-export const ankoleWebAgentControllerPutModelProfile = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerPutModelProfileData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerPutModelProfileResponses,
-  AnkoleWebAgentControllerPutModelProfileErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAgentControllerPutModelProfileResponses,
-    AnkoleWebAgentControllerPutModelProfileErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/model-profiles/{profile}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * List identity-provider adapters
- */
-export const ankoleWebIdentityProviderControllerAdapters = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebIdentityProviderControllerAdaptersData, ThrowOnError>
-): RequestResult<
-  AnkoleWebIdentityProviderControllerAdaptersResponses,
-  AnkoleWebIdentityProviderControllerAdaptersErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebIdentityProviderControllerAdaptersResponses,
-    AnkoleWebIdentityProviderControllerAdaptersErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-provider-adapters',
-    ...options
-  })
-
-/**
- * Retrieve a stored stateful OpenResponses response
- */
-export const ankoleWebAiGatewayControllerRetrieveResponse = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayControllerRetrieveResponseData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayControllerRetrieveResponseResponses,
-  AnkoleWebAiGatewayControllerRetrieveResponseErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAiGatewayControllerRetrieveResponseResponses,
-    AnkoleWebAiGatewayControllerRetrieveResponseErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/api/v1/ai-gateway/responses/{response_id}',
-    ...options
-  })
-
-/**
- * Rotate a confidential OIDC Client secret
- */
-export const ankoleWebOidcClientControllerRotateSecret = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebOidcClientControllerRotateSecretData, ThrowOnError>
-): RequestResult<
-  AnkoleWebOidcClientControllerRotateSecretResponses,
-  AnkoleWebOidcClientControllerRotateSecretErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebOidcClientControllerRotateSecretResponses,
-    AnkoleWebOidcClientControllerRotateSecretErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/oidc-clients/{id}/secret-rotations',
-    ...options
-  })
-
-/**
- * Enqueue one identity-provider full directory sync
- */
-export const ankoleWebIdentityProviderControllerRunSync = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebIdentityProviderControllerRunSyncData, ThrowOnError>
-): RequestResult<
-  AnkoleWebIdentityProviderControllerRunSyncResponses,
-  AnkoleWebIdentityProviderControllerRunSyncErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebIdentityProviderControllerRunSyncResponses,
-    AnkoleWebIdentityProviderControllerRunSyncErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-providers/{provider_id}/sync-runs',
-    ...options
-  })
-
-/**
- * Read the Brain health snapshot
- */
-export const ankoleWebBrainControllerHealth = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebBrainControllerHealthData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerHealthResponses, unknown, ThrowOnError> =>
-  (options?.client ?? client).get<AnkoleWebBrainControllerHealthResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/health',
-    ...options
-  })
-
-/**
- * List active and next-start Control Plane Plugin state
- */
-export const ankoleWebControlPlanePluginControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebControlPlanePluginControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebControlPlanePluginControllerIndexResponses,
-  AnkoleWebControlPlanePluginControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebControlPlanePluginControllerIndexResponses,
-    AnkoleWebControlPlanePluginControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/control-plane-plugins',
-    ...options
-  })
-
-/**
- * Configure one Control Plane Plugin for the next process start
- */
-export const ankoleWebControlPlanePluginControllerUpdate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebControlPlanePluginControllerUpdateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebControlPlanePluginControllerUpdateResponses,
-  AnkoleWebControlPlanePluginControllerUpdateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebControlPlanePluginControllerUpdateResponses,
-    AnkoleWebControlPlanePluginControllerUpdateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/control-plane-plugins',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * List work whose Human or service authority needs review
- */
-export const ankoleWebHumanAccessControllerUnresolvedWork = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebHumanAccessControllerUnresolvedWorkData, ThrowOnError>
-): RequestResult<AnkoleWebHumanAccessControllerUnresolvedWorkResponses, unknown, ThrowOnError> =>
-  (options?.client ?? client).get<AnkoleWebHumanAccessControllerUnresolvedWorkResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/work-access-reviews',
-    ...options
-  })
-
-/**
- * Set the reviewed authority of unresolved work
- */
-export const ankoleWebHumanAccessControllerClassifyWork = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebHumanAccessControllerClassifyWorkData, ThrowOnError>
-): RequestResult<
-  AnkoleWebHumanAccessControllerClassifyWorkResponses,
-  AnkoleWebHumanAccessControllerClassifyWorkErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebHumanAccessControllerClassifyWorkResponses,
-    AnkoleWebHumanAccessControllerClassifyWorkErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/work-access-reviews',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Read all model profiles for one agent
- */
-export const ankoleWebAgentControllerIndexModelProfiles = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerIndexModelProfilesData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerIndexModelProfilesResponses,
-  AnkoleWebAgentControllerIndexModelProfilesErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAgentControllerIndexModelProfilesResponses,
-    AnkoleWebAgentControllerIndexModelProfilesErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/model-profiles',
-    ...options
-  })
-
-/**
- * Poll one ChatGPT device login once
- */
-export const ankoleWebAiGatewayProviderControllerPollChatgptLogin = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerPollChatgptLoginData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses,
-    AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-login/poll',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Clear one verified restriction without restoring access
- */
-export const ankoleWebHumanAccessControllerClearRestriction = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebHumanAccessControllerClearRestrictionData, ThrowOnError>
-): RequestResult<
-  AnkoleWebHumanAccessControllerClearRestrictionResponses,
-  AnkoleWebHumanAccessControllerClearRestrictionErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebHumanAccessControllerClearRestrictionResponses,
-    AnkoleWebHumanAccessControllerClearRestrictionErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}/access-restrictions/{restriction_id}/clear',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Set or clear one Agent Skill override
- */
-export const ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverride = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponses,
-  AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponses,
-    AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/library-capabilities/skills/{id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Add a ChatGPT enterprise access token
- */
-export const ankoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredential = <
-  ThrowOnError extends boolean = false
->(
-  options: Options<AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses,
-    AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-enterprise-credentials',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Complete a ChatGPT browser-paste login
- */
-export const ankoleWebAiGatewayProviderControllerCompleteChatgptBrowserLogin = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses,
-    AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-login/browser-callback',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Enqueue a Dreaming round without changing its schedule
- */
-export const ankoleWebBrainControllerDream = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebBrainControllerDreamData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerDreamResponses, unknown, ThrowOnError> =>
-  (options?.client ?? client).post<AnkoleWebBrainControllerDreamResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/dream',
-    ...options
-  })
-
-/**
- * Search the web through AIGateway
- */
-export const ankoleWebAiGatewayControllerWebSearch = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayControllerWebSearchData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayControllerWebSearchResponses,
-  AnkoleWebAiGatewayControllerWebSearchErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayControllerWebSearchResponses,
-    AnkoleWebAiGatewayControllerWebSearchErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/api/v1/ai-gateway/web_search',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Audit all knowledge related to one Principal
- */
-export const ankoleWebBrainControllerPrincipalKnowledge = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerPrincipalKnowledgeData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerPrincipalKnowledgeResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).get<AnkoleWebBrainControllerPrincipalKnowledgeResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/principals/{principal_uid}/knowledge',
-    ...options
-  })
-
-/**
- * Read Human access, permission review, and cleanup state
- */
-export const ankoleWebHumanAccessControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebHumanAccessControllerShowData, ThrowOnError>
-): RequestResult<AnkoleWebHumanAccessControllerShowResponses, AnkoleWebHumanAccessControllerShowErrors, ThrowOnError> =>
-  (options.client ?? client).get<
-    AnkoleWebHumanAccessControllerShowResponses,
-    AnkoleWebHumanAccessControllerShowErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}/access',
-    ...options
-  })
-
-/**
- * List authentication sources for OIDC Client policy
- */
-export const oidcLoginSources = <ThrowOnError extends boolean = false>(
-  options?: Options<OidcLoginSourcesData, ThrowOnError>
-): RequestResult<OidcLoginSourcesResponses, OidcLoginSourcesErrors, ThrowOnError> =>
-  (options?.client ?? client).get<OidcLoginSourcesResponses, OidcLoginSourcesErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/oidc-clients/login-sources',
-    ...options
-  })
-
-/**
- * List the Console model catalog
- */
-export const ankoleWebAiGatewayProviderControllerModels = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAiGatewayProviderControllerModelsData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerModelsResponses,
-  AnkoleWebAiGatewayProviderControllerModelsErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAiGatewayProviderControllerModelsResponses,
-    AnkoleWebAiGatewayProviderControllerModelsErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/models',
-    ...options
-  })
-
-/**
  * End authentication in the current browser
  */
 export const ankoleWebAuthControllerDeleteSession = <ThrowOnError extends boolean = false>(
@@ -1157,278 +118,6 @@ export const ankoleWebAuthControllerDeleteSession = <ThrowOnError extends boolea
 ): RequestResult<AnkoleWebAuthControllerDeleteSessionResponses, unknown, ThrowOnError> =>
   (options?.client ?? client).delete<AnkoleWebAuthControllerDeleteSessionResponses, unknown, ThrowOnError>({
     url: '/.internal-apis/session',
-    ...options
-  })
-
-/**
- * Remove the token quota of one agent, which leaves it without a limit
- */
-export const ankoleWebAgentControllerDeleteTokenQuota = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerDeleteTokenQuotaData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerDeleteTokenQuotaResponses,
-  AnkoleWebAgentControllerDeleteTokenQuotaErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAgentControllerDeleteTokenQuotaResponses,
-    AnkoleWebAgentControllerDeleteTokenQuotaErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/token-quota',
-    ...options
-  })
-
-/**
- * Read the token quota and the current window of one agent
- */
-export const ankoleWebAgentControllerShowTokenQuota = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerShowTokenQuotaData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerShowTokenQuotaResponses,
-  AnkoleWebAgentControllerShowTokenQuotaErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAgentControllerShowTokenQuotaResponses,
-    AnkoleWebAgentControllerShowTokenQuotaErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/token-quota',
-    ...options
-  })
-
-/**
- * Set the token quota of one agent
- */
-export const ankoleWebAgentControllerPutTokenQuota = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerPutTokenQuotaData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerPutTokenQuotaResponses,
-  AnkoleWebAgentControllerPutTokenQuotaErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAgentControllerPutTokenQuotaResponses,
-    AnkoleWebAgentControllerPutTokenQuotaErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/token-quota',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Create a rerank result through AIGateway
- */
-export const ankoleWebAiGatewayControllerRerank = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayControllerRerankData, ThrowOnError>
-): RequestResult<AnkoleWebAiGatewayControllerRerankResponses, AnkoleWebAiGatewayControllerRerankErrors, ThrowOnError> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayControllerRerankResponses,
-    AnkoleWebAiGatewayControllerRerankErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/api/v1/ai-gateway/rerank',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Create embeddings through AIGateway
- */
-export const ankoleWebAiGatewayControllerEmbeddings = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayControllerEmbeddingsData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayControllerEmbeddingsResponses,
-  AnkoleWebAiGatewayControllerEmbeddingsErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayControllerEmbeddingsResponses,
-    AnkoleWebAiGatewayControllerEmbeddingsErrors,
-    ThrowOnError
-  >({
-    security: [{ scheme: 'bearer', type: 'http' }],
-    url: '/api/v1/ai-gateway/embeddings',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Read the MISSION, SOUL, DESIGN, and ConfidentialityPolicy documents for one agent
- */
-export const ankoleWebAgentLibraryControllerIndex = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentLibraryControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentLibraryControllerIndexResponses,
-  AnkoleWebAgentLibraryControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAgentLibraryControllerIndexResponses,
-    AnkoleWebAgentLibraryControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/library-documents',
-    ...options
-  })
-
-/**
- * Disable a Human and revoke future access
- */
-export const ankoleWebHumanAccessControllerDisable = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebHumanAccessControllerDisableData, ThrowOnError>
-): RequestResult<
-  AnkoleWebHumanAccessControllerDisableResponses,
-  AnkoleWebHumanAccessControllerDisableErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebHumanAccessControllerDisableResponses,
-    AnkoleWebHumanAccessControllerDisableErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}/access-disables',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * List AIGateway provider kinds
- */
-export const ankoleWebAiGatewayProviderControllerProviderKinds = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAiGatewayProviderControllerProviderKindsData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerProviderKindsResponses,
-  AnkoleWebAiGatewayProviderControllerProviderKindsErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAiGatewayProviderControllerProviderKindsResponses,
-    AnkoleWebAiGatewayProviderControllerProviderKindsErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/provider-kinds',
-    ...options
-  })
-
-/**
- * List installed Brain object types
- */
-export const ankoleWebBrainControllerObjectTypes = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebBrainControllerObjectTypesData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerObjectTypesResponses, unknown, ThrowOnError> =>
-  (options?.client ?? client).get<AnkoleWebBrainControllerObjectTypesResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/object-types',
-    ...options
-  })
-
-/**
- * Retry or dismiss an unresolved provider event
- */
-export const ankoleWebDirectoryAccessControllerReviewEvent = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebDirectoryAccessControllerReviewEventData, ThrowOnError>
-): RequestResult<AnkoleWebDirectoryAccessControllerReviewEventResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebDirectoryAccessControllerReviewEventResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-providers/{provider_id}/directory-events/{event_id}/reviews',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Read directory evidence and unresolved events
- */
-export const ankoleWebDirectoryAccessControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebDirectoryAccessControllerShowData, ThrowOnError>
-): RequestResult<AnkoleWebDirectoryAccessControllerShowResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).get<AnkoleWebDirectoryAccessControllerShowResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-providers/{provider_id}/directory',
-    ...options
-  })
-
-/**
- * Replace one agent MISSION, SOUL, DESIGN, or ConfidentialityPolicy document
- */
-export const ankoleWebAgentLibraryControllerUpdate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentLibraryControllerUpdateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentLibraryControllerUpdateResponses,
-  AnkoleWebAgentLibraryControllerUpdateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAgentLibraryControllerUpdateResponses,
-    AnkoleWebAgentLibraryControllerUpdateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/library-documents/{document_kind}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Set which capabilities an agent leaves to its language-model provider
- */
-export const ankoleWebAgentControllerPutProviderHosted = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerPutProviderHostedData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerPutProviderHostedResponses,
-  AnkoleWebAgentControllerPutProviderHostedErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAgentControllerPutProviderHostedResponses,
-    AnkoleWebAgentControllerPutProviderHostedErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/provider-hosted',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Read one Brain object with full admin detail
- */
-export const ankoleWebBrainControllerShowObject = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerShowObjectData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerShowObjectResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).get<AnkoleWebBrainControllerShowObjectResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/objects/show',
     ...options
   })
 
@@ -1477,22 +166,511 @@ export const ankoleWebAgentLibraryCapabilityControllerGlobalIndex = <ThrowOnErro
   })
 
 /**
- * Restore Human access after identity and permission review
+ * Set one global Skill default
  */
-export const ankoleWebHumanAccessControllerRestore = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebHumanAccessControllerRestoreData, ThrowOnError>
+export const ankoleWebAgentLibraryCapabilityControllerPutGlobalSkill = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillData, ThrowOnError>
 ): RequestResult<
-  AnkoleWebHumanAccessControllerRestoreResponses,
-  AnkoleWebHumanAccessControllerRestoreErrors,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponses,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillErrors,
   ThrowOnError
 > =>
-  (options.client ?? client).post<
-    AnkoleWebHumanAccessControllerRestoreResponses,
-    AnkoleWebHumanAccessControllerRestoreErrors,
+  (options.client ?? client).put<
+    AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponses,
+    AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillErrors,
     ThrowOnError
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}/access-restorations',
+    url: '/api/v1/agent-library/skills/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Read resolved Agent Library capabilities for one Agent
+ */
+export const ankoleWebAgentLibraryCapabilityControllerAgentIndex = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibraryCapabilityControllerAgentIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses,
+  AnkoleWebAgentLibraryCapabilityControllerAgentIndexErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses,
+    AnkoleWebAgentLibraryCapabilityControllerAgentIndexErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v1/agents/{agent_uid}/library-capabilities',
+    ...options
+  })
+
+/**
+ * Set or clear one Agent Plugin override
+ */
+export const ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverride = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponses,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponses,
+    AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v1/agents/{agent_uid}/library-capabilities/agent-plugins/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Set or clear one Agent Skill override
+ */
+export const ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverride = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponses,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponses,
+    AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v1/agents/{agent_uid}/library-capabilities/skills/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Read the MISSION, SOUL, DESIGN, and ConfidentialityPolicy documents for one agent
+ */
+export const ankoleWebAgentLibraryControllerIndex = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibraryControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentLibraryControllerIndexResponses,
+  AnkoleWebAgentLibraryControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAgentLibraryControllerIndexResponses,
+    AnkoleWebAgentLibraryControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v1/agents/{agent_uid}/library-documents',
+    ...options
+  })
+
+/**
+ * Replace one agent MISSION, SOUL, DESIGN, or ConfidentialityPolicy document
+ */
+export const ankoleWebAgentLibraryControllerUpdate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibraryControllerUpdateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentLibraryControllerUpdateResponses,
+  AnkoleWebAgentLibraryControllerUpdateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebAgentLibraryControllerUpdateResponses,
+    AnkoleWebAgentLibraryControllerUpdateErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v1/agents/{agent_uid}/library-documents/{document_kind}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Create embeddings through AIGateway
+ */
+export const ankoleWebAiGatewayControllerEmbeddings = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayControllerEmbeddingsData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayControllerEmbeddingsResponses,
+  AnkoleWebAiGatewayControllerEmbeddingsErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayControllerEmbeddingsResponses,
+    AnkoleWebAiGatewayControllerEmbeddingsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/v1/ai-gateway/embeddings',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * List AIGateway vision files
+ */
+export const ankoleWebAiGatewayFilesControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebAiGatewayFilesControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayFilesControllerIndexResponses,
+  AnkoleWebAiGatewayFilesControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebAiGatewayFilesControllerIndexResponses,
+    AnkoleWebAiGatewayFilesControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/v1/ai-gateway/files',
+    ...options
+  })
+
+/**
+ * Upload an AIGateway vision file
+ */
+export const ankoleWebAiGatewayFilesControllerCreate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayFilesControllerCreateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayFilesControllerCreateResponses,
+  AnkoleWebAiGatewayFilesControllerCreateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayFilesControllerCreateResponses,
+    AnkoleWebAiGatewayFilesControllerCreateErrors,
+    ThrowOnError
+  >({
+    ...formDataBodySerializer,
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/v1/ai-gateway/files',
+    ...options,
+    headers: {
+      'Content-Type': null,
+      ...options.headers
+    }
+  })
+
+/**
+ * Delete an AIGateway vision file
+ */
+export const ankoleWebAiGatewayFilesControllerDelete = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayFilesControllerDeleteData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayFilesControllerDeleteResponses,
+  AnkoleWebAiGatewayFilesControllerDeleteErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebAiGatewayFilesControllerDeleteResponses,
+    AnkoleWebAiGatewayFilesControllerDeleteErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/v1/ai-gateway/files/{file_id}',
+    ...options
+  })
+
+/**
+ * Retrieve an AIGateway vision file
+ */
+export const ankoleWebAiGatewayFilesControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayFilesControllerShowData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayFilesControllerShowResponses,
+  AnkoleWebAiGatewayFilesControllerShowErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAiGatewayFilesControllerShowResponses,
+    AnkoleWebAiGatewayFilesControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/v1/ai-gateway/files/{file_id}',
+    ...options
+  })
+
+/**
+ * Download AIGateway vision file content
+ */
+export const ankoleWebAiGatewayFilesControllerContent = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayFilesControllerContentData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayFilesControllerContentResponses,
+  AnkoleWebAiGatewayFilesControllerContentErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAiGatewayFilesControllerContentResponses,
+    AnkoleWebAiGatewayFilesControllerContentErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/v1/ai-gateway/files/{file_id}/content',
+    ...options
+  })
+
+/**
+ * List AIGateway model selectors
+ */
+export const ankoleWebAiGatewayControllerModels = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebAiGatewayControllerModelsData, ThrowOnError>
+): RequestResult<AnkoleWebAiGatewayControllerModelsResponses, AnkoleWebAiGatewayControllerModelsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<
+    AnkoleWebAiGatewayControllerModelsResponses,
+    AnkoleWebAiGatewayControllerModelsErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/v1/ai-gateway/models',
+    ...options
+  })
+
+/**
+ * Create a rerank result through AIGateway
+ */
+export const ankoleWebAiGatewayControllerRerank = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayControllerRerankData, ThrowOnError>
+): RequestResult<AnkoleWebAiGatewayControllerRerankResponses, AnkoleWebAiGatewayControllerRerankErrors, ThrowOnError> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayControllerRerankResponses,
+    AnkoleWebAiGatewayControllerRerankErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/v1/ai-gateway/rerank',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Create a stateless OpenResponses response
+ */
+export const ankoleWebAiGatewayControllerResponses = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayControllerResponsesData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayControllerResponsesResponses,
+  AnkoleWebAiGatewayControllerResponsesErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayControllerResponsesResponses,
+    AnkoleWebAiGatewayControllerResponsesErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/v1/ai-gateway/responses',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Retrieve a stored stateful OpenResponses response
+ */
+export const ankoleWebAiGatewayControllerRetrieveResponse = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayControllerRetrieveResponseData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayControllerRetrieveResponseResponses,
+  AnkoleWebAiGatewayControllerRetrieveResponseErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAiGatewayControllerRetrieveResponseResponses,
+    AnkoleWebAiGatewayControllerRetrieveResponseErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/v1/ai-gateway/responses/{response_id}',
+    ...options
+  })
+
+/**
+ * Fetch web pages through AIGateway
+ */
+export const ankoleWebAiGatewayControllerWebFetch = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayControllerWebFetchData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayControllerWebFetchResponses,
+  AnkoleWebAiGatewayControllerWebFetchErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayControllerWebFetchResponses,
+    AnkoleWebAiGatewayControllerWebFetchErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/v1/ai-gateway/web_fetch',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Search the web through AIGateway
+ */
+export const ankoleWebAiGatewayControllerWebSearch = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayControllerWebSearchData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayControllerWebSearchResponses,
+  AnkoleWebAiGatewayControllerWebSearchErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayControllerWebSearchResponses,
+    AnkoleWebAiGatewayControllerWebSearchErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/v1/ai-gateway/web_search',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Enqueue a Dreaming round without changing its schedule
+ */
+export const ankoleWebBrainControllerDream = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebBrainControllerDreamData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerDreamResponses, unknown, ThrowOnError> =>
+  (options?.client ?? client).post<AnkoleWebBrainControllerDreamResponses, unknown, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v1/brain/dream',
+    ...options
+  })
+
+/**
+ * Read the Brain health snapshot
+ */
+export const ankoleWebBrainControllerHealth = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebBrainControllerHealthData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerHealthResponses, unknown, ThrowOnError> =>
+  (options?.client ?? client).get<AnkoleWebBrainControllerHealthResponses, unknown, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v1/brain/health',
+    ...options
+  })
+
+/**
+ * List installed Brain object types
+ */
+export const ankoleWebBrainControllerObjectTypes = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebBrainControllerObjectTypesData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerObjectTypesResponses, unknown, ThrowOnError> =>
+  (options?.client ?? client).get<AnkoleWebBrainControllerObjectTypesResponses, unknown, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v1/brain/object-types',
+    ...options
+  })
+
+/**
+ * Read one Brain object with full admin detail
+ */
+export const ankoleWebBrainControllerShowObject = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerShowObjectData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerShowObjectResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).get<AnkoleWebBrainControllerShowObjectResponses, unknown, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v1/brain/objects/show',
+    ...options
+  })
+
+/**
+ * Audit all knowledge related to one Principal
+ */
+export const ankoleWebBrainControllerPrincipalKnowledge = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerPrincipalKnowledgeData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerPrincipalKnowledgeResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).get<AnkoleWebBrainControllerPrincipalKnowledgeResponses, unknown, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v1/brain/principals/{principal_uid}/knowledge',
+    ...options
+  })
+
+/**
+ * Run recall as any Principal for diagnosis
+ */
+export const ankoleWebBrainControllerSearchPreview = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerSearchPreviewData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerSearchPreviewResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebBrainControllerSearchPreviewResponses, unknown, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v1/brain/search-preview',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * List active and next-start Control Plane Plugin state
+ */
+export const ankoleWebControlPlanePluginControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebControlPlanePluginControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebControlPlanePluginControllerIndexResponses,
+  AnkoleWebControlPlanePluginControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebControlPlanePluginControllerIndexResponses,
+    AnkoleWebControlPlanePluginControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v1/site/control-plane-plugins',
+    ...options
+  })
+
+/**
+ * Configure one Control Plane Plugin for the next process start
+ */
+export const ankoleWebControlPlanePluginControllerUpdate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebControlPlanePluginControllerUpdateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebControlPlanePluginControllerUpdateResponses,
+  AnkoleWebControlPlanePluginControllerUpdateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebControlPlanePluginControllerUpdateResponses,
+    AnkoleWebControlPlanePluginControllerUpdateErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v1/site/control-plane-plugins',
     ...options,
     headers: {
       'Content-Type': 'application/json',
