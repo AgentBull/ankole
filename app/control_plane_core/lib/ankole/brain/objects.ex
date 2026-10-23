@@ -58,35 +58,39 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
-  @doc "Lists the Objects for the Console read model."
-  @spec list_for_console(keyword()) :: [Object.t()]
-  def list_for_console(opts) when is_list(opts) do
-    limit = Keyword.fetch!(opts, :limit)
+  @console_list_limit 100
 
-    Object
-    |> maybe_console_prefix(Keyword.get(opts, :prefix))
-    |> maybe_console_search(Keyword.get(opts, :search))
-    |> filter_console_deleted(Keyword.get(opts, :deleted, false))
+  @doc """
+  Prepares the `:console_list` read of Objects: the first 100 Objects in slug
+  order that match the slug prefix and the title or slug search, live or
+  soft-deleted.
+  """
+  @spec console_list(Ash.Query.t(), map()) :: Ash.Query.t()
+  def console_list(query, _context) do
+    query
+    |> maybe_console_prefix(Ash.Query.get_argument(query, :prefix))
+    |> maybe_console_search(Ash.Query.get_argument(query, :search))
+    |> filter_console_deleted(Ash.Query.get_argument(query, :deleted))
     |> Ash.Query.sort(slug: :asc)
-    |> Ash.Query.limit(limit)
-    |> Ankole.Ash.read!()
+    |> Ash.Query.limit(@console_list_limit)
   end
 
-  @doc "Lists one Object's stored versions for the Console read model."
-  @spec list_versions_for_console(String.t(), keyword()) ::
-          {:ok, [ObjectVersion.t()]} | {:error, :not_found}
-  def list_versions_for_console(slug, opts) when is_binary(slug) and is_list(opts) do
-    limit = Keyword.fetch!(opts, :limit)
-
-    with {:ok, object} <- resolve_slug(slug) do
-      versions =
-        ObjectVersion
+  @doc """
+  Prepares the `:console_list` read of Object versions: the last 100
+  versions of the Object that the slug or its alias names. An unknown slug
+  gives `Ankole.Errors.Invalid.NotFound`.
+  """
+  @spec console_versions(Ash.Query.t(), map()) :: Ash.Query.t()
+  def console_versions(query, _context) do
+    case resolve_slug(Ash.Query.get_argument(query, :slug)) do
+      {:ok, object} ->
+        query
         |> Ash.Query.filter(object_id == ^object.id)
         |> Ash.Query.sort(snapshot_at: :desc)
-        |> Ash.Query.limit(limit)
-        |> Ankole.Ash.read!()
+        |> Ash.Query.limit(@console_list_limit)
 
-      {:ok, versions}
+      {:error, :not_found} ->
+        Ash.Query.add_error(query, Ankole.Errors.Invalid.NotFound.exception(resource: Object))
     end
   end
 

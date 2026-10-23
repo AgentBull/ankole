@@ -4,7 +4,44 @@ defmodule Ankole.Brain.Schemas.Claim do
   calibration and resolution fields. Native checks keep the field families
   disjoint; actions own each change to the assertion and its history.
   """
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Brain,
+    extensions: [AshJsonApi.Resource]
+
+  json_api do
+    type("brain_claim")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :claim_type,
+      :claim,
+      :kind,
+      :holder,
+      :audience_scope,
+      :author,
+      :object_slug,
+      :conversation_id,
+      :notability,
+      :confidence,
+      :valid_from,
+      :valid_until,
+      :expired_at,
+      :weight,
+      :active,
+      :since_date,
+      :until_date,
+      :graded_quality,
+      :graded_confidence,
+      :resolved_quality,
+      :resolved_outcome,
+      :resolved_at,
+      :superseded_by,
+      :provenance,
+      :created_at
+    ])
+  end
 
   postgres do
     table("brain_claims")
@@ -39,55 +76,65 @@ defmodule Ankole.Brain.Schemas.Claim do
       default: &Ankole.Ecto.UUIDv7.autogenerate/0
     )
 
-    attribute(:author, Ankole.Ash.Types.ActorRef)
+    attribute(:author, Ankole.Ash.Types.ActorRef, public?: true)
 
-    attribute(:claim_type, Ankole.Ash.Types.State,
+    attribute(:claim_type, Ankole.Ash.Types.State, public?: true,
       allow_nil?: false,
       constraints: [one_of: [:fact, :take]]
     )
 
-    attribute(:object_slug, :string, constraints: [trim?: false])
-    attribute(:conversation_id, Ankole.Ash.Types.UUIDv7)
-    attribute(:claim, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:kind, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:holder, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:audience_scope, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:notability, :string, constraints: [trim?: false])
+    attribute(:object_slug, :string, public?: true, constraints: [trim?: false])
+    attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:claim, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
+    attribute(:kind, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
+    attribute(:holder, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
+    attribute(:audience_scope, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
+    attribute(:notability, :string, public?: true, constraints: [trim?: false])
     attribute(:context, :string, constraints: [trim?: false, allow_empty?: true])
-    attribute(:valid_from, :utc_datetime_usec)
-    attribute(:valid_until, :utc_datetime_usec)
-    attribute(:expired_at, :utc_datetime_usec)
+    attribute(:valid_from, :utc_datetime_usec, public?: true)
+    attribute(:valid_until, :utc_datetime_usec, public?: true)
+    attribute(:expired_at, :utc_datetime_usec, public?: true)
     attribute(:consolidated_at, :utc_datetime_usec)
     attribute(:consolidated_into, Ankole.Ash.Types.UUIDv7)
-    attribute(:confidence, :float)
+    attribute(:confidence, :float, public?: true)
     attribute(:provenance_session, :string, constraints: [trim?: false, allow_empty?: true])
-    attribute(:weight, :float)
-    attribute(:since_date, :string, constraints: [trim?: false, allow_empty?: true])
-    attribute(:until_date, :date)
-    attribute(:active, :boolean)
-    attribute(:graded_quality, :string, constraints: [trim?: false])
-    attribute(:graded_confidence, :float)
+    attribute(:weight, :float, public?: true)
+    attribute(:since_date, :string, public?: true, constraints: [trim?: false, allow_empty?: true])
+    attribute(:until_date, :date, public?: true)
+    attribute(:active, :boolean, public?: true)
+    attribute(:graded_quality, :string, public?: true, constraints: [trim?: false])
+    attribute(:graded_confidence, :float, public?: true)
     attribute(:graded_at, :utc_datetime_usec)
     attribute(:graded_input_hash, :string, constraints: [trim?: false])
-    attribute(:resolved_at, :utc_datetime_usec)
-    attribute(:resolved_outcome, :boolean)
-    attribute(:resolved_quality, :string, constraints: [trim?: false])
+    attribute(:resolved_at, :utc_datetime_usec, public?: true)
+    attribute(:resolved_outcome, :boolean, public?: true)
+    attribute(:resolved_quality, :string, public?: true, constraints: [trim?: false])
     attribute(:resolved_value, :float)
     attribute(:resolved_unit, :string, constraints: [trim?: false, allow_empty?: true])
     attribute(:resolution_provenance, :string, constraints: [trim?: false, allow_empty?: true])
     attribute(:resolved_by, :string, constraints: [trim?: false, allow_empty?: true])
-    attribute(:superseded_by, Ankole.Ash.Types.UUIDv7)
-    attribute(:provenance, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:superseded_by, Ankole.Ash.Types.UUIDv7, public?: true)
+    attribute(:provenance, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
     attribute(:embedding, Ankole.Ash.Types.Vector)
     attribute(:embedding_signature, :string, constraints: [trim?: false, allow_empty?: true])
     attribute(:embedding_error, :string, constraints: [trim?: false, allow_empty?: true])
     attribute(:embedded_at, :utc_datetime_usec)
-    create_timestamp(:created_at)
+    create_timestamp(:created_at, public?: true)
     update_timestamp(:updated_at)
   end
 
   actions do
     defaults([:read])
+
+    # The Console list: the first 100 Claims, newest first, of one Object,
+    # one Claim type, the current state, and a text search.
+    read :console_list do
+      argument(:object_slug, :string, constraints: [trim?: false])
+      argument(:claim_type, :atom, constraints: [one_of: [:fact, :take]])
+      argument(:status, :atom, constraints: [one_of: [:current]])
+      argument(:search, :string)
+      prepare(&Ankole.Brain.Claims.console_list/2)
+    end
 
     create :record_fact do
       accept([
@@ -376,6 +423,95 @@ defmodule Ankole.Brain.Schemas.Claim do
       run(fn %{arguments: args}, _context ->
         args.claim_id
         |> Ankole.Brain.Forget.forget_claim_in_tx(args.reason, args.caller)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    # The Console operations. The operator comes from the action context
+    # (Ankole.Brain.ConsoleOperator); a Console administrator can forget and
+    # resolve each Claim.
+    action :console_supersede, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:claim_id, :uuid, allow_nil?: false)
+      argument(:claim, :string, allow_nil?: false)
+      argument(:kind, :string)
+      argument(:confidence, :float)
+      argument(:weight, :float)
+      argument(:notability, :string)
+      argument(:audience_scope, :string)
+      argument(:provenance, :string)
+      argument(:embedding, :term, public?: false)
+
+      prepare(fn input, _context ->
+        Ash.ActionInput.before_transaction(input, fn input ->
+          Ash.ActionInput.set_private_argument(
+            input,
+            :embedding,
+            Ankole.Brain.Claims.prepare_embedding(input.arguments.claim)
+          )
+        end)
+      end)
+
+      run(fn %{arguments: args, context: context}, _context ->
+        attrs =
+          args
+          |> Map.take([
+            :claim,
+            :kind,
+            :confidence,
+            :weight,
+            :notability,
+            :audience_scope,
+            :provenance
+          ])
+          |> Map.reject(fn {_key, value} -> is_nil(value) end)
+
+        args.claim_id
+        |> Ankole.Brain.Claims.supersede_claim_in_tx(
+          attrs,
+          Ankole.Brain.ConsoleOperator.writer(context),
+          author: Ankole.Brain.ConsoleOperator.actor_ref(context),
+          embedding: args.embedding
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :console_forget, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:claim_id, :uuid, allow_nil?: false)
+      argument(:reason, :string, constraints: [trim?: false, allow_empty?: true])
+
+      run(fn %{arguments: args}, _context ->
+        args.claim_id
+        |> Ankole.Brain.Forget.forget_claim_in_tx(args[:reason] || "", :admin)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :console_resolve, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:claim_id, :uuid, allow_nil?: false)
+      argument(:resolved_quality, :string)
+      argument(:resolved_outcome, :boolean)
+      argument(:resolved_value, :float)
+      argument(:resolved_unit, :string)
+      argument(:resolution_provenance, :string)
+
+      run(fn %{arguments: args, context: context}, _context ->
+        resolution =
+          Map.take(args, [
+            :resolved_quality,
+            :resolved_outcome,
+            :resolved_value,
+            :resolved_unit,
+            :resolution_provenance
+          ])
+
+        resolved_by = to_string(Ankole.Brain.ConsoleOperator.actor_ref(context))
+
+        args.claim_id
+        |> Ankole.Brain.Claims.resolve_take_in_tx(resolution, resolved_by)
         |> Ankole.Errors.wrap()
       end)
     end

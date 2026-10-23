@@ -349,40 +349,13 @@ defmodule AnkoleWeb.Router do
 
     get "/brain/health", BrainController, :health
     post "/brain/dream", BrainController, :dream
-    get "/brain/objects", BrainController, :list_objects
     get "/brain/object-types", BrainController, :object_types
-    post "/brain/objects", BrainController, :create_object
-    put "/brain/objects", BrainController, :update_object
     post "/brain/search-preview", BrainController, :search_preview
-    post "/brain/objects/fork", BrainController, :fork_object
-    get "/brain/suggestions", BrainController, :list_suggestions
-    post "/brain/suggestions/:suggestion_id/decide", BrainController, :decide_suggestion
-    get "/brain/claims", BrainController, :list_claims
-    post "/brain/claims/:claim_id/supersede", BrainController, :supersede_claim
-    post "/brain/claims/:claim_id/forget", BrainController, :forget_claim
-    post "/brain/claims/:claim_id/resolve", BrainController, :resolve_take
-    get "/brain/contradictions", BrainController, :list_contradictions
-    post "/brain/contradictions/:contradiction_id/decide", BrainController, :decide_contradiction
-    get "/brain/merge-suggestions", BrainController, :list_merge_suggestions
-
-    post "/brain/merge-suggestions/:suggestion_id/decide",
-         BrainController,
-         :decide_merge_suggestion
-
-    get "/brain/sources", BrainController, :list_sources
-    post "/brain/sources", BrainController, :create_source
-    patch "/brain/sources/:source_id", BrainController, :update_source
-    post "/brain/sources/:source_id/learn", BrainController, :learn_source
-    post "/brain/sources/:source_id/archive", BrainController, :archive_source
     get "/brain/principals/:principal_uid/knowledge", BrainController, :principal_knowledge
-    # Object slugs contain `/`, so these operations carry the slug as a query
-    # parameter or in the body instead of a wildcard path segment, which the
-    # OpenAPI document could not express.
+    # Object slugs contain `/`, so the object page carries the slug as a query
+    # parameter instead of a wildcard path segment, which the OpenAPI document
+    # could not express.
     get "/brain/objects/show", BrainController, :show_object
-    get "/brain/objects/versions", BrainController, :object_versions
-    post "/brain/objects/rollback", BrainController, :rollback_object
-    post "/brain/objects/forget", BrainController, :forget_object
-    post "/brain/objects/restore", BrainController, :restore_object
 
     get "/agents", AgentController, :index
     post "/agents", AgentController, :create

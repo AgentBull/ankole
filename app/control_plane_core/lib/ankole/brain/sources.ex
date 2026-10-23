@@ -15,17 +15,6 @@ defmodule Ankole.Brain.Sources do
   alias Ankole.Brain.Scope
   alias Ankole.Repo
 
-  @doc "Lists Sources for the Console read model."
-  @spec list_for_console(keyword()) :: [Source.t()]
-  def list_for_console(opts) when is_list(opts) do
-    limit = Keyword.fetch!(opts, :limit)
-
-    Source
-    |> Ash.Query.sort(updated_at: :desc)
-    |> Ash.Query.limit(limit)
-    |> Ankole.Ash.read!()
-  end
-
   @spec create(map()) :: {:ok, Source.t()} | {:error, term()}
   def create(attrs) when is_map(attrs), do: Ankole.Ash.create(Source, :register, attrs)
 

@@ -13,7 +13,9 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   The policy also gives the tenant of `Ankole.Repo` to the Ash action of a
   Console route. `Ankole.Repo` stays the owner of the tenant: the action gets
   the same value that `AnkoleWeb.Plugs.PutDataContext` selected. A site route
-  gets no tenant.
+  gets no tenant. The action context gets the Principal of the session under
+  `:principal`, so that an action can record its operator. It is not an Ash
+  actor: no Ash authorization uses it.
 
   `AshJsonApi.Router` calls the controller of a route also after a halted
   `before_dispatch`. Thus a refusal throws the refused connection, and the
@@ -29,7 +31,37 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   @type rule :: {authz_resource :: String.t(), authz_action :: String.t()}
 
   # {resource, route type, action or relationship} => {AuthZ resource, AuthZ action}
-  @rules %{site: %{}, console: %{}}
+  @rules %{
+    site: %{},
+    console: %{
+      # J5 brain (v1: brain_controller.ex)
+      {Ankole.Brain.Schemas.Object, :index, :console_list} => {"brain", "read"},
+      {Ankole.Brain.Schemas.Object, :route, :console_create} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Object, :route, :console_update} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Object, :route, :fork_library_page} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Object, :route, :console_rollback} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Object, :route, :console_forget} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Object, :route, :restore_object} => {"brain", "update"},
+      {Ankole.Brain.Schemas.ObjectVersion, :index, :console_list} => {"brain", "read"},
+      {Ankole.Brain.Schemas.Claim, :index, :console_list} => {"brain", "read"},
+      {Ankole.Brain.Schemas.Claim, :route, :console_supersede} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Claim, :route, :console_forget} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Claim, :route, :console_resolve} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Contradiction, :index, :console_list} => {"brain", "read"},
+      {Ankole.Brain.Schemas.Contradiction, :route, :decide} => {"brain", "update"},
+      {Ankole.Brain.Schemas.SchemaSuggestion, :index, :console_list} => {"brain", "read"},
+      {Ankole.Brain.Schemas.SchemaSuggestion, :route, :console_approve} => {"brain", "update"},
+      {Ankole.Brain.Schemas.SchemaSuggestion, :route, :console_reject} => {"brain", "update"},
+      {Ankole.Brain.Schemas.MergeSuggestion, :index, :console_list} => {"brain", "read"},
+      {Ankole.Brain.Schemas.MergeSuggestion, :route, :console_approve} => {"brain", "update"},
+      {Ankole.Brain.Schemas.MergeSuggestion, :route, :console_reject} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Source, :index, :console_list} => {"brain", "read"},
+      {Ankole.Brain.Schemas.Source, :route, :console_register} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Source, :route, :update_default_scope} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Source, :route, :console_learn} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Source, :route, :archive_source} => {"brain", "update"}
+    }
+  }
 
   @doc "Gives the rules of the routers of one scope."
   @spec rules(scope()) :: %{rule_key() => rule()}
@@ -65,7 +97,9 @@ defmodule AnkoleWeb.JSONAPI.Policy do
     with {:ok, {authz_resource, action}} <-
            Map.fetch(rules || rules(scope), rule_key(resource, route)),
          :ok <- ConsolePolicy.authorize(conn, expand(authz_resource, params), action) do
-      Ash.PlugHelpers.set_tenant(conn, tenant(scope))
+      conn
+      |> Ash.PlugHelpers.set_tenant(tenant(scope))
+      |> Ash.PlugHelpers.set_context(%{principal: conn.assigns[:current_principal]})
     else
       _refused -> refuse(conn)
     end

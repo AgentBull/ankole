@@ -40,7 +40,8 @@ defmodule Ankole.Brain.Forget do
   # the `:forget_claim` action: a crash between them must not leave a
   # forgotten claim without its required reason.
   def forget_claim_in_tx(claim_id, reason, caller) do
-    with {:ok, claim} <- fetch_claim(claim_id),
+    with :ok <- validate_reason(reason),
+         {:ok, claim} <- fetch_claim(claim_id),
          :ok <- validate_eligibility(claim, caller) do
       result =
         case claim.claim_type do
@@ -62,14 +63,32 @@ defmodule Ankole.Brain.Forget do
   """
   @spec forget_object(String.t(), String.t(), caller()) :: {:ok, map()} | {:error, term()}
   def forget_object(slug, reason, caller) when is_binary(reason) do
-    with :ok <- validate_reason(reason),
-         {:ok, object} <- Objects.resolve_slug(slug),
-         :ok <- validate_object_eligibility(object, caller) do
+    with {:ok, object} <- forget_object_target(slug, reason, caller) do
       Ankole.Ash.run_action(Object, :soft_delete_object, %{
         slug: object.slug,
         reason: String.trim(reason),
         by: caller_label(caller)
       })
+    end
+  end
+
+  @doc false
+  # Soft-deletes one object in the transaction of the Console `:console_forget`
+  # action of `Ankole.Brain.Schemas.Object`.
+  def forget_object_in_tx(slug, reason, caller) do
+    with {:ok, object} <- forget_object_target(slug, reason, caller) do
+      Objects.soft_delete_in_tx(object.slug,
+        reason: String.trim(reason),
+        by: caller_label(caller)
+      )
+    end
+  end
+
+  defp forget_object_target(slug, reason, caller) do
+    with :ok <- validate_reason(reason),
+         {:ok, object} <- Objects.resolve_slug(slug),
+         :ok <- validate_object_eligibility(object, caller) do
+      {:ok, object}
     end
   end
 

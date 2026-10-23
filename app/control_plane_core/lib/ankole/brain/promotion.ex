@@ -23,19 +23,6 @@ defmodule Ankole.Brain.Promotion do
   @library_projection_type "agent-skills"
   @lazy_skill_prefix "lazyload-agent-skills/"
 
-  @doc "Lists promotion suggestions for the Console read model."
-  @spec list_for_console(String.t(), keyword()) ::
-          {:ok, [SchemaSuggestion.t()]} | {:error, term()}
-  def list_for_console(status, opts) when is_binary(status) and is_list(opts) do
-    limit = Keyword.fetch!(opts, :limit)
-
-    SchemaSuggestion
-    |> Ash.Query.filter(status == ^status)
-    |> Ash.Query.sort(created_at: :desc)
-    |> Ash.Query.limit(limit)
-    |> Ankole.Ash.read()
-  end
-
   @doc """
   Approves one pending suggestion and materializes it in the caller's
   transaction.

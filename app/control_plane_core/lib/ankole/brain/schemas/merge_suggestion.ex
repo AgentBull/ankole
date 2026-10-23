@@ -3,7 +3,14 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     domain: Ankole.Brain,
-    extensions: [AshStateMachine]
+    extensions: [AshStateMachine, AshJsonApi.Resource]
+
+  json_api do
+    type("brain_merge_suggestion")
+    derive_filter?(false)
+    derive_sort?(false)
+    default_fields([:a_page, :b_page, :reason, :status, :created_at])
+  end
 
   postgres do
     table("brain_merge_suggestions")
@@ -29,12 +36,48 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
 
     attribute(:reason, :string,
       allow_nil?: false,
+      public?: true,
       constraints: [trim?: false, allow_empty?: true]
     )
 
     attribute(:decided_by, Ankole.Ash.Types.ActorRef)
-    attribute(:created_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
+
+    attribute(:created_at, :utc_datetime_usec,
+      allow_nil?: false,
+      public?: true,
+      default: &DateTime.utc_now/0
+    )
+
     attribute(:decided_at, :utc_datetime_usec)
+  end
+
+  @page_summary [
+    fields: [
+      slug: [type: :string, allow_nil?: false],
+      title: [type: :string, allow_nil?: true],
+      type: [type: :string, allow_nil?: true]
+    ]
+  ]
+
+  # A decided suggestion can name a page that no longer exists, so each page
+  # summary resolves the slug through the redirect ladder and keeps only the
+  # slug of a missing page.
+  calculations do
+    calculate(
+      :a_page,
+      :map,
+      fn records, _context -> Enum.map(records, &Ankole.Brain.Merge.page_summary(&1.a_slug)) end,
+      constraints: @page_summary,
+      public?: true
+    )
+
+    calculate(
+      :b_page,
+      :map,
+      fn records, _context -> Enum.map(records, &Ankole.Brain.Merge.page_summary(&1.b_slug)) end,
+      constraints: @page_summary,
+      public?: true
+    )
   end
 
   identities do
@@ -54,6 +97,17 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
 
   actions do
     defaults([:read])
+
+    # The Console list: the first 100 suggestions of one status, newest first.
+    read :console_list do
+      argument(:status, :atom,
+        default: :pending,
+        constraints: [one_of: [:pending, :approved, :rejected]]
+      )
+
+      filter(expr(status == ^arg(:status)))
+      prepare(build(sort: [created_at: :desc], limit: 100))
+    end
 
     create_if_absent :suggest do
       accept([:id, :a_slug, :b_slug, :reason, :created_at])
@@ -88,6 +142,35 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
       run(fn %{arguments: args}, _context ->
         args.suggestion_id
         |> Ankole.Brain.Merge.approve_in_tx(args.decided_by, args.attrs)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    # The Console review. The reviewer comes from the action context
+    # (Ankole.Brain.ConsoleOperator).
+    action :console_approve do
+      argument(:suggestion_id, :uuid, allow_nil?: false)
+      argument(:canonical_slug, :string, constraints: [trim?: false])
+
+      run(fn %{arguments: args, context: context}, _context ->
+        decided_by = Ankole.Brain.ConsoleOperator.actor_ref(context)
+        attrs = %{canonical_slug: args[:canonical_slug]}
+
+        with {:ok, _outcome} <-
+               Ankole.Errors.wrap(
+                 Ankole.Brain.Merge.approve_in_tx(args.suggestion_id, decided_by, attrs)
+               ),
+             do: :ok
+      end)
+    end
+
+    action :console_reject, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:suggestion_id, :uuid, allow_nil?: false)
+
+      run(fn %{arguments: args, context: context}, _context ->
+        args.suggestion_id
+        |> Ankole.Brain.Merge.reject_in_tx(Ankole.Brain.ConsoleOperator.actor_ref(context))
         |> Ankole.Errors.wrap()
       end)
     end

@@ -3,7 +3,23 @@ defmodule Ankole.Brain.Schemas.SchemaSuggestion do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     domain: Ankole.Brain,
-    extensions: [AshStateMachine]
+    extensions: [AshStateMachine, AshJsonApi.Resource]
+
+  json_api do
+    type("brain_schema_suggestion")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :kind,
+      :term,
+      :target_type,
+      :evidence_count,
+      :rationale,
+      :status,
+      :created_at
+    ])
+  end
 
   postgres do
     table("brain_schema_suggestions")
@@ -27,20 +43,33 @@ defmodule Ankole.Brain.Schemas.SchemaSuggestion do
 
     attribute(:kind, :atom,
       allow_nil?: false,
+      public?: true,
       constraints: [one_of: [:new_type, :new_subtype, :alias]]
     )
 
-    attribute(:term, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:target_type, :string, allow_nil?: true, constraints: [trim?: false])
-    attribute(:evidence_count, :integer, allow_nil?: false, constraints: [min: 0])
+    attribute(:term, :string, allow_nil?: false, public?: true, constraints: [trim?: false])
+
+    attribute(:target_type, :string,
+      allow_nil?: true,
+      public?: true,
+      constraints: [trim?: false]
+    )
+
+    attribute(:evidence_count, :integer, allow_nil?: false, public?: true, constraints: [min: 0])
 
     attribute(:rationale, :string,
       allow_nil?: false,
+      public?: true,
       constraints: [trim?: false, allow_empty?: true]
     )
 
     attribute(:decided_by, Ankole.Ash.Types.ActorRef)
-    attribute(:created_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
+
+    attribute(:created_at, :utc_datetime_usec,
+      allow_nil?: false,
+      public?: true,
+      default: &DateTime.utc_now/0
+    )
     attribute(:decided_at, :utc_datetime_usec)
   end
 
@@ -61,6 +90,17 @@ defmodule Ankole.Brain.Schemas.SchemaSuggestion do
 
   actions do
     defaults([:read])
+
+    # The Console list: the first 100 suggestions of one status, newest first.
+    read :console_list do
+      argument(:status, :atom,
+        default: :pending,
+        constraints: [one_of: [:pending, :approved, :rejected]]
+      )
+
+      filter(expr(status == ^arg(:status)))
+      prepare(build(sort: [created_at: :desc], limit: 100))
+    end
 
     create_if_absent :suggest do
       accept([:id, :kind, :term, :target_type, :evidence_count, :rationale, :created_at])
@@ -95,6 +135,38 @@ defmodule Ankole.Brain.Schemas.SchemaSuggestion do
       run(fn %{arguments: args}, _context ->
         args.suggestion_id
         |> Ankole.Brain.Promotion.approve_in_tx(args.decided_by, args.attrs)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    # The Console review. The reviewer comes from the action context
+    # (Ankole.Brain.ConsoleOperator).
+    action :console_approve do
+      argument(:suggestion_id, :uuid, allow_nil?: false)
+      argument(:primitive, :string)
+      argument(:slug_prefix, :string)
+      argument(:target_type, :string)
+      argument(:extractable, :boolean)
+
+      run(fn %{arguments: args, context: context}, _context ->
+        attrs = Map.take(args, [:primitive, :slug_prefix, :target_type, :extractable])
+        decided_by = Ankole.Brain.ConsoleOperator.actor_ref(context)
+
+        with {:ok, _outcome} <-
+               Ankole.Errors.wrap(
+                 Ankole.Brain.Promotion.approve_in_tx(args.suggestion_id, decided_by, attrs)
+               ),
+             do: :ok
+      end)
+    end
+
+    action :console_reject, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:suggestion_id, :uuid, allow_nil?: false)
+
+      run(fn %{arguments: args, context: context}, _context ->
+        args.suggestion_id
+        |> Ankole.Brain.Promotion.reject_in_tx(Ankole.Brain.ConsoleOperator.actor_ref(context))
         |> Ankole.Errors.wrap()
       end)
     end

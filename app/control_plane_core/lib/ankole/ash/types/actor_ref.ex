@@ -15,4 +15,17 @@ defmodule Ankole.Ash.Types.ActorRef do
   @impl true
   def dump_to_native(nil, _constraints), do: {:ok, nil}
   def dump_to_native(value, _constraints), do: Ankole.Ecto.ActorRef.dump(value)
+
+  @doc "Gives the OpenAPI schema of the JSON:API value: the tenant and the UID."
+  def json_schema(_constraints) do
+    %{
+      "type" => "object",
+      "properties" => %{
+        "tenant_id" => %{"type" => "string", "format" => "uuid"},
+        "uid" => %{"type" => "string"}
+      },
+      "required" => ["tenant_id", "uid"],
+      "additionalProperties" => false
+    }
+  end
 end

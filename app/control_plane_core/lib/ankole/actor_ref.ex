@@ -3,6 +3,8 @@ defmodule Ankole.ActorRef do
   Stable attribution to a Principal, including its tenant after deletion.
   """
 
+  # The JSON:API serializer encodes attribute values with Jason.
+  @derive {Jason.Encoder, only: [:tenant_id, :uid]}
   @enforce_keys [:tenant_id, :uid]
   defstruct [:tenant_id, :uid]
 

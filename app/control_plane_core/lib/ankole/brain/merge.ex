@@ -37,16 +37,16 @@ defmodule Ankole.Brain.Merge do
   @candidate_scan_limit 200
   @suggestion_batch_limit 50
 
-  @doc "Lists merge suggestions for the Console read model."
-  @spec list_for_console(String.t(), keyword()) :: {:ok, [MergeSuggestion.t()]} | {:error, term()}
-  def list_for_console(status, opts) when is_binary(status) and is_list(opts) do
-    limit = Keyword.fetch!(opts, :limit)
-
-    MergeSuggestion
-    |> Ash.Query.filter(status == ^status)
-    |> Ash.Query.sort(created_at: :desc)
-    |> Ash.Query.limit(limit)
-    |> Ankole.Ash.read()
+  @doc """
+  Gives the slug, the title, and the type of the page that a suggestion
+  names. A missing page keeps only its slug.
+  """
+  @spec page_summary(String.t()) :: map()
+  def page_summary(slug) do
+    case Objects.resolve_slug(slug) do
+      {:ok, object} -> %{slug: object.slug, title: object.title, type: object.type}
+      {:error, :not_found} -> %{slug: slug, title: nil, type: nil}
+    end
   end
 
   @doc """
