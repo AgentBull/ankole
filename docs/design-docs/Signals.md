@@ -61,6 +61,12 @@ returns the first Signal, including its first target and facts. Changing a
 subscription does not move an accepted event to another Session. Several rules
 that match the same event for the same Agent also return that one Signal.
 
+`accept_all/1` and `accept_all_in_tx/2` accept a list of stimuli in one
+transaction. The intake locks all target Sessions in order with one statement,
+reads the existing Signals with one query, and inserts the new Signals with one
+bulk insert. The sequence read and the wakeup job stay one for each Session. A
+rejected stimulus rejects the full list.
+
 In the same transaction, intake records a durable
 `Ankole.Sessions.Jobs.EnsureDriver` job. It does not start a Driver inside that
 transaction. `accept/1` can wake the Session immediately after a real commit;
@@ -247,7 +253,7 @@ separate persisted Channel or Entry records.
 ## CloudEvents HTTP Intake
 
 An operator creates an Endpoint with `event_format: "cloudevents"`, a label,
-mode, and future expiry through `POST /api/v1/webhook-endpoints`. The
+mode, and future expiry through `POST /api/v2/webhook-endpoints` (JSON:API). The
 Console webhook permission controls creation. Creation returns the capability
 URL once. The Console and safe list API keep the Endpoint ID and metadata,
 and do not return the token or its digest.
@@ -320,7 +326,7 @@ without changing the original facts. A request with no matches is ignored.
 `one_shot` changes from `armed` to `fired` only after it accepts at least one
 Signal. `standing` remains `active`. Expired or cancelled Endpoints are
 terminal and return an ignored result without new work. Suspended tenants
-also accept no work. `DELETE /api/v1/webhook-endpoints/:id` cancels the
+also accept no work. `DELETE /api/v2/webhook-endpoints/:id` cancels the
 Endpoint. A known terminal capability remains safe for producer redelivery.
 
 `WebhookEndpoint` owns these transitions through AshStateMachine, including

@@ -6,7 +6,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     domain: Ankole.Schedule,
-    extensions: [AshStateMachine]
+    extensions: [AshStateMachine, AshJsonApi.Resource]
 
   use Ankole.Work.Provenance,
     owner_session?: false,
@@ -131,11 +131,48 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
       public?: true
     )
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps(type: :utc_datetime_usec, public?: true)
   end
 
   identities do
     identity(:idempotency, [:kind, :agent_uid, :session_id, :idempotency_key], all_tenants?: true)
+  end
+
+  json_api do
+    type("scheduled_event")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :id,
+      :kind,
+      :status,
+      :agent_uid,
+      :session_id,
+      :binding_name,
+      :due_at,
+      :timezone,
+      :requested_at,
+      :idempotency_key,
+      :cron_schedule_id,
+      :automation_job_id,
+      :automation_job_run_id,
+      :cron_fire_slot_at,
+      :tool_call_id,
+      :origin_ai_message_id,
+      :source_signal_id,
+      :conversation_id,
+      :provider_thread_id,
+      :provider_message_id,
+      :source_provenance,
+      :wake_payload,
+      :signal_id,
+      :fired_at,
+      :cancelled_at,
+      :last_fire_error,
+      :inserted_at,
+      :updated_at
+    ])
   end
 
   state_machine do
@@ -159,6 +196,46 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
 
   actions do
     defaults([:read])
+
+    # The Console list of checkbacks: the latest due time first, of one Agent
+    # or of all Agents.
+    read :console_checkbacks do
+      argument(:agent, Ankole.Ash.Types.PrincipalKey)
+
+      filter(
+        expr(kind == "check_back_later" and (is_nil(^arg(:agent)) or agent_uid == ^arg(:agent)))
+      )
+
+      prepare(build(sort: [due_at: :desc, inserted_at: :desc, id: :desc]))
+      pagination(keyset?: true, default_limit: 100, max_page_size: 500, countable: false)
+    end
+
+    # The recent fires of one cron schedule of one Agent.
+    read :console_cron_runs do
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:cron_schedule_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      filter(expr(cron_schedule_id == ^arg(:cron_schedule_id) and agent_uid == ^arg(:agent_uid)))
+
+      prepare(build(sort: [due_at: :desc, inserted_at: :desc, id: :desc]))
+      pagination(keyset?: true, default_limit: 25, max_page_size: 100, countable: false)
+    end
+
+    action :console_cancel_checkback, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+
+      argument(:id, :integer,
+        allow_nil?: false,
+        constraints: [min: Ankole.ModelIntegerID.minimum(), max: Ankole.ModelIntegerID.maximum()]
+      )
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Checkbacks.console_cancel_in_tx(input.arguments)
+        |> Ankole.Errors.wrap()
+      end)
+    end
 
     action :create_check_back_later, :term do
       argument(:attrs, :term, allow_nil?: false)

@@ -6,12 +6,30 @@ defmodule Ankole.Signals do
   domains. A generic action owns its transaction; the `*_in_tx` functions are
   steps that the generic action of another domain calls in its own transaction.
   """
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   require Ash.Query
   require Ash.Sort
 
-  alias Ankole.Signals.{Intake, Signal}
+  alias Ankole.Signals.{Binding, Intake, Signal, WebhookEndpoint}
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/webhook-endpoints", WebhookEndpoint do
+        index(:console_list, name: "list_webhook_endpoints", derive_sort?: false)
+        route(:post, "/", :create_operator_endpoint, name: "create_webhook_endpoint")
+        route(:delete, "/:id", :cancel_operator_endpoint, name: "cancel_webhook_endpoint")
+      end
+
+      base_route "/agents/:agent_uid/signal-bindings", Binding do
+        route(:delete, "/:name", :console_disable, name: "disable_signal_binding")
+      end
+    end
+  end
 
   resources do
     resource Ankole.Signals.Signal do
@@ -23,6 +41,7 @@ defmodule Ankole.Signals do
       define(:reauthorize_signal, action: :reauthorize)
       define(:remove_signal, action: :remove)
       define(:intake, action: :intake, args: [:attrs])
+      define(:intake_all, action: :intake_all, args: [:attrs_list])
     end
 
     resource Ankole.Signals.Binding do
@@ -282,6 +301,15 @@ defmodule Ankole.Signals do
   def accept(attrs) when is_map(attrs), do: attrs |> intake() |> Ankole.Errors.reason()
   def accept(_attrs), do: {:error, :invalid_request}
 
+  @doc """
+  Accepts a list of stimuli in one transaction and wakes their sessions after
+  the transaction commits.
+
+  A rejected stimulus rejects the full list and gives its domain reason.
+  """
+  def accept_all(attrs_list) when is_list(attrs_list),
+    do: attrs_list |> intake_all() |> Ankole.Errors.reason()
+
   @doc "Publishes one Signal or a list of Signals that a transaction committed."
   def publish_committed(signals) do
     Ankole.Repo.assert_outside_transaction!()
@@ -307,4 +335,18 @@ defmodule Ankole.Signals do
   end
 
   def accept_in_tx(_repo, _attrs), do: {:error, :invalid_request}
+
+  @doc """
+  Accepts a list of stimuli in the caller's transaction.
+
+  One query reads the existing Signals and one bulk insert writes the new
+  Signals. The result has one Signal for each input, in the input order.
+  """
+  def accept_all_in_tx(repo, attrs_list) when is_list(attrs_list) do
+    with :ok <- Ankole.Repo.require_transaction(repo) do
+      if Enum.all?(attrs_list, &is_map/1),
+        do: Intake.accept_all(repo, attrs_list),
+        else: {:error, :invalid_request}
+    end
+  end
 end

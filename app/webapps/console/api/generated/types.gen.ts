@@ -60,54 +60,6 @@ export type AgentLibraryDocumentItem = {
 }
 
 /**
- * ScheduledEventItem
- *
- * One concrete fire: a one-shot checkback or one slot of a cron schedule.
- */
-export type ScheduledEventItem = {
-  agent_uid: string
-  automation_job_id: number | null
-  automation_job_run_id: number | null
-  binding_name: string | null
-  cancelled_at: string | null
-  conversation_id: string | null
-  cron_fire_slot_at: string | null
-  cron_schedule_id: string | null
-  due_at: string
-  fired_at: string | null
-  id: number
-  idempotency_key: string
-  inserted_at: string
-  kind: 'check_back_later' | 'cron_fire'
-  /**
-   * Stored diagnostic of the last cancellation or failure; `reason` names it. Empty when there is none.
-   */
-  last_fire_error: {
-    [key: string]: unknown
-  }
-  origin_ai_message_id: string | null
-  provider_message_id: string | null
-  provider_thread_id: string | null
-  requested_at: string
-  session_id: string
-  signal_id: string | null
-  source_provenance: {
-    [key: string]: unknown
-  }
-  source_signal_id: string | null
-  status: 'scheduled' | 'fired' | 'cancelled' | 'failed'
-  timezone: string
-  tool_call_id: string | null
-  updated_at: string
-  /**
-   * Input of the wake turn. A checkback carries `reason`, `check`, and `context_summary`; a cron fire carries `trigger` and the frozen schedule facts.
-   */
-  wake_payload: {
-    [key: string]: unknown
-  }
-}
-
-/**
  * AIGatewayProviderListResponse
  */
 export type AiGatewayProviderListResponse = {
@@ -192,14 +144,6 @@ export type ConversationStandingOrdersItem = {
   set_by?: string | null
   title?: string | null
   updated_at?: string | null
-}
-
-/**
- * CloudEventEndpointCreateRequest
- */
-export type CloudEventEndpointCreateRequest = {
-  expires_at: string
-  label: string
 }
 
 /**
@@ -377,32 +321,6 @@ export type BackgroundActivityAutomationRunsResponse = {
 }
 
 /**
- * ScheduleRecurrence
- *
- * Recurrence of one cron schedule. Kind `cron` uses `expression` and `timezone`; kind `every` uses `every_ms` and `anchor_at`.
- */
-export type ScheduleRecurrence = {
-  /**
-   * ISO 8601 instant that the interval counts from.
-   */
-  anchor_at?: string
-  /**
-   * Interval in milliseconds.
-   */
-  every_ms?: number
-  /**
-   * Crontab expression with five fields, or six fields with leading seconds.
-   */
-  expression?: string
-  kind: 'cron' | 'every'
-  occurrences?: ScheduleOccurrences
-  /**
-   * IANA timezone. A write can omit it and give the request `timezone` instead. A stored `cron` recurrence carries it.
-   */
-  timezone?: string
-}
-
-/**
  * BrainSourceLearnResponse
  */
 export type BrainSourceLearnResponse = {
@@ -412,44 +330,10 @@ export type BrainSourceLearnResponse = {
 }
 
 /**
- * AutomationJobRunItem
- */
-export type AutomationJobRunItem = {
-  attempts: number
-  error?: string | null
-  exit_code?: number | null
-  finished_at?: string | null
-  id: number
-  started_at?: string | null
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
-  stderr: string
-  stdout: string
-}
-
-/**
  * WorkerEnvListResponse
  */
 export type WorkerEnvListResponse = {
   worker_envs: Array<WorkerEnvItem>
-}
-
-/**
- * OIDCClientUpdateRequest
- */
-export type OidcClientUpdateRequest = {
-  allow_insecure_local_logout?: boolean
-  allowed_group_ids?: Array<string>
-  allowed_identity_provider_ids?: Array<string>
-  allowed_models?: {
-    [key: string]: ModelProfileWriteRequest
-  }
-  backchannel_logout_session_required?: boolean
-  backchannel_logout_uri?: string | null
-  enabled?: boolean
-  name?: string
-  post_logout_redirect_uris?: Array<string>
-  redirect_uris?: Array<string>
-  scopes?: Array<'openid' | 'profile' | 'email' | 'offline_access' | 'ai_gateway.write'>
 }
 
 /**
@@ -711,13 +595,6 @@ export type TenantListResponse = {
 }
 
 /**
- * LogoutDeliveriesResponse
- */
-export type LogoutDeliveriesResponse = {
-  deliveries: Array<LogoutDeliveryItem>
-}
-
-/**
  * AccessReasonRequest
  */
 export type AccessReasonRequest = {
@@ -757,22 +634,6 @@ export type BrainPageContradiction = {
   id: string
   severity: string
   verdict: string
-}
-
-/**
- * LogoutDeliveryItem
- */
-export type LogoutDeliveryItem = {
-  attempt_count: number
-  deadline: string
-  delivered_at: string | null
-  id: string
-  last_attempt_at: string | null
-  last_error: string | null
-  next_attempt_at: string | null
-  principal_uid: string
-  session_id: string
-  status: string
 }
 
 /**
@@ -996,13 +857,6 @@ export type ConsoleReadinessResponse = {
 }
 
 /**
- * ScheduleCronScheduleResponse
- */
-export type ScheduleCronScheduleResponse = {
-  cron_schedule: CronScheduleItem
-}
-
-/**
  * BrainSourceUpdateRequest
  */
 export type BrainSourceUpdateRequest = {
@@ -1126,38 +980,6 @@ export type BrainObjectSummaryResponse = {
 }
 
 /**
- * CronScheduleItem
- */
-export type CronScheduleItem = {
-  agent_uid: string
-  automation_job_id: number | null
-  binding_name: string | null
-  /**
-   * Origin of the schedule; `kind` names the writer.
-   */
-  created_by: {
-    [key: string]: unknown
-  }
-  delivery: ScheduleDelivery | null
-  /**
-   * Derived session `cron:<id>` where every fire runs.
-   */
-  execution_session_id: string
-  id: string
-  idempotency_key: string
-  inserted_at: string
-  last_fire_at: string | null
-  name: string
-  next_fire_at: string | null
-  owner_session_id: string
-  payload: SchedulePayload
-  schedule: ScheduleRecurrence
-  status: 'active' | 'paused' | 'deleted' | 'completed'
-  timezone: string
-  updated_at: string
-}
-
-/**
  * BrainContradiction
  */
 export type BrainContradiction = {
@@ -1170,13 +992,6 @@ export type BrainContradiction = {
   severity: string
   status: string
   verdict: string
-}
-
-/**
- * AutomationJobResponse
- */
-export type AutomationJobResponse = {
-  automation_job: AutomationJobItem
 }
 
 /**
@@ -1278,14 +1093,6 @@ export type BackgroundAgentJobItem = {
 export type BrainRecallResult = {
   chunks: Array<BrainRecallChunk>
   claims: Array<BrainRecallClaim>
-}
-
-/**
- * CloudEventEndpointCreateResponse
- */
-export type CloudEventEndpointCreateResponse = {
-  token: string
-  webhook_endpoint: WebhookEndpointItem
 }
 
 /**
@@ -1451,17 +1258,6 @@ export type BrainContradictionDecisionResponse = {
 }
 
 /**
- * ScheduleCronUpdateRequest
- */
-export type ScheduleCronUpdateRequest = {
-  delivery?: ScheduleDelivery
-  name?: string
-  payload?: SchedulePayload
-  schedule?: ScheduleRecurrence
-  timezone?: string | null
-}
-
-/**
  * AgentFileListResponse
  */
 export type AgentFileListResponse = {
@@ -1569,13 +1365,6 @@ export type AiGatewayCredentialWriteRequest = {
   label?: string
   priority?: number
   [key: string]: unknown
-}
-
-/**
- * ScheduleEventListResponse
- */
-export type ScheduleEventListResponse = {
-  schedule_events: Array<ScheduledEventItem>
 }
 
 /**
@@ -1760,31 +1549,6 @@ export type SignalBindingListResponse = {
 }
 
 /**
- * WebhookEndpointItem
- */
-export type WebhookEndpointItem = {
-  agent_uid: string | null
-  automation_job_id?: number | null
-  binding_name: string | null
-  cancelled_at?: string | null
-  conversation_id?: string | null
-  created_at: string
-  event_format?: 'raw' | 'cloudevents'
-  expires_at: string
-  fired_at?: string | null
-  id: string
-  label: string
-  mode: 'one_shot' | 'standing'
-  provider_message_id?: string | null
-  provider_thread_id?: string | null
-  session_id: string | null
-  source_provenance?: JsonValue
-  source_signal_id?: string | null
-  status: 'armed' | 'active' | 'fired' | 'expired' | 'cancelled'
-  updated_at: string
-}
-
-/**
  * SignalBindingWriteRequest
  */
 export type SignalBindingWriteRequest = {
@@ -1793,13 +1557,6 @@ export type SignalBindingWriteRequest = {
   group_message_mode?: 'addressed_only' | 'observe_all' | 'may_intervene'
   target?: JsonValue
   unmatched_sender_policy?: 'manual_review' | 'create_standalone'
-}
-
-/**
- * OIDCClientListResponse
- */
-export type OidcClientListResponse = {
-  oidc_clients: Array<OidcClientItem>
 }
 
 /**
@@ -1913,13 +1670,6 @@ export type BrainHealthResponse = {
 }
 
 /**
- * WebhookEndpointResponse
- */
-export type WebhookEndpointResponse = {
-  webhook_endpoint: WebhookEndpointItem
-}
-
-/**
  * ConsoleApiError
  */
 export type ConsoleApiError = {
@@ -1936,13 +1686,6 @@ export type BrainMergeResultResponse = {
 }
 
 /**
- * ScheduleCronScheduleListResponse
- */
-export type ScheduleCronScheduleListResponse = {
-  cron_schedules: Array<CronScheduleItem>
-}
-
-/**
  * ModelProfileWriteRequest
  */
 export type ModelProfileWriteRequest = {
@@ -1953,24 +1696,6 @@ export type ModelProfileWriteRequest = {
   provider_options?: {
     [key: string]: unknown
   }
-}
-
-/**
- * ScheduleCronWriteRequest
- */
-export type ScheduleCronWriteRequest = {
-  binding_name?: string | null
-  delivery: ScheduleDelivery
-  idempotency_key: string
-  name: string
-  /**
-   * Conversation session that manages this schedule. Fires run in the derived execution session `cron:<schedule_id>`.
-   */
-  owner_session_id: string
-  payload?: SchedulePayload
-  schedule: ScheduleRecurrence
-  status?: 'active' | 'paused'
-  timezone?: string | null
 }
 
 /**
@@ -2115,29 +1840,12 @@ export type BrainRecallChunk = {
 }
 
 /**
- * ScheduleDelivery
- *
- * Where the result of a fire goes. A target is a native conversation ID or an external reply route. An external primary target uses the schedule `binding_name`; a native primary target has no binding. When `quiet_success` is true, a fire with nothing to report sends no message. An update that omits `quiet_success` keeps the stored value.
- */
-export type ScheduleDelivery = {
-  quiet_success?: boolean
-  targets: Array<ScheduleDeliveryTarget>
-}
-
-/**
  * TokenQuota
  */
 export type TokenQuota = {
   limit_tokens: number
   period_days: number
   period_start_at: string
-}
-
-/**
- * OIDCClientResponse
- */
-export type OidcClientResponse = {
-  oidc_client: OidcClientItem
 }
 
 /**
@@ -2148,19 +1856,6 @@ export type AiGatewayChatGptLoginStartRequest = {
   label?: string
   priority?: number
 }
-
-/**
- * ScheduleDeliveryTarget
- */
-export type ScheduleDeliveryTarget =
-  | {
-      conversation_id: string
-    }
-  | {
-      binding_name: string
-      conversation_id: string
-      provider_thread_id?: string
-    }
 
 /**
  * BrainContradictionDecideRequest
@@ -2280,22 +1975,6 @@ export type AiGatewayProviderKindItem = {
 }
 
 /**
- * ScheduleEventResponse
- */
-export type ScheduleEventResponse = {
-  schedule_event: ScheduledEventItem
-}
-
-/**
- * SchedulePayload
- *
- * Standing input of every fire. `task` is the self-contained instruction of a direct-Agent schedule; it is required unless an automation job consumes the trigger. Other keys pass through unchanged.
- */
-export type SchedulePayload = {
-  [key: string]: unknown
-}
-
-/**
  * DirectoryApproveRequest
  */
 export type DirectoryApproveRequest = {
@@ -2365,27 +2044,6 @@ export type IdentityProviderSyncRunResponse = {
 }
 
 /**
- * AutomationJobItem
- */
-export type AutomationJobItem = {
-  agent_uid: string
-  cancelled_at?: string | null
-  created_at: string
-  drive_prefix: string
-  id: number
-  label: string
-  owner_session_id: string
-  provider_message_id?: string | null
-  reply_route: JsonValue
-  runs: Array<AutomationJobRunItem>
-  source_provenance: JsonValue
-  source_signal_id?: string | null
-  status: 'active' | 'cancelled'
-  updated_at: string
-  wake_on_failure: boolean
-}
-
-/**
  * WorkReviewResponse
  */
 export type WorkReviewResponse = {
@@ -2449,13 +2107,6 @@ export type BrainObjectRollbackRequest = {
 export type WorkerEnvDecryptionValue = {
   name: string
   value: string
-}
-
-/**
- * AutomationJobListResponse
- */
-export type AutomationJobListResponse = {
-  automation_jobs: Array<AutomationJobItem>
 }
 
 /**
@@ -2598,13 +2249,6 @@ export type AccessRestrictionItem = {
   reason: string
   recovery_verified_at: string | null
   source: string
-}
-
-/**
- * ScheduleRunListResponse
- */
-export type ScheduleRunListResponse = {
-  schedule_runs: Array<ScheduledEventItem>
 }
 
 /**
@@ -2759,26 +2403,6 @@ export type LocalPasswordResetRequest = {
 }
 
 /**
- * OIDCClientCreateRequest
- */
-export type OidcClientCreateRequest = {
-  allow_insecure_local_logout?: boolean
-  allowed_group_ids: Array<string>
-  allowed_identity_provider_ids?: Array<string>
-  allowed_models: {
-    [key: string]: ModelProfileWriteRequest
-  }
-  backchannel_logout_session_required?: boolean
-  backchannel_logout_uri?: string | null
-  enabled: boolean
-  name: string
-  post_logout_redirect_uris?: Array<string>
-  redirect_uris: Array<string>
-  scopes: Array<'openid' | 'profile' | 'email' | 'offline_access' | 'ai_gateway.write'>
-  type: 'public' | 'confidential'
-}
-
-/**
  * TokenQuotaWriteRequest
  */
 export type TokenQuotaWriteRequest = {
@@ -2837,13 +2461,6 @@ export type BrainSourceCreateResponse = {
     kind: string
     name: string
   }
-}
-
-/**
- * WebhookEndpointListResponse
- */
-export type WebhookEndpointListResponse = {
-  webhook_endpoints: Array<WebhookEndpointItem>
 }
 
 /**
@@ -3025,19 +2642,6 @@ export type BrainMergeSuggestion = {
 }
 
 /**
- * ScheduleOccurrences
- *
- * Bound of a recurring schedule: exactly one of `count` (due slots to run) or `until` (inclusive cutoff instant).
- */
-export type ScheduleOccurrences = {
-  count?: number
-  /**
-   * ISO 8601 instant, or a local time that the schedule timezone resolves. Stored as UTC.
-   */
-  until?: string
-}
-
-/**
  * OIDCClientItem
  */
 export type OidcClientItem = {
@@ -3139,26 +2743,6 @@ export type AnkoleWebAiGatewayFilesControllerContentResponses = {
 export type AnkoleWebAiGatewayFilesControllerContentResponse =
   AnkoleWebAiGatewayFilesControllerContentResponses[keyof AnkoleWebAiGatewayFilesControllerContentResponses]
 
-export type AnkoleWebScheduleControllerPauseCronData = {
-  body?: never
-  path: {
-    agent_uid: string
-    cron_schedule_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/pause'
-}
-
-export type AnkoleWebScheduleControllerPauseCronResponses = {
-  /**
-   * Cron schedule
-   */
-  200: ScheduleCronScheduleResponse
-}
-
-export type AnkoleWebScheduleControllerPauseCronResponse =
-  AnkoleWebScheduleControllerPauseCronResponses[keyof AnkoleWebScheduleControllerPauseCronResponses]
-
 export type AnkoleWebIdentityProviderControllerIndexData = {
   body?: never
   path?: never
@@ -3185,38 +2769,6 @@ export type AnkoleWebIdentityProviderControllerIndexResponses = {
 
 export type AnkoleWebIdentityProviderControllerIndexResponse =
   AnkoleWebIdentityProviderControllerIndexResponses[keyof AnkoleWebIdentityProviderControllerIndexResponses]
-
-export type AnkoleWebScheduleControllerCreateCronData = {
-  /**
-   * Cron schedule
-   */
-  body: ScheduleCronWriteRequest
-  path: {
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/cron-schedules'
-}
-
-export type AnkoleWebScheduleControllerCreateCronErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebScheduleControllerCreateCronError =
-  AnkoleWebScheduleControllerCreateCronErrors[keyof AnkoleWebScheduleControllerCreateCronErrors]
-
-export type AnkoleWebScheduleControllerCreateCronResponses = {
-  /**
-   * Cron schedule
-   */
-  200: ScheduleCronScheduleResponse
-}
-
-export type AnkoleWebScheduleControllerCreateCronResponse =
-  AnkoleWebScheduleControllerCreateCronResponses[keyof AnkoleWebScheduleControllerCreateCronResponses]
 
 export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginData = {
   /**
@@ -3486,35 +3038,6 @@ export type AnkoleWebAiGatewayFilesControllerShowResponses = {
 export type AnkoleWebAiGatewayFilesControllerShowResponse =
   AnkoleWebAiGatewayFilesControllerShowResponses[keyof AnkoleWebAiGatewayFilesControllerShowResponses]
 
-export type AnkoleWebWebhookEndpointControllerCancelData = {
-  body?: never
-  path: {
-    webhook_endpoint_id: string
-  }
-  query?: never
-  url: '/api/v1/webhook-endpoints/{webhook_endpoint_id}'
-}
-
-export type AnkoleWebWebhookEndpointControllerCancelErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWebhookEndpointControllerCancelError =
-  AnkoleWebWebhookEndpointControllerCancelErrors[keyof AnkoleWebWebhookEndpointControllerCancelErrors]
-
-export type AnkoleWebWebhookEndpointControllerCancelResponses = {
-  /**
-   * Webhook endpoint
-   */
-  200: WebhookEndpointResponse
-}
-
-export type AnkoleWebWebhookEndpointControllerCancelResponse =
-  AnkoleWebWebhookEndpointControllerCancelResponses[keyof AnkoleWebWebhookEndpointControllerCancelResponses]
-
 export type AnkoleWebTenantControllerIndexData = {
   body?: never
   path?: never
@@ -3647,26 +3170,6 @@ export type AnkoleWebAppConfigurationControllerIndexTenantResponses = {
 export type AnkoleWebAppConfigurationControllerIndexTenantResponse =
   AnkoleWebAppConfigurationControllerIndexTenantResponses[keyof AnkoleWebAppConfigurationControllerIndexTenantResponses]
 
-export type AnkoleWebScheduleControllerCancelCheckbackData = {
-  body?: never
-  path: {
-    agent_uid: string
-    scheduled_event_id: number
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/checkbacks/{scheduled_event_id}'
-}
-
-export type AnkoleWebScheduleControllerCancelCheckbackResponses = {
-  /**
-   * Scheduled event
-   */
-  200: ScheduleEventResponse
-}
-
-export type AnkoleWebScheduleControllerCancelCheckbackResponse =
-  AnkoleWebScheduleControllerCancelCheckbackResponses[keyof AnkoleWebScheduleControllerCancelCheckbackResponses]
-
 export type AnkoleWebAgentFileControllerMoveData = {
   /**
    * Move
@@ -3730,36 +3233,6 @@ export type AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses = {
 
 export type AnkoleWebPrincipalControllerCreateLocalPasswordResetResponse =
   AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses[keyof AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses]
-
-export type AnkoleWebScheduleControllerIndexCheckbacksData = {
-  body?: never
-  path?: never
-  query?: {
-    agent?: string
-    limit?: number
-  }
-  url: '/api/v1/checkbacks'
-}
-
-export type AnkoleWebScheduleControllerIndexCheckbacksErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebScheduleControllerIndexCheckbacksError =
-  AnkoleWebScheduleControllerIndexCheckbacksErrors[keyof AnkoleWebScheduleControllerIndexCheckbacksErrors]
-
-export type AnkoleWebScheduleControllerIndexCheckbacksResponses = {
-  /**
-   * Scheduled events
-   */
-  200: ScheduleEventListResponse
-}
-
-export type AnkoleWebScheduleControllerIndexCheckbacksResponse =
-  AnkoleWebScheduleControllerIndexCheckbacksResponses[keyof AnkoleWebScheduleControllerIndexCheckbacksResponses]
 
 export type AnkoleWebAgentControllerResetTokenQuotaData = {
   body?: never
@@ -4331,65 +3804,6 @@ export type AnkoleWebSignalBindingControllerPutConversationStandingOrdersRespons
 
 export type AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponse =
   AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponses[keyof AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponses]
-
-export type AnkoleWebWebhookEndpointControllerIndexData = {
-  body?: never
-  path?: never
-  query?: {
-    agent?: string
-  }
-  url: '/api/v1/webhook-endpoints'
-}
-
-export type AnkoleWebWebhookEndpointControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWebhookEndpointControllerIndexError =
-  AnkoleWebWebhookEndpointControllerIndexErrors[keyof AnkoleWebWebhookEndpointControllerIndexErrors]
-
-export type AnkoleWebWebhookEndpointControllerIndexResponses = {
-  /**
-   * Webhook endpoints
-   */
-  200: WebhookEndpointListResponse
-}
-
-export type AnkoleWebWebhookEndpointControllerIndexResponse =
-  AnkoleWebWebhookEndpointControllerIndexResponses[keyof AnkoleWebWebhookEndpointControllerIndexResponses]
-
-export type AnkoleWebWebhookEndpointControllerCreateData = {
-  /**
-   * CloudEvents endpoint
-   */
-  body: CloudEventEndpointCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/webhook-endpoints'
-}
-
-export type AnkoleWebWebhookEndpointControllerCreateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWebhookEndpointControllerCreateError =
-  AnkoleWebWebhookEndpointControllerCreateErrors[keyof AnkoleWebWebhookEndpointControllerCreateErrors]
-
-export type AnkoleWebWebhookEndpointControllerCreateResponses = {
-  /**
-   * Endpoint and one-time credential
-   */
-  201: CloudEventEndpointCreateResponse
-}
-
-export type AnkoleWebWebhookEndpointControllerCreateResponse =
-  AnkoleWebWebhookEndpointControllerCreateResponses[keyof AnkoleWebWebhookEndpointControllerCreateResponses]
 
 export type AnkoleWebAiGatewayFilesControllerIndexData = {
   body?: never
@@ -5058,96 +4472,6 @@ export type AnkoleWebBrainControllerCreateSourceResponses = {
 export type AnkoleWebBrainControllerCreateSourceResponse =
   AnkoleWebBrainControllerCreateSourceResponses[keyof AnkoleWebBrainControllerCreateSourceResponses]
 
-export type AnkoleWebOidcClientControllerDeleteData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v1/oidc-clients/{id}'
-}
-
-export type AnkoleWebOidcClientControllerDeleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebOidcClientControllerDeleteError =
-  AnkoleWebOidcClientControllerDeleteErrors[keyof AnkoleWebOidcClientControllerDeleteErrors]
-
-export type AnkoleWebOidcClientControllerDeleteResponses = {
-  /**
-   * Deleted OIDC Client
-   */
-  200: OidcClientResponse
-}
-
-export type AnkoleWebOidcClientControllerDeleteResponse =
-  AnkoleWebOidcClientControllerDeleteResponses[keyof AnkoleWebOidcClientControllerDeleteResponses]
-
-export type AnkoleWebOidcClientControllerShowData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v1/oidc-clients/{id}'
-}
-
-export type AnkoleWebOidcClientControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebOidcClientControllerShowError =
-  AnkoleWebOidcClientControllerShowErrors[keyof AnkoleWebOidcClientControllerShowErrors]
-
-export type AnkoleWebOidcClientControllerShowResponses = {
-  /**
-   * OIDC Client
-   */
-  200: OidcClientResponse
-}
-
-export type AnkoleWebOidcClientControllerShowResponse =
-  AnkoleWebOidcClientControllerShowResponses[keyof AnkoleWebOidcClientControllerShowResponses]
-
-export type AnkoleWebOidcClientControllerUpdateData = {
-  /**
-   * OIDC Client fields
-   */
-  body: OidcClientUpdateRequest
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v1/oidc-clients/{id}'
-}
-
-export type AnkoleWebOidcClientControllerUpdateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebOidcClientControllerUpdateError =
-  AnkoleWebOidcClientControllerUpdateErrors[keyof AnkoleWebOidcClientControllerUpdateErrors]
-
-export type AnkoleWebOidcClientControllerUpdateResponses = {
-  /**
-   * OIDC Client
-   */
-  200: OidcClientResponse
-}
-
-export type AnkoleWebOidcClientControllerUpdateResponse =
-  AnkoleWebOidcClientControllerUpdateResponses[keyof AnkoleWebOidcClientControllerUpdateResponses]
-
 export type AnkoleWebAiGatewayControllerRetrieveResponseData = {
   body?: never
   path: {
@@ -5430,38 +4754,6 @@ export type AnkoleWebIdentityProviderControllerRunSyncResponses = {
 
 export type AnkoleWebIdentityProviderControllerRunSyncResponse =
   AnkoleWebIdentityProviderControllerRunSyncResponses[keyof AnkoleWebIdentityProviderControllerRunSyncResponses]
-
-export type AnkoleWebAutomationJobControllerShowData = {
-  body?: never
-  path: {
-    agent_uid: string
-    automation_job_id: number
-  }
-  query?: {
-    runs?: number
-  }
-  url: '/api/v1/agents/{agent_uid}/automation-jobs/{automation_job_id}'
-}
-
-export type AnkoleWebAutomationJobControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAutomationJobControllerShowError =
-  AnkoleWebAutomationJobControllerShowErrors[keyof AnkoleWebAutomationJobControllerShowErrors]
-
-export type AnkoleWebAutomationJobControllerShowResponses = {
-  /**
-   * Automation job
-   */
-  200: AutomationJobResponse
-}
-
-export type AnkoleWebAutomationJobControllerShowResponse =
-  AnkoleWebAutomationJobControllerShowResponses[keyof AnkoleWebAutomationJobControllerShowResponses]
 
 export type AnkoleWebSignalBindingControllerIndexData = {
   body?: never
@@ -5788,26 +5080,6 @@ export type AnkoleWebWorkerProviderControllerCheckResponses = {
 export type AnkoleWebWorkerProviderControllerCheckResponse =
   AnkoleWebWorkerProviderControllerCheckResponses[keyof AnkoleWebWorkerProviderControllerCheckResponses]
 
-export type AnkoleWebScheduleControllerResumeCronData = {
-  body?: never
-  path: {
-    agent_uid: string
-    cron_schedule_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/resume'
-}
-
-export type AnkoleWebScheduleControllerResumeCronResponses = {
-  /**
-   * Cron schedule
-   */
-  200: ScheduleCronScheduleResponse
-}
-
-export type AnkoleWebScheduleControllerResumeCronResponse =
-  AnkoleWebScheduleControllerResumeCronResponses[keyof AnkoleWebScheduleControllerResumeCronResponses]
-
 export type AnkoleWebHumanAccessControllerUnresolvedWorkData = {
   body?: never
   path?: never
@@ -5854,36 +5126,6 @@ export type AnkoleWebHumanAccessControllerClassifyWorkResponses = {
 
 export type AnkoleWebHumanAccessControllerClassifyWorkResponse =
   AnkoleWebHumanAccessControllerClassifyWorkResponses[keyof AnkoleWebHumanAccessControllerClassifyWorkResponses]
-
-export type AnkoleWebAutomationJobControllerIndexData = {
-  body?: never
-  path?: never
-  query?: {
-    agent?: string
-    limit?: number
-  }
-  url: '/api/v1/automation-jobs'
-}
-
-export type AnkoleWebAutomationJobControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAutomationJobControllerIndexError =
-  AnkoleWebAutomationJobControllerIndexErrors[keyof AnkoleWebAutomationJobControllerIndexErrors]
-
-export type AnkoleWebAutomationJobControllerIndexResponses = {
-  /**
-   * Automation jobs
-   */
-  200: AutomationJobListResponse
-}
-
-export type AnkoleWebAutomationJobControllerIndexResponse =
-  AnkoleWebAutomationJobControllerIndexResponses[keyof AnkoleWebAutomationJobControllerIndexResponses]
 
 export type AnkoleWebBrainControllerSupersedeClaimData = {
   /**
@@ -5994,55 +5236,6 @@ export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses = {
 
 export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponse =
   AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses[keyof AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses]
-
-export type AnkoleWebOidcClientControllerLogoutDeliveriesData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v1/oidc-clients/{id}/logout-deliveries'
-}
-
-export type AnkoleWebOidcClientControllerLogoutDeliveriesResponses = {
-  /**
-   * Logout deliveries
-   */
-  200: LogoutDeliveriesResponse
-}
-
-export type AnkoleWebOidcClientControllerLogoutDeliveriesResponse =
-  AnkoleWebOidcClientControllerLogoutDeliveriesResponses[keyof AnkoleWebOidcClientControllerLogoutDeliveriesResponses]
-
-export type AnkoleWebSignalBindingControllerDeleteData = {
-  body?: never
-  path: {
-    agent_uid: string
-    binding_name: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}'
-}
-
-export type AnkoleWebSignalBindingControllerDeleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebSignalBindingControllerDeleteError =
-  AnkoleWebSignalBindingControllerDeleteErrors[keyof AnkoleWebSignalBindingControllerDeleteErrors]
-
-export type AnkoleWebSignalBindingControllerDeleteResponses = {
-  /**
-   * Signal binding
-   */
-  200: SignalBindingResponse
-}
-
-export type AnkoleWebSignalBindingControllerDeleteResponse =
-  AnkoleWebSignalBindingControllerDeleteResponses[keyof AnkoleWebSignalBindingControllerDeleteResponses]
 
 export type AnkoleWebSignalBindingControllerShowData = {
   body?: never
@@ -6318,26 +5511,6 @@ export type AnkoleWebAiGatewayControllerWebSearchResponses = {
 export type AnkoleWebAiGatewayControllerWebSearchResponse =
   AnkoleWebAiGatewayControllerWebSearchResponses[keyof AnkoleWebAiGatewayControllerWebSearchResponses]
 
-export type AnkoleWebOidcClientControllerRetryLogoutData = {
-  body?: never
-  path: {
-    id: string
-    delivery_id: string
-  }
-  query?: never
-  url: '/api/v1/oidc-clients/{id}/logout-deliveries/{delivery_id}/retries'
-}
-
-export type AnkoleWebOidcClientControllerRetryLogoutResponses = {
-  /**
-   * Logout deliveries
-   */
-  200: LogoutDeliveriesResponse
-}
-
-export type AnkoleWebOidcClientControllerRetryLogoutResponse =
-  AnkoleWebOidcClientControllerRetryLogoutResponses[keyof AnkoleWebOidcClientControllerRetryLogoutResponses]
-
 export type AnkoleWebBrainControllerPrincipalKnowledgeData = {
   body?: never
   path: {
@@ -6417,35 +5590,6 @@ export type BackgroundActivityAutomationRunsResponses = {
 
 export type BackgroundActivityAutomationRunsResponse2 =
   BackgroundActivityAutomationRunsResponses[keyof BackgroundActivityAutomationRunsResponses]
-
-export type AnkoleWebScheduleControllerIndexCronData = {
-  body?: never
-  path?: never
-  query?: {
-    agent?: string
-  }
-  url: '/api/v1/cron-schedules'
-}
-
-export type AnkoleWebScheduleControllerIndexCronErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebScheduleControllerIndexCronError =
-  AnkoleWebScheduleControllerIndexCronErrors[keyof AnkoleWebScheduleControllerIndexCronErrors]
-
-export type AnkoleWebScheduleControllerIndexCronResponses = {
-  /**
-   * Cron schedules
-   */
-  200: ScheduleCronScheduleListResponse
-}
-
-export type AnkoleWebScheduleControllerIndexCronResponse =
-  AnkoleWebScheduleControllerIndexCronResponses[keyof AnkoleWebScheduleControllerIndexCronResponses]
 
 export type AnkoleWebAgentFileControllerDeleteData = {
   body?: never
@@ -6580,89 +5724,6 @@ export type AnkoleWebSignalBindingControllerPutBindingResponses = {
 
 export type AnkoleWebSignalBindingControllerPutBindingResponse =
   AnkoleWebSignalBindingControllerPutBindingResponses[keyof AnkoleWebSignalBindingControllerPutBindingResponses]
-
-export type AnkoleWebScheduleControllerRemoveCronData = {
-  body?: never
-  path: {
-    agent_uid: string
-    cron_schedule_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}'
-}
-
-export type AnkoleWebScheduleControllerRemoveCronResponses = {
-  /**
-   * Cron schedule
-   */
-  200: ScheduleCronScheduleResponse
-}
-
-export type AnkoleWebScheduleControllerRemoveCronResponse =
-  AnkoleWebScheduleControllerRemoveCronResponses[keyof AnkoleWebScheduleControllerRemoveCronResponses]
-
-export type AnkoleWebScheduleControllerShowCronData = {
-  body?: never
-  path: {
-    agent_uid: string
-    cron_schedule_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}'
-}
-
-export type AnkoleWebScheduleControllerShowCronErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebScheduleControllerShowCronError =
-  AnkoleWebScheduleControllerShowCronErrors[keyof AnkoleWebScheduleControllerShowCronErrors]
-
-export type AnkoleWebScheduleControllerShowCronResponses = {
-  /**
-   * Cron schedule
-   */
-  200: ScheduleCronScheduleResponse
-}
-
-export type AnkoleWebScheduleControllerShowCronResponse =
-  AnkoleWebScheduleControllerShowCronResponses[keyof AnkoleWebScheduleControllerShowCronResponses]
-
-export type AnkoleWebScheduleControllerUpdateCronData = {
-  /**
-   * Cron schedule update
-   */
-  body: ScheduleCronUpdateRequest
-  path: {
-    agent_uid: string
-    cron_schedule_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}'
-}
-
-export type AnkoleWebScheduleControllerUpdateCronErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebScheduleControllerUpdateCronError =
-  AnkoleWebScheduleControllerUpdateCronErrors[keyof AnkoleWebScheduleControllerUpdateCronErrors]
-
-export type AnkoleWebScheduleControllerUpdateCronResponses = {
-  /**
-   * Cron schedule
-   */
-  200: ScheduleCronScheduleResponse
-}
-
-export type AnkoleWebScheduleControllerUpdateCronResponse =
-  AnkoleWebScheduleControllerUpdateCronResponses[keyof AnkoleWebScheduleControllerUpdateCronResponses]
 
 export type AnkoleWebAiGatewayConversationControllerIndexData = {
   body?: never
@@ -6921,36 +5982,6 @@ export type AnkoleWebBrainControllerDecideContradictionResponses = {
 
 export type AnkoleWebBrainControllerDecideContradictionResponse =
   AnkoleWebBrainControllerDecideContradictionResponses[keyof AnkoleWebBrainControllerDecideContradictionResponses]
-
-export type AnkoleWebWebhookEndpointControllerDeleteData = {
-  body?: never
-  path: {
-    agent_uid: string
-    webhook_endpoint_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/webhook-endpoints/{webhook_endpoint_id}'
-}
-
-export type AnkoleWebWebhookEndpointControllerDeleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWebhookEndpointControllerDeleteError =
-  AnkoleWebWebhookEndpointControllerDeleteErrors[keyof AnkoleWebWebhookEndpointControllerDeleteErrors]
-
-export type AnkoleWebWebhookEndpointControllerDeleteResponses = {
-  /**
-   * Webhook endpoint
-   */
-  200: WebhookEndpointResponse
-}
-
-export type AnkoleWebWebhookEndpointControllerDeleteResponse =
-  AnkoleWebWebhookEndpointControllerDeleteResponses[keyof AnkoleWebWebhookEndpointControllerDeleteResponses]
 
 export type AnkoleWebBrainControllerListObjectsData = {
   body?: never
@@ -8132,51 +7163,6 @@ export type AnkoleWebAgentControllerEnableResponses = {
 export type AnkoleWebAgentControllerEnableResponse =
   AnkoleWebAgentControllerEnableResponses[keyof AnkoleWebAgentControllerEnableResponses]
 
-export type AnkoleWebScheduleControllerCronRunsData = {
-  body?: never
-  path: {
-    agent_uid: string
-    cron_schedule_id: string
-  }
-  query?: {
-    limit?: number
-  }
-  url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs'
-}
-
-export type AnkoleWebScheduleControllerCronRunsResponses = {
-  /**
-   * Schedule runs
-   */
-  200: ScheduleRunListResponse
-}
-
-export type AnkoleWebScheduleControllerCronRunsResponse =
-  AnkoleWebScheduleControllerCronRunsResponses[keyof AnkoleWebScheduleControllerCronRunsResponses]
-
-export type AnkoleWebScheduleControllerRunCronData = {
-  body?: never
-  headers: {
-    'Idempotency-Key': string
-  }
-  path: {
-    agent_uid: string
-    cron_schedule_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs'
-}
-
-export type AnkoleWebScheduleControllerRunCronResponses = {
-  /**
-   * Scheduled event
-   */
-  200: ScheduleEventResponse
-}
-
-export type AnkoleWebScheduleControllerRunCronResponse =
-  AnkoleWebScheduleControllerRunCronResponses[keyof AnkoleWebScheduleControllerRunCronResponses]
-
 export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginData = {
   /**
    * Agent Plugin default
@@ -8416,63 +7402,6 @@ export type AnkoleWebHumanAccessControllerRestoreResponses = {
 
 export type AnkoleWebHumanAccessControllerRestoreResponse =
   AnkoleWebHumanAccessControllerRestoreResponses[keyof AnkoleWebHumanAccessControllerRestoreResponses]
-
-export type AnkoleWebOidcClientControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/oidc-clients'
-}
-
-export type AnkoleWebOidcClientControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebOidcClientControllerIndexError =
-  AnkoleWebOidcClientControllerIndexErrors[keyof AnkoleWebOidcClientControllerIndexErrors]
-
-export type AnkoleWebOidcClientControllerIndexResponses = {
-  /**
-   * OIDC Clients
-   */
-  200: OidcClientListResponse
-}
-
-export type AnkoleWebOidcClientControllerIndexResponse =
-  AnkoleWebOidcClientControllerIndexResponses[keyof AnkoleWebOidcClientControllerIndexResponses]
-
-export type AnkoleWebOidcClientControllerCreateData = {
-  /**
-   * OIDC Client
-   */
-  body: OidcClientCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/oidc-clients'
-}
-
-export type AnkoleWebOidcClientControllerCreateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebOidcClientControllerCreateError =
-  AnkoleWebOidcClientControllerCreateErrors[keyof AnkoleWebOidcClientControllerCreateErrors]
-
-export type AnkoleWebOidcClientControllerCreateResponses = {
-  /**
-   * OIDC Client and one-time secret
-   */
-  201: OidcClientSecretResponse
-}
-
-export type AnkoleWebOidcClientControllerCreateResponse =
-  AnkoleWebOidcClientControllerCreateResponses[keyof AnkoleWebOidcClientControllerCreateResponses]
 
 export type AnkoleWebWorkerEnvControllerDeleteForAgentData = {
   body?: never

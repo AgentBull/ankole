@@ -9,27 +9,57 @@ import type {
   BindIdentityMappingRequestData,
   BindIdentityMappingRequestErrors,
   BindIdentityMappingRequestResponses,
+  CancelCheckbackData,
+  CancelCheckbackErrors,
+  CancelCheckbackResponses,
+  CancelWebhookEndpointData,
+  CancelWebhookEndpointErrors,
+  CancelWebhookEndpointResponses,
+  CreateCronScheduleData,
+  CreateCronScheduleErrors,
+  CreateCronScheduleResponses,
   CreateIdentityMappingData,
   CreateIdentityMappingErrors,
   CreateIdentityMappingResponses,
   CreateLocalUserData,
   CreateLocalUserErrors,
   CreateLocalUserResponses,
+  CreateOidcClientData,
+  CreateOidcClientErrors,
+  CreateOidcClientResponses,
   CreatePermissionGrantData,
   CreatePermissionGrantErrors,
   CreatePermissionGrantResponses,
   CreatePrincipalGroupData,
   CreatePrincipalGroupErrors,
   CreatePrincipalGroupResponses,
+  CreateWebhookEndpointData,
+  CreateWebhookEndpointErrors,
+  CreateWebhookEndpointResponses,
   DeleteIdentityMappingRequestData,
   DeleteIdentityMappingRequestErrors,
   DeleteIdentityMappingRequestResponses,
+  DeleteOidcClientData,
+  DeleteOidcClientErrors,
+  DeleteOidcClientResponses,
   DeletePermissionGrantData,
   DeletePermissionGrantErrors,
   DeletePermissionGrantResponses,
   DeletePrincipalGroupData,
   DeletePrincipalGroupErrors,
   DeletePrincipalGroupResponses,
+  DisableSignalBindingData,
+  DisableSignalBindingErrors,
+  DisableSignalBindingResponses,
+  GetAutomationJobData,
+  GetAutomationJobErrors,
+  GetAutomationJobResponses,
+  GetCronScheduleData,
+  GetCronScheduleErrors,
+  GetCronScheduleResponses,
+  GetOidcClientData,
+  GetOidcClientErrors,
+  GetOidcClientResponses,
   GetPermissionGrantData,
   GetPermissionGrantErrors,
   GetPermissionGrantResponses,
@@ -39,6 +69,21 @@ import type {
   GetPrincipalGroupErrors,
   GetPrincipalGroupResponses,
   GetPrincipalResponses,
+  ListAutomationJobRunsData,
+  ListAutomationJobRunsErrors,
+  ListAutomationJobRunsResponses,
+  ListAutomationJobsData,
+  ListAutomationJobsErrors,
+  ListAutomationJobsResponses,
+  ListCheckbacksData,
+  ListCheckbacksErrors,
+  ListCheckbacksResponses,
+  ListCronScheduleRunsData,
+  ListCronScheduleRunsErrors,
+  ListCronScheduleRunsResponses,
+  ListCronSchedulesData,
+  ListCronSchedulesErrors,
+  ListCronSchedulesResponses,
   ListGrantsOfPrincipalData,
   ListGrantsOfPrincipalErrors,
   ListGrantsOfPrincipalResponses,
@@ -48,6 +93,12 @@ import type {
   ListIdentityMappingRequestsData,
   ListIdentityMappingRequestsErrors,
   ListIdentityMappingRequestsResponses,
+  ListOidcClientsData,
+  ListOidcClientsErrors,
+  ListOidcClientsResponses,
+  ListOidcLogoutDeliveriesData,
+  ListOidcLogoutDeliveriesErrors,
+  ListOidcLogoutDeliveriesResponses,
   ListPrincipalGroupGrantsData,
   ListPrincipalGroupGrantsErrors,
   ListPrincipalGroupGrantsResponses,
@@ -60,15 +111,39 @@ import type {
   ListPrincipalsData,
   ListPrincipalsErrors,
   ListPrincipalsResponses,
+  ListWebhookEndpointsData,
+  ListWebhookEndpointsErrors,
+  ListWebhookEndpointsResponses,
+  PauseCronScheduleData,
+  PauseCronScheduleErrors,
+  PauseCronScheduleResponses,
   PreviewComputedPrincipalGroupMembersData,
   PreviewComputedPrincipalGroupMembersErrors,
   PreviewComputedPrincipalGroupMembersResponses,
+  RemoveCronScheduleData,
+  RemoveCronScheduleErrors,
+  RemoveCronScheduleResponses,
   RemovePrincipalGroupMemberData,
   RemovePrincipalGroupMemberErrors,
   RemovePrincipalGroupMemberResponses,
+  ResumeCronScheduleData,
+  ResumeCronScheduleErrors,
+  ResumeCronScheduleResponses,
+  RetryOidcLogoutDeliveryData,
+  RetryOidcLogoutDeliveryErrors,
+  RetryOidcLogoutDeliveryResponses,
+  RunCronScheduleData,
+  RunCronScheduleErrors,
+  RunCronScheduleResponses,
+  UpdateCronScheduleData,
+  UpdateCronScheduleErrors,
+  UpdateCronScheduleResponses,
   UpdateHumanData,
   UpdateHumanErrors,
   UpdateHumanResponses,
+  UpdateOidcClientData,
+  UpdateOidcClientErrors,
+  UpdateOidcClientResponses,
   UpdatePermissionGrantData,
   UpdatePermissionGrantErrors,
   UpdatePermissionGrantResponses,
@@ -96,22 +171,6 @@ export type Options<
 }
 
 /**
- * list_identity_mapping_requests operation on identity_mapping_request resource
- */
-export const listIdentityMappingRequests = <ThrowOnError extends boolean = false>(
-  options?: Options<ListIdentityMappingRequestsData, ThrowOnError>
-): RequestResult<ListIdentityMappingRequestsResponses, ListIdentityMappingRequestsErrors, ThrowOnError> =>
-  (options?.client ?? client).get<
-    ListIdentityMappingRequestsResponses,
-    ListIdentityMappingRequestsErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/identity-mapping-requests',
-    ...options
-  })
-
-/**
  * delete_identity_mapping_request operation on identity_mapping_request resource
  */
 export const deleteIdentityMappingRequest = <ThrowOnError extends boolean = false>(
@@ -128,30 +187,38 @@ export const deleteIdentityMappingRequest = <ThrowOnError extends boolean = fals
   })
 
 /**
- * Binds a pending request to a Human and removes the request.
+ * list_oidc_logout_deliveries operation on oidc_logout_delivery resource
  */
-export const bindIdentityMappingRequest = <ThrowOnError extends boolean = false>(
-  options: Options<BindIdentityMappingRequestData, ThrowOnError>
-): RequestResult<BindIdentityMappingRequestResponses, BindIdentityMappingRequestErrors, ThrowOnError> =>
-  (options.client ?? client).post<BindIdentityMappingRequestResponses, BindIdentityMappingRequestErrors, ThrowOnError>({
+export const listOidcLogoutDeliveries = <ThrowOnError extends boolean = false>(
+  options: Options<ListOidcLogoutDeliveriesData, ThrowOnError>
+): RequestResult<ListOidcLogoutDeliveriesResponses, ListOidcLogoutDeliveriesErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListOidcLogoutDeliveriesResponses, ListOidcLogoutDeliveriesErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/identity-mapping-requests/{id}/bind',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
+    url: '/api/v2/oidc-clients/{client_id}/logout-deliveries',
+    ...options
   })
 
 /**
- * Binds a provider subject to a Human and removes its pending request.
+ * list_webhook_endpoints operation on webhook_endpoint resource
  */
-export const createIdentityMapping = <ThrowOnError extends boolean = false>(
-  options: Options<CreateIdentityMappingData, ThrowOnError>
-): RequestResult<CreateIdentityMappingResponses, CreateIdentityMappingErrors, ThrowOnError> =>
-  (options.client ?? client).post<CreateIdentityMappingResponses, CreateIdentityMappingErrors, ThrowOnError>({
+export const listWebhookEndpoints = <ThrowOnError extends boolean = false>(
+  options?: Options<ListWebhookEndpointsData, ThrowOnError>
+): RequestResult<ListWebhookEndpointsResponses, ListWebhookEndpointsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListWebhookEndpointsResponses, ListWebhookEndpointsErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/identity-mappings',
+    url: '/api/v2/webhook-endpoints',
+    ...options
+  })
+
+/**
+ * create_webhook_endpoint operation on webhook_endpoint resource
+ */
+export const createWebhookEndpoint = <ThrowOnError extends boolean = false>(
+  options: Options<CreateWebhookEndpointData, ThrowOnError>
+): RequestResult<CreateWebhookEndpointResponses, CreateWebhookEndpointErrors, ThrowOnError> =>
+  (options.client ?? client).post<CreateWebhookEndpointResponses, CreateWebhookEndpointErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/webhook-endpoints',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -173,6 +240,18 @@ export const createPermissionGrant = <ThrowOnError extends boolean = false>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * cancel_checkback operation on scheduled_event resource
+ */
+export const cancelCheckback = <ThrowOnError extends boolean = false>(
+  options: Options<CancelCheckbackData, ThrowOnError>
+): RequestResult<CancelCheckbackResponses, CancelCheckbackErrors, ThrowOnError> =>
+  (options.client ?? client).delete<CancelCheckbackResponses, CancelCheckbackErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/checkbacks/{id}',
+    ...options
   })
 
 /**
@@ -216,50 +295,62 @@ export const updatePermissionGrant = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * list_principal_groups operation on principal_group resource
+ * retry_oidc_logout_delivery operation on oidc_logout_delivery resource
  */
-export const listPrincipalGroups = <ThrowOnError extends boolean = false>(
-  options?: Options<ListPrincipalGroupsData, ThrowOnError>
-): RequestResult<ListPrincipalGroupsResponses, ListPrincipalGroupsErrors, ThrowOnError> =>
-  (options?.client ?? client).get<ListPrincipalGroupsResponses, ListPrincipalGroupsErrors, ThrowOnError>({
+export const retryOidcLogoutDelivery = <ThrowOnError extends boolean = false>(
+  options: Options<RetryOidcLogoutDeliveryData, ThrowOnError>
+): RequestResult<RetryOidcLogoutDeliveryResponses, RetryOidcLogoutDeliveryErrors, ThrowOnError> =>
+  (options.client ?? client).post<RetryOidcLogoutDeliveryResponses, RetryOidcLogoutDeliveryErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/principal-groups',
+    url: '/api/v2/oidc-clients/{client_id}/logout-deliveries/{id}/retries',
     ...options
   })
 
 /**
- * Creates an operator group.
+ * Lists the effective members of a group.
  */
-export const createPrincipalGroup = <ThrowOnError extends boolean = false>(
-  options: Options<CreatePrincipalGroupData, ThrowOnError>
-): RequestResult<CreatePrincipalGroupResponses, CreatePrincipalGroupErrors, ThrowOnError> =>
-  (options.client ?? client).post<CreatePrincipalGroupResponses, CreatePrincipalGroupErrors, ThrowOnError>({
+export const listPrincipalGroupMembers = <ThrowOnError extends boolean = false>(
+  options: Options<ListPrincipalGroupMembersData, ThrowOnError>
+): RequestResult<ListPrincipalGroupMembersResponses, ListPrincipalGroupMembersErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListPrincipalGroupMembersResponses, ListPrincipalGroupMembersErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/principal-groups',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
+    url: '/api/v2/principal-groups/{name}/members',
+    ...options
   })
 
 /**
- * Lists the active Principals that a computed group condition matches.
+ * list_cron_schedules operation on cron_schedule resource
  */
-export const previewComputedPrincipalGroupMembers = <ThrowOnError extends boolean = false>(
-  options: Options<PreviewComputedPrincipalGroupMembersData, ThrowOnError>
-): RequestResult<
-  PreviewComputedPrincipalGroupMembersResponses,
-  PreviewComputedPrincipalGroupMembersErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    PreviewComputedPrincipalGroupMembersResponses,
-    PreviewComputedPrincipalGroupMembersErrors,
-    ThrowOnError
-  >({
+export const listCronSchedules = <ThrowOnError extends boolean = false>(
+  options?: Options<ListCronSchedulesData, ThrowOnError>
+): RequestResult<ListCronSchedulesResponses, ListCronSchedulesErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListCronSchedulesResponses, ListCronSchedulesErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/principal-groups/computed-member-previews',
+    url: '/api/v2/cron-schedules',
+    ...options
+  })
+
+/**
+ * disable_signal_binding operation on signal_binding resource
+ */
+export const disableSignalBinding = <ThrowOnError extends boolean = false>(
+  options: Options<DisableSignalBindingData, ThrowOnError>
+): RequestResult<DisableSignalBindingResponses, DisableSignalBindingErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DisableSignalBindingResponses, DisableSignalBindingErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/signal-bindings/{name}',
+    ...options
+  })
+
+/**
+ * create_cron_schedule operation on cron_schedule resource
+ */
+export const createCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<CreateCronScheduleData, ThrowOnError>
+): RequestResult<CreateCronScheduleResponses, CreateCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).post<CreateCronScheduleResponses, CreateCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -308,83 +399,51 @@ export const updatePrincipalGroup = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * Lists the grants that one group owns.
+ * Lists the active Principals that a computed group condition matches.
  */
-export const listPrincipalGroupGrants = <ThrowOnError extends boolean = false>(
-  options: Options<ListPrincipalGroupGrantsData, ThrowOnError>
-): RequestResult<ListPrincipalGroupGrantsResponses, ListPrincipalGroupGrantsErrors, ThrowOnError> =>
-  (options.client ?? client).get<ListPrincipalGroupGrantsResponses, ListPrincipalGroupGrantsErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/principal-groups/{name}/grants',
-    ...options
-  })
-
-/**
- * Lists the effective members of a group.
- */
-export const listPrincipalGroupMembers = <ThrowOnError extends boolean = false>(
-  options: Options<ListPrincipalGroupMembersData, ThrowOnError>
-): RequestResult<ListPrincipalGroupMembersResponses, ListPrincipalGroupMembersErrors, ThrowOnError> =>
-  (options.client ?? client).get<ListPrincipalGroupMembersResponses, ListPrincipalGroupMembersErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/principal-groups/{name}/members',
-    ...options
-  })
-
-/**
- * Removes a Principal from a static operator group.
- */
-export const removePrincipalGroupMember = <ThrowOnError extends boolean = false>(
-  options: Options<RemovePrincipalGroupMemberData, ThrowOnError>
-): RequestResult<RemovePrincipalGroupMemberResponses, RemovePrincipalGroupMemberErrors, ThrowOnError> =>
-  (options.client ?? client).delete<
-    RemovePrincipalGroupMemberResponses,
-    RemovePrincipalGroupMemberErrors,
+export const previewComputedPrincipalGroupMembers = <ThrowOnError extends boolean = false>(
+  options: Options<PreviewComputedPrincipalGroupMembersData, ThrowOnError>
+): RequestResult<
+  PreviewComputedPrincipalGroupMembersResponses,
+  PreviewComputedPrincipalGroupMembersErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    PreviewComputedPrincipalGroupMembersResponses,
+    PreviewComputedPrincipalGroupMembersErrors,
     ThrowOnError
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/principal-groups/{name}/members/{principal_uid}',
-    ...options
-  })
-
-/**
- * Adds a Principal to a static operator group.
- */
-export const addPrincipalGroupMember = <ThrowOnError extends boolean = false>(
-  options: Options<AddPrincipalGroupMemberData, ThrowOnError>
-): RequestResult<AddPrincipalGroupMemberResponses, AddPrincipalGroupMemberErrors, ThrowOnError> =>
-  (options.client ?? client).put<AddPrincipalGroupMemberResponses, AddPrincipalGroupMemberErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/principal-groups/{name}/members/{principal_uid}',
-    ...options
-  })
-
-/**
- * list_principals operation on principal resource
- */
-export const listPrincipals = <ThrowOnError extends boolean = false>(
-  options?: Options<ListPrincipalsData, ThrowOnError>
-): RequestResult<ListPrincipalsResponses, ListPrincipalsErrors, ThrowOnError> =>
-  (options?.client ?? client).get<ListPrincipalsResponses, ListPrincipalsErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/principals',
-    ...options
-  })
-
-/**
- * Creates a Human with an email and a generated one-time local password.
- */
-export const createLocalUser = <ThrowOnError extends boolean = false>(
-  options: Options<CreateLocalUserData, ThrowOnError>
-): RequestResult<CreateLocalUserResponses, CreateLocalUserErrors, ThrowOnError> =>
-  (options.client ?? client).post<CreateLocalUserResponses, CreateLocalUserErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/principals',
+    url: '/api/v2/principal-groups/computed-member-previews',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * list_cron_schedule_runs operation on scheduled_event resource
+ */
+export const listCronScheduleRuns = <ThrowOnError extends boolean = false>(
+  options: Options<ListCronScheduleRunsData, ThrowOnError>
+): RequestResult<ListCronScheduleRunsResponses, ListCronScheduleRunsErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListCronScheduleRunsResponses, ListCronScheduleRunsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs',
+    ...options
+  })
+
+/**
+ * get_automation_job operation on automation_job resource
+ */
+export const getAutomationJob = <ThrowOnError extends boolean = false>(
+  options: Options<GetAutomationJobData, ThrowOnError>
+): RequestResult<GetAutomationJobResponses, GetAutomationJobErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetAutomationJobResponses, GetAutomationJobErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/automation-jobs/{id}',
+    ...options
   })
 
 /**
@@ -416,6 +475,66 @@ export const updateHuman = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * list_automation_jobs operation on automation_job resource
+ */
+export const listAutomationJobs = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAutomationJobsData, ThrowOnError>
+): RequestResult<ListAutomationJobsResponses, ListAutomationJobsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListAutomationJobsResponses, ListAutomationJobsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/automation-jobs',
+    ...options
+  })
+
+/**
+ * Lists the grants that one group owns.
+ */
+export const listPrincipalGroupGrants = <ThrowOnError extends boolean = false>(
+  options: Options<ListPrincipalGroupGrantsData, ThrowOnError>
+): RequestResult<ListPrincipalGroupGrantsResponses, ListPrincipalGroupGrantsErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListPrincipalGroupGrantsResponses, ListPrincipalGroupGrantsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principal-groups/{name}/grants',
+    ...options
+  })
+
+/**
+ * list_checkbacks operation on scheduled_event resource
+ */
+export const listCheckbacks = <ThrowOnError extends boolean = false>(
+  options?: Options<ListCheckbacksData, ThrowOnError>
+): RequestResult<ListCheckbacksResponses, ListCheckbacksErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListCheckbacksResponses, ListCheckbacksErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/checkbacks',
+    ...options
+  })
+
+/**
+ * list_automation_job_runs operation on automation_job_run resource
+ */
+export const listAutomationJobRuns = <ThrowOnError extends boolean = false>(
+  options: Options<ListAutomationJobRunsData, ThrowOnError>
+): RequestResult<ListAutomationJobRunsResponses, ListAutomationJobRunsErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListAutomationJobRunsResponses, ListAutomationJobRunsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/automation-jobs/{automation_job_id}/runs',
+    ...options
+  })
+
+/**
+ * resume_cron_schedule operation on cron_schedule resource
+ */
+export const resumeCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<ResumeCronScheduleData, ThrowOnError>
+): RequestResult<ResumeCronScheduleResponses, ResumeCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).post<ResumeCronScheduleResponses, ResumeCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/resume',
+    ...options
+  })
+
+/**
  * Lists the grants that one Principal owns directly.
  */
 export const listGrantsOfPrincipal = <ThrowOnError extends boolean = false>(
@@ -424,6 +543,258 @@ export const listGrantsOfPrincipal = <ThrowOnError extends boolean = false>(
   (options.client ?? client).get<ListGrantsOfPrincipalResponses, ListGrantsOfPrincipalErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/principals/{uid}/grants',
+    ...options
+  })
+
+/**
+ * list_oidc_clients operation on oidc_client resource
+ */
+export const listOidcClients = <ThrowOnError extends boolean = false>(
+  options?: Options<ListOidcClientsData, ThrowOnError>
+): RequestResult<ListOidcClientsResponses, ListOidcClientsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListOidcClientsResponses, ListOidcClientsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients',
+    ...options
+  })
+
+/**
+ * create_oidc_client operation on oidc_client resource
+ */
+export const createOidcClient = <ThrowOnError extends boolean = false>(
+  options: Options<CreateOidcClientData, ThrowOnError>
+): RequestResult<CreateOidcClientResponses, CreateOidcClientErrors, ThrowOnError> =>
+  (options.client ?? client).post<CreateOidcClientResponses, CreateOidcClientErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * list_principals operation on principal resource
+ */
+export const listPrincipals = <ThrowOnError extends boolean = false>(
+  options?: Options<ListPrincipalsData, ThrowOnError>
+): RequestResult<ListPrincipalsResponses, ListPrincipalsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListPrincipalsResponses, ListPrincipalsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principals',
+    ...options
+  })
+
+/**
+ * Creates a Human with an email and a generated one-time local password.
+ */
+export const createLocalUser = <ThrowOnError extends boolean = false>(
+  options: Options<CreateLocalUserData, ThrowOnError>
+): RequestResult<CreateLocalUserResponses, CreateLocalUserErrors, ThrowOnError> =>
+  (options.client ?? client).post<CreateLocalUserResponses, CreateLocalUserErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principals',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * list_identity_mapping_requests operation on identity_mapping_request resource
+ */
+export const listIdentityMappingRequests = <ThrowOnError extends boolean = false>(
+  options?: Options<ListIdentityMappingRequestsData, ThrowOnError>
+): RequestResult<ListIdentityMappingRequestsResponses, ListIdentityMappingRequestsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<
+    ListIdentityMappingRequestsResponses,
+    ListIdentityMappingRequestsErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/identity-mapping-requests',
+    ...options
+  })
+
+/**
+ * run_cron_schedule operation on cron_schedule resource
+ */
+export const runCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<RunCronScheduleData, ThrowOnError>
+): RequestResult<RunCronScheduleResponses, RunCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).post<RunCronScheduleResponses, RunCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/runs',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * pause_cron_schedule operation on cron_schedule resource
+ */
+export const pauseCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<PauseCronScheduleData, ThrowOnError>
+): RequestResult<PauseCronScheduleResponses, PauseCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).post<PauseCronScheduleResponses, PauseCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/pause',
+    ...options
+  })
+
+/**
+ * delete_oidc_client operation on oidc_client resource
+ */
+export const deleteOidcClient = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteOidcClientData, ThrowOnError>
+): RequestResult<DeleteOidcClientResponses, DeleteOidcClientErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteOidcClientResponses, DeleteOidcClientErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients/{id}',
+    ...options
+  })
+
+/**
+ * get_oidc_client operation on oidc_client resource
+ */
+export const getOidcClient = <ThrowOnError extends boolean = false>(
+  options: Options<GetOidcClientData, ThrowOnError>
+): RequestResult<GetOidcClientResponses, GetOidcClientErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetOidcClientResponses, GetOidcClientErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients/{id}',
+    ...options
+  })
+
+/**
+ * update_oidc_client operation on oidc_client resource
+ */
+export const updateOidcClient = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateOidcClientData, ThrowOnError>
+): RequestResult<UpdateOidcClientResponses, UpdateOidcClientErrors, ThrowOnError> =>
+  (options.client ?? client).patch<UpdateOidcClientResponses, UpdateOidcClientErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Binds a pending request to a Human and removes the request.
+ */
+export const bindIdentityMappingRequest = <ThrowOnError extends boolean = false>(
+  options: Options<BindIdentityMappingRequestData, ThrowOnError>
+): RequestResult<BindIdentityMappingRequestResponses, BindIdentityMappingRequestErrors, ThrowOnError> =>
+  (options.client ?? client).post<BindIdentityMappingRequestResponses, BindIdentityMappingRequestErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/identity-mapping-requests/{id}/bind',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * list_principal_groups operation on principal_group resource
+ */
+export const listPrincipalGroups = <ThrowOnError extends boolean = false>(
+  options?: Options<ListPrincipalGroupsData, ThrowOnError>
+): RequestResult<ListPrincipalGroupsResponses, ListPrincipalGroupsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListPrincipalGroupsResponses, ListPrincipalGroupsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principal-groups',
+    ...options
+  })
+
+/**
+ * Creates an operator group.
+ */
+export const createPrincipalGroup = <ThrowOnError extends boolean = false>(
+  options: Options<CreatePrincipalGroupData, ThrowOnError>
+): RequestResult<CreatePrincipalGroupResponses, CreatePrincipalGroupErrors, ThrowOnError> =>
+  (options.client ?? client).post<CreatePrincipalGroupResponses, CreatePrincipalGroupErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principal-groups',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * remove_cron_schedule operation on cron_schedule resource
+ */
+export const removeCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<RemoveCronScheduleData, ThrowOnError>
+): RequestResult<RemoveCronScheduleResponses, RemoveCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).delete<RemoveCronScheduleResponses, RemoveCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}',
+    ...options
+  })
+
+/**
+ * get_cron_schedule operation on cron_schedule resource
+ */
+export const getCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<GetCronScheduleData, ThrowOnError>
+): RequestResult<GetCronScheduleResponses, GetCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetCronScheduleResponses, GetCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}',
+    ...options
+  })
+
+/**
+ * update_cron_schedule operation on cron_schedule resource
+ */
+export const updateCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateCronScheduleData, ThrowOnError>
+): RequestResult<UpdateCronScheduleResponses, UpdateCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).patch<UpdateCronScheduleResponses, UpdateCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Removes a Principal from a static operator group.
+ */
+export const removePrincipalGroupMember = <ThrowOnError extends boolean = false>(
+  options: Options<RemovePrincipalGroupMemberData, ThrowOnError>
+): RequestResult<RemovePrincipalGroupMemberResponses, RemovePrincipalGroupMemberErrors, ThrowOnError> =>
+  (options.client ?? client).delete<
+    RemovePrincipalGroupMemberResponses,
+    RemovePrincipalGroupMemberErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principal-groups/{name}/members/{principal_uid}',
+    ...options
+  })
+
+/**
+ * Adds a Principal to a static operator group.
+ */
+export const addPrincipalGroupMember = <ThrowOnError extends boolean = false>(
+  options: Options<AddPrincipalGroupMemberData, ThrowOnError>
+): RequestResult<AddPrincipalGroupMemberResponses, AddPrincipalGroupMemberErrors, ThrowOnError> =>
+  (options.client ?? client).put<AddPrincipalGroupMemberResponses, AddPrincipalGroupMemberErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principal-groups/{name}/members/{principal_uid}',
     ...options
   })
 
@@ -437,4 +808,32 @@ export const listGroupsOfPrincipal = <ThrowOnError extends boolean = false>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/principals/{uid}/groups',
     ...options
+  })
+
+/**
+ * cancel_webhook_endpoint operation on webhook_endpoint resource
+ */
+export const cancelWebhookEndpoint = <ThrowOnError extends boolean = false>(
+  options: Options<CancelWebhookEndpointData, ThrowOnError>
+): RequestResult<CancelWebhookEndpointResponses, CancelWebhookEndpointErrors, ThrowOnError> =>
+  (options.client ?? client).delete<CancelWebhookEndpointResponses, CancelWebhookEndpointErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/webhook-endpoints/{id}',
+    ...options
+  })
+
+/**
+ * Binds a provider subject to a Human and removes its pending request.
+ */
+export const createIdentityMapping = <ThrowOnError extends boolean = false>(
+  options: Options<CreateIdentityMappingData, ThrowOnError>
+): RequestResult<CreateIdentityMappingResponses, CreateIdentityMappingErrors, ThrowOnError> =>
+  (options.client ?? client).post<CreateIdentityMappingResponses, CreateIdentityMappingErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/identity-mappings',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })

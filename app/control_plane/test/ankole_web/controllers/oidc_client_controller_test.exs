@@ -1,8 +1,6 @@
 defmodule AnkoleWeb.OIDCClientControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
-  alias Ankole.AIGateway.ProviderConfigs
-  alias Ankole.AuthZ
   alias Ankole.OIDC
 
   defmodule SiteSource do
@@ -24,10 +22,8 @@ defmodule AnkoleWeb.OIDCClientControllerTest do
 
     assert %{"provider_id" => "test-site", "enabled" => true} in catalog["sources"]
 
-    response =
-      conn
-      |> recycle_api()
-      |> post("/api/v1/oidc-clients", %{
+    {:ok, %{client: %{id: id}}} =
+      OIDC.create_client(%{
         "name" => "Site source client",
         "enabled" => true,
         "type" => "public",
@@ -38,7 +34,6 @@ defmodule AnkoleWeb.OIDCClientControllerTest do
         "allowed_models" => %{}
       })
 
-    assert %{"oidc_client" => %{"id" => id}} = json_response(response, 201)
     {:ok, client} = OIDC.get_active_client(id)
     assert :ok = Ankole.OIDC.LoginPolicy.authorize_source(client, "test-site")
 
@@ -52,289 +47,41 @@ defmodule AnkoleWeb.OIDCClientControllerTest do
              Ankole.IdentityProviders.save_provider("test-site", "local", %{}, true)
   end
 
-  test "admin creates, reads, updates, rotates, and deletes OIDC Clients", %{conn: conn} do
+  test "admin rotates a confidential Client secret, and a public Client has none", %{
+    conn: conn
+  } do
     conn = console_conn(conn)
 
-    {:ok, group} =
-      AuthZ.create_principal_group(%{
-        name: "oidc-users-#{System.unique_integer([:positive])}",
-        display_name: "OIDC Users",
-        kind: "static"
-      })
+    attrs = %{
+      "name" => "Console-managed Client",
+      "enabled" => true,
+      "redirect_uris" => ["https://client.example.test/callback"],
+      "scopes" => ["openid"]
+    }
 
-    provider_id = create_provider!("oidc-console")
-    aliases = %{"assistant" => model_alias(provider_id)}
-
-    create =
-      conn
-      |> post("/api/v1/oidc-clients", %{
-        "name" => "Console-managed Client",
-        "enabled" => true,
-        "type" => "confidential",
-        "redirect_uris" => ["https://client.example.test/callback"],
-        "scopes" => ["openid", "profile", "ai_gateway.write"],
-        "allowed_group_ids" => [group.id],
-        "allowed_models" => aliases
-      })
-
-    assert %{
-             "oidc_client" => %{
-               "id" => client_id,
-               "type" => "confidential",
-               "allowed_group_ids" => [group_id],
-               "allowed_models" => ^aliases,
-               "inserted_at" => inserted_at,
-               "updated_at" => updated_at
-             },
-             "client_secret" => initial_secret
-           } = json_response(create, 201)
-
-    assert group_id == group.id
-    assert is_binary(initial_secret)
-    assert {:ok, _datetime, 0} = DateTime.from_iso8601(inserted_at)
-    assert {:ok, _datetime, 0} = DateTime.from_iso8601(updated_at)
-    assert get_resp_header(create, "cache-control") == ["no-store"]
-
-    show = conn |> recycle_api() |> get("/api/v1/oidc-clients/#{client_id}")
-    refute Map.has_key?(json_response(show, 200)["oidc_client"], "client_secret")
-
-    listing = conn |> recycle_api() |> get("/api/v1/oidc-clients") |> json_response(200)
-    assert Enum.any?(listing["oidc_clients"], &(&1["id"] == client_id))
-    refute Enum.any?(listing["oidc_clients"], &Map.has_key?(&1, "client_secret"))
-
-    update =
-      conn
-      |> recycle_api()
-      |> patch("/api/v1/oidc-clients/#{client_id}", %{
-        "name" => "OIDC without Gateway",
-        "scopes" => ["openid", "email"],
-        "allowed_group_ids" => [group.id],
-        "allowed_models" => aliases
-      })
-
-    assert %{
-             "oidc_client" => %{
-               "name" => "OIDC without Gateway",
-               "scopes" => ["openid", "email"],
-               "allowed_group_ids" => [],
-               "allowed_models" => %{}
-             }
-           } = json_response(update, 200)
+    {:ok, %{client: client, client_secret: initial_secret}} =
+      OIDC.create_client(Map.put(attrs, "type", "confidential"))
 
     rotate_conn =
       conn
       |> recycle_api()
-      |> post("/api/v1/oidc-clients/#{client_id}/secret-rotations", %{})
+      |> post("/api/v1/oidc-clients/#{client.id}/secret-rotations", %{})
 
     rotate = json_response(rotate_conn, 200)
 
+    assert rotate["oidc_client"]["id"] == client.id
     assert is_binary(rotate["client_secret"])
     assert rotate["client_secret"] != initial_secret
     assert get_resp_header(rotate_conn, "cache-control") == ["no-store"]
 
-    deleted =
-      conn
-      |> recycle_api()
-      |> delete("/api/v1/oidc-clients/#{client_id}")
-      |> json_response(200)
-
-    assert deleted["oidc_client"]["id"] == client_id
-    assert {:error, :not_found} = OIDC.get_client(client_id)
-  end
-
-  test "logout delivery controls show stored results and reject a different Client", %{conn: conn} do
-    Ankole.AppConfigure.Registry.clear_for_test()
-    Ankole.AppConfigure.Cache.clear_for_test()
-    conn = console_conn(conn)
-    %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
-
-    attrs = %{
-      name: "Logout controls",
-      type: "confidential",
-      enabled: true,
-      redirect_uris: ["https://client.example.test/callback"],
-      scopes: ["openid"],
-      backchannel_logout_uri: "https://client.example.test/logout"
-    }
-
-    {:ok, %{client: client}} = OIDC.create_client(attrs)
-    {:ok, %{client: other}} = OIDC.create_client(attrs)
-    {:ok, session} = Ankole.OIDCFixtures.session(human.uid, client.id, "openid")
-
-    {:ok, _} =
-      Ankole.Principals.HumanAccess.restrict_from_provider(
-        human.uid,
-        "test",
-        "departure",
-        "logout-controls"
-      )
-
-    list =
-      conn
-      |> recycle_api()
-      |> get("/api/v1/oidc-clients/#{client.id}/logout-deliveries")
-      |> json_response(200)
-
-    assert [%{"id" => id, "session_id" => sid, "status" => "pending", "principal_uid" => uid}] =
-             list["deliveries"]
-
-    assert sid == session.id
-    assert uid == human.uid
-
-    assert conn
-           |> recycle_api()
-           |> get("/api/v1/oidc-clients/#{other.id}/logout-deliveries")
-           |> json_response(200) == %{"deliveries" => []}
-
-    assert conn
-           |> recycle_api()
-           |> post("/api/v1/oidc-clients/#{other.id}/logout-deliveries/#{id}/retries", %{})
-           |> json_response(404)
-
-    assert {:ok, _} =
-             Ankole.Repo.transact(fn _repo ->
-               Ankole.Ash.update(
-                 Ankole.Repo.get!(Ankole.OIDC.LogoutDelivery, id),
-                 :exhaust_in_tx,
-                 %{}
-               )
-             end)
-
-    response =
-      conn
-      |> recycle_api()
-      |> post("/api/v1/oidc-clients/#{client.id}/logout-deliveries/#{id}/retries", %{})
-      |> json_response(200)
-
-    assert [%{"status" => "pending"}] = response["deliveries"]
-    refute Map.has_key?(hd(response["deliveries"]), "logout_token")
-  end
-
-  test "public Client has no secret and cannot rotate one", %{conn: conn} do
-    conn = console_conn(conn)
-
-    create =
-      conn
-      |> post("/api/v1/oidc-clients", %{
-        "name" => "Public Client",
-        "enabled" => true,
-        "type" => "public",
-        "redirect_uris" => ["http://LOCALHOST:5173/callback"],
-        "scopes" => ["openid"],
-        "allowed_group_ids" => [],
-        "allowed_models" => %{}
-      })
-      |> json_response(201)
-
-    assert create["client_secret"] == nil
-    client_id = create["oidc_client"]["id"]
-    assert OIDC.origin_allowed?(client_id, "http://localhost:5173")
+    {:ok, %{client: public, client_secret: nil}} =
+      OIDC.create_client(Map.put(attrs, "type", "public"))
 
     rotate =
       conn
       |> recycle_api()
-      |> post("/api/v1/oidc-clients/#{client_id}/secret-rotations", %{})
+      |> post("/api/v1/oidc-clients/#{public.id}/secret-rotations", %{})
 
     assert %{"error" => %{"code" => "public_client"}} = json_response(rotate, 409)
-  end
-
-  test "Client validation rejects unsafe redirects and incomplete Gateway policy", %{conn: conn} do
-    conn = console_conn(conn)
-
-    unsafe_redirect =
-      conn
-      |> post("/api/v1/oidc-clients", %{
-        "name" => "Unsafe Client",
-        "enabled" => true,
-        "type" => "public",
-        "redirect_uris" => ["javascript:alert(1)"],
-        "scopes" => ["openid"],
-        "allowed_group_ids" => [],
-        "allowed_models" => %{}
-      })
-
-    assert %{"error" => %{"code" => "validation_failed"}} =
-             json_response(unsafe_redirect, 422)
-
-    incomplete_gateway =
-      conn
-      |> recycle_api()
-      |> post("/api/v1/oidc-clients", %{
-        "name" => "Incomplete Gateway Client",
-        "enabled" => true,
-        "type" => "public",
-        "redirect_uris" => ["https://client.example.test/callback"],
-        "scopes" => ["openid", "ai_gateway.write"],
-        "allowed_group_ids" => [],
-        "allowed_models" => %{}
-      })
-
-    assert %{"error" => %{"code" => "validation_failed"}} =
-             json_response(incomplete_gateway, 422)
-
-    {:ok, group} =
-      AuthZ.create_principal_group(%{
-        name: "oidc-alias-users-#{System.unique_integer([:positive])}",
-        display_name: "OIDC Alias Users",
-        kind: "static"
-      })
-
-    provider_id = create_provider!("oidc-alias-validation")
-
-    raw_selector =
-      conn
-      |> recycle_api()
-      |> post("/api/v1/oidc-clients", %{
-        "name" => "Raw selector Client",
-        "enabled" => true,
-        "type" => "public",
-        "redirect_uris" => ["https://client.example.test/callback"],
-        "scopes" => ["openid", "ai_gateway.write"],
-        "allowed_group_ids" => [group.id],
-        "allowed_models" => ["#{provider_id}/gpt-4o-mini"]
-      })
-
-    assert %{"error" => %{"code" => "validation_failed"}} =
-             json_response(raw_selector, 422)
-
-    fixed_alias =
-      conn
-      |> recycle_api()
-      |> post("/api/v1/oidc-clients", %{
-        "name" => "Fixed alias Client",
-        "enabled" => true,
-        "type" => "public",
-        "redirect_uris" => ["https://client.example.test/callback"],
-        "scopes" => ["openid", "ai_gateway.write"],
-        "allowed_group_ids" => [group.id],
-        "allowed_models" => %{"primary" => model_alias(provider_id)}
-      })
-
-    assert %{"error" => %{"code" => "validation_failed"}} =
-             json_response(fixed_alias, 422)
-  end
-
-  defp create_provider!(prefix) do
-    provider_id = "#{prefix}-#{System.unique_integer([:positive])}"
-
-    assert {:ok, _provider} =
-             ProviderConfigs.create_provider(%{
-               provider_id: provider_id,
-               provider_kind: "openai",
-               credential_pool: %{
-                 "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
-               }
-             })
-
-    provider_id
-  end
-
-  defp model_alias(provider_id) do
-    %{
-      "provider_id" => provider_id,
-      "model" => "gpt-4o-mini",
-      "description" => "Client assistant model",
-      "provider_options" => %{}
-    }
   end
 end

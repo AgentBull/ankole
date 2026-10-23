@@ -4,7 +4,7 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
   """
 
   use Ankole.Ash.Resource,
-    extensions: [AshStateMachine],
+    extensions: [AshStateMachine, AshJsonApi.Resource],
     tenancy: :tenant,
     domain: Ankole.AutomationJobs
 
@@ -89,6 +89,26 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
     calculate(:job_status, :atom, expr(job.status))
   end
 
+  json_api do
+    type("automation_job_run")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :automation_job_id,
+      :status,
+      :attempts,
+      :started_at,
+      :finished_at,
+      :exit_code,
+      :error,
+      :stdout,
+      :stdout_truncated,
+      :stderr,
+      :stderr_truncated
+    ])
+  end
+
   state_machine do
     state_attribute(:status)
     initial_states([:queued, :failed])
@@ -108,6 +128,19 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
 
     read :across_tenants do
       multitenancy(:allow_global)
+    end
+
+    # The Console run history of one job of one Agent, the newest run first.
+    read :console_list do
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:automation_job_id, :integer, allow_nil?: false)
+
+      filter(
+        expr(automation_job_id == ^arg(:automation_job_id) and job.agent_uid == ^arg(:agent_uid))
+      )
+
+      prepare(build(sort: [inserted_at: :desc, id: :desc]))
+      pagination(keyset?: true, default_limit: 20, max_page_size: 100, countable: false)
     end
 
     action :start_attempt, :term do

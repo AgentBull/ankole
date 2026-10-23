@@ -5,7 +5,10 @@ defmodule AnkoleWeb.JSONAPI.ConsoleRouter do
     scope: :console,
     prefix: "/api/v2",
     domains: [
-      # J2 identity
+      Ankole.AutomationJobs,
+      Ankole.OIDC,
+      Ankole.Schedule,
+      Ankole.Signals,
       Ankole.Principals,
       Ankole.AuthZ
     ]
