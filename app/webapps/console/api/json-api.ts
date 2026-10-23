@@ -20,11 +20,20 @@ function fromResource<R extends ResourceObject>(resource: R): Flat<R> {
   return { ...resource.attributes, id: resource.id } as Flat<R>
 }
 
-/** Changes a JSON:API document to its flat record, or to a list of flat records. */
-export function fromDocument<R extends ResourceObject>(document: { data: R[] }): Flat<R>[]
-export function fromDocument<R extends ResourceObject>(document: { data: R }): Flat<R>
-export function fromDocument<R extends ResourceObject>(document: { data: R | R[] }): Flat<R> | Flat<R>[] {
-  return Array.isArray(document.data) ? document.data.map(fromResource) : fromResource(document.data)
+/**
+ * Changes a JSON:API document to its flat record, or to a list of flat records.
+ * The generated document types have an optional `data`; a successful response
+ * always has it.
+ *
+ * AshJsonApi 1.7.1 gives no OpenAPI type to a `utc_datetime_usec`, a Principal
+ * UID, a JSON object, or a nullable attribute, so the generated type of such a
+ * field is `unknown`. A page casts the flat record to the record type that it
+ * reads, for example `fromDocument(document) as AutomationJobItem[]`.
+ */
+export function fromDocument<R extends ResourceObject>(document: { data?: R[] }): Flat<R>[]
+export function fromDocument<R extends ResourceObject>(document: { data?: R }): Flat<R>
+export function fromDocument<R extends ResourceObject>(document: { data?: R | R[] }): Flat<R> | Flat<R>[] {
+  return Array.isArray(document.data) ? document.data.map(fromResource) : fromResource(document.data as R)
 }
 
 interface JSONAPIError {
@@ -69,8 +78,9 @@ function jsonAPIErrors(payload: unknown): JSONAPIError[] {
     : []
 }
 
-// "/data/attributes/name" names the field "name"; a query parameter keeps its name.
+// "/data/attributes/name" names the field "name", and so does "/data/name" (an
+// argument of a generic action route); a query parameter keeps its name.
 function fieldPath(source: { pointer?: string; parameter?: string }): string {
-  if (source.pointer) return source.pointer.replace(/^\/data\/(attributes|relationships)\//, '').replace(/^\//, '')
+  if (source.pointer) return source.pointer.replace(/^\/data\/((attributes|relationships)\/)?/, '').replace(/^\//, '')
   return source.parameter ?? ''
 }

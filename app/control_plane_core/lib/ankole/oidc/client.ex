@@ -210,7 +210,7 @@ defmodule Ankole.OIDC.Client do
       )
 
       argument(:name, :string, allow_nil?: false)
-      argument(:enabled, :boolean)
+      argument(:enabled, :boolean, default: true)
       argument(:redirect_uris, {:array, :string})
       argument(:scopes, {:array, :string})
       argument(:allowed_group_ids, {:array, :string})

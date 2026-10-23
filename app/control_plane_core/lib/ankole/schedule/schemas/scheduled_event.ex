@@ -215,9 +215,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
       argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
       argument(:cron_schedule_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
-      filter(
-        expr(cron_schedule_id == ^arg(:cron_schedule_id) and agent_uid == ^arg(:agent_uid))
-      )
+      filter(expr(cron_schedule_id == ^arg(:cron_schedule_id) and agent_uid == ^arg(:agent_uid)))
 
       prepare(build(sort: [due_at: :desc, inserted_at: :desc, id: :desc]))
       pagination(keyset?: true, default_limit: 25, max_page_size: 100, countable: false)

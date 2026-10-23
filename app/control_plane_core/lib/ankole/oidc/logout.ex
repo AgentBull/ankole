@@ -42,7 +42,8 @@ defmodule Ankole.OIDC.Logout do
          |> Ankole.Ash.read_one!() do
       %LogoutDelivery{} ->
         with {:ok, delivery} <- retry_in_tx(id) do
-          {:ok, Ash.load!(delivery, [:principal_uid], tenant: Repo.tenant_id(), authorize?: false)}
+          {:ok,
+           Ash.load!(delivery, [:principal_uid], tenant: Repo.tenant_id(), authorize?: false)}
         end
 
       nil ->

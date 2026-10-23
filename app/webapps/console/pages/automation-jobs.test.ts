@@ -3,7 +3,7 @@ import { automationJobAgentUID, automationJobDetailParams, automationJobScopePar
 
 describe('Automation Job detail ownership', () => {
   test('uses the row owner or the selected Agent for the Agent-scoped detail route', () => {
-    const jobs = [{ id: 1000, agent_uid: 'agent-a' }]
+    const jobs = [{ id: '1000', agent_uid: 'agent-a' }]
 
     expect(automationJobAgentUID(jobs, 1000, '')).toBe('agent-a')
     expect(automationJobAgentUID(jobs, 2000, 'agent-b')).toBe('agent-b')
@@ -12,7 +12,7 @@ describe('Automation Job detail ownership', () => {
 
   test('puts the owning Agent in a detail URL so the link does not depend on the current list page', () => {
     const selected = automationJobDetailParams(new URLSearchParams('include_finished=true'), {
-      id: 1000,
+      id: '1000',
       agent_uid: 'agent-a'
     })
 

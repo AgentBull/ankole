@@ -221,7 +221,7 @@ defmodule Ankole.Schedule.Cron do
 
     with {:ok, %{cron_schedule: schedule}} <-
            create_cron_schedule_in_tx(repo, args, created_by: created_by) do
-      {:ok, schedule}
+      {:ok, console_result(schedule)}
     end
   end
 
@@ -259,10 +259,23 @@ defmodule Ankole.Schedule.Cron do
   # Agent reads as not found.
   defp for_agent(%{agent_uid: agent_uid, id: id}, operation) do
     case Store.get_cron_schedule(id) do
-      %CronSchedule{agent_uid: ^agent_uid} -> operation.(id)
-      _other -> {:error, :cron_schedule_not_found}
+      %CronSchedule{agent_uid: ^agent_uid} ->
+        case operation.(id) do
+          {:ok, %CronSchedule{} = schedule} -> {:ok, console_result(schedule)}
+          result -> result
+        end
+
+      _other ->
+        {:error, :cron_schedule_not_found}
     end
   end
+
+  defp console_result(schedule),
+    do:
+      Ash.load!(schedule, [:execution_session_id],
+        tenant: Ankole.Repo.tenant_id(),
+        authorize?: false
+      )
 
   @spec validate_fire_schedule(CronSchedule.t()) :: :ok | {:cancel, atom()}
   def validate_fire_schedule(%CronSchedule{status: status} = schedule)

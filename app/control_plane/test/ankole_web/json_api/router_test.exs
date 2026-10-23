@@ -91,7 +91,9 @@ defmodule AnkoleWeb.JSONAPI.RouterTest do
         Spark.Dsl.is?(module, Ash.Resource),
         AshJsonApi.Resource in Spark.extensions(module) do
       refute AshJsonApi.Resource.Info.derive_filter?(module), inspect(module)
-      refute Spark.Dsl.Extension.get_opt(module, [:json_api], :derive_sort?, true), inspect(module)
+
+      refute Spark.Dsl.Extension.get_opt(module, [:json_api], :derive_sort?, true),
+             inspect(module)
     end
 
     for router <- @routers,
