@@ -238,7 +238,7 @@ defmodule Ankole.AuthZ.Grant do
 
       run(fn input, _context ->
         Ankole.AuthZ.Grants.create_operator_grant(Ankole.Repo, input.arguments)
-        |> Ankole.Errors.not_found(Ankole.AuthZ.Group)
+        |> Ankole.Errors.not_found([:not_found, :principal_not_found], Ankole.AuthZ.Group)
         |> Ankole.Errors.wrap()
       end)
     end

@@ -114,7 +114,7 @@ defmodule Ankole.Principals.MappingRequest do
           input.arguments.id,
           input.arguments.principal_uid
         )
-        |> Ankole.Errors.not_found(__MODULE__)
+        |> Ankole.Errors.not_found([:not_found, :principal_not_found], __MODULE__)
         |> Ankole.Errors.wrap()
       end)
     end
@@ -132,7 +132,7 @@ defmodule Ankole.Principals.MappingRequest do
           input.arguments.principal_uid,
           Map.take(input.arguments, [:provider, :external_id])
         )
-        |> Ankole.Errors.not_found(__MODULE__)
+        |> Ankole.Errors.not_found([:not_found, :principal_not_found], __MODULE__)
         |> Ankole.Errors.wrap()
       end)
     end
