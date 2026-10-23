@@ -1,4 +1,4 @@
-defmodule AnkoleWeb.AIGatewayProviderControllerTest do
+defmodule AnkoleWeb.JSONAPI.ProviderModelsTest do
   use AnkoleWeb.ConnCase, async: false
 
   import Ankole.AIGatewayCase, only: [start_upstream_server: 1]
@@ -45,7 +45,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
                model: "gpt-4o-mini"
              })
 
-    result = conn |> console_conn() |> get(~p"/api/v1/site/ai-gateway/models")
+    result = conn |> console_conn() |> send_v2(:get, ~p"/api/v2/site/ai-gateway/models")
     assert %{"models" => models} = json_response(result, 200)
 
     for id <- ["catalog-a", "catalog-b"] do
@@ -72,7 +72,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/kimi", %{
+      |> send_v2(:put, ~p"/api/v2/agents/#{agent.uid}/model-profiles/kimi", %{
         "description" => "Long-context coding",
         "provider_id" => "openrouter-custom-console",
         "model" => "moonshotai/kimi-k2.7-code",
@@ -93,7 +93,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/agents/#{agent.uid}/model-profiles")
+      |> send_v2(:get, ~p"/api/v2/agents/#{agent.uid}/model-profiles")
 
     assert %{"model_profiles" => %{"kimi" => %{"description" => "Long-context coding"}}} =
              json_response(conn, 200)
@@ -101,40 +101,42 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     missing_description =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/deepseek", %{
+      |> send_v2(:put, ~p"/api/v2/agents/#{agent.uid}/model-profiles/deepseek", %{
         "provider_id" => "openrouter-custom-console",
         "model" => "deepseek/deepseek-v3"
       })
 
-    assert %{"error" => %{"code" => "validation_failed"}} =
+    assert %{"errors" => [%{"code" => "missing", "detail" => "description is required"}]} =
              json_response(missing_description, 422)
 
     reserved_name =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/primary", %{
+      |> send_v2(:put, ~p"/api/v2/agents/#{agent.uid}/model-profiles/primary", %{
         "description" => "Reserved",
         "provider_id" => "openrouter-custom-console",
         "model" => "openai/gpt-5.4"
       })
 
-    assert %{"error" => %{"code" => "invalid_agent"}} = json_response(reserved_name, 422)
+    assert %{"errors" => [%{"code" => "fixed_model_profile_description_not_allowed"}]} =
+             json_response(reserved_name, 422)
 
     invalid_name =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/Kimi", %{
+      |> send_v2(:put, ~p"/api/v2/agents/#{agent.uid}/model-profiles/Kimi", %{
         "description" => "Invalid uppercase name",
         "provider_id" => "openrouter-custom-console",
         "model" => "moonshotai/kimi-k2.7-code"
       })
 
-    assert %{"error" => %{"code" => "invalid_agent"}} = json_response(invalid_name, 422)
+    assert %{"errors" => [%{"code" => "invalid_model_profile"}]} =
+             json_response(invalid_name, 422)
 
     conn =
       conn
       |> recycle_api()
-      |> delete(~p"/api/v1/agents/#{agent.uid}/model-profiles/kimi")
+      |> send_v2(:delete, ~p"/api/v2/agents/#{agent.uid}/model-profiles/kimi")
 
     assert %{"model_profile" => %{"profile" => "kimi", "configured" => false}} =
              json_response(conn, 200)
@@ -212,7 +214,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/site/ai-gateway/models")
+      |> send_v2(:get, ~p"/api/v2/site/ai-gateway/models")
 
     assert %{"models" => candidates} = json_response(conn, 200)
 
@@ -224,16 +226,18 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/image_generate", %{
+      |> send_v2(:put, ~p"/api/v2/agents/#{agent.uid}/model-profiles/image_generate", %{
         "provider_id" => provider_id,
         "model" => "openrouter/auto"
       })
 
     assert %{
-             "error" => %{
-               "code" => "image_model_unavailable",
-               "message" => "selected image model has no usable image-generation endpoint"
-             }
+             "errors" => [
+               %{
+                 "code" => "image_model_unavailable",
+                 "detail" => "selected image model has no usable image-generation endpoint"
+               }
+             ]
            } = json_response(conn, 422)
 
     assert {:error, :model_profile_not_configured} =
@@ -242,7 +246,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/image_generate", %{
+      |> send_v2(:put, ~p"/api/v2/agents/#{agent.uid}/model-profiles/image_generate", %{
         "provider_id" => provider_id,
         "model" => "google/gemini-3.1-flash-lite-image"
       })
@@ -273,8 +277,9 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> post(
-        ~p"/api/v1/site/ai-gateway/providers/chatgpt-main/chatgpt-enterprise-credentials",
+      |> send_v2(
+        :post,
+        ~p"/api/v2/site/ai-gateway/providers/chatgpt-main/chatgpt-enterprise-credentials",
         %{
           "id" => "enterprise-1",
           "label" => "Primary ChatGPT",
@@ -301,15 +306,16 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
                  ]
                }
              }
-           } = json_response(conn, 200)
+           } = json_response(conn, 201)
 
     refute conn.resp_body =~ "enterprise-secret"
 
     conn =
       conn
       |> recycle_api()
-      |> post(
-        ~p"/api/v1/site/ai-gateway/providers/chatgpt-main/chatgpt-enterprise-credentials",
+      |> send_v2(
+        :post,
+        ~p"/api/v2/site/ai-gateway/providers/chatgpt-main/chatgpt-enterprise-credentials",
         %{
           "id" => "enterprise-2",
           "label" => "Backup ChatGPT",
@@ -319,27 +325,31 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       )
 
     assert %{"ai_gateway_provider" => %{"credential_pool" => %{"entries" => entries}}} =
-             json_response(conn, 200)
+             json_response(conn, 201)
 
     assert Enum.map(entries, & &1["id"]) == ["enterprise-1", "enterprise-2"]
 
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/site/ai-gateway/providers/chatgpt-main/credential-pool/strategy", %{
-        "strategy" => "round_robin"
-      })
+      |> send_v2(
+        :put,
+        ~p"/api/v2/site/ai-gateway/providers/chatgpt-main/credential-pool/strategy",
+        %{
+          "strategy" => "round_robin"
+        }
+      )
 
     assert %{
              "ai_gateway_provider" => %{
                "credential_pool" => %{"strategy" => "round_robin"}
              }
-           } = json_response(conn, 200)
+           } = provider_json(conn)
 
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/coding", %{
+      |> send_v2(:put, ~p"/api/v2/agents/#{agent.uid}/model-profiles/coding", %{
         "provider_id" => "chatgpt-main",
         "model" => "gpt-5.6-sol",
         "provider_options" => %{
@@ -375,10 +385,13 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> delete(~p"/api/v1/site/ai-gateway/providers/chatgpt-main/credentials/enterprise-2")
+      |> send_v2(
+        :delete,
+        ~p"/api/v2/site/ai-gateway/providers/chatgpt-main/credentials/enterprise-2"
+      )
 
     assert %{"ai_gateway_provider" => %{"credential_pool" => %{"entries" => [remaining]}}} =
-             json_response(conn, 200)
+             provider_json(conn)
 
     assert remaining["id"] == "enterprise-1"
   end
@@ -398,12 +411,16 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/site/ai-gateway/providers/openrouter-pool-admin/credentials", %{
-        "id" => "key-1",
-        "label" => "Primary",
-        "priority" => 2,
-        "api_key" => "sk-original"
-      })
+      |> send_v2(
+        :post,
+        ~p"/api/v2/site/ai-gateway/providers/openrouter-pool-admin/credentials",
+        %{
+          "id" => "key-1",
+          "label" => "Primary",
+          "priority" => 2,
+          "api_key" => "sk-original"
+        }
+      )
 
     assert %{
              "ai_gateway_provider" => %{
@@ -423,7 +440,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
                  ]
                }
              }
-           } = json_response(conn, 200)
+           } = provider_json(conn, 201)
 
     refute conn.resp_body =~ "sk-original"
 
@@ -432,8 +449,9 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(
-        ~p"/api/v1/site/ai-gateway/providers/openrouter-pool-admin/credentials/key-1",
+      |> send_v2(
+        :put,
+        ~p"/api/v2/site/ai-gateway/providers/openrouter-pool-admin/credentials/key-1",
         %{"label" => "Primary renamed", "disabled_at" => disabled_at}
       )
 
@@ -450,15 +468,16 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
                  ]
                }
              }
-           } = json_response(conn, 200)
+           } = provider_json(conn)
 
     refute conn.resp_body =~ "sk-original"
 
     conn =
       conn
       |> recycle_api()
-      |> put(
-        ~p"/api/v1/site/ai-gateway/providers/openrouter-pool-admin/credentials/key-1",
+      |> send_v2(
+        :put,
+        ~p"/api/v2/site/ai-gateway/providers/openrouter-pool-admin/credentials/key-1",
         %{"disabled_at" => nil}
       )
 
@@ -474,7 +493,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
                  ]
                }
              }
-           } = json_response(conn, 200)
+           } = provider_json(conn)
 
     assert {:ok, provider} = ProviderConfigs.fetch_provider("openrouter-pool-admin")
     assert {:ok, %{"api_key" => "sk-original"}} = ProviderConfigs.runtime_connection(provider)
@@ -503,8 +522,9 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(
-        ~p"/api/v1/site/ai-gateway/providers/openrouter-dead-update/credentials/dead-key",
+      |> send_v2(
+        :put,
+        ~p"/api/v2/site/ai-gateway/providers/openrouter-dead-update/credentials/dead-key",
         %{"label" => "Renamed"}
       )
 
@@ -514,7 +534,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
                  "entries" => [%{"label" => "Renamed", "status" => "dead"}]
                }
              }
-           } = json_response(conn, 200)
+           } = provider_json(conn)
 
     assert {:ok, _} =
              ProviderConfigs.update_credential("openrouter-dead-update", "dead-key", %{
@@ -551,8 +571,9 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(
-        ~p"/api/v1/site/ai-gateway/providers/openrouter-dead-update/credentials/dead-key",
+      |> send_v2(
+        :put,
+        ~p"/api/v2/site/ai-gateway/providers/openrouter-dead-update/credentials/dead-key",
         %{"api_key" => "sk-reauthenticated"}
       )
 
@@ -560,7 +581,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
              "ai_gateway_provider" => %{
                "credential_pool" => %{"entries" => [%{"status" => "ok"}]}
              }
-           } = json_response(conn, 200)
+           } = provider_json(conn)
 
     assert {:ok, provider} = ProviderConfigs.fetch_provider("openrouter-dead-update")
 
@@ -629,7 +650,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/site/ai-gateway/providers/chatgpt-device/chatgpt-login", %{
+      |> send_v2(:post, ~p"/api/v2/site/ai-gateway/providers/chatgpt-device/chatgpt-login", %{
         "id" => "device-credential",
         "label" => "Device account",
         "priority" => 3
@@ -640,14 +661,18 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
              "user_code" => "ABCD-EFGH",
              "interval" => 1,
              "login_context" => login_context
-           } = json_response(conn, 200)
+           } = json_response(conn, 201)
 
     conn =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/site/ai-gateway/providers/chatgpt-device/chatgpt-login/poll", %{
-        "login_context" => login_context
-      })
+      |> send_v2(
+        :post,
+        ~p"/api/v2/site/ai-gateway/providers/chatgpt-device/chatgpt-login/poll",
+        %{
+          "login_context" => login_context
+        }
+      )
 
     assert %{
              "status" => "complete",
@@ -669,7 +694,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
                  ]
                }
              }
-           } = json_response(conn, 200)
+           } = json_response(conn, 201)
 
     refute conn.resp_body =~ "access-secret"
     refute conn.resp_body =~ "refresh-secret"
@@ -699,7 +724,120 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
            }
   end
 
-  # The provider records are in the site JSON:API; the credential routes stay in v1.
+  test "provider kinds expose usable form settings and keep JSON default values", %{conn: conn} do
+    assert %{"provider_kinds" => kinds} =
+             conn
+             |> console_conn()
+             |> send_v2(:get, "/api/v2/site/ai-gateway/provider-kinds")
+             |> json_response(200)
+
+    openrouter = Enum.find(kinds, &(&1["provider_kind"] == "openrouter"))
+    assert is_binary(openrouter["label"]["default"])
+    assert "llm" in openrouter["capabilities"]
+
+    assert %{"scope" => "request", "type" => "select", "default" => "high", "options" => [_ | _]} =
+             Enum.find(openrouter["settings"], &(&1["key"] == "reasoningEffort"))
+
+    assert %{"encrypted" => true, "scope" => "credential", "default" => nil} =
+             Enum.find(openrouter["settings"], &(&1["key"] == "api_key"))
+  end
+
+  test "browser-paste login rejects another attempt and stores only a completed credential", %{
+    conn: conn
+  } do
+    id_token =
+      jwt(%{
+        "email" => "browser@example.test",
+        "https://api.openai.com/auth" => %{"chatgpt_account_id" => "browser-account"}
+      })
+
+    test_pid = self()
+
+    issuer =
+      start_upstream_server(fn request ->
+        case request.path do
+          "api/accounts/deviceauth/usercode" ->
+            {:json, 404, %{}}
+
+          "oauth/token" ->
+            send(test_pid, {:browser_exchange, request.body})
+
+            {:json, 200,
+             %{
+               "access_token" => "browser-access-secret",
+               "refresh_token" => "browser-refresh-secret",
+               "id_token" => id_token
+             }}
+        end
+      end)
+
+    conn =
+      conn
+      |> console_conn()
+      |> put_provider("browser-login", %{
+        "provider_kind" => "chatgpt_subscription",
+        "connection_options" => %{"auth_issuer" => issuer}
+      })
+
+    assert %{"ai_gateway_provider" => %{}} = provider_json(conn)
+    path = "/api/v2/site/ai-gateway/providers/browser-login/chatgpt-login"
+
+    assert %{"errors" => [%{"code" => "missing", "detail" => "access_token is required"}]} =
+             conn
+             |> send_v2(
+               :post,
+               "/api/v2/site/ai-gateway/providers/browser-login/chatgpt-enterprise-credentials",
+               %{"account_id" => "browser-account"}
+             )
+             |> json_response(422)
+
+    assert %{"mode" => "browser_paste", "authorization_url" => url, "login_context" => context} =
+             conn
+             |> send_v2(:post, path, %{"id" => "browser-credential", "label" => "Browser account"})
+             |> json_response(201)
+
+    assert URI.decode_query(URI.parse(url).query)["state"] == context["state"]
+
+    rejected =
+      send_v2(conn, :post, path <> "/browser-callback", %{
+        "login_context" => context,
+        "callback_url" => "http://localhost:1455/auth/callback?code=browser-code&state=wrong"
+      })
+
+    assert %{"errors" => [%{"code" => "chatgpt_login_invalid", "detail" => detail}]} =
+             json_response(rejected, 422)
+
+    assert detail =~ "different sign-in attempt"
+
+    assert {:ok, %{"credential_pool" => %{"entries" => []}}} =
+             ProviderConfigs.get_provider("browser-login")
+
+    callback =
+      "http://localhost:1455/auth/callback?" <>
+        URI.encode_query(%{"code" => "browser-code", "state" => context["state"]})
+
+    complete =
+      send_v2(conn, :post, path <> "/browser-callback", %{
+        "login_context" => context,
+        "callback_url" => callback
+      })
+
+    assert %{
+             "status" => "complete",
+             "ai_gateway_provider" => %{
+               "credential_pool" => %{
+                 "entries" => [%{"id" => "browser-credential", "email" => "browser@example.test"}]
+               }
+             }
+           } = json_response(complete, 201)
+
+    refute complete.resp_body =~ "browser-access-secret"
+    refute complete.resp_body =~ "browser-refresh-secret"
+    assert_receive {:browser_exchange, %{"code" => "browser-code", "code_verifier" => verifier}}
+    assert verifier == context["code_verifier"]
+  end
+
+  # Provider records and credentials use the site JSON:API.
   defp put_provider(conn, provider_id, attributes) do
     conn
     |> json_api()
@@ -719,11 +857,63 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     |> put_req_header("content-type", "application/vnd.api+json")
   end
 
-  defp provider_json(conn),
-    do: %{"ai_gateway_provider" => json_response(conn, 200)["data"]["attributes"]}
+  defp provider_json(conn, status \\ 200),
+    do: %{"ai_gateway_provider" => json_response(conn, status)["data"]["attributes"]}
 
   defp jwt(claims) do
     payload = claims |> Ankole.JSON.encode!() |> Base.url_encode64(padding: false)
     "e30.#{payload}.signature"
+  end
+
+  defp send_v2(conn, method, path, params \\ %{}) do
+    conn =
+      conn
+      |> recycle_api()
+      |> put_req_header("accept", "application/vnd.api+json")
+      |> put_req_header("content-type", "application/vnd.api+json")
+
+    cond do
+      method in [:get, :delete] ->
+        Phoenix.ConnTest.dispatch(conn, AnkoleWeb.Endpoint, method, path, nil)
+
+      String.contains?(path, "/model-profiles/") ->
+        Phoenix.ConnTest.dispatch(
+          conn,
+          AnkoleWeb.Endpoint,
+          method,
+          path,
+          Jason.encode!(%{data: %{attrs: params}})
+        )
+
+      String.contains?(path, "/credentials") or String.contains?(path, "/credential-pool/") ->
+        attributes =
+          if String.contains?(path, "/credential-pool/"), do: params, else: %{credential: params}
+
+        Phoenix.ConnTest.dispatch(
+          conn,
+          AnkoleWeb.Endpoint,
+          if(method == :put, do: :patch, else: method),
+          path,
+          Jason.encode!(%{data: %{type: "ai_gateway_provider", attributes: attributes}})
+        )
+
+      String.ends_with?(path, "/chatgpt-enterprise-credentials") ->
+        Phoenix.ConnTest.dispatch(
+          conn,
+          AnkoleWeb.Endpoint,
+          method,
+          path,
+          Jason.encode!(%{data: %{credential: params}})
+        )
+
+      true ->
+        Phoenix.ConnTest.dispatch(
+          conn,
+          AnkoleWeb.Endpoint,
+          method,
+          path,
+          Jason.encode!(%{data: params})
+        )
+    end
   end
 end

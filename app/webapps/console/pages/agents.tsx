@@ -20,11 +20,11 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { listAgentModelProfilesOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import {
-  ankoleWebAgentControllerIndexModelProfilesOptions,
-  ankoleWebAiGatewayProviderControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
-  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions
-} from '../api/generated/@tanstack/react-query.gen'
+  listAiGatewayModelsOptions,
+  listAiGatewayProviderKindsOptions
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { type AgentItem, agentListOptions, agentOptions } from '../api/agents'
 import {
   createAgentMutation,
@@ -219,16 +219,16 @@ function AgentEditor({ uid }: { uid?: string }) {
   const providers = useQuery({ ...listAiGatewayProvidersOptions(), select: aiGatewayProviders })
   const workerProviders = useQuery({ ...listWorkerProvidersOptions(), select: workerProviderRecords })
   const providerKinds = useQuery({
-    ...ankoleWebAIGatewayProviderControllerProviderKindsOptions(),
+    ...listAiGatewayProviderKindsOptions(),
     enabled: Boolean(uid)
   })
   const modelCatalog = useQuery({
-    ...ankoleWebAIGatewayControllerModelsOptions(),
+    ...listAiGatewayModelsOptions(),
     enabled: Boolean(uid)
   })
   const selectedAgent = agentDetail.data
   const modelProfiles = useQuery({
-    ...ankoleWebAgentControllerIndexModelProfilesOptions({ path: { agent_uid: selectedAgent?.uid ?? '' } }),
+    ...listAgentModelProfilesOptions({ path: { agent_uid: selectedAgent?.uid ?? '' } }),
     enabled: Boolean(selectedAgent?.uid)
   })
   const agentDraft = useMemo(

@@ -2958,6 +2958,26 @@ export type AgentType = {
 }
 
 /**
+ * A "Resource object" representing a agent_model_configuration
+ */
+export type AgentModelConfiguration = {
+  /**
+   * An attributes object for a agent_model_configuration
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a agent_model_configuration
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a oidc_logout_delivery
  */
 export type OidcLogoutDelivery = {
@@ -4999,6 +5019,101 @@ export type ListBrainClaimsResponses = {
 
 export type ListBrainClaimsResponse = ListBrainClaimsResponses[keyof ListBrainClaimsResponses]
 
+export type DeleteAgentModelProfileData = {
+  body?: never
+  path: {
+    profile: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/model-profiles/{profile}'
+}
+
+export type DeleteAgentModelProfileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteAgentModelProfileError = DeleteAgentModelProfileErrors[keyof DeleteAgentModelProfileErrors]
+
+export type DeleteAgentModelProfileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    model_profile: {
+      configured: boolean
+      context_length?: number | null
+      description?: string | null
+      model?: string | null
+      profile: string
+      provider_id?: string | null
+      provider_options?: {
+        [key: string]: unknown
+      } | null
+    }
+  }
+}
+
+export type DeleteAgentModelProfileResponse = DeleteAgentModelProfileResponses[keyof DeleteAgentModelProfileResponses]
+
+export type PutAgentModelProfileData = {
+  /**
+   * Request body for the put_agent_model_profile operation on agent_model_configuration resource
+   */
+  body: {
+    data: {
+      attrs: {
+        context_length?: number | null
+        description?: string | null
+        model?: string | null
+        provider_id?: string | null
+        provider_options?: {
+          [key: string]: unknown
+        } | null
+      }
+    }
+  }
+  path: {
+    profile: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/model-profiles/{profile}'
+}
+
+export type PutAgentModelProfileErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutAgentModelProfileError = PutAgentModelProfileErrors[keyof PutAgentModelProfileErrors]
+
+export type PutAgentModelProfileResponses = {
+  /**
+   * Success
+   */
+  200: {
+    model_profile: {
+      configured: boolean
+      context_length?: number | null
+      description?: string | null
+      model?: string | null
+      profile: string
+      provider_id?: string | null
+      provider_options?: {
+        [key: string]: unknown
+      } | null
+    }
+  }
+}
+
+export type PutAgentModelProfileResponse = PutAgentModelProfileResponses[keyof PutAgentModelProfileResponses]
+
 export type GetAutomationJobData = {
   body?: never
   path: {
@@ -5304,6 +5419,41 @@ export type ListAutomationJobsResponses = {
 
 export type ListAutomationJobsResponse = ListAutomationJobsResponses[keyof ListAutomationJobsResponses]
 
+export type ListAgentModelProfilesData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/model-profiles'
+}
+
+export type ListAgentModelProfilesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAgentModelProfilesError = ListAgentModelProfilesErrors[keyof ListAgentModelProfilesErrors]
+
+export type ListAgentModelProfilesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    model_profiles: {
+      [key: string]: unknown
+    }
+    provider_hosted: {
+      image_generate: boolean
+      web_search: boolean
+    }
+  }
+}
+
+export type ListAgentModelProfilesResponse = ListAgentModelProfilesResponses[keyof ListAgentModelProfilesResponses]
+
 export type ListPrincipalGroupGrantsData = {
   body?: never
   path: {
@@ -5452,6 +5602,45 @@ export type ResolveBrainTakeResponses = {
 
 export type ResolveBrainTakeResponse = ResolveBrainTakeResponses[keyof ResolveBrainTakeResponses]
 
+export type ResetAgentTokenQuotaData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/token-quota/reset'
+}
+
+export type ResetAgentTokenQuotaErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResetAgentTokenQuotaError = ResetAgentTokenQuotaErrors[keyof ResetAgentTokenQuotaErrors]
+
+export type ResetAgentTokenQuotaResponses = {
+  /**
+   * Success
+   */
+  201: {
+    token_quota?: {
+      limit_tokens: number
+      period_days: number
+      period_start_at: string
+    } | null
+    usage?: {
+      exceeded: boolean
+      used_tokens: number
+      window_ends_at: string
+      window_started_at: string
+    } | null
+  }
+}
+
+export type ResetAgentTokenQuotaResponse = ResetAgentTokenQuotaResponses[keyof ResetAgentTokenQuotaResponses]
+
 export type ListAutomationJobRunsData = {
   body?: never
   path: {
@@ -5511,6 +5700,132 @@ export type ListAutomationJobRunsResponses = {
 }
 
 export type ListAutomationJobRunsResponse = ListAutomationJobRunsResponses[keyof ListAutomationJobRunsResponses]
+
+export type DeleteAgentTokenQuotaData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/token-quota'
+}
+
+export type DeleteAgentTokenQuotaErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteAgentTokenQuotaError = DeleteAgentTokenQuotaErrors[keyof DeleteAgentTokenQuotaErrors]
+
+export type DeleteAgentTokenQuotaResponses = {
+  /**
+   * Success
+   */
+  200: {
+    token_quota?: {
+      limit_tokens: number
+      period_days: number
+      period_start_at: string
+    } | null
+    usage?: {
+      exceeded: boolean
+      used_tokens: number
+      window_ends_at: string
+      window_started_at: string
+    } | null
+  }
+}
+
+export type DeleteAgentTokenQuotaResponse = DeleteAgentTokenQuotaResponses[keyof DeleteAgentTokenQuotaResponses]
+
+export type GetAgentTokenQuotaData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/token-quota'
+}
+
+export type GetAgentTokenQuotaErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetAgentTokenQuotaError = GetAgentTokenQuotaErrors[keyof GetAgentTokenQuotaErrors]
+
+export type GetAgentTokenQuotaResponses = {
+  /**
+   * Success
+   */
+  200: {
+    token_quota?: {
+      limit_tokens: number
+      period_days: number
+      period_start_at: string
+    } | null
+    usage?: {
+      exceeded: boolean
+      used_tokens: number
+      window_ends_at: string
+      window_started_at: string
+    } | null
+  }
+}
+
+export type GetAgentTokenQuotaResponse = GetAgentTokenQuotaResponses[keyof GetAgentTokenQuotaResponses]
+
+export type PutAgentTokenQuotaData = {
+  /**
+   * Request body for the put_agent_token_quota operation on agent_model_configuration resource
+   */
+  body: {
+    data: {
+      limit_tokens: number
+      period_days: number
+      period_start_at?: string | null
+    }
+  }
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/token-quota'
+}
+
+export type PutAgentTokenQuotaErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutAgentTokenQuotaError = PutAgentTokenQuotaErrors[keyof PutAgentTokenQuotaErrors]
+
+export type PutAgentTokenQuotaResponses = {
+  /**
+   * Success
+   */
+  200: {
+    token_quota?: {
+      limit_tokens: number
+      period_days: number
+      period_start_at: string
+    } | null
+    usage?: {
+      exceeded: boolean
+      used_tokens: number
+      window_ends_at: string
+      window_started_at: string
+    } | null
+  }
+}
+
+export type PutAgentTokenQuotaResponse = PutAgentTokenQuotaResponses[keyof PutAgentTokenQuotaResponses]
 
 export type ListAgentLibraryDocumentsData = {
   body?: never
@@ -5878,6 +6193,46 @@ export type CreateOidcClientResponses = {
 }
 
 export type CreateOidcClientResponse = CreateOidcClientResponses[keyof CreateOidcClientResponses]
+
+export type PutAgentProviderHostedData = {
+  /**
+   * Request body for the put_agent_provider_hosted operation on agent_model_configuration resource
+   */
+  body?: {
+    data: {
+      image_generate?: boolean | null
+      web_search?: boolean | null
+    }
+  }
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/provider-hosted'
+}
+
+export type PutAgentProviderHostedErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutAgentProviderHostedError = PutAgentProviderHostedErrors[keyof PutAgentProviderHostedErrors]
+
+export type PutAgentProviderHostedResponses = {
+  /**
+   * Success
+   */
+  200: {
+    provider_hosted: {
+      image_generate: boolean
+      web_search: boolean
+    }
+  }
+}
+
+export type PutAgentProviderHostedResponse = PutAgentProviderHostedResponses[keyof PutAgentProviderHostedResponses]
 
 export type ListPrincipalsData = {
   body?: never

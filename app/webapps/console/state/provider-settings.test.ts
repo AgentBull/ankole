@@ -1,8 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type {
-  AiGatewayProviderKindItem as AIGatewayProviderKindItem,
-  AiGatewayProviderSetting as AIGatewayProviderSetting
-} from '../api/generated/types.gen'
+import type { AIGatewayProviderKindItem, ProviderSetting as AIGatewayProviderSetting } from './provider-settings'
 import { buildSettingOptions, connectionSettings, credentialSettings, requestSettings } from './provider-settings'
 
 function providerKind(providerKind: string): AIGatewayProviderKindItem {

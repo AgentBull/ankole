@@ -10,14 +10,6 @@ import {
 
 import { client } from '../client.gen'
 import {
-  ankoleWebAgentControllerDeleteModelProfile,
-  ankoleWebAgentControllerDeleteTokenQuota,
-  ankoleWebAgentControllerIndexModelProfiles,
-  ankoleWebAgentControllerPutModelProfile,
-  ankoleWebAgentControllerPutProviderHosted,
-  ankoleWebAgentControllerPutTokenQuota,
-  ankoleWebAgentControllerResetTokenQuota,
-  ankoleWebAgentControllerShowTokenQuota,
   ankoleWebAgentFileControllerDelete,
   ankoleWebAgentFileControllerDownload,
   ankoleWebAgentFileControllerIndex,
@@ -44,16 +36,6 @@ import {
   ankoleWebAiGatewayFilesControllerDelete,
   ankoleWebAiGatewayFilesControllerIndex,
   ankoleWebAiGatewayFilesControllerShow,
-  ankoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredential,
-  ankoleWebAiGatewayProviderControllerAddCredential,
-  ankoleWebAiGatewayProviderControllerCompleteChatgptBrowserLogin,
-  ankoleWebAiGatewayProviderControllerDeleteCredential,
-  ankoleWebAiGatewayProviderControllerModels,
-  ankoleWebAiGatewayProviderControllerPollChatgptLogin,
-  ankoleWebAiGatewayProviderControllerProviderKinds,
-  ankoleWebAiGatewayProviderControllerPutCredential,
-  ankoleWebAiGatewayProviderControllerPutCredentialStrategy,
-  ankoleWebAiGatewayProviderControllerStartChatgptLogin,
   ankoleWebAuthControllerDeleteSession,
   ankoleWebBackgroundAgentJobControllerHealth,
   ankoleWebBackgroundAgentJobControllerTurns,
@@ -97,30 +79,6 @@ import {
   type Options
 } from '../sdk.gen'
 import type {
-  AnkoleWebAgentControllerDeleteModelProfileData,
-  AnkoleWebAgentControllerDeleteModelProfileError,
-  AnkoleWebAgentControllerDeleteModelProfileResponse,
-  AnkoleWebAgentControllerDeleteTokenQuotaData,
-  AnkoleWebAgentControllerDeleteTokenQuotaError,
-  AnkoleWebAgentControllerDeleteTokenQuotaResponse,
-  AnkoleWebAgentControllerIndexModelProfilesData,
-  AnkoleWebAgentControllerIndexModelProfilesError,
-  AnkoleWebAgentControllerIndexModelProfilesResponse,
-  AnkoleWebAgentControllerPutModelProfileData,
-  AnkoleWebAgentControllerPutModelProfileError,
-  AnkoleWebAgentControllerPutModelProfileResponse,
-  AnkoleWebAgentControllerPutProviderHostedData,
-  AnkoleWebAgentControllerPutProviderHostedError,
-  AnkoleWebAgentControllerPutProviderHostedResponse,
-  AnkoleWebAgentControllerPutTokenQuotaData,
-  AnkoleWebAgentControllerPutTokenQuotaError,
-  AnkoleWebAgentControllerPutTokenQuotaResponse,
-  AnkoleWebAgentControllerResetTokenQuotaData,
-  AnkoleWebAgentControllerResetTokenQuotaError,
-  AnkoleWebAgentControllerResetTokenQuotaResponse,
-  AnkoleWebAgentControllerShowTokenQuotaData,
-  AnkoleWebAgentControllerShowTokenQuotaError,
-  AnkoleWebAgentControllerShowTokenQuotaResponse,
   AnkoleWebAgentFileControllerDeleteData,
   AnkoleWebAgentFileControllerDeleteError,
   AnkoleWebAgentFileControllerDeleteResponse,
@@ -199,36 +157,6 @@ import type {
   AnkoleWebAiGatewayFilesControllerShowData,
   AnkoleWebAiGatewayFilesControllerShowError,
   AnkoleWebAiGatewayFilesControllerShowResponse,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialData,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialError,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponse,
-  AnkoleWebAiGatewayProviderControllerAddCredentialData,
-  AnkoleWebAiGatewayProviderControllerAddCredentialError,
-  AnkoleWebAiGatewayProviderControllerAddCredentialResponse,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginError,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponse,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialData,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialError,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialResponse,
-  AnkoleWebAiGatewayProviderControllerModelsData,
-  AnkoleWebAiGatewayProviderControllerModelsError,
-  AnkoleWebAiGatewayProviderControllerModelsResponse,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginData,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginError,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponse,
-  AnkoleWebAiGatewayProviderControllerProviderKindsData,
-  AnkoleWebAiGatewayProviderControllerProviderKindsError,
-  AnkoleWebAiGatewayProviderControllerProviderKindsResponse,
-  AnkoleWebAiGatewayProviderControllerPutCredentialData,
-  AnkoleWebAiGatewayProviderControllerPutCredentialError,
-  AnkoleWebAiGatewayProviderControllerPutCredentialResponse,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyError,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponse,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginData,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginError,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponse,
   AnkoleWebAuthControllerDeleteSessionData,
   AnkoleWebAuthControllerDeleteSessionResponse,
   AnkoleWebBackgroundAgentJobControllerHealthData,
@@ -434,33 +362,6 @@ export const ankoleWebIdentityProviderControllerIndexOptions = (
     queryKey: ankoleWebIdentityProviderControllerIndexQueryKey(options)
   })
 
-/**
- * Start a ChatGPT device or browser-paste login
- */
-export const ankoleWebAiGatewayProviderControllerStartChatgptLoginMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerStartChatgptLoginData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponse,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginError,
-  Options<AnkoleWebAiGatewayProviderControllerStartChatgptLoginData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponse,
-    AnkoleWebAiGatewayProviderControllerStartChatgptLoginError,
-    Options<AnkoleWebAiGatewayProviderControllerStartChatgptLoginData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayProviderControllerStartChatgptLogin({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
 export const backgroundActivityWorkflowQueryKey = (options: Options<BackgroundActivityWorkflowData>) =>
   createQueryKey('backgroundActivityWorkflow', options)
 
@@ -596,60 +497,6 @@ export const ankoleWebPrincipalControllerCreateLocalPasswordResetMutation = (
 }
 
 /**
- * Start a new token quota period at this instant
- */
-export const ankoleWebAgentControllerResetTokenQuotaMutation = (
-  options?: Partial<Options<AnkoleWebAgentControllerResetTokenQuotaData>>
-): UseMutationOptions<
-  AnkoleWebAgentControllerResetTokenQuotaResponse,
-  AnkoleWebAgentControllerResetTokenQuotaError,
-  Options<AnkoleWebAgentControllerResetTokenQuotaData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentControllerResetTokenQuotaResponse,
-    AnkoleWebAgentControllerResetTokenQuotaError,
-    Options<AnkoleWebAgentControllerResetTokenQuotaData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentControllerResetTokenQuota({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Add one credential-pool member
- */
-export const ankoleWebAiGatewayProviderControllerAddCredentialMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerAddCredentialData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayProviderControllerAddCredentialResponse,
-  AnkoleWebAiGatewayProviderControllerAddCredentialError,
-  Options<AnkoleWebAiGatewayProviderControllerAddCredentialData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayProviderControllerAddCredentialResponse,
-    AnkoleWebAiGatewayProviderControllerAddCredentialError,
-    Options<AnkoleWebAiGatewayProviderControllerAddCredentialData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayProviderControllerAddCredential({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
  * Set or clear one Agent Plugin override
  */
 export const ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideMutation = (
@@ -693,33 +540,6 @@ export const ankoleWebDirectoryAccessControllerApproveMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebDirectoryAccessControllerApprove({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Set the provider credential-pool selection strategy
- */
-export const ankoleWebAiGatewayProviderControllerPutCredentialStrategyMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponse,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyError,
-  Options<AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponse,
-    AnkoleWebAiGatewayProviderControllerPutCredentialStrategyError,
-    Options<AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayProviderControllerPutCredentialStrategy({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1164,114 +984,6 @@ export const ankoleWebIdentityProviderControllerPutProviderMutation = (
   return mutationOptions
 }
 
-/**
- * Delete one credential-pool member
- */
-export const ankoleWebAiGatewayProviderControllerDeleteCredentialMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerDeleteCredentialData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialResponse,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialError,
-  Options<AnkoleWebAiGatewayProviderControllerDeleteCredentialData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayProviderControllerDeleteCredentialResponse,
-    AnkoleWebAiGatewayProviderControllerDeleteCredentialError,
-    Options<AnkoleWebAiGatewayProviderControllerDeleteCredentialData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayProviderControllerDeleteCredential({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Update one credential-pool member
- */
-export const ankoleWebAiGatewayProviderControllerPutCredentialMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerPutCredentialData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayProviderControllerPutCredentialResponse,
-  AnkoleWebAiGatewayProviderControllerPutCredentialError,
-  Options<AnkoleWebAiGatewayProviderControllerPutCredentialData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayProviderControllerPutCredentialResponse,
-    AnkoleWebAiGatewayProviderControllerPutCredentialError,
-    Options<AnkoleWebAiGatewayProviderControllerPutCredentialData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayProviderControllerPutCredential({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Clear one optional model profile for an agent
- */
-export const ankoleWebAgentControllerDeleteModelProfileMutation = (
-  options?: Partial<Options<AnkoleWebAgentControllerDeleteModelProfileData>>
-): UseMutationOptions<
-  AnkoleWebAgentControllerDeleteModelProfileResponse,
-  AnkoleWebAgentControllerDeleteModelProfileError,
-  Options<AnkoleWebAgentControllerDeleteModelProfileData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentControllerDeleteModelProfileResponse,
-    AnkoleWebAgentControllerDeleteModelProfileError,
-    Options<AnkoleWebAgentControllerDeleteModelProfileData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentControllerDeleteModelProfile({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Create or update one model profile for an agent
- */
-export const ankoleWebAgentControllerPutModelProfileMutation = (
-  options?: Partial<Options<AnkoleWebAgentControllerPutModelProfileData>>
-): UseMutationOptions<
-  AnkoleWebAgentControllerPutModelProfileResponse,
-  AnkoleWebAgentControllerPutModelProfileError,
-  Options<AnkoleWebAgentControllerPutModelProfileData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentControllerPutModelProfileResponse,
-    AnkoleWebAgentControllerPutModelProfileError,
-    Options<AnkoleWebAgentControllerPutModelProfileData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentControllerPutModelProfile({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
 export const ankoleWebIdentityProviderControllerAdaptersQueryKey = (
   options?: Options<AnkoleWebIdentityProviderControllerAdaptersData>
 ) => createQueryKey('ankoleWebIdentityProviderControllerAdapters', options)
@@ -1612,34 +1324,6 @@ export const ankoleWebHumanAccessControllerClassifyWorkMutation = (
   return mutationOptions
 }
 
-export const ankoleWebAgentControllerIndexModelProfilesQueryKey = (
-  options: Options<AnkoleWebAgentControllerIndexModelProfilesData>
-) => createQueryKey('ankoleWebAgentControllerIndexModelProfiles', options)
-
-/**
- * Read all model profiles for one agent
- */
-export const ankoleWebAgentControllerIndexModelProfilesOptions = (
-  options: Options<AnkoleWebAgentControllerIndexModelProfilesData>
-) =>
-  queryOptions<
-    AnkoleWebAgentControllerIndexModelProfilesResponse,
-    AnkoleWebAgentControllerIndexModelProfilesError,
-    AnkoleWebAgentControllerIndexModelProfilesResponse,
-    ReturnType<typeof ankoleWebAgentControllerIndexModelProfilesQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAgentControllerIndexModelProfiles({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAgentControllerIndexModelProfilesQueryKey(options)
-  })
-
 export const ankoleWebSignalBindingControllerAdaptersQueryKey = (
   options?: Options<AnkoleWebSignalBindingControllerAdaptersData>
 ) => createQueryKey('ankoleWebSignalBindingControllerAdapters', options)
@@ -1667,33 +1351,6 @@ export const ankoleWebSignalBindingControllerAdaptersOptions = (
     },
     queryKey: ankoleWebSignalBindingControllerAdaptersQueryKey(options)
   })
-
-/**
- * Poll one ChatGPT device login once
- */
-export const ankoleWebAiGatewayProviderControllerPollChatgptLoginMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerPollChatgptLoginData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponse,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginError,
-  Options<AnkoleWebAiGatewayProviderControllerPollChatgptLoginData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponse,
-    AnkoleWebAiGatewayProviderControllerPollChatgptLoginError,
-    Options<AnkoleWebAiGatewayProviderControllerPollChatgptLoginData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayProviderControllerPollChatgptLogin({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
 
 export const ankoleWebSignalBindingControllerShowQueryKey = (
   options: Options<AnkoleWebSignalBindingControllerShowData>
@@ -1794,60 +1451,6 @@ export const ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideMutat
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverride({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Add a ChatGPT enterprise access token
- */
-export const ankoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponse,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialError,
-  Options<AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponse,
-    AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialError,
-    Options<AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredential({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Complete a ChatGPT browser-paste login
- */
-export const ankoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginMutation = (
-  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData>>
-): UseMutationOptions<
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponse,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginError,
-  Options<AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponse,
-    AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginError,
-    Options<AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAiGatewayProviderControllerCompleteChatgptBrowserLogin({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -2169,34 +1772,6 @@ export const oidcLoginSourcesOptions = (options?: Options<OidcLoginSourcesData>)
     queryKey: oidcLoginSourcesQueryKey(options)
   })
 
-export const ankoleWebAiGatewayProviderControllerModelsQueryKey = (
-  options?: Options<AnkoleWebAiGatewayProviderControllerModelsData>
-) => createQueryKey('ankoleWebAiGatewayProviderControllerModels', options)
-
-/**
- * List the Console model catalog
- */
-export const ankoleWebAiGatewayProviderControllerModelsOptions = (
-  options?: Options<AnkoleWebAiGatewayProviderControllerModelsData>
-) =>
-  queryOptions<
-    AnkoleWebAiGatewayProviderControllerModelsResponse,
-    AnkoleWebAiGatewayProviderControllerModelsError,
-    AnkoleWebAiGatewayProviderControllerModelsResponse,
-    ReturnType<typeof ankoleWebAiGatewayProviderControllerModelsQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAiGatewayProviderControllerModels({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAiGatewayProviderControllerModelsQueryKey(options)
-  })
-
 /**
  * End authentication in the current browser
  */
@@ -2214,88 +1789,6 @@ export const ankoleWebAuthControllerDeleteSessionMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAuthControllerDeleteSession({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Remove the token quota of one agent, which leaves it without a limit
- */
-export const ankoleWebAgentControllerDeleteTokenQuotaMutation = (
-  options?: Partial<Options<AnkoleWebAgentControllerDeleteTokenQuotaData>>
-): UseMutationOptions<
-  AnkoleWebAgentControllerDeleteTokenQuotaResponse,
-  AnkoleWebAgentControllerDeleteTokenQuotaError,
-  Options<AnkoleWebAgentControllerDeleteTokenQuotaData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentControllerDeleteTokenQuotaResponse,
-    AnkoleWebAgentControllerDeleteTokenQuotaError,
-    Options<AnkoleWebAgentControllerDeleteTokenQuotaData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentControllerDeleteTokenQuota({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebAgentControllerShowTokenQuotaQueryKey = (
-  options: Options<AnkoleWebAgentControllerShowTokenQuotaData>
-) => createQueryKey('ankoleWebAgentControllerShowTokenQuota', options)
-
-/**
- * Read the token quota and the current window of one agent
- */
-export const ankoleWebAgentControllerShowTokenQuotaOptions = (
-  options: Options<AnkoleWebAgentControllerShowTokenQuotaData>
-) =>
-  queryOptions<
-    AnkoleWebAgentControllerShowTokenQuotaResponse,
-    AnkoleWebAgentControllerShowTokenQuotaError,
-    AnkoleWebAgentControllerShowTokenQuotaResponse,
-    ReturnType<typeof ankoleWebAgentControllerShowTokenQuotaQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAgentControllerShowTokenQuota({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAgentControllerShowTokenQuotaQueryKey(options)
-  })
-
-/**
- * Set the token quota of one agent
- */
-export const ankoleWebAgentControllerPutTokenQuotaMutation = (
-  options?: Partial<Options<AnkoleWebAgentControllerPutTokenQuotaData>>
-): UseMutationOptions<
-  AnkoleWebAgentControllerPutTokenQuotaResponse,
-  AnkoleWebAgentControllerPutTokenQuotaError,
-  Options<AnkoleWebAgentControllerPutTokenQuotaData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentControllerPutTokenQuotaResponse,
-    AnkoleWebAgentControllerPutTokenQuotaError,
-    Options<AnkoleWebAgentControllerPutTokenQuotaData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentControllerPutTokenQuota({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -2414,34 +1907,6 @@ export const ankoleWebHumanAccessControllerDisableMutation = (
   }
   return mutationOptions
 }
-
-export const ankoleWebAiGatewayProviderControllerProviderKindsQueryKey = (
-  options?: Options<AnkoleWebAiGatewayProviderControllerProviderKindsData>
-) => createQueryKey('ankoleWebAiGatewayProviderControllerProviderKinds', options)
-
-/**
- * List AIGateway provider kinds
- */
-export const ankoleWebAiGatewayProviderControllerProviderKindsOptions = (
-  options?: Options<AnkoleWebAiGatewayProviderControllerProviderKindsData>
-) =>
-  queryOptions<
-    AnkoleWebAiGatewayProviderControllerProviderKindsResponse,
-    AnkoleWebAiGatewayProviderControllerProviderKindsError,
-    AnkoleWebAiGatewayProviderControllerProviderKindsResponse,
-    ReturnType<typeof ankoleWebAiGatewayProviderControllerProviderKindsQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAiGatewayProviderControllerProviderKinds({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAiGatewayProviderControllerProviderKindsQueryKey(options)
-  })
 
 export const ankoleWebBrainControllerObjectTypesQueryKey = (
   options?: Options<AnkoleWebBrainControllerObjectTypesData>
@@ -2599,33 +2064,6 @@ export const ankoleWebAgentLibraryControllerUpdateMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAgentLibraryControllerUpdate({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Set which capabilities an agent leaves to its language-model provider
- */
-export const ankoleWebAgentControllerPutProviderHostedMutation = (
-  options?: Partial<Options<AnkoleWebAgentControllerPutProviderHostedData>>
-): UseMutationOptions<
-  AnkoleWebAgentControllerPutProviderHostedResponse,
-  AnkoleWebAgentControllerPutProviderHostedError,
-  Options<AnkoleWebAgentControllerPutProviderHostedData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentControllerPutProviderHostedResponse,
-    AnkoleWebAgentControllerPutProviderHostedError,
-    Options<AnkoleWebAgentControllerPutProviderHostedData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentControllerPutProviderHosted({
         ...options,
         ...fnOptions,
         throwOnError: true

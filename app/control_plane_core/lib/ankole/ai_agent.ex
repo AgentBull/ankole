@@ -37,6 +37,7 @@ defmodule Ankole.AIAgent do
     end
 
     resource(Ankole.AIAgent.Operations)
+    resource(Ankole.AIAgent.Console)
   end
 
   json_api do
@@ -45,6 +46,24 @@ defmodule Ankole.AIAgent do
     show_raised_errors?(false)
 
     routes do
+      base_route "/agents/:agent_uid", Ankole.AIAgent.Console do
+        route(:get, "/model-profiles", :model_profiles, name: "list_agent_model_profiles")
+
+        route(:put, "/model-profiles/:profile", :put_model_profile,
+          name: "put_agent_model_profile"
+        )
+
+        route(:delete, "/model-profiles/:profile", :delete_model_profile,
+          name: "delete_agent_model_profile"
+        )
+
+        route(:put, "/provider-hosted", :put_provider_hosted, name: "put_agent_provider_hosted")
+        route(:get, "/token-quota", :token_quota, name: "get_agent_token_quota")
+        route(:put, "/token-quota", :put_token_quota, name: "put_agent_token_quota")
+        route(:delete, "/token-quota", :delete_token_quota, name: "delete_agent_token_quota")
+        route(:post, "/token-quota/reset", :reset_token_quota, name: "reset_agent_token_quota")
+      end
+
       base_route "/agents/:agent_uid/skill-lessons",
                  Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
         index(:console_list, name: "list_agent_skill_lessons", derive_sort?: false)

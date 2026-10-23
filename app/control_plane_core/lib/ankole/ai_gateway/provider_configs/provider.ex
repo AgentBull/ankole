@@ -103,6 +103,35 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
   actions do
     defaults([:read])
 
+    action :console_add_credential, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :string, allow_nil?: false)
+      argument(:credential, :map, allow_nil?: false, sensitive?: true)
+      run(__MODULE__.Actions)
+    end
+
+    action :console_put_credential, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :string, allow_nil?: false)
+      argument(:credential_id, :string, allow_nil?: false)
+      argument(:credential, :map, allow_nil?: false, sensitive?: true)
+      run(__MODULE__.Actions)
+    end
+
+    action :console_delete_credential, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :string, allow_nil?: false)
+      argument(:credential_id, :string, allow_nil?: false)
+      run(__MODULE__.Actions)
+    end
+
+    action :console_credential_strategy, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :string, allow_nil?: false)
+      argument(:strategy, :string, allow_nil?: false)
+      run(__MODULE__.Actions)
+    end
+
     read :list do
       prepare(build(sort: [provider_id: :asc]))
     end

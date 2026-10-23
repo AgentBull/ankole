@@ -17,10 +17,10 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestErrorCode, requestErrorDetails, requestErrorMessage } from '../../common/request-errors'
 import {
-  ankoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginMutation as completeChatGPTBrowserLoginMutation,
-  ankoleWebAiGatewayProviderControllerPollChatgptLoginMutation as pollChatGPTLoginMutation,
-  ankoleWebAiGatewayProviderControllerStartChatgptLoginMutation as startChatGPTLoginMutation
-} from '../api/generated/@tanstack/react-query.gen'
+  completeChatgptBrowserLoginMutation as completeChatGPTBrowserLoginMutation,
+  pollChatgptLoginMutation as pollChatGPTLoginMutation,
+  startChatgptLoginMutation as startChatGPTLoginMutation
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { DiscardConfirmDialog, LabeledField, ReadOnlyValue, useDialogDiscardGuard } from '../console-form'
 import type { AIGatewayProviderItem, AIGatewayCredentialPoolEntry } from '../state/provider-settings'
 
@@ -127,7 +127,7 @@ export function ChatGPTLoginDialog({
     if (!open || mode !== 'device' || status === 'complete' || !loginContext || poll.isPending) return
     const timer = window.setTimeout(() => {
       poll.mutate({
-        body: { login_context: loginContext },
+        body: { data: { login_context: loginContext } },
         path: { provider_id: provider.provider_id }
       })
     }, retryAfter * 1_000)
@@ -145,9 +145,11 @@ export function ChatGPTLoginDialog({
     setValidationError(undefined)
     start.mutate({
       body: {
-        id: entry?.id,
-        label: label.trim() || entry?.label || undefined,
-        priority: Number.parseInt(priority, 10) || 0
+        data: {
+          id: entry?.id,
+          label: label.trim() || entry?.label || undefined,
+          priority: Number.parseInt(priority, 10) || 0
+        }
       },
       path: { provider_id: provider.provider_id }
     })
@@ -164,7 +166,7 @@ export function ChatGPTLoginDialog({
     if (!loginContext) return
     setValidationError(undefined)
     complete.mutate({
-      body: { login_context: loginContext, callback_url: callbackURL.trim() },
+      body: { data: { login_context: loginContext, callback_url: callbackURL.trim() } },
       path: { provider_id: provider.provider_id }
     })
   }

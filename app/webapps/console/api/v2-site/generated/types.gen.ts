@@ -86,6 +86,26 @@ export type AiGatewayProvider = {
 }
 
 /**
+ * A "Resource object" representing a chatgpt_login
+ */
+export type ChatgptLogin = {
+  /**
+   * An attributes object for a chatgpt_login
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a chatgpt_login
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a control_plane_plugin_console
  */
 export type ControlPlanePluginConsole = {
@@ -304,6 +324,85 @@ export type WorkerProviderOperation = {
   type: string
 }
 
+export type ListAiGatewayModelsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/site/ai-gateway/models'
+}
+
+export type ListAiGatewayModelsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAiGatewayModelsError = ListAiGatewayModelsErrors[keyof ListAiGatewayModelsErrors]
+
+export type ListAiGatewayModelsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    models: Array<{
+      capability: string
+      description: string
+      image_input: boolean
+      model: string
+      name: string
+      provider_id: string
+    }>
+  }
+}
+
+export type ListAiGatewayModelsResponse = ListAiGatewayModelsResponses[keyof ListAiGatewayModelsResponses]
+
+export type ListAiGatewayProviderKindsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/site/ai-gateway/provider-kinds'
+}
+
+export type ListAiGatewayProviderKindsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAiGatewayProviderKindsError = ListAiGatewayProviderKindsErrors[keyof ListAiGatewayProviderKindsErrors]
+
+export type ListAiGatewayProviderKindsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    provider_kinds: Array<{
+      capabilities: Array<string>
+      default_base_url?: string | null
+      label: {
+        [key: string]: unknown
+      }
+      provider_kind: string
+      settings: Array<{
+        advanced: boolean
+        default?: unknown | null
+        encrypted: boolean
+        key: string
+        options: Array<string>
+        required: boolean
+        scope: 'connection' | 'credential' | 'request'
+        type: 'boolean' | 'float' | 'integer' | 'map' | 'select' | 'string'
+      }>
+    }>
+  }
+}
+
+export type ListAiGatewayProviderKindsResponse =
+  ListAiGatewayProviderKindsResponses[keyof ListAiGatewayProviderKindsResponses]
+
 export type ListAiGatewayProvidersData = {
   body?: never
   path?: never
@@ -509,6 +608,440 @@ export type PutAiGatewayProviderResponses = {
 }
 
 export type PutAiGatewayProviderResponse = PutAiGatewayProviderResponses[keyof PutAiGatewayProviderResponses]
+
+export type AddChatgptEnterpriseCredentialData = {
+  /**
+   * Request body for the add_chatgpt_enterprise_credential operation on chatgpt_login resource
+   */
+  body: {
+    data: {
+      credential: {
+        [key: string]: unknown
+      }
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-enterprise-credentials'
+}
+
+export type AddChatgptEnterpriseCredentialErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type AddChatgptEnterpriseCredentialError =
+  AddChatgptEnterpriseCredentialErrors[keyof AddChatgptEnterpriseCredentialErrors]
+
+export type AddChatgptEnterpriseCredentialResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ai_gateway_provider: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type AddChatgptEnterpriseCredentialResponse =
+  AddChatgptEnterpriseCredentialResponses[keyof AddChatgptEnterpriseCredentialResponses]
+
+export type StartChatgptLoginData = {
+  /**
+   * Request body for the start_chatgpt_login operation on chatgpt_login resource
+   */
+  body?: {
+    data: {
+      id?: string | null
+      label?: string | null
+      priority?: number | null
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-login'
+}
+
+export type StartChatgptLoginErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type StartChatgptLoginError = StartChatgptLoginErrors[keyof StartChatgptLoginErrors]
+
+export type StartChatgptLoginResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ai_gateway_provider?: {
+      [key: string]: unknown
+    } | null
+    authorization_url?: string | null
+    expires_at?: string | null
+    interval?: number | null
+    login_context?: {
+      [key: string]: unknown
+    } | null
+    mode?: string | null
+    redirect_uri?: string | null
+    retry_after?: number | null
+    status?: string | null
+    user_code?: string | null
+    verification_url?: string | null
+  }
+}
+
+export type StartChatgptLoginResponse = StartChatgptLoginResponses[keyof StartChatgptLoginResponses]
+
+export type CompleteChatgptBrowserLoginData = {
+  /**
+   * Request body for the complete_chatgpt_browser_login operation on chatgpt_login resource
+   */
+  body: {
+    data: {
+      callback_url: string
+      login_context: {
+        [key: string]: unknown
+      }
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-login/browser-callback'
+}
+
+export type CompleteChatgptBrowserLoginErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CompleteChatgptBrowserLoginError =
+  CompleteChatgptBrowserLoginErrors[keyof CompleteChatgptBrowserLoginErrors]
+
+export type CompleteChatgptBrowserLoginResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ai_gateway_provider?: {
+      [key: string]: unknown
+    } | null
+    authorization_url?: string | null
+    expires_at?: string | null
+    interval?: number | null
+    login_context?: {
+      [key: string]: unknown
+    } | null
+    mode?: string | null
+    redirect_uri?: string | null
+    retry_after?: number | null
+    status?: string | null
+    user_code?: string | null
+    verification_url?: string | null
+  }
+}
+
+export type CompleteChatgptBrowserLoginResponse =
+  CompleteChatgptBrowserLoginResponses[keyof CompleteChatgptBrowserLoginResponses]
+
+export type PollChatgptLoginData = {
+  /**
+   * Request body for the poll_chatgpt_login operation on chatgpt_login resource
+   */
+  body: {
+    data: {
+      login_context: {
+        [key: string]: unknown
+      }
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-login/poll'
+}
+
+export type PollChatgptLoginErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PollChatgptLoginError = PollChatgptLoginErrors[keyof PollChatgptLoginErrors]
+
+export type PollChatgptLoginResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ai_gateway_provider?: {
+      [key: string]: unknown
+    } | null
+    authorization_url?: string | null
+    expires_at?: string | null
+    interval?: number | null
+    login_context?: {
+      [key: string]: unknown
+    } | null
+    mode?: string | null
+    redirect_uri?: string | null
+    retry_after?: number | null
+    status?: string | null
+    user_code?: string | null
+    verification_url?: string | null
+  }
+}
+
+export type PollChatgptLoginResponse = PollChatgptLoginResponses[keyof PollChatgptLoginResponses]
+
+export type PutAiGatewayCredentialStrategyData = {
+  /**
+   * Request body for the put_ai_gateway_credential_strategy operation on ai_gateway_provider resource
+   */
+  body: {
+    data: {
+      attributes?: {
+        strategy: string
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'ai_gateway_provider'
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_provider
+       */
+      ai_gateway_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/credential-pool/strategy'
+}
+
+export type PutAiGatewayCredentialStrategyErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutAiGatewayCredentialStrategyError =
+  PutAiGatewayCredentialStrategyErrors[keyof PutAiGatewayCredentialStrategyErrors]
+
+export type PutAiGatewayCredentialStrategyResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: AiGatewayProvider
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type PutAiGatewayCredentialStrategyResponse =
+  PutAiGatewayCredentialStrategyResponses[keyof PutAiGatewayCredentialStrategyResponses]
+
+export type AddAiGatewayCredentialData = {
+  /**
+   * Request body for the add_ai_gateway_credential operation on ai_gateway_provider resource
+   */
+  body: {
+    data: {
+      attributes?: {
+        credential: {
+          [key: string]: unknown
+        }
+      }
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'ai_gateway_provider'
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_provider
+       */
+      ai_gateway_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/credentials'
+}
+
+export type AddAiGatewayCredentialErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type AddAiGatewayCredentialError = AddAiGatewayCredentialErrors[keyof AddAiGatewayCredentialErrors]
+
+export type AddAiGatewayCredentialResponses = {
+  /**
+   * Success
+   */
+  201: {
+    data?: AiGatewayProvider
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type AddAiGatewayCredentialResponse = AddAiGatewayCredentialResponses[keyof AddAiGatewayCredentialResponses]
+
+export type DeleteAiGatewayCredentialData = {
+  body?: never
+  path: {
+    credential_id: string
+    provider_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_provider
+       */
+      ai_gateway_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}'
+}
+
+export type DeleteAiGatewayCredentialErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteAiGatewayCredentialError = DeleteAiGatewayCredentialErrors[keyof DeleteAiGatewayCredentialErrors]
+
+export type DeleteAiGatewayCredentialResponses = {
+  /**
+   * Deleted successfully
+   */
+  200: unknown
+}
+
+export type PutAiGatewayCredentialData = {
+  /**
+   * Request body for the put_ai_gateway_credential operation on ai_gateway_provider resource
+   */
+  body: {
+    data: {
+      attributes?: {
+        credential: {
+          [key: string]: unknown
+        }
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'ai_gateway_provider'
+    }
+  }
+  path: {
+    credential_id: string
+    provider_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_provider
+       */
+      ai_gateway_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}'
+}
+
+export type PutAiGatewayCredentialErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutAiGatewayCredentialError = PutAiGatewayCredentialErrors[keyof PutAiGatewayCredentialErrors]
+
+export type PutAiGatewayCredentialResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: AiGatewayProvider
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type PutAiGatewayCredentialResponse = PutAiGatewayCredentialResponses[keyof PutAiGatewayCredentialResponses]
 
 export type EnableAiGatewayProviderData = {
   /**

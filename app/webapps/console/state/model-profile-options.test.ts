@@ -1,8 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type {
-  AiGatewayModelCatalogEntry as AIGatewayModelCatalogEntry,
-  AiGatewayProviderKindItem as AIGatewayProviderKindItem
-} from '../api/generated/types.gen'
+import type { AIGatewayModelCatalogEntry, AIGatewayProviderKindItem } from './provider-settings'
 import {
   modelOptionsForProfile,
   modelProfileRequestFields,

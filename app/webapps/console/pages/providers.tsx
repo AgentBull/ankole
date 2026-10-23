@@ -23,8 +23,8 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { localizedText } from '../../common/config-fields'
 import i18n from '../../common/i18n'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
-import { ankoleWebAiGatewayProviderControllerProviderKindsOptions as providerKindsOptions } from '../api/generated/@tanstack/react-query.gen'
-import type { AiGatewayProviderKindItem as AIGatewayProviderKindItem } from '../api/generated/types.gen'
+import { listAiGatewayProviderKindsOptions as providerKindsOptions } from '../api/v2-site/generated/@tanstack/react-query.gen'
+import type { AIGatewayProviderKindItem } from '../state/provider-settings'
 import {
   deleteAiGatewayProviderMutation as deleteProviderMutation,
   enableAiGatewayProviderMutation as enableProviderMutation,

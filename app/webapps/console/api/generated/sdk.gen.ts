@@ -10,30 +10,6 @@ import {
 } from './client'
 import { client } from './client.gen'
 import type {
-  AnkoleWebAgentControllerDeleteModelProfileData,
-  AnkoleWebAgentControllerDeleteModelProfileErrors,
-  AnkoleWebAgentControllerDeleteModelProfileResponses,
-  AnkoleWebAgentControllerDeleteTokenQuotaData,
-  AnkoleWebAgentControllerDeleteTokenQuotaErrors,
-  AnkoleWebAgentControllerDeleteTokenQuotaResponses,
-  AnkoleWebAgentControllerIndexModelProfilesData,
-  AnkoleWebAgentControllerIndexModelProfilesErrors,
-  AnkoleWebAgentControllerIndexModelProfilesResponses,
-  AnkoleWebAgentControllerPutModelProfileData,
-  AnkoleWebAgentControllerPutModelProfileErrors,
-  AnkoleWebAgentControllerPutModelProfileResponses,
-  AnkoleWebAgentControllerPutProviderHostedData,
-  AnkoleWebAgentControllerPutProviderHostedErrors,
-  AnkoleWebAgentControllerPutProviderHostedResponses,
-  AnkoleWebAgentControllerPutTokenQuotaData,
-  AnkoleWebAgentControllerPutTokenQuotaErrors,
-  AnkoleWebAgentControllerPutTokenQuotaResponses,
-  AnkoleWebAgentControllerResetTokenQuotaData,
-  AnkoleWebAgentControllerResetTokenQuotaErrors,
-  AnkoleWebAgentControllerResetTokenQuotaResponses,
-  AnkoleWebAgentControllerShowTokenQuotaData,
-  AnkoleWebAgentControllerShowTokenQuotaErrors,
-  AnkoleWebAgentControllerShowTokenQuotaResponses,
   AnkoleWebAgentFileControllerDeleteData,
   AnkoleWebAgentFileControllerDeleteErrors,
   AnkoleWebAgentFileControllerDeleteResponses,
@@ -112,36 +88,6 @@ import type {
   AnkoleWebAiGatewayFilesControllerShowData,
   AnkoleWebAiGatewayFilesControllerShowErrors,
   AnkoleWebAiGatewayFilesControllerShowResponses,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialData,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerAddCredentialData,
-  AnkoleWebAiGatewayProviderControllerAddCredentialErrors,
-  AnkoleWebAiGatewayProviderControllerAddCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialData,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerModelsData,
-  AnkoleWebAiGatewayProviderControllerModelsErrors,
-  AnkoleWebAiGatewayProviderControllerModelsResponses,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginData,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses,
-  AnkoleWebAiGatewayProviderControllerProviderKindsData,
-  AnkoleWebAiGatewayProviderControllerProviderKindsErrors,
-  AnkoleWebAiGatewayProviderControllerProviderKindsResponses,
-  AnkoleWebAiGatewayProviderControllerPutCredentialData,
-  AnkoleWebAiGatewayProviderControllerPutCredentialErrors,
-  AnkoleWebAiGatewayProviderControllerPutCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginData,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses,
   AnkoleWebAuthControllerDeleteSessionData,
   AnkoleWebAuthControllerDeleteSessionResponses,
   AnkoleWebBackgroundAgentJobControllerHealthData,
@@ -311,30 +257,6 @@ export const ankoleWebIdentityProviderControllerIndex = <ThrowOnError extends bo
   })
 
 /**
- * Start a ChatGPT device or browser-paste login
- */
-export const ankoleWebAiGatewayProviderControllerStartChatgptLogin = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerStartChatgptLoginData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses,
-    AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-login',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Read live Workflow calls and runs awaiting execution or terminal cleanup
  */
 export const backgroundActivityWorkflow = <ThrowOnError extends boolean = false>(
@@ -431,50 +353,6 @@ export const ankoleWebPrincipalControllerCreateLocalPasswordReset = <ThrowOnErro
   })
 
 /**
- * Start a new token quota period at this instant
- */
-export const ankoleWebAgentControllerResetTokenQuota = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerResetTokenQuotaData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerResetTokenQuotaResponses,
-  AnkoleWebAgentControllerResetTokenQuotaErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAgentControllerResetTokenQuotaResponses,
-    AnkoleWebAgentControllerResetTokenQuotaErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/token-quota/reset',
-    ...options
-  })
-
-/**
- * Add one credential-pool member
- */
-export const ankoleWebAiGatewayProviderControllerAddCredential = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerAddCredentialData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerAddCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerAddCredentialErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerAddCredentialResponses,
-    AnkoleWebAiGatewayProviderControllerAddCredentialErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/credentials',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Set or clear one Agent Plugin override
  */
 export const ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverride = <ThrowOnError extends boolean = false>(
@@ -507,30 +385,6 @@ export const ankoleWebDirectoryAccessControllerApprove = <ThrowOnError extends b
   (options.client ?? client).post<AnkoleWebDirectoryAccessControllerApproveResponses, unknown, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/identity-providers/{provider_id}/directory-reviews',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Set the provider credential-pool selection strategy
- */
-export const ankoleWebAiGatewayProviderControllerPutCredentialStrategy = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses,
-    AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/credential-pool/strategy',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -808,94 +662,6 @@ export const ankoleWebIdentityProviderControllerPutProvider = <ThrowOnError exte
   })
 
 /**
- * Delete one credential-pool member
- */
-export const ankoleWebAiGatewayProviderControllerDeleteCredential = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerDeleteCredentialData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses,
-    AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}',
-    ...options
-  })
-
-/**
- * Update one credential-pool member
- */
-export const ankoleWebAiGatewayProviderControllerPutCredential = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerPutCredentialData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerPutCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerPutCredentialErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAiGatewayProviderControllerPutCredentialResponses,
-    AnkoleWebAiGatewayProviderControllerPutCredentialErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Clear one optional model profile for an agent
- */
-export const ankoleWebAgentControllerDeleteModelProfile = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerDeleteModelProfileData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerDeleteModelProfileResponses,
-  AnkoleWebAgentControllerDeleteModelProfileErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAgentControllerDeleteModelProfileResponses,
-    AnkoleWebAgentControllerDeleteModelProfileErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/model-profiles/{profile}',
-    ...options
-  })
-
-/**
- * Create or update one model profile for an agent
- */
-export const ankoleWebAgentControllerPutModelProfile = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerPutModelProfileData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerPutModelProfileResponses,
-  AnkoleWebAgentControllerPutModelProfileErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAgentControllerPutModelProfileResponses,
-    AnkoleWebAgentControllerPutModelProfileErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/model-profiles/{profile}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * List identity-provider adapters
  */
 export const ankoleWebIdentityProviderControllerAdapters = <ThrowOnError extends boolean = false>(
@@ -1100,26 +866,6 @@ export const ankoleWebHumanAccessControllerClassifyWork = <ThrowOnError extends 
   })
 
 /**
- * Read all model profiles for one agent
- */
-export const ankoleWebAgentControllerIndexModelProfiles = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerIndexModelProfilesData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerIndexModelProfilesResponses,
-  AnkoleWebAgentControllerIndexModelProfilesErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAgentControllerIndexModelProfilesResponses,
-    AnkoleWebAgentControllerIndexModelProfilesErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/model-profiles',
-    ...options
-  })
-
-/**
  * List signal adapters available for bindings
  */
 export const ankoleWebSignalBindingControllerAdapters = <ThrowOnError extends boolean = false>(
@@ -1137,30 +883,6 @@ export const ankoleWebSignalBindingControllerAdapters = <ThrowOnError extends bo
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/signal-adapters',
     ...options
-  })
-
-/**
- * Poll one ChatGPT device login once
- */
-export const ankoleWebAiGatewayProviderControllerPollChatgptLogin = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerPollChatgptLoginData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses,
-    AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-login/poll',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -1248,56 +970,6 @@ export const ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverride = <T
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/agents/{agent_uid}/library-capabilities/skills/{id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Add a ChatGPT enterprise access token
- */
-export const ankoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredential = <
-  ThrowOnError extends boolean = false
->(
-  options: Options<AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses,
-    AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-enterprise-credentials',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Complete a ChatGPT browser-paste login
- */
-export const ankoleWebAiGatewayProviderControllerCompleteChatgptBrowserLogin = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses,
-    AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-login/browser-callback',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -1475,26 +1147,6 @@ export const oidcLoginSources = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * List the Console model catalog
- */
-export const ankoleWebAiGatewayProviderControllerModels = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAiGatewayProviderControllerModelsData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerModelsResponses,
-  AnkoleWebAiGatewayProviderControllerModelsErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAiGatewayProviderControllerModelsResponses,
-    AnkoleWebAiGatewayProviderControllerModelsErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/models',
-    ...options
-  })
-
-/**
  * End authentication in the current browser
  */
 export const ankoleWebAuthControllerDeleteSession = <ThrowOnError extends boolean = false>(
@@ -1503,70 +1155,6 @@ export const ankoleWebAuthControllerDeleteSession = <ThrowOnError extends boolea
   (options?.client ?? client).delete<AnkoleWebAuthControllerDeleteSessionResponses, unknown, ThrowOnError>({
     url: '/.internal-apis/session',
     ...options
-  })
-
-/**
- * Remove the token quota of one agent, which leaves it without a limit
- */
-export const ankoleWebAgentControllerDeleteTokenQuota = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerDeleteTokenQuotaData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerDeleteTokenQuotaResponses,
-  AnkoleWebAgentControllerDeleteTokenQuotaErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAgentControllerDeleteTokenQuotaResponses,
-    AnkoleWebAgentControllerDeleteTokenQuotaErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/token-quota',
-    ...options
-  })
-
-/**
- * Read the token quota and the current window of one agent
- */
-export const ankoleWebAgentControllerShowTokenQuota = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerShowTokenQuotaData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerShowTokenQuotaResponses,
-  AnkoleWebAgentControllerShowTokenQuotaErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAgentControllerShowTokenQuotaResponses,
-    AnkoleWebAgentControllerShowTokenQuotaErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/token-quota',
-    ...options
-  })
-
-/**
- * Set the token quota of one agent
- */
-export const ankoleWebAgentControllerPutTokenQuota = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerPutTokenQuotaData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerPutTokenQuotaResponses,
-  AnkoleWebAgentControllerPutTokenQuotaErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAgentControllerPutTokenQuotaResponses,
-    AnkoleWebAgentControllerPutTokenQuotaErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/token-quota',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -1655,26 +1243,6 @@ export const ankoleWebHumanAccessControllerDisable = <ThrowOnError extends boole
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * List AIGateway provider kinds
- */
-export const ankoleWebAiGatewayProviderControllerProviderKinds = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAiGatewayProviderControllerProviderKindsData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerProviderKindsResponses,
-  AnkoleWebAiGatewayProviderControllerProviderKindsErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAiGatewayProviderControllerProviderKindsResponses,
-    AnkoleWebAiGatewayProviderControllerProviderKindsErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/provider-kinds',
-    ...options
   })
 
 /**
@@ -1774,30 +1342,6 @@ export const ankoleWebAgentLibraryControllerUpdate = <ThrowOnError extends boole
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/agents/{agent_uid}/library-documents/{document_kind}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Set which capabilities an agent leaves to its language-model provider
- */
-export const ankoleWebAgentControllerPutProviderHosted = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerPutProviderHostedData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerPutProviderHostedResponses,
-  AnkoleWebAgentControllerPutProviderHostedErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAgentControllerPutProviderHostedResponses,
-    AnkoleWebAgentControllerPutProviderHostedErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/provider-hosted',
     ...options,
     headers: {
       'Content-Type': 'application/json',

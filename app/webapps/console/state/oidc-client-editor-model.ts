@@ -1,5 +1,5 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
-import type { ModelProfileWriteRequest } from '../api/generated/types.gen'
+import type { ModelProfileWriteRequest } from './model-profiles-model'
 import type { CreateOidcClientData } from '../api/v2/generated/types.gen'
 import type { ProfileDraft } from './model-profiles-model'
 export const supportedScopes = ['openid', 'profile', 'email', 'offline_access', 'ai_gateway.write'] as const

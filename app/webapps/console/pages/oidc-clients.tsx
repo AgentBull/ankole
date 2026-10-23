@@ -51,11 +51,11 @@ import { useIsMutating, useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { ankoleWebOidcClientControllerRotateSecretMutation } from '../api/generated/@tanstack/react-query.gen'
 import {
-  ankoleWebAiGatewayProviderControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
-  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
-  ankoleWebOidcClientControllerRotateSecretMutation
-} from '../api/generated/@tanstack/react-query.gen'
+  listAiGatewayModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
+  listAiGatewayProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { fromDocument } from '../api/json-api'
 import {
   createOidcClientMutation,
@@ -66,10 +66,8 @@ import {
   updateOidcClientMutation
 } from '../api/v2/generated/@tanstack/react-query.gen'
 import type { PrincipalGroupRecord } from './principal-groups'
-import type {
-  AiGatewayProviderKindItem as AIGatewayProviderKindItem,
-  ModelProfileWriteRequest
-} from '../api/generated/types.gen'
+import type { AIGatewayProviderKindItem } from '../state/provider-settings'
+import type { ModelProfileWriteRequest } from '../state/model-profiles-model'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { ConfirmDeleteButton, EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
