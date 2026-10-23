@@ -14,7 +14,9 @@ interface ResourceObject {
 }
 
 /** The flat Console record of a JSON:API resource object type. */
-export type Flat<R> = R extends { id: infer Id; attributes?: infer Attributes } ? { id: Id } & NonNullable<Attributes> : never
+export type Flat<R> = R extends { id: infer Id; attributes?: infer Attributes }
+  ? { id: Id } & NonNullable<Attributes>
+  : never
 
 /** Changes a resource object to `{ id, ...attributes }`. */
 function fromResource<R extends ResourceObject>(resource: R): Flat<R> {
