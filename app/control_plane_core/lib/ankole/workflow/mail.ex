@@ -139,13 +139,18 @@ defmodule Ankole.Workflow.Mail do
   defp defer_signal(%Signal{} = signal, available_at),
     do: Ankole.Ash.update(signal, :defer, %{available_at: available_at})
 
-  def append_dispatch_event(repo, run, call, inserted_at) do
+  @doc "Appends the dispatch Signals of new task calls in the caller's transaction."
+  def append_dispatch_events(repo, run, calls, inserted_at) do
+    Ankole.Signals.accept_all_in_tx(repo, Enum.map(calls, &dispatch_event(run, &1, inserted_at)))
+  end
+
+  defp dispatch_event(run, call, inserted_at) do
     source_event_id = "workflow:call:#{call.id}:dispatch"
     reply_route = run.reply_route || %{}
     arguments = call.arguments
     binding_name = Map.get(reply_route, "binding_name")
 
-    Ankole.Signals.accept_in_tx(repo, %{
+    %{
       producer: :kernel,
       source: "control-plane://workflow",
       id: source_event_id,
@@ -175,7 +180,7 @@ defmodule Ankole.Workflow.Mail do
         "schema" => Map.get(arguments, "schema", %{"type" => "string"}),
         "attempts" => call.attempts
       }
-    })
+    }
   end
 
   def append_wakeup_event(repo, %Run{status: status} = run, completed_at)

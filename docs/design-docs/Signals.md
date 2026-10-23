@@ -61,6 +61,12 @@ returns the first Signal, including its first target and facts. Changing a
 subscription does not move an accepted event to another Session. Several rules
 that match the same event for the same Agent also return that one Signal.
 
+`accept_all/1` and `accept_all_in_tx/2` accept a list of stimuli in one
+transaction. The intake locks all target Sessions in order with one statement,
+reads the existing Signals with one query, and inserts the new Signals with one
+bulk insert. The sequence read and the wakeup job stay one for each Session. A
+rejected stimulus rejects the full list.
+
 In the same transaction, intake records a durable
 `Ankole.Sessions.Jobs.EnsureDriver` job. It does not start a Driver inside that
 transaction. `accept/1` can wake the Session immediately after a real commit;
