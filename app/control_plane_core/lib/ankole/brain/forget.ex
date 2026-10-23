@@ -25,8 +25,7 @@ defmodule Ankole.Brain.Forget do
   """
   @spec forget_claim(Ecto.UUID.t(), String.t(), caller()) :: {:ok, Claim.t()} | {:error, term()}
   def forget_claim(claim_id, reason, caller) when is_binary(reason) do
-    with :ok <- validate_reason(reason),
-         {:ok, claim_id} <- cast_claim_id(claim_id) do
+    with {:ok, claim_id} <- cast_claim_id(claim_id) do
       Ankole.Ash.run_action(Claim, :forget_claim, %{
         claim_id: claim_id,
         reason: reason,

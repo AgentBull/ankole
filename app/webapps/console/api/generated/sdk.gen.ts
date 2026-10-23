@@ -279,64 +279,18 @@ import type {
   AnkoleWebBackgroundAgentJobControllerShowData,
   AnkoleWebBackgroundAgentJobControllerShowErrors,
   AnkoleWebBackgroundAgentJobControllerShowResponses,
-  AnkoleWebBrainControllerArchiveSourceData,
-  AnkoleWebBrainControllerArchiveSourceResponses,
-  AnkoleWebBrainControllerCreateObjectData,
-  AnkoleWebBrainControllerCreateObjectResponses,
-  AnkoleWebBrainControllerCreateSourceData,
-  AnkoleWebBrainControllerCreateSourceResponses,
-  AnkoleWebBrainControllerDecideContradictionData,
-  AnkoleWebBrainControllerDecideContradictionResponses,
-  AnkoleWebBrainControllerDecideMergeSuggestionData,
-  AnkoleWebBrainControllerDecideMergeSuggestionResponses,
-  AnkoleWebBrainControllerDecideSuggestionData,
-  AnkoleWebBrainControllerDecideSuggestionResponses,
   AnkoleWebBrainControllerDreamData,
   AnkoleWebBrainControllerDreamResponses,
-  AnkoleWebBrainControllerForgetClaimData,
-  AnkoleWebBrainControllerForgetClaimResponses,
-  AnkoleWebBrainControllerForgetObjectData,
-  AnkoleWebBrainControllerForgetObjectResponses,
-  AnkoleWebBrainControllerForkObjectData,
-  AnkoleWebBrainControllerForkObjectResponses,
   AnkoleWebBrainControllerHealthData,
   AnkoleWebBrainControllerHealthResponses,
-  AnkoleWebBrainControllerLearnSourceData,
-  AnkoleWebBrainControllerLearnSourceResponses,
-  AnkoleWebBrainControllerListClaimsData,
-  AnkoleWebBrainControllerListClaimsResponses,
-  AnkoleWebBrainControllerListContradictionsData,
-  AnkoleWebBrainControllerListContradictionsResponses,
-  AnkoleWebBrainControllerListMergeSuggestionsData,
-  AnkoleWebBrainControllerListMergeSuggestionsResponses,
-  AnkoleWebBrainControllerListObjectsData,
-  AnkoleWebBrainControllerListObjectsResponses,
-  AnkoleWebBrainControllerListSourcesData,
-  AnkoleWebBrainControllerListSourcesResponses,
-  AnkoleWebBrainControllerListSuggestionsData,
-  AnkoleWebBrainControllerListSuggestionsResponses,
   AnkoleWebBrainControllerObjectTypesData,
   AnkoleWebBrainControllerObjectTypesResponses,
-  AnkoleWebBrainControllerObjectVersionsData,
-  AnkoleWebBrainControllerObjectVersionsResponses,
   AnkoleWebBrainControllerPrincipalKnowledgeData,
   AnkoleWebBrainControllerPrincipalKnowledgeResponses,
-  AnkoleWebBrainControllerResolveTakeData,
-  AnkoleWebBrainControllerResolveTakeResponses,
-  AnkoleWebBrainControllerRestoreObjectData,
-  AnkoleWebBrainControllerRestoreObjectResponses,
-  AnkoleWebBrainControllerRollbackObjectData,
-  AnkoleWebBrainControllerRollbackObjectResponses,
   AnkoleWebBrainControllerSearchPreviewData,
   AnkoleWebBrainControllerSearchPreviewResponses,
   AnkoleWebBrainControllerShowObjectData,
   AnkoleWebBrainControllerShowObjectResponses,
-  AnkoleWebBrainControllerSupersedeClaimData,
-  AnkoleWebBrainControllerSupersedeClaimResponses,
-  AnkoleWebBrainControllerUpdateObjectData,
-  AnkoleWebBrainControllerUpdateObjectResponses,
-  AnkoleWebBrainControllerUpdateSourceData,
-  AnkoleWebBrainControllerUpdateSourceResponses,
   AnkoleWebConsoleReadinessControllerShowData,
   AnkoleWebConsoleReadinessControllerShowErrors,
   AnkoleWebConsoleReadinessControllerShowResponses,
@@ -958,18 +912,6 @@ export const ankoleWebWorkerEnvControllerDecrypt = <ThrowOnError extends boolean
   })
 
 /**
- * List duplicate-page merge suggestions
- */
-export const ankoleWebBrainControllerListMergeSuggestions = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebBrainControllerListMergeSuggestionsData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerListMergeSuggestionsResponses, unknown, ThrowOnError> =>
-  (options?.client ?? client).get<AnkoleWebBrainControllerListMergeSuggestionsResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/merge-suggestions',
-    ...options
-  })
-
-/**
  * List console-visible AppConfigure entries
  */
 export const ankoleWebAppConfigurationControllerIndexTenant = <ThrowOnError extends boolean = false>(
@@ -1218,38 +1160,6 @@ export const ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverride = <
   })
 
 /**
- * Resolve one take; resolution is immutable
- */
-export const ankoleWebBrainControllerResolveTake = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerResolveTakeData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerResolveTakeResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebBrainControllerResolveTakeResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/claims/{claim_id}/resolve',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Expire a fact or deactivate a take with a reason
- */
-export const ankoleWebBrainControllerForgetClaim = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerForgetClaimData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerForgetClaimResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebBrainControllerForgetClaimResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/claims/{claim_id}/forget',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Read the privileged tenant
  */
 export const ankoleWebTenantControllerPrivileged = <ThrowOnError extends boolean = false>(
@@ -1374,34 +1284,6 @@ export const ankoleWebAiGatewayProviderControllerPutCredentialStrategy = <ThrowO
   })
 
 /**
- * List schema promotion suggestions
- */
-export const ankoleWebBrainControllerListSuggestions = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebBrainControllerListSuggestionsData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerListSuggestionsResponses, unknown, ThrowOnError> =>
-  (options?.client ?? client).get<AnkoleWebBrainControllerListSuggestionsResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/suggestions',
-    ...options
-  })
-
-/**
- * Fork one library-managed page into instance ownership
- */
-export const ankoleWebBrainControllerForkObject = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerForkObjectData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerForkObjectResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebBrainControllerForkObjectResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/objects/fork',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Create a stateless OpenResponses response
  */
 export const ankoleWebAiGatewayControllerResponses = <ThrowOnError extends boolean = false>(
@@ -1495,22 +1377,6 @@ export const ankoleWebAuthZGroupControllerAddMember = <ThrowOnError extends bool
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/principal-groups/{name}/members/{principal_uid}',
     ...options
-  })
-
-/**
- * Soft-delete one object with a reason
- */
-export const ankoleWebBrainControllerForgetObject = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerForgetObjectData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerForgetObjectResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebBrainControllerForgetObjectResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/objects/forget',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -1975,22 +1841,6 @@ export const ankoleWebAuthZGroupControllerUpdate = <ThrowOnError extends boolean
   })
 
 /**
- * Set the audience for new OIDC Client conversations
- */
-export const ankoleWebBrainControllerUpdateSource = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerUpdateSourceData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerUpdateSourceResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).patch<AnkoleWebBrainControllerUpdateSourceResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/sources/{source_id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Delete one credential-pool member
  */
 export const ankoleWebAiGatewayProviderControllerDeleteCredential = <ThrowOnError extends boolean = false>(
@@ -2120,34 +1970,6 @@ export const ankoleWebIdentityProviderControllerAdapters = <ThrowOnError extends
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/identity-provider-adapters',
     ...options
-  })
-
-/**
- * List learning sources
- */
-export const ankoleWebBrainControllerListSources = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebBrainControllerListSourcesData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerListSourcesResponses, unknown, ThrowOnError> =>
-  (options?.client ?? client).get<AnkoleWebBrainControllerListSourcesResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/sources',
-    ...options
-  })
-
-/**
- * Register one file or url learning source
- */
-export const ankoleWebBrainControllerCreateSource = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerCreateSourceData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerCreateSourceResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebBrainControllerCreateSourceResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/sources',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -2531,22 +2353,6 @@ export const ankoleWebAgentControllerCreate = <ThrowOnError extends boolean = fa
   })
 
 /**
- * Restore one soft-deleted object inside its purge window
- */
-export const ankoleWebBrainControllerRestoreObject = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerRestoreObjectData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerRestoreObjectResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebBrainControllerRestoreObjectResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/objects/restore',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Read this Agent's queued, running and waiting background Jobs
  */
 export const backgroundActivityJobs = <ThrowOnError extends boolean = false>(
@@ -2700,22 +2506,6 @@ export const ankoleWebAutomationJobControllerIndex = <ThrowOnError extends boole
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/automation-jobs',
     ...options
-  })
-
-/**
- * Supersede one claim with corrected content
- */
-export const ankoleWebBrainControllerSupersedeClaim = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerSupersedeClaimData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerSupersedeClaimResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebBrainControllerSupersedeClaimResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/claims/{claim_id}/supersede',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -3048,22 +2838,6 @@ export const ankoleWebBrainControllerDream = <ThrowOnError extends boolean = fal
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/brain/dream',
     ...options
-  })
-
-/**
- * Approve or reject one promotion suggestion
- */
-export const ankoleWebBrainControllerDecideSuggestion = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerDecideSuggestionData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerDecideSuggestionResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebBrainControllerDecideSuggestionResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/suggestions/{suggestion_id}/decide',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -3404,18 +3178,6 @@ export const ankoleWebAiGatewayProviderControllerPutProvider = <ThrowOnError ext
   })
 
 /**
- * List claims with filters
- */
-export const ankoleWebBrainControllerListClaims = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebBrainControllerListClaimsData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerListClaimsResponses, unknown, ThrowOnError> =>
-  (options?.client ?? client).get<AnkoleWebBrainControllerListClaimsResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/claims',
-    ...options
-  })
-
-/**
  * Read one principal
  */
 export const ankoleWebPrincipalControllerShow = <ThrowOnError extends boolean = false>(
@@ -3508,22 +3270,6 @@ export const oidcLoginSources = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * Resolve or dismiss one contradiction
- */
-export const ankoleWebBrainControllerDecideContradiction = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerDecideContradictionData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerDecideContradictionResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebBrainControllerDecideContradictionResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/contradictions/{contradiction_id}/decide',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Cancel one webhook endpoint
  */
 export const ankoleWebWebhookEndpointControllerDelete = <ThrowOnError extends boolean = false>(
@@ -3540,62 +3286,6 @@ export const ankoleWebWebhookEndpointControllerDelete = <ThrowOnError extends bo
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/agents/{agent_uid}/webhook-endpoints/{webhook_endpoint_id}',
-    ...options
-  })
-
-/**
- * List Brain objects by prefix or search
- */
-export const ankoleWebBrainControllerListObjects = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebBrainControllerListObjectsData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerListObjectsResponses, unknown, ThrowOnError> =>
-  (options?.client ?? client).get<AnkoleWebBrainControllerListObjectsResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/objects',
-    ...options
-  })
-
-/**
- * Create one instance-owned Brain object
- */
-export const ankoleWebBrainControllerCreateObject = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerCreateObjectData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerCreateObjectResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebBrainControllerCreateObjectResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/objects',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Update one instance-owned Brain object with content-hash compare-and-swap
- */
-export const ankoleWebBrainControllerUpdateObject = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerUpdateObjectData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerUpdateObjectResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).put<AnkoleWebBrainControllerUpdateObjectResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/objects',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * List contradiction findings
- */
-export const ankoleWebBrainControllerListContradictions = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebBrainControllerListContradictionsData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerListContradictionsResponses, unknown, ThrowOnError> =>
-  (options?.client ?? client).get<AnkoleWebBrainControllerListContradictionsResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/contradictions',
     ...options
   })
 
@@ -3783,18 +3473,6 @@ export const ankoleWebAiGatewayControllerRerank = <ThrowOnError extends boolean 
   })
 
 /**
- * List one object's version history
- */
-export const ankoleWebBrainControllerObjectVersions = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerObjectVersionsData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerObjectVersionsResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).get<AnkoleWebBrainControllerObjectVersionsResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/objects/versions',
-    ...options
-  })
-
-/**
  * List tenant worker shell variables
  */
 export const ankoleWebWorkerEnvControllerIndexTenant = <ThrowOnError extends boolean = false>(
@@ -3915,34 +3593,6 @@ export const ankoleWebAppConfigurationControllerDecryptTenant = <ThrowOnError ex
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/app-configurations/{key}/decryptions',
-    ...options
-  })
-
-/**
- * Roll one object back to a stored version
- */
-export const ankoleWebBrainControllerRollbackObject = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerRollbackObjectData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerRollbackObjectResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebBrainControllerRollbackObjectResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/objects/rollback',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Archive one source; stored memory stays
- */
-export const ankoleWebBrainControllerArchiveSource = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerArchiveSourceData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerArchiveSourceResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebBrainControllerArchiveSourceResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/sources/{source_id}/archive',
     ...options
   })
 
@@ -4215,18 +3865,6 @@ export const ankoleWebBrainControllerShowObject = <ThrowOnError extends boolean 
   })
 
 /**
- * Enqueue one learning run for a source
- */
-export const ankoleWebBrainControllerLearnSource = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerLearnSourceData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerLearnSourceResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebBrainControllerLearnSourceResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/sources/{source_id}/learn',
-    ...options
-  })
-
-/**
  * Delete one permission grant
  */
 export const ankoleWebPermissionGrantControllerDelete = <ThrowOnError extends boolean = false>(
@@ -4283,22 +3921,6 @@ export const ankoleWebPermissionGrantControllerUpdate = <ThrowOnError extends bo
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/permission-grants/{id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Approve or reject one merge suggestion
- */
-export const ankoleWebBrainControllerDecideMergeSuggestion = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerDecideMergeSuggestionData, ThrowOnError>
-): RequestResult<AnkoleWebBrainControllerDecideMergeSuggestionResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebBrainControllerDecideMergeSuggestionResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/brain/merge-suggestions/{suggestion_id}/decide',
     ...options,
     headers: {
       'Content-Type': 'application/json',

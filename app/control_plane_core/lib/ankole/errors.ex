@@ -122,9 +122,10 @@ defmodule Ankole.Errors do
   @doc """
   Gives back the domain reason of a failed action.
 
-  A declared rejection gives its reason. A stale write gives `:stale`, a
-  refused state transition gives `{:invalid_status_transition, from, to}`, and
-  a missing target gives `:not_found`. Other results stay the same.
+  A declared rejection gives its reason. A stale write gives its reason or
+  `:stale`, a refused state transition gives
+  `{:invalid_status_transition, from, to}`, and a missing target gives
+  `:not_found`. Other results stay the same.
   """
   @spec reason(term()) :: {:error, reason()} | term()
   def reason({:error, error}), do: {:error, to_reason(error)}
@@ -145,7 +146,8 @@ defmodule Ankole.Errors do
   end
 
   defp known_reason(%Rejected{reason: reason}), do: {:ok, reason}
-  defp known_reason(%Stale{}), do: {:ok, :stale}
+  defp known_reason(%Stale{reason: nil}), do: {:ok, :stale}
+  defp known_reason(%Stale{reason: reason}), do: {:ok, reason}
   defp known_reason(%Ash.Error.Changes.StaleRecord{}), do: {:ok, :stale}
   defp known_reason(%NotFound{}), do: {:ok, :not_found}
 

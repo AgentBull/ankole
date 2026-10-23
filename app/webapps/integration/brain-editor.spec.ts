@@ -25,20 +25,50 @@ function object(slug: string): BrainObjectPage {
   }
 }
 
+function summary(row: BrainObjectPage) {
+  return {
+    slug: row.slug,
+    type: row.type,
+    subtype: row.subtype ?? null,
+    title: row.title,
+    effective_date: row.effective_date ?? null,
+    managed_by_source_id: null
+  }
+}
+
+// A JSON:API generic action takes its arguments in `data`.
+function writeBody(route: Route) {
+  return (route.request().postDataJSON() as { data: BrainObjectPage & { expected_content_hash?: string } }).data
+}
+
 async function brain(page: Page) {
   const objects = new Map(['A', 'B'].map(slug => [slug, object(slug)]))
   const writes: Route[] = []
   const heldReads: Route[] = []
   const reads = new Map<string, number>()
   let holdSlug: string | undefined
-  await page.route('**/api/v1/brain/**', async route => {
+  // Object writes, the list, and the versions are JSON:API v2 routes; the
+  // object page and the type list are v1 read models.
+  await page.route('**/api/v2/brain/**', async route => {
     const url = new URL(route.request().url())
-    if (['POST', 'PUT'].includes(route.request().method())) {
+    if (['POST', 'PATCH'].includes(route.request().method())) {
       writes.push(route)
       return
     }
+    if (url.pathname.endsWith('/object-versions')) return route.fulfill({ json: { data: [] } })
+    return route.fulfill({
+      json: {
+        data: [...objects.values()].map(row => ({
+          id: row.slug,
+          type: 'brain_object',
+          attributes: { ...summary(row), deleted_at: null, updated_at: '2026-10-16T00:00:00Z' }
+        }))
+      }
+    })
+  })
+  await page.route('**/api/v1/brain/**', async route => {
+    const url = new URL(route.request().url())
     if (url.pathname.endsWith('/object-types')) return route.fulfill({ json: { types: ['note'] } })
-    if (url.pathname.endsWith('/versions')) return route.fulfill({ json: { versions: [] } })
     if (url.pathname.endsWith('/show')) {
       const slug = url.searchParams.get('slug')!
       reads.set(slug, (reads.get(slug) ?? 0) + 1)
@@ -49,15 +79,7 @@ async function brain(page: Page) {
       }
       return route.fulfill({ json: { object: objects.get(slug) } })
     }
-    return route.fulfill({
-      json: {
-        objects: [...objects.values()].map(row => ({
-          ...row,
-          deleted_at: null,
-          updated_at: '2026-10-16T00:00:00Z'
-        }))
-      }
-    })
+    return route.fallback()
   })
   return {
     writes,
@@ -70,16 +92,16 @@ async function brain(page: Page) {
       const route = writes[index]!
       if (result !== 'success') {
         return route.fulfill({
-          status: result === 'conflict' ? 409 : 500,
+          status: result === 'conflict' ? 422 : 500,
           json: {
-            error: { code: result === 'conflict' ? 'content_hash_conflict' : 'late_failure', message: 'Late failure' }
+            errors: [{ code: result === 'conflict' ? 'content_hash_conflict' : 'late_failure', detail: 'Late failure' }]
           }
         })
       }
-      const body = route.request().postDataJSON()
+      const body = writeBody(route)
       const saved: BrainObjectPage = { ...object(body.slug), ...body, content_hash: `saved-${index}` }
       objects.set(saved.slug, saved)
-      return route.fulfill({ json: { object: saved } })
+      return route.fulfill({ status: route.request().method() === 'POST' ? 201 : 200, json: summary(saved) })
     }
   }
 }
@@ -125,7 +147,7 @@ for (const result of ['success', 'error'] as const) {
       await expect(page).toHaveURL(new RegExp(`/brain/objects/${selected}/edit$`))
       await save(page).click()
       await expect.poll(() => server.writes.length).toBe(2)
-      expect(server.writes[1]!.request().postDataJSON()).toMatchObject({
+      expect(writeBody(server.writes[1]!)).toMatchObject({
         slug: selected,
         body: `New draft ${selected}`,
         expected_content_hash: `hash-${selected}`
@@ -191,7 +213,7 @@ test('a save on the current editor acknowledges the draft and uses its new hash'
   await source(page).fill('Next edit')
   await save(page).click()
   await expect.poll(() => server.writes.length).toBe(2)
-  expect(server.writes[1]!.request().postDataJSON()).toMatchObject({
+  expect(writeBody(server.writes[1]!)).toMatchObject({
     slug: 'A',
     body: 'Next edit',
     expected_content_hash: 'saved-0'
@@ -236,7 +258,7 @@ test('late load-latest comparison cannot replace the hash of a later A visit', a
   await expect(page.getByText('Old comparison', { exact: true })).toHaveCount(0)
   await save(page).click()
   await expect.poll(() => server.writes.length).toBe(2)
-  expect(server.writes[1]!.request().postDataJSON()).toMatchObject({
+  expect(writeBody(server.writes[1]!)).toMatchObject({
     slug: 'A',
     body: 'Later A draft',
     expected_content_hash: 'hash-A'
@@ -262,7 +284,7 @@ test('load-latest on the current editor updates only comparison and hash', async
   await expect(source(page)).toHaveValue('Keep this draft')
   await save(page).click()
   await expect.poll(() => server.writes.length).toBe(2)
-  expect(server.writes[1]!.request().postDataJSON()).toMatchObject({
+  expect(writeBody(server.writes[1]!)).toMatchObject({
     slug: 'A',
     body: 'Keep this draft',
     expected_content_hash: 'latest-A'

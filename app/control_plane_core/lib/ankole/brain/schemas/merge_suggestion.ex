@@ -68,6 +68,7 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
       :map,
       fn records, _context -> Enum.map(records, &Ankole.Brain.Merge.page_summary(&1.a_slug)) end,
       constraints: @page_summary,
+      allow_nil?: false,
       public?: true
     )
 
@@ -76,6 +77,7 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
       :map,
       fn records, _context -> Enum.map(records, &Ankole.Brain.Merge.page_summary(&1.b_slug)) end,
       constraints: @page_summary,
+      allow_nil?: false,
       public?: true
     )
   end
@@ -146,18 +148,18 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
       end)
     end
 
-    # The Console review. The reviewer comes from the action context
-    # (Ankole.Brain.ConsoleOperator).
+    # The Console review. The reviewer is the actor of the action
+    # (Ankole.Brain.Console).
     action :console_approve do
       argument(:suggestion_id, :uuid, allow_nil?: false)
       argument(:canonical_slug, :string, constraints: [trim?: false])
 
-      run(fn %{arguments: args, context: context}, _context ->
-        decided_by = Ankole.Brain.ConsoleOperator.actor_ref(context)
+      run(fn %{arguments: args}, context ->
+        decided_by = Ankole.Brain.Console.actor_ref(context)
         attrs = %{canonical_slug: args[:canonical_slug]}
 
         with {:ok, _outcome} <-
-               Ankole.Errors.wrap(
+               Ankole.Brain.Console.result(
                  Ankole.Brain.Merge.approve_in_tx(args.suggestion_id, decided_by, attrs)
                ),
              do: :ok
@@ -168,10 +170,10 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
       constraints(instance_of: __MODULE__)
       argument(:suggestion_id, :uuid, allow_nil?: false)
 
-      run(fn %{arguments: args, context: context}, _context ->
+      run(fn %{arguments: args}, context ->
         args.suggestion_id
-        |> Ankole.Brain.Merge.reject_in_tx(Ankole.Brain.ConsoleOperator.actor_ref(context))
-        |> Ankole.Errors.wrap()
+        |> Ankole.Brain.Merge.reject_in_tx(Ankole.Brain.Console.actor_ref(context))
+        |> Ankole.Brain.Console.result()
       end)
     end
 

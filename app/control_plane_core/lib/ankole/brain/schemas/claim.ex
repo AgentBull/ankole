@@ -78,7 +78,8 @@ defmodule Ankole.Brain.Schemas.Claim do
 
     attribute(:author, Ankole.Ash.Types.ActorRef, public?: true)
 
-    attribute(:claim_type, Ankole.Ash.Types.State, public?: true,
+    attribute(:claim_type, Ankole.Ash.Types.State,
+      public?: true,
       allow_nil?: false,
       constraints: [one_of: [:fact, :take]]
     )
@@ -88,7 +89,13 @@ defmodule Ankole.Brain.Schemas.Claim do
     attribute(:claim, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
     attribute(:kind, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
     attribute(:holder, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
-    attribute(:audience_scope, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
+
+    attribute(:audience_scope, :string,
+      public?: true,
+      allow_nil?: false,
+      constraints: [trim?: false]
+    )
+
     attribute(:notability, :string, public?: true, constraints: [trim?: false])
     attribute(:context, :string, constraints: [trim?: false, allow_empty?: true])
     attribute(:valid_from, :utc_datetime_usec, public?: true)
@@ -99,7 +106,12 @@ defmodule Ankole.Brain.Schemas.Claim do
     attribute(:confidence, :float, public?: true)
     attribute(:provenance_session, :string, constraints: [trim?: false, allow_empty?: true])
     attribute(:weight, :float, public?: true)
-    attribute(:since_date, :string, public?: true, constraints: [trim?: false, allow_empty?: true])
+
+    attribute(:since_date, :string,
+      public?: true,
+      constraints: [trim?: false, allow_empty?: true]
+    )
+
     attribute(:until_date, :date, public?: true)
     attribute(:active, :boolean, public?: true)
     attribute(:graded_quality, :string, public?: true, constraints: [trim?: false])
@@ -427,9 +439,9 @@ defmodule Ankole.Brain.Schemas.Claim do
       end)
     end
 
-    # The Console operations. The operator comes from the action context
-    # (Ankole.Brain.ConsoleOperator); a Console administrator can forget and
-    # resolve each Claim.
+    # The Console operations. The operator is the actor of the action
+    # (Ankole.Brain.Console); a Console administrator can forget and resolve
+    # each Claim.
     action :console_supersede, :struct do
       constraints(instance_of: __MODULE__)
       argument(:claim_id, :uuid, allow_nil?: false)
@@ -452,7 +464,7 @@ defmodule Ankole.Brain.Schemas.Claim do
         end)
       end)
 
-      run(fn %{arguments: args, context: context}, _context ->
+      run(fn %{arguments: args}, context ->
         attrs =
           args
           |> Map.take([
@@ -469,11 +481,11 @@ defmodule Ankole.Brain.Schemas.Claim do
         args.claim_id
         |> Ankole.Brain.Claims.supersede_claim_in_tx(
           attrs,
-          Ankole.Brain.ConsoleOperator.writer(context),
-          author: Ankole.Brain.ConsoleOperator.actor_ref(context),
+          Ankole.Brain.Console.writer(context),
+          author: Ankole.Brain.Console.actor_ref(context),
           embedding: args.embedding
         )
-        |> Ankole.Errors.wrap()
+        |> Ankole.Brain.Console.result()
       end)
     end
 
@@ -485,7 +497,7 @@ defmodule Ankole.Brain.Schemas.Claim do
       run(fn %{arguments: args}, _context ->
         args.claim_id
         |> Ankole.Brain.Forget.forget_claim_in_tx(args[:reason] || "", :admin)
-        |> Ankole.Errors.wrap()
+        |> Ankole.Brain.Console.result()
       end)
     end
 
@@ -498,7 +510,7 @@ defmodule Ankole.Brain.Schemas.Claim do
       argument(:resolved_unit, :string)
       argument(:resolution_provenance, :string)
 
-      run(fn %{arguments: args, context: context}, _context ->
+      run(fn %{arguments: args}, context ->
         resolution =
           Map.take(args, [
             :resolved_quality,
@@ -508,11 +520,11 @@ defmodule Ankole.Brain.Schemas.Claim do
             :resolution_provenance
           ])
 
-        resolved_by = to_string(Ankole.Brain.ConsoleOperator.actor_ref(context))
+        resolved_by = to_string(Ankole.Brain.Console.actor_ref(context))
 
         args.claim_id
         |> Ankole.Brain.Claims.resolve_take_in_tx(resolution, resolved_by)
-        |> Ankole.Errors.wrap()
+        |> Ankole.Brain.Console.result()
       end)
     end
 

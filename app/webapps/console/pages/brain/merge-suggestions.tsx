@@ -22,10 +22,12 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  ankoleWebBrainControllerDecideMergeSuggestionMutation,
-  ankoleWebBrainControllerListMergeSuggestionsOptions
-} from '../../api/generated/@tanstack/react-query.gen'
-import type { BrainMergePageSummary, BrainMergeSuggestion } from '../../api/generated/types.gen'
+  approveBrainMergeSuggestionMutation,
+  listBrainMergeSuggestionsOptions,
+  rejectBrainMergeSuggestionMutation
+} from '../../api/v2/generated/@tanstack/react-query.gen'
+import type { ListBrainMergeSuggestionsResponse } from '../../api/v2/generated/types.gen'
+import { fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
 import { ResourceListPage } from '../../console-list-page'
@@ -33,7 +35,13 @@ import { BrainSubNav } from './brain-nav'
 
 const SUGGESTION_STATUSES = ['pending', 'approved', 'rejected'] as const
 
-function PageCell({ page }: { page: BrainMergePageSummary }) {
+type BrainMergeSuggestion = Flat<NonNullable<ListBrainMergeSuggestionsResponse['data']>[number]>
+// The server always gives both summaries; the OpenAPI document types each
+// calculation as nullable.
+type BrainMergePageSummary = NonNullable<BrainMergeSuggestion['a_page']>
+
+function PageCell({ page }: { page?: BrainMergePageSummary | null }) {
+  if (!page) return <span className="text-xs">—</span>
   return (
     <div className="grid gap-0.5">
       <span className="text-xs">{page.title ?? page.slug}</span>
@@ -49,11 +57,11 @@ export function BrainMergeSuggestionsPage() {
   const [rejectTarget, setRejectTarget] = useState<BrainMergeSuggestion>()
   const [canonicalSlug, setCanonicalSlug] = useState('')
 
-  const suggestions = useQuery(ankoleWebBrainControllerListMergeSuggestionsOptions({ query: { status } }))
-  const rows = suggestions.data?.suggestions ?? []
+  const suggestions = useQuery({ ...listBrainMergeSuggestionsOptions({ query: { status } }), select: document => fromDocument(document) })
+  const rows = suggestions.data ?? []
 
   const approve = useMutation({
-    ...ankoleWebBrainControllerDecideMergeSuggestionMutation(),
+    ...approveBrainMergeSuggestionMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.merge_approved'))
       setApproveTarget(undefined)
@@ -62,7 +70,7 @@ export function BrainMergeSuggestionsPage() {
     onError: error => toast.error(requestErrorMessage(error))
   })
   const reject = useMutation({
-    ...ankoleWebBrainControllerDecideMergeSuggestionMutation(),
+    ...rejectBrainMergeSuggestionMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.merge_rejected'))
       setRejectTarget(undefined)
@@ -118,13 +126,13 @@ export function BrainMergeSuggestionsPage() {
         {rows.map(suggestion => (
           <TableRow key={suggestion.id}>
             <TableCell>
-              <PageCell page={suggestion.a} />
+              <PageCell page={suggestion.a_page} />
             </TableCell>
             <TableCell>
-              <PageCell page={suggestion.b} />
+              <PageCell page={suggestion.b_page} />
             </TableCell>
             <TableCell>
-              <Badge variant="secondary">{suggestion.a.type ?? suggestion.b.type ?? '—'}</Badge>
+              <Badge variant="secondary">{suggestion.a_page?.type ?? suggestion.b_page?.type ?? '—'}</Badge>
             </TableCell>
             <TableCell className="max-w-[280px] whitespace-normal text-xs text-muted-foreground">
               {suggestion.reason}
@@ -138,7 +146,7 @@ export function BrainMergeSuggestionsPage() {
                     type="button"
                     variant="ghost"
                     onClick={() => {
-                      setCanonicalSlug(suggestion.a.slug)
+                      setCanonicalSlug(suggestion.a_page?.slug ?? '')
                       setApproveTarget(suggestion)
                     }}>
                     {t('console.brain.merge_action')}
@@ -170,7 +178,7 @@ export function BrainMergeSuggestionsPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {[approveTarget?.a, approveTarget?.b]
+                {[approveTarget?.a_page, approveTarget?.b_page]
                   .filter((page): page is BrainMergePageSummary => Boolean(page))
                   .map(page => (
                     <SelectItem key={page.slug} value={page.slug}>
@@ -190,7 +198,7 @@ export function BrainMergeSuggestionsPage() {
                 approveTarget &&
                 approve.mutate({
                   path: { suggestion_id: approveTarget.id },
-                  body: { decision: 'approve', canonical_slug: canonicalSlug }
+                  body: { data: { canonical_slug: canonicalSlug } }
                 })
               }>
               {approve.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
@@ -217,10 +225,7 @@ export function BrainMergeSuggestionsPage() {
               variant="destructive"
               onClick={() =>
                 rejectTarget &&
-                reject.mutate({
-                  path: { suggestion_id: rejectTarget.id },
-                  body: { decision: 'reject' }
-                })
+reject.mutate({ path: { suggestion_id: rejectTarget.id } })
               }>
               {reject.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.brain.reject')}

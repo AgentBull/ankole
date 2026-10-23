@@ -5,13 +5,6 @@ export type ClientOptions = {
 }
 
 /**
- * BrainSuggestionListResponse
- */
-export type BrainSuggestionListResponse = {
-  suggestions: Array<BrainSuggestion>
-}
-
-/**
  * BrainObjectTypesResponse
  */
 export type BrainObjectTypesResponse = {
@@ -125,13 +118,6 @@ export type ProviderHostedWriteRequest = {
 }
 
 /**
- * BrainClaimForgetRequest
- */
-export type BrainClaimForgetRequest = {
-  reason: string
-}
-
-/**
  * AIGatewayChatGPTBrowserLoginRequest
  */
 export type AiGatewayChatGptBrowserLoginRequest = {
@@ -139,33 +125,6 @@ export type AiGatewayChatGptBrowserLoginRequest = {
   login_context: {
     [key: string]: unknown
   }
-}
-
-/**
- * BrainObjectUpdateRequest
- */
-export type BrainObjectUpdateRequest = {
-  body: string
-  effective_date?: string | null
-  expected_content_hash: string
-  meta: {
-    [key: string]: unknown
-  }
-  slug: string
-  subtype?: string | null
-  tags?: Array<string>
-  title: string
-}
-
-/**
- * BrainTakeResolveRequest
- */
-export type BrainTakeResolveRequest = {
-  resolution_provenance?: string | null
-  resolved_outcome?: boolean | null
-  resolved_quality: 'correct' | 'incorrect' | 'partial' | 'unresolvable'
-  resolved_unit?: string | null
-  resolved_value?: number | null
 }
 
 /**
@@ -233,19 +192,6 @@ export type PrincipalGroupUpdateRequest = {
  */
 export type AiGatewayCredentialStrategyWriteRequest = {
   strategy: 'fill_first' | 'round_robin' | 'least_used' | 'random'
-}
-
-/**
- * BrainClaimSupersedeRequest
- */
-export type BrainClaimSupersedeRequest = {
-  audience_scope?: string | null
-  claim: string
-  confidence?: number | null
-  kind?: string | null
-  notability?: string | null
-  provenance?: string | null
-  weight?: number | null
 }
 
 /**
@@ -429,15 +375,6 @@ export type ScheduleRecurrence = {
 }
 
 /**
- * BrainSourceLearnResponse
- */
-export type BrainSourceLearnResponse = {
-  result: {
-    status: 'enqueued'
-  }
-}
-
-/**
  * AutomationJobRunItem
  */
 export type AutomationJobRunItem = {
@@ -547,30 +484,6 @@ export type AiGatewayModelCatalogEntry = {
   model: string
   name: string
   provider_id: string
-}
-
-/**
- * BrainMergeSuggestionListResponse
- */
-export type BrainMergeSuggestionListResponse = {
-  suggestions: Array<BrainMergeSuggestion>
-}
-
-/**
- * BrainSourceArchiveResponse
- */
-export type BrainSourceArchiveResponse = {
-  source: {
-    archived_at: string
-    id: string
-  }
-}
-
-/**
- * BrainClaimResponse
- */
-export type BrainClaimResponse = {
-  claim: BrainClaim
 }
 
 /**
@@ -703,13 +616,6 @@ export type BrainHealth = {
       [key: string]: number
     }
   }
-}
-
-/**
- * BrainObjectListResponse
- */
-export type BrainObjectListResponse = {
-  objects: Array<BrainObjectSummary>
 }
 
 /**
@@ -878,13 +784,6 @@ export type AgentLibraryDocumentWriteRequest = {
 }
 
 /**
- * BrainPromotionResultResponse
- */
-export type BrainPromotionResultResponse = {
-  result: JsonValue
-}
-
-/**
  * AgentFileEntry
  */
 export type AgentFileEntry = {
@@ -962,14 +861,6 @@ export type AccessReviewGroup = {
   id: string
   kind: string
   name: string
-}
-
-/**
- * BrainObjectForgetRequest
- */
-export type BrainObjectForgetRequest = {
-  reason: string
-  slug: string
 }
 
 /**
@@ -1067,16 +958,6 @@ export type ConsoleReadinessResponse = {
  */
 export type ScheduleCronScheduleResponse = {
   cron_schedule: CronScheduleItem
-}
-
-/**
- * BrainSourceUpdateRequest
- */
-export type BrainSourceUpdateRequest = {
-  /**
-   * Applies when a conversation first enters Brain. Null keeps it private to the submitting Human. Existing conversations keep their audience.
-   */
-  default_audience_scope: string | null
 }
 
 /**
@@ -1208,13 +1089,6 @@ export type AiGatewayProviderSetting = {
 }
 
 /**
- * BrainObjectSummaryResponse
- */
-export type BrainObjectSummaryResponse = {
-  object: BrainObjectSummary
-}
-
-/**
  * CronScheduleItem
  */
 export type CronScheduleItem = {
@@ -1244,21 +1118,6 @@ export type CronScheduleItem = {
   status: 'active' | 'paused' | 'deleted' | 'completed'
   timezone: string
   updated_at: string
-}
-
-/**
- * BrainContradiction
- */
-export type BrainContradiction = {
-  a_claim?: BrainClaim | null
-  axis?: string | null
-  b_claim?: BrainClaim | null
-  confidence: number
-  created_at: string
-  id: string
-  severity: string
-  status: string
-  verdict: string
 }
 
 /**
@@ -1562,16 +1421,6 @@ export type PrincipalLocalCredential = {
 } | null
 
 /**
- * BrainContradictionDecisionResponse
- */
-export type BrainContradictionDecisionResponse = {
-  contradiction: {
-    id: string
-    status: string
-  }
-}
-
-/**
  * ScheduleCronUpdateRequest
  */
 export type ScheduleCronUpdateRequest = {
@@ -1773,20 +1622,6 @@ export type ConsoleActorRef = {
 }
 
 /**
- * BrainSuggestion
- */
-export type BrainSuggestion = {
-  created_at: string
-  evidence_count: number
-  id: string
-  kind: string
-  rationale?: string | null
-  status: string
-  target_type?: string | null
-  term: string
-}
-
-/**
  * PermissionGrantUpdateRequest
  */
 export type PermissionGrantUpdateRequest = {
@@ -1848,13 +1683,6 @@ export type AgentItem = {
 }
 
 /**
- * BrainContradictionListResponse
- */
-export type BrainContradictionListResponse = {
-  contradictions: Array<BrainContradiction>
-}
-
-/**
  * AIGatewayChatGPTLoginPollRequest
  */
 export type AiGatewayChatGptLoginPollRequest = {
@@ -1868,13 +1696,6 @@ export type AiGatewayChatGptLoginPollRequest = {
  */
 export type AgentSessionListResponse = {
   sessions: Array<AgentSession>
-}
-
-/**
- * BrainObjectRestoreRequest
- */
-export type BrainObjectRestoreRequest = {
-  slug: string
 }
 
 /**
@@ -1973,13 +1794,6 @@ export type ConsoleReadinessAgent = {
 }
 
 /**
- * BrainSourceListResponse
- */
-export type BrainSourceListResponse = {
-  sources: Array<BrainSource>
-}
-
-/**
  * AgentPluginCapabilityItem
  */
 export type AgentPluginCapabilityItem = {
@@ -2019,17 +1833,6 @@ export type AgentFileUploadRequest = {
  */
 export type AgentSkillLessonsResponse = {
   skill_lessons: Array<AgentSkillLessonItem>
-}
-
-/**
- * BrainSuggestionDecideRequest
- */
-export type BrainSuggestionDecideRequest = {
-  decision: 'approve' | 'reject'
-  extractable?: boolean | null
-  primitive?: string | null
-  slug_prefix?: string | null
-  target_type?: string | null
 }
 
 /**
@@ -2080,13 +1883,6 @@ export type ConsoleApiError = {
   code: string
   details?: Array<ConsoleApiErrorDetail> | null
   message: string
-}
-
-/**
- * BrainMergeResultResponse
- */
-export type BrainMergeResultResponse = {
-  result: JsonValue
 }
 
 /**
@@ -2245,34 +2041,6 @@ export type AgentFileUploadResponse = {
 }
 
 /**
- * BrainObjectForkRequest
- */
-export type BrainObjectForkRequest = {
-  slug: string
-}
-
-/**
- * BrainObjectVersion
- */
-export type BrainObjectVersion = {
-  author?: ConsoleActorRef | null
-  body: string
-  id: string
-  meta: {
-    [key: string]: unknown
-  }
-  snapshot_at: string
-  tags?: Array<string>
-}
-
-/**
- * BrainObjectVersionsResponse
- */
-export type BrainObjectVersionsResponse = {
-  versions: Array<BrainObjectVersion>
-}
-
-/**
  * PrincipalGroupMemberListResponse
  */
 export type PrincipalGroupMemberListResponse = {
@@ -2346,14 +2114,6 @@ export type ScheduleDeliveryTarget =
       conversation_id: string
       provider_thread_id?: string
     }
-
-/**
- * BrainContradictionDecideRequest
- */
-export type BrainContradictionDecideRequest = {
-  resolution_note?: string | null
-  status: 'resolved' | 'dismissed'
-}
 
 /**
  * BrainPageTimeline
@@ -2535,14 +2295,6 @@ export type BrainClaim = {
 }
 
 /**
- * BrainMergeSuggestionDecideRequest
- */
-export type BrainMergeSuggestionDecideRequest = {
-  canonical_slug?: string | null
-  decision: 'approve' | 'reject'
-}
-
-/**
  * IdentityProviderSyncRunResponse
  */
 export type IdentityProviderSyncRunResponse = {
@@ -2618,14 +2370,6 @@ export type WorkerEnvItem = {
  */
 export type AgentListResponse = {
   agents: Array<AgentItem>
-}
-
-/**
- * BrainObjectRollbackRequest
- */
-export type BrainObjectRollbackRequest = {
-  slug: string
-  version_id: string
 }
 
 /**
@@ -2708,23 +2452,6 @@ export type BackgroundAgentJobTurnToolExecutionMechanism = {
 }
 
 /**
- * BrainObjectSummary
- */
-export type BrainObjectSummary = {
-  deleted_at?: string | null
-  effective_date?: string | null
-  /**
-   * True when a Brain Source owns the body projection. The detail endpoint gives the exact edit block reason.
-   */
-  library_managed?: boolean
-  slug: string
-  subtype?: string | null
-  title: string
-  type: string
-  updated_at: string
-}
-
-/**
  * BackgroundAgentJobTurnUsageBreakdown
  */
 export type BackgroundAgentJobTurnUsageBreakdown = {
@@ -2747,20 +2474,6 @@ export type AppConfigurationListResponse = {
  */
 export type AiGatewayProviderKindListResponse = {
   provider_kinds: Array<AiGatewayProviderKindItem>
-}
-
-/**
- * BrainSource
- */
-export type BrainSource = {
-  archived_at?: string | null
-  default_audience_scope?: string | null
-  id: string
-  kind: string
-  last_sync_at?: string | null
-  name: string
-  upstream_id: string
-  upstream_revision?: string | null
 }
 
 /**
@@ -3046,17 +2759,6 @@ export type TenantResponse = {
 }
 
 /**
- * BrainSourceCreateResponse
- */
-export type BrainSourceCreateResponse = {
-  source: {
-    id: string
-    kind: string
-    name: string
-  }
-}
-
-/**
  * WebhookEndpointListResponse
  */
 export type WebhookEndpointListResponse = {
@@ -3077,22 +2779,6 @@ export type AgentSession = {
   session_id: string
   status?: string | null
   title?: string | null
-}
-
-/**
- * BrainObjectCreateRequest
- */
-export type BrainObjectCreateRequest = {
-  body: string
-  effective_date?: string | null
-  meta: {
-    [key: string]: unknown
-  }
-  slug: string
-  subtype?: string | null
-  tags?: Array<string>
-  title: string
-  type: string
 }
 
 /**
@@ -3192,28 +2878,6 @@ export type TenantUpdateRequest = {
 }
 
 /**
- * BrainSourceCreateRequest
- */
-export type BrainSourceCreateRequest = {
-  config?: {
-    [key: string]: unknown
-  } | null
-  default_audience_scope?: string | null
-  kind: 'file' | 'url'
-  name: string
-  upstream_id: string
-}
-
-/**
- * BrainMergePageSummary
- */
-export type BrainMergePageSummary = {
-  slug: string
-  title?: string | null
-  type?: string | null
-}
-
-/**
  * ProviderHostedResponse
  */
 export type ProviderHostedResponse = {
@@ -3261,18 +2925,6 @@ export type SignalDeliveryRequeueResponse = {
 export type ConsoleReadinessWorker = {
   complete: boolean
   ready_count: number
-}
-
-/**
- * BrainMergeSuggestion
- */
-export type BrainMergeSuggestion = {
-  a: BrainMergePageSummary
-  b: BrainMergePageSummary
-  created_at: string
-  id: string
-  reason: string
-  status: string
 }
 
 /**
@@ -3896,25 +3548,6 @@ export type AnkoleWebWorkerEnvControllerDecryptResponses = {
 export type AnkoleWebWorkerEnvControllerDecryptResponse =
   AnkoleWebWorkerEnvControllerDecryptResponses[keyof AnkoleWebWorkerEnvControllerDecryptResponses]
 
-export type AnkoleWebBrainControllerListMergeSuggestionsData = {
-  body?: never
-  path?: never
-  query?: {
-    status?: string
-  }
-  url: '/api/v1/brain/merge-suggestions'
-}
-
-export type AnkoleWebBrainControllerListMergeSuggestionsResponses = {
-  /**
-   * Merge suggestions
-   */
-  200: BrainMergeSuggestionListResponse
-}
-
-export type AnkoleWebBrainControllerListMergeSuggestionsResponse =
-  AnkoleWebBrainControllerListMergeSuggestionsResponses[keyof AnkoleWebBrainControllerListMergeSuggestionsResponses]
-
 export type AnkoleWebAppConfigurationControllerIndexTenantData = {
   body?: never
   path?: never
@@ -4264,50 +3897,6 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideRespo
 export type AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponse =
   AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponses[keyof AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponses]
 
-export type AnkoleWebBrainControllerResolveTakeData = {
-  /**
-   * Resolve
-   */
-  body: BrainTakeResolveRequest
-  path: {
-    claim_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/claims/{claim_id}/resolve'
-}
-
-export type AnkoleWebBrainControllerResolveTakeResponses = {
-  /**
-   * Claim
-   */
-  200: BrainClaimResponse
-}
-
-export type AnkoleWebBrainControllerResolveTakeResponse =
-  AnkoleWebBrainControllerResolveTakeResponses[keyof AnkoleWebBrainControllerResolveTakeResponses]
-
-export type AnkoleWebBrainControllerForgetClaimData = {
-  /**
-   * Forget
-   */
-  body: BrainClaimForgetRequest
-  path: {
-    claim_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/claims/{claim_id}/forget'
-}
-
-export type AnkoleWebBrainControllerForgetClaimResponses = {
-  /**
-   * Claim
-   */
-  200: BrainClaimResponse
-}
-
-export type AnkoleWebBrainControllerForgetClaimResponse =
-  AnkoleWebBrainControllerForgetClaimResponses[keyof AnkoleWebBrainControllerForgetClaimResponses]
-
 export type AnkoleWebTenantControllerPrivilegedData = {
   body?: never
   path?: never
@@ -4476,45 +4065,6 @@ export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses =
 export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponse =
   AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses[keyof AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses]
 
-export type AnkoleWebBrainControllerListSuggestionsData = {
-  body?: never
-  path?: never
-  query?: {
-    status?: string
-  }
-  url: '/api/v1/brain/suggestions'
-}
-
-export type AnkoleWebBrainControllerListSuggestionsResponses = {
-  /**
-   * Suggestions
-   */
-  200: BrainSuggestionListResponse
-}
-
-export type AnkoleWebBrainControllerListSuggestionsResponse =
-  AnkoleWebBrainControllerListSuggestionsResponses[keyof AnkoleWebBrainControllerListSuggestionsResponses]
-
-export type AnkoleWebBrainControllerForkObjectData = {
-  /**
-   * Fork
-   */
-  body: BrainObjectForkRequest
-  path?: never
-  query?: never
-  url: '/api/v1/brain/objects/fork'
-}
-
-export type AnkoleWebBrainControllerForkObjectResponses = {
-  /**
-   * Object
-   */
-  200: BrainObjectSummaryResponse
-}
-
-export type AnkoleWebBrainControllerForkObjectResponse =
-  AnkoleWebBrainControllerForkObjectResponses[keyof AnkoleWebBrainControllerForkObjectResponses]
-
 export type AnkoleWebAiGatewayControllerResponsesData = {
   /**
    * OpenResponses request
@@ -4658,26 +4208,6 @@ export type AnkoleWebAuthZGroupControllerAddMemberResponses = {
 
 export type AnkoleWebAuthZGroupControllerAddMemberResponse =
   AnkoleWebAuthZGroupControllerAddMemberResponses[keyof AnkoleWebAuthZGroupControllerAddMemberResponses]
-
-export type AnkoleWebBrainControllerForgetObjectData = {
-  /**
-   * Forget
-   */
-  body: BrainObjectForgetRequest
-  path?: never
-  query?: never
-  url: '/api/v1/brain/objects/forget'
-}
-
-export type AnkoleWebBrainControllerForgetObjectResponses = {
-  /**
-   * Object
-   */
-  200: BrainObjectSummaryResponse
-}
-
-export type AnkoleWebBrainControllerForgetObjectResponse =
-  AnkoleWebBrainControllerForgetObjectResponses[keyof AnkoleWebBrainControllerForgetObjectResponses]
 
 export type AnkoleWebAgentFileControllerDownloadData = {
   body?: never
@@ -5435,28 +4965,6 @@ export type AnkoleWebAuthZGroupControllerUpdateResponses = {
 export type AnkoleWebAuthZGroupControllerUpdateResponse =
   AnkoleWebAuthZGroupControllerUpdateResponses[keyof AnkoleWebAuthZGroupControllerUpdateResponses]
 
-export type AnkoleWebBrainControllerUpdateSourceData = {
-  /**
-   * Source defaults
-   */
-  body: BrainSourceUpdateRequest
-  path: {
-    source_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/sources/{source_id}'
-}
-
-export type AnkoleWebBrainControllerUpdateSourceResponses = {
-  /**
-   * Source
-   */
-  200: BrainSourceCreateResponse
-}
-
-export type AnkoleWebBrainControllerUpdateSourceResponse =
-  AnkoleWebBrainControllerUpdateSourceResponses[keyof AnkoleWebBrainControllerUpdateSourceResponses]
-
 export type AnkoleWebAiGatewayProviderControllerDeleteCredentialData = {
   body?: never
   path: {
@@ -5641,43 +5149,6 @@ export type AnkoleWebIdentityProviderControllerAdaptersResponses = {
 
 export type AnkoleWebIdentityProviderControllerAdaptersResponse =
   AnkoleWebIdentityProviderControllerAdaptersResponses[keyof AnkoleWebIdentityProviderControllerAdaptersResponses]
-
-export type AnkoleWebBrainControllerListSourcesData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/brain/sources'
-}
-
-export type AnkoleWebBrainControllerListSourcesResponses = {
-  /**
-   * Sources
-   */
-  200: BrainSourceListResponse
-}
-
-export type AnkoleWebBrainControllerListSourcesResponse =
-  AnkoleWebBrainControllerListSourcesResponses[keyof AnkoleWebBrainControllerListSourcesResponses]
-
-export type AnkoleWebBrainControllerCreateSourceData = {
-  /**
-   * Source
-   */
-  body: BrainSourceCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/brain/sources'
-}
-
-export type AnkoleWebBrainControllerCreateSourceResponses = {
-  /**
-   * Source
-   */
-  200: BrainSourceCreateResponse
-}
-
-export type AnkoleWebBrainControllerCreateSourceResponse =
-  AnkoleWebBrainControllerCreateSourceResponses[keyof AnkoleWebBrainControllerCreateSourceResponses]
 
 export type AnkoleWebOidcClientControllerDeleteData = {
   body?: never
@@ -6285,26 +5756,6 @@ export type AnkoleWebAgentControllerCreateResponses = {
 export type AnkoleWebAgentControllerCreateResponse =
   AnkoleWebAgentControllerCreateResponses[keyof AnkoleWebAgentControllerCreateResponses]
 
-export type AnkoleWebBrainControllerRestoreObjectData = {
-  /**
-   * Restore
-   */
-  body: BrainObjectRestoreRequest
-  path?: never
-  query?: never
-  url: '/api/v1/brain/objects/restore'
-}
-
-export type AnkoleWebBrainControllerRestoreObjectResponses = {
-  /**
-   * Object
-   */
-  200: BrainObjectSummaryResponse
-}
-
-export type AnkoleWebBrainControllerRestoreObjectResponse =
-  AnkoleWebBrainControllerRestoreObjectResponses[keyof AnkoleWebBrainControllerRestoreObjectResponses]
-
 export type BackgroundActivityJobsData = {
   body?: never
   path: {
@@ -6534,28 +5985,6 @@ export type AnkoleWebAutomationJobControllerIndexResponses = {
 
 export type AnkoleWebAutomationJobControllerIndexResponse =
   AnkoleWebAutomationJobControllerIndexResponses[keyof AnkoleWebAutomationJobControllerIndexResponses]
-
-export type AnkoleWebBrainControllerSupersedeClaimData = {
-  /**
-   * Supersede
-   */
-  body: BrainClaimSupersedeRequest
-  path: {
-    claim_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/claims/{claim_id}/supersede'
-}
-
-export type AnkoleWebBrainControllerSupersedeClaimResponses = {
-  /**
-   * Claim
-   */
-  200: BrainClaimResponse
-}
-
-export type AnkoleWebBrainControllerSupersedeClaimResponse =
-  AnkoleWebBrainControllerSupersedeClaimResponses[keyof AnkoleWebBrainControllerSupersedeClaimResponses]
 
 export type AnkoleWebAgentControllerIndexModelProfilesData = {
   body?: never
@@ -7021,28 +6450,6 @@ export type AnkoleWebBrainControllerDreamResponses = {
 
 export type AnkoleWebBrainControllerDreamResponse =
   AnkoleWebBrainControllerDreamResponses[keyof AnkoleWebBrainControllerDreamResponses]
-
-export type AnkoleWebBrainControllerDecideSuggestionData = {
-  /**
-   * Decide
-   */
-  body: BrainSuggestionDecideRequest
-  path: {
-    suggestion_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/suggestions/{suggestion_id}/decide'
-}
-
-export type AnkoleWebBrainControllerDecideSuggestionResponses = {
-  /**
-   * Result
-   */
-  200: BrainPromotionResultResponse
-}
-
-export type AnkoleWebBrainControllerDecideSuggestionResponse =
-  AnkoleWebBrainControllerDecideSuggestionResponses[keyof AnkoleWebBrainControllerDecideSuggestionResponses]
 
 export type AnkoleWebAiGatewayControllerWebSearchData = {
   /**
@@ -7589,28 +6996,6 @@ export type AnkoleWebAiGatewayProviderControllerPutProviderResponses = {
 export type AnkoleWebAiGatewayProviderControllerPutProviderResponse =
   AnkoleWebAiGatewayProviderControllerPutProviderResponses[keyof AnkoleWebAiGatewayProviderControllerPutProviderResponses]
 
-export type AnkoleWebBrainControllerListClaimsData = {
-  body?: never
-  path?: never
-  query?: {
-    object_slug?: string
-    claim_type?: string
-    status?: string
-    q?: string
-  }
-  url: '/api/v1/brain/claims'
-}
-
-export type AnkoleWebBrainControllerListClaimsResponses = {
-  /**
-   * Claims
-   */
-  200: BrainClaimListResponse
-}
-
-export type AnkoleWebBrainControllerListClaimsResponse =
-  AnkoleWebBrainControllerListClaimsResponses[keyof AnkoleWebBrainControllerListClaimsResponses]
-
 export type AnkoleWebPrincipalControllerShowData = {
   body?: never
   path: {
@@ -7758,28 +7143,6 @@ export type OidcLoginSourcesResponses = {
 
 export type OidcLoginSourcesResponse = OidcLoginSourcesResponses[keyof OidcLoginSourcesResponses]
 
-export type AnkoleWebBrainControllerDecideContradictionData = {
-  /**
-   * Decide
-   */
-  body: BrainContradictionDecideRequest
-  path: {
-    contradiction_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/contradictions/{contradiction_id}/decide'
-}
-
-export type AnkoleWebBrainControllerDecideContradictionResponses = {
-  /**
-   * Decision
-   */
-  200: BrainContradictionDecisionResponse
-}
-
-export type AnkoleWebBrainControllerDecideContradictionResponse =
-  AnkoleWebBrainControllerDecideContradictionResponses[keyof AnkoleWebBrainControllerDecideContradictionResponses]
-
 export type AnkoleWebWebhookEndpointControllerDeleteData = {
   body?: never
   path: {
@@ -7809,86 +7172,6 @@ export type AnkoleWebWebhookEndpointControllerDeleteResponses = {
 
 export type AnkoleWebWebhookEndpointControllerDeleteResponse =
   AnkoleWebWebhookEndpointControllerDeleteResponses[keyof AnkoleWebWebhookEndpointControllerDeleteResponses]
-
-export type AnkoleWebBrainControllerListObjectsData = {
-  body?: never
-  path?: never
-  query?: {
-    prefix?: string
-    q?: string
-    deleted?: boolean
-  }
-  url: '/api/v1/brain/objects'
-}
-
-export type AnkoleWebBrainControllerListObjectsResponses = {
-  /**
-   * Objects
-   */
-  200: BrainObjectListResponse
-}
-
-export type AnkoleWebBrainControllerListObjectsResponse =
-  AnkoleWebBrainControllerListObjectsResponses[keyof AnkoleWebBrainControllerListObjectsResponses]
-
-export type AnkoleWebBrainControllerCreateObjectData = {
-  /**
-   * Object
-   */
-  body: BrainObjectCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/brain/objects'
-}
-
-export type AnkoleWebBrainControllerCreateObjectResponses = {
-  /**
-   * Object
-   */
-  200: BrainObjectShowResponse
-}
-
-export type AnkoleWebBrainControllerCreateObjectResponse =
-  AnkoleWebBrainControllerCreateObjectResponses[keyof AnkoleWebBrainControllerCreateObjectResponses]
-
-export type AnkoleWebBrainControllerUpdateObjectData = {
-  /**
-   * Object
-   */
-  body: BrainObjectUpdateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/brain/objects'
-}
-
-export type AnkoleWebBrainControllerUpdateObjectResponses = {
-  /**
-   * Object
-   */
-  200: BrainObjectShowResponse
-}
-
-export type AnkoleWebBrainControllerUpdateObjectResponse =
-  AnkoleWebBrainControllerUpdateObjectResponses[keyof AnkoleWebBrainControllerUpdateObjectResponses]
-
-export type AnkoleWebBrainControllerListContradictionsData = {
-  body?: never
-  path?: never
-  query?: {
-    status?: string
-  }
-  url: '/api/v1/brain/contradictions'
-}
-
-export type AnkoleWebBrainControllerListContradictionsResponses = {
-  /**
-   * Contradictions
-   */
-  200: BrainContradictionListResponse
-}
-
-export type AnkoleWebBrainControllerListContradictionsResponse =
-  AnkoleWebBrainControllerListContradictionsResponses[keyof AnkoleWebBrainControllerListContradictionsResponses]
 
 export type AnkoleWebBackgroundAgentJobControllerCompleteData = {
   /**
@@ -8155,25 +7438,6 @@ export type AnkoleWebAiGatewayControllerRerankResponses = {
 export type AnkoleWebAiGatewayControllerRerankResponse =
   AnkoleWebAiGatewayControllerRerankResponses[keyof AnkoleWebAiGatewayControllerRerankResponses]
 
-export type AnkoleWebBrainControllerObjectVersionsData = {
-  body?: never
-  path?: never
-  query: {
-    slug: string
-  }
-  url: '/api/v1/brain/objects/versions'
-}
-
-export type AnkoleWebBrainControllerObjectVersionsResponses = {
-  /**
-   * Versions
-   */
-  200: BrainObjectVersionsResponse
-}
-
-export type AnkoleWebBrainControllerObjectVersionsResponse =
-  AnkoleWebBrainControllerObjectVersionsResponses[keyof AnkoleWebBrainControllerObjectVersionsResponses]
-
 export type AnkoleWebWorkerEnvControllerIndexTenantData = {
   body?: never
   path?: never
@@ -8348,45 +7612,6 @@ export type AnkoleWebAppConfigurationControllerDecryptTenantResponses = {
 
 export type AnkoleWebAppConfigurationControllerDecryptTenantResponse =
   AnkoleWebAppConfigurationControllerDecryptTenantResponses[keyof AnkoleWebAppConfigurationControllerDecryptTenantResponses]
-
-export type AnkoleWebBrainControllerRollbackObjectData = {
-  /**
-   * Rollback
-   */
-  body: BrainObjectRollbackRequest
-  path?: never
-  query?: never
-  url: '/api/v1/brain/objects/rollback'
-}
-
-export type AnkoleWebBrainControllerRollbackObjectResponses = {
-  /**
-   * Object
-   */
-  200: BrainObjectSummaryResponse
-}
-
-export type AnkoleWebBrainControllerRollbackObjectResponse =
-  AnkoleWebBrainControllerRollbackObjectResponses[keyof AnkoleWebBrainControllerRollbackObjectResponses]
-
-export type AnkoleWebBrainControllerArchiveSourceData = {
-  body?: never
-  path: {
-    source_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/sources/{source_id}/archive'
-}
-
-export type AnkoleWebBrainControllerArchiveSourceResponses = {
-  /**
-   * Source
-   */
-  200: BrainSourceArchiveResponse
-}
-
-export type AnkoleWebBrainControllerArchiveSourceResponse =
-  AnkoleWebBrainControllerArchiveSourceResponses[keyof AnkoleWebBrainControllerArchiveSourceResponses]
 
 export type AnkoleWebAiGatewayControllerEmbeddingsData = {
   /**
@@ -8772,25 +7997,6 @@ export type AnkoleWebBrainControllerShowObjectResponses = {
 export type AnkoleWebBrainControllerShowObjectResponse =
   AnkoleWebBrainControllerShowObjectResponses[keyof AnkoleWebBrainControllerShowObjectResponses]
 
-export type AnkoleWebBrainControllerLearnSourceData = {
-  body?: never
-  path: {
-    source_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/sources/{source_id}/learn'
-}
-
-export type AnkoleWebBrainControllerLearnSourceResponses = {
-  /**
-   * Result
-   */
-  200: BrainSourceLearnResponse
-}
-
-export type AnkoleWebBrainControllerLearnSourceResponse =
-  AnkoleWebBrainControllerLearnSourceResponses[keyof AnkoleWebBrainControllerLearnSourceResponses]
-
 export type AnkoleWebPermissionGrantControllerDeleteData = {
   body?: never
   path: {
@@ -8880,28 +8086,6 @@ export type AnkoleWebPermissionGrantControllerUpdateResponses = {
 
 export type AnkoleWebPermissionGrantControllerUpdateResponse =
   AnkoleWebPermissionGrantControllerUpdateResponses[keyof AnkoleWebPermissionGrantControllerUpdateResponses]
-
-export type AnkoleWebBrainControllerDecideMergeSuggestionData = {
-  /**
-   * Decide
-   */
-  body: BrainMergeSuggestionDecideRequest
-  path: {
-    suggestion_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/merge-suggestions/{suggestion_id}/decide'
-}
-
-export type AnkoleWebBrainControllerDecideMergeSuggestionResponses = {
-  /**
-   * Result
-   */
-  200: BrainMergeResultResponse
-}
-
-export type AnkoleWebBrainControllerDecideMergeSuggestionResponse =
-  AnkoleWebBrainControllerDecideMergeSuggestionResponses[keyof AnkoleWebBrainControllerDecideMergeSuggestionResponses]
 
 export type AnkoleWebTenantControllerResumeData = {
   body?: never

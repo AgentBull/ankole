@@ -1,7 +1,11 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { Nodes } from 'mdast'
 import { fromMarkdown } from 'mdast-util-from-markdown'
-import type { BrainObjectCreateRequest, BrainObjectPage, BrainObjectUpdateRequest } from '../api/generated/types.gen'
+import type { BrainObjectPage } from '../api/generated/types.gen'
+import type { CreateBrainObjectData, UpdateBrainObjectData } from '../api/v2/generated/types.gen'
+
+type BrainObjectCreateRequest = CreateBrainObjectData['body']['data']
+type BrainObjectUpdateRequest = UpdateBrainObjectData['body']['data']
 
 export type BrainObjectPreviewSegment = { scope: string; text: string }
 export type BrainObjectPreviewError = {

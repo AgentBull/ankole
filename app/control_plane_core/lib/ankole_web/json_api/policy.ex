@@ -13,9 +13,9 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   The policy also gives the tenant of `Ankole.Repo` to the Ash action of a
   Console route. `Ankole.Repo` stays the owner of the tenant: the action gets
   the same value that `AnkoleWeb.Plugs.PutDataContext` selected. A site route
-  gets no tenant. The action context gets the Principal of the session under
-  `:principal`, so that an action can record its operator. It is not an Ash
-  actor: no Ash authorization uses it.
+  gets no tenant. The Principal of the session is the Ash actor, so that an
+  action can record its operator. Ash policies stay disabled: no Ash
+  authorization uses the actor.
 
   `AshJsonApi.Router` calls the controller of a route also after a halted
   `before_dispatch`. Thus a refusal throws the refused connection, and the
@@ -99,7 +99,7 @@ defmodule AnkoleWeb.JSONAPI.Policy do
          :ok <- ConsolePolicy.authorize(conn, expand(authz_resource, params), action) do
       conn
       |> Ash.PlugHelpers.set_tenant(tenant(scope))
-      |> Ash.PlugHelpers.set_context(%{principal: conn.assigns[:current_principal]})
+      |> Ash.PlugHelpers.set_actor(conn.assigns[:current_principal])
     else
       _refused -> refuse(conn)
     end

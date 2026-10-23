@@ -4,6 +4,684 @@ export type ClientOptions = {
   baseUrl: `${string}://${string}` | (string & {})
 }
 
+/**
+ * A "Resource object" representing a brain_claim
+ */
+export type BrainClaim = {
+  /**
+   * An attributes object for a brain_claim
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    active?: boolean | null
+    /**
+     * Field included by default.
+     */
+    audience_scope: string
+    /**
+     * Field included by default.
+     */
+    author?: {
+      tenant_id: string
+      uid: string
+    } | null
+    /**
+     * Field included by default.
+     */
+    claim: string
+    /**
+     * Field included by default.
+     */
+    claim_type: 'fact' | 'take'
+    /**
+     * Field included by default.
+     */
+    confidence?: number | null
+    /**
+     * Field included by default.
+     */
+    conversation_id?: string | null
+    /**
+     * Field included by default.
+     */
+    created_at: string
+    /**
+     * Field included by default.
+     */
+    expired_at?: string | null
+    /**
+     * Field included by default.
+     */
+    graded_confidence?: number | null
+    /**
+     * Field included by default.
+     */
+    graded_quality?: string | null
+    /**
+     * Field included by default.
+     */
+    holder: string
+    /**
+     * Field included by default.
+     */
+    kind: string
+    /**
+     * Field included by default.
+     */
+    notability?: string | null
+    /**
+     * Field included by default.
+     */
+    object_slug?: string | null
+    /**
+     * Field included by default.
+     */
+    provenance: string
+    /**
+     * Field included by default.
+     */
+    resolved_at?: string | null
+    /**
+     * Field included by default.
+     */
+    resolved_outcome?: boolean | null
+    /**
+     * Field included by default.
+     */
+    resolved_quality?: string | null
+    /**
+     * Field included by default.
+     */
+    since_date?: string | null
+    /**
+     * Field included by default.
+     */
+    superseded_by?: string | null
+    /**
+     * Field included by default.
+     */
+    until_date?: string | null
+    /**
+     * Field included by default.
+     */
+    valid_from?: string | null
+    /**
+     * Field included by default.
+     */
+    valid_until?: string | null
+    /**
+     * Field included by default.
+     */
+    weight?: number | null
+  }
+  id: string
+  /**
+   * A relationships object for a brain_claim
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type BrainClaimType = {
+  /**
+   * Field included by default.
+   */
+  active?: boolean | null
+  /**
+   * Field included by default.
+   */
+  audience_scope: string
+  /**
+   * Field included by default.
+   */
+  author?: {
+    tenant_id: string
+    uid: string
+  } | null
+  /**
+   * Field included by default.
+   */
+  claim: string
+  /**
+   * Field included by default.
+   */
+  claim_type: 'fact' | 'take'
+  /**
+   * Field included by default.
+   */
+  confidence?: number | null
+  /**
+   * Field included by default.
+   */
+  conversation_id?: string | null
+  /**
+   * Field included by default.
+   */
+  created_at: string
+  /**
+   * Field included by default.
+   */
+  expired_at?: string | null
+  /**
+   * Field included by default.
+   */
+  graded_confidence?: number | null
+  /**
+   * Field included by default.
+   */
+  graded_quality?: string | null
+  /**
+   * Field included by default.
+   */
+  holder: string
+  /**
+   * Field included by default.
+   */
+  kind: string
+  /**
+   * Field included by default.
+   */
+  notability?: string | null
+  /**
+   * Field included by default.
+   */
+  object_slug?: string | null
+  /**
+   * Field included by default.
+   */
+  provenance: string
+  /**
+   * Field included by default.
+   */
+  resolved_at?: string | null
+  /**
+   * Field included by default.
+   */
+  resolved_outcome?: boolean | null
+  /**
+   * Field included by default.
+   */
+  resolved_quality?: string | null
+  /**
+   * Field included by default.
+   */
+  since_date?: string | null
+  /**
+   * Field included by default.
+   */
+  superseded_by?: string | null
+  /**
+   * Field included by default.
+   */
+  until_date?: string | null
+  /**
+   * Field included by default.
+   */
+  valid_from?: string | null
+  /**
+   * Field included by default.
+   */
+  valid_until?: string | null
+  /**
+   * Field included by default.
+   */
+  weight?: number | null
+}
+
+/**
+ * A "Resource object" representing a brain_contradiction
+ */
+export type BrainContradiction = {
+  /**
+   * An attributes object for a brain_contradiction
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    a_claim_text?: string | null
+    /**
+     * Field included by default.
+     */
+    axis: string
+    /**
+     * Field included by default.
+     */
+    b_claim_text?: string | null
+    /**
+     * Field included by default.
+     */
+    confidence: number
+    /**
+     * Field included by default.
+     */
+    created_at: string
+    /**
+     * Field included by default.
+     */
+    severity: 'info' | 'low' | 'medium' | 'high'
+    /**
+     * Field included by default.
+     */
+    status: 'open' | 'resolved' | 'dismissed'
+    /**
+     * Field included by default.
+     */
+    verdict: string
+  }
+  id: string
+  /**
+   * A relationships object for a brain_contradiction
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type BrainContradictionType = {
+  /**
+   * Field included by default.
+   */
+  a_claim_text?: string | null
+  /**
+   * Field included by default.
+   */
+  axis: string
+  /**
+   * Field included by default.
+   */
+  b_claim_text?: string | null
+  /**
+   * Field included by default.
+   */
+  confidence: number
+  /**
+   * Field included by default.
+   */
+  created_at: string
+  /**
+   * Field included by default.
+   */
+  severity: 'info' | 'low' | 'medium' | 'high'
+  /**
+   * Field included by default.
+   */
+  status: 'open' | 'resolved' | 'dismissed'
+  /**
+   * Field included by default.
+   */
+  verdict: string
+}
+
+/**
+ * A "Resource object" representing a brain_merge_suggestion
+ */
+export type BrainMergeSuggestion = {
+  /**
+   * An attributes object for a brain_merge_suggestion
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    a_page?: {
+      slug: string
+      title?: string | null
+      type?: string | null
+    } | null
+    /**
+     * Field included by default.
+     */
+    b_page?: {
+      slug: string
+      title?: string | null
+      type?: string | null
+    } | null
+    /**
+     * Field included by default.
+     */
+    created_at: string
+    /**
+     * Field included by default.
+     */
+    reason: string
+    /**
+     * Field included by default.
+     */
+    status: 'pending' | 'approved' | 'rejected'
+  }
+  id: string
+  /**
+   * A relationships object for a brain_merge_suggestion
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type BrainMergeSuggestionType = {
+  /**
+   * Field included by default.
+   */
+  a_page?: {
+    slug: string
+    title?: string | null
+    type?: string | null
+  } | null
+  /**
+   * Field included by default.
+   */
+  b_page?: {
+    slug: string
+    title?: string | null
+    type?: string | null
+  } | null
+  /**
+   * Field included by default.
+   */
+  created_at: string
+  /**
+   * Field included by default.
+   */
+  reason: string
+  /**
+   * Field included by default.
+   */
+  status: 'pending' | 'approved' | 'rejected'
+}
+
+/**
+ * A "Resource object" representing a brain_object
+ */
+export type BrainObject = {
+  /**
+   * An attributes object for a brain_object
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    deleted_at?: string | null
+    /**
+     * Field included by default.
+     */
+    effective_date?: string | null
+    /**
+     * Field included by default.
+     */
+    managed_by_source_id?: string | null
+    /**
+     * Field included by default.
+     */
+    slug: string
+    /**
+     * Field included by default.
+     */
+    subtype?: string | null
+    /**
+     * Field included by default.
+     */
+    title: string
+    /**
+     * Field included by default.
+     */
+    type: string
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a brain_object
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type BrainObjectType = {
+  /**
+   * Field included by default.
+   */
+  deleted_at?: string | null
+  /**
+   * Field included by default.
+   */
+  effective_date?: string | null
+  /**
+   * Field included by default.
+   */
+  managed_by_source_id?: string | null
+  /**
+   * Field included by default.
+   */
+  slug: string
+  /**
+   * Field included by default.
+   */
+  subtype?: string | null
+  /**
+   * Field included by default.
+   */
+  title: string
+  /**
+   * Field included by default.
+   */
+  type: string
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+}
+
+/**
+ * A "Resource object" representing a brain_object_version
+ */
+export type BrainObjectVersion = {
+  /**
+   * An attributes object for a brain_object_version
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    author?: {
+      tenant_id: string
+      uid: string
+    } | null
+    /**
+     * Field included by default.
+     */
+    body: string
+    /**
+     * Field included by default.
+     */
+    meta: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    snapshot_at: string
+    /**
+     * Field included by default.
+     */
+    tags: Array<string>
+  }
+  id: string
+  /**
+   * A relationships object for a brain_object_version
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a brain_schema_suggestion
+ */
+export type BrainSchemaSuggestion = {
+  /**
+   * An attributes object for a brain_schema_suggestion
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    created_at: string
+    /**
+     * Field included by default.
+     */
+    evidence_count: number
+    /**
+     * Field included by default.
+     */
+    kind: 'new_type' | 'new_subtype' | 'alias'
+    /**
+     * Field included by default.
+     */
+    rationale: string
+    /**
+     * Field included by default.
+     */
+    status: 'pending' | 'approved' | 'rejected'
+    /**
+     * Field included by default.
+     */
+    target_type?: string | null
+    /**
+     * Field included by default.
+     */
+    term: string
+  }
+  id: string
+  /**
+   * A relationships object for a brain_schema_suggestion
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type BrainSchemaSuggestionType = {
+  /**
+   * Field included by default.
+   */
+  created_at: string
+  /**
+   * Field included by default.
+   */
+  evidence_count: number
+  /**
+   * Field included by default.
+   */
+  kind: 'new_type' | 'new_subtype' | 'alias'
+  /**
+   * Field included by default.
+   */
+  rationale: string
+  /**
+   * Field included by default.
+   */
+  status: 'pending' | 'approved' | 'rejected'
+  /**
+   * Field included by default.
+   */
+  target_type?: string | null
+  /**
+   * Field included by default.
+   */
+  term: string
+}
+
+/**
+ * A "Resource object" representing a brain_source
+ */
+export type BrainSource = {
+  /**
+   * An attributes object for a brain_source
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    archived_at?: string | null
+    /**
+     * Field included by default.
+     */
+    default_audience_scope?: string | null
+    /**
+     * Field included by default.
+     */
+    kind: string
+    /**
+     * Field included by default.
+     */
+    last_sync_at?: string | null
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    upstream_id: string
+    /**
+     * Field included by default.
+     */
+    upstream_revision?: string | null
+  }
+  id: string
+  /**
+   * A relationships object for a brain_source
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type BrainSourceType = {
+  /**
+   * Field included by default.
+   */
+  archived_at?: string | null
+  /**
+   * Field included by default.
+   */
+  default_audience_scope?: string | null
+  /**
+   * Field included by default.
+   */
+  kind: string
+  /**
+   * Field included by default.
+   */
+  last_sync_at?: string | null
+  /**
+   * Field included by default.
+   */
+  name: string
+  /**
+   * Field included by default.
+   */
+  upstream_id: string
+  /**
+   * Field included by default.
+   */
+  upstream_revision?: string | null
+}
+
 export type Error = {
   /**
    * An application-specific error code, expressed as a string value.
@@ -48,3 +726,978 @@ export type Link = string
 export type Links = {
   [key: string]: Link
 }
+
+export type ListBrainClaimsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_claim
+       */
+      brain_claim?: string
+      [key: string]: unknown
+    }
+    object_slug?: string
+    claim_type?: 'fact' | 'take'
+    status?: 'current'
+    search?: string
+  }
+  url: '/api/v2/brain/claims'
+}
+
+export type ListBrainClaimsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainClaimsError = ListBrainClaimsErrors[keyof ListBrainClaimsErrors]
+
+export type ListBrainClaimsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_claim
+     */
+    data?: Array<BrainClaim>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainClaimsResponse = ListBrainClaimsResponses[keyof ListBrainClaimsResponses]
+
+export type ForgetBrainClaimData = {
+  /**
+   * Request body for the forget_brain_claim operation on brain_claim resource
+   */
+  body?: {
+    data: {
+      reason?: string | null
+    }
+  }
+  path: {
+    claim_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/claims/{claim_id}/forget'
+}
+
+export type ForgetBrainClaimErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ForgetBrainClaimError = ForgetBrainClaimErrors[keyof ForgetBrainClaimErrors]
+
+export type ForgetBrainClaimResponses = {
+  /**
+   * Success
+   */
+  201: BrainClaimType
+}
+
+export type ForgetBrainClaimResponse = ForgetBrainClaimResponses[keyof ForgetBrainClaimResponses]
+
+export type ResolveBrainTakeData = {
+  /**
+   * Request body for the resolve_brain_take operation on brain_claim resource
+   */
+  body?: {
+    data: {
+      resolution_provenance?: string | null
+      resolved_outcome?: boolean | null
+      resolved_quality?: string | null
+      resolved_unit?: string | null
+      resolved_value?: number | null
+    }
+  }
+  path: {
+    claim_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/claims/{claim_id}/resolve'
+}
+
+export type ResolveBrainTakeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResolveBrainTakeError = ResolveBrainTakeErrors[keyof ResolveBrainTakeErrors]
+
+export type ResolveBrainTakeResponses = {
+  /**
+   * Success
+   */
+  201: BrainClaimType
+}
+
+export type ResolveBrainTakeResponse = ResolveBrainTakeResponses[keyof ResolveBrainTakeResponses]
+
+export type SupersedeBrainClaimData = {
+  /**
+   * Request body for the supersede_brain_claim operation on brain_claim resource
+   */
+  body: {
+    data: {
+      audience_scope?: string | null
+      claim: string
+      confidence?: number | null
+      kind?: string | null
+      notability?: string | null
+      provenance?: string | null
+      weight?: number | null
+    }
+  }
+  path: {
+    claim_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/claims/{claim_id}/supersede'
+}
+
+export type SupersedeBrainClaimErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SupersedeBrainClaimError = SupersedeBrainClaimErrors[keyof SupersedeBrainClaimErrors]
+
+export type SupersedeBrainClaimResponses = {
+  /**
+   * Success
+   */
+  201: BrainClaimType
+}
+
+export type SupersedeBrainClaimResponse = SupersedeBrainClaimResponses[keyof SupersedeBrainClaimResponses]
+
+export type ListBrainContradictionsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_contradiction
+       */
+      brain_contradiction?: string
+      [key: string]: unknown
+    }
+    status?: 'open' | 'resolved' | 'dismissed'
+  }
+  url: '/api/v2/brain/contradictions'
+}
+
+export type ListBrainContradictionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainContradictionsError = ListBrainContradictionsErrors[keyof ListBrainContradictionsErrors]
+
+export type ListBrainContradictionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_contradiction
+     */
+    data?: Array<BrainContradiction>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainContradictionsResponse = ListBrainContradictionsResponses[keyof ListBrainContradictionsResponses]
+
+export type DecideBrainContradictionData = {
+  /**
+   * Request body for the decide_brain_contradiction operation on brain_contradiction resource
+   */
+  body: {
+    data: {
+      resolution_note?: string | null
+      status: 'resolved' | 'dismissed'
+    }
+  }
+  path: {
+    contradiction_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/contradictions/{contradiction_id}/decide'
+}
+
+export type DecideBrainContradictionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DecideBrainContradictionError = DecideBrainContradictionErrors[keyof DecideBrainContradictionErrors]
+
+export type DecideBrainContradictionResponses = {
+  /**
+   * Success
+   */
+  201: BrainContradictionType
+}
+
+export type DecideBrainContradictionResponse =
+  DecideBrainContradictionResponses[keyof DecideBrainContradictionResponses]
+
+export type ListBrainMergeSuggestionsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_merge_suggestion
+       */
+      brain_merge_suggestion?: string
+      [key: string]: unknown
+    }
+    status?: 'pending' | 'approved' | 'rejected'
+  }
+  url: '/api/v2/brain/merge-suggestions'
+}
+
+export type ListBrainMergeSuggestionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainMergeSuggestionsError = ListBrainMergeSuggestionsErrors[keyof ListBrainMergeSuggestionsErrors]
+
+export type ListBrainMergeSuggestionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_merge_suggestion
+     */
+    data?: Array<BrainMergeSuggestion>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainMergeSuggestionsResponse =
+  ListBrainMergeSuggestionsResponses[keyof ListBrainMergeSuggestionsResponses]
+
+export type ApproveBrainMergeSuggestionData = {
+  /**
+   * Request body for the approve_brain_merge_suggestion operation on brain_merge_suggestion resource
+   */
+  body?: {
+    data: {
+      canonical_slug?: string | null
+    }
+  }
+  path: {
+    suggestion_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/merge-suggestions/{suggestion_id}/approve'
+}
+
+export type ApproveBrainMergeSuggestionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ApproveBrainMergeSuggestionError =
+  ApproveBrainMergeSuggestionErrors[keyof ApproveBrainMergeSuggestionErrors]
+
+export type ApproveBrainMergeSuggestionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    success: true
+  }
+}
+
+export type ApproveBrainMergeSuggestionResponse =
+  ApproveBrainMergeSuggestionResponses[keyof ApproveBrainMergeSuggestionResponses]
+
+export type RejectBrainMergeSuggestionData = {
+  body?: never
+  path: {
+    suggestion_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/merge-suggestions/{suggestion_id}/reject'
+}
+
+export type RejectBrainMergeSuggestionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RejectBrainMergeSuggestionError = RejectBrainMergeSuggestionErrors[keyof RejectBrainMergeSuggestionErrors]
+
+export type RejectBrainMergeSuggestionResponses = {
+  /**
+   * Success
+   */
+  201: BrainMergeSuggestionType
+}
+
+export type RejectBrainMergeSuggestionResponse =
+  RejectBrainMergeSuggestionResponses[keyof RejectBrainMergeSuggestionResponses]
+
+export type ListBrainObjectVersionsData = {
+  body?: never
+  path?: never
+  query: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_object_version
+       */
+      brain_object_version?: string
+      [key: string]: unknown
+    }
+    slug: string
+  }
+  url: '/api/v2/brain/object-versions'
+}
+
+export type ListBrainObjectVersionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainObjectVersionsError = ListBrainObjectVersionsErrors[keyof ListBrainObjectVersionsErrors]
+
+export type ListBrainObjectVersionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_object_version
+     */
+    data?: Array<BrainObjectVersion>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainObjectVersionsResponse = ListBrainObjectVersionsResponses[keyof ListBrainObjectVersionsResponses]
+
+export type ListBrainObjectsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_object
+       */
+      brain_object?: string
+      [key: string]: unknown
+    }
+    prefix?: string
+    search?: string
+    deleted?: boolean
+  }
+  url: '/api/v2/brain/objects'
+}
+
+export type ListBrainObjectsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainObjectsError = ListBrainObjectsErrors[keyof ListBrainObjectsErrors]
+
+export type ListBrainObjectsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_object
+     */
+    data?: Array<BrainObject>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainObjectsResponse = ListBrainObjectsResponses[keyof ListBrainObjectsResponses]
+
+export type UpdateBrainObjectData = {
+  /**
+   * Request body for the update_brain_object operation on brain_object resource
+   */
+  body: {
+    data: {
+      body: string
+      effective_date?: string | null
+      expected_content_hash: string
+      meta: {
+        [key: string]: unknown
+      }
+      slug: string
+      subtype?: string | null
+      tags?: Array<string> | null
+      title: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/objects'
+}
+
+export type UpdateBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateBrainObjectError = UpdateBrainObjectErrors[keyof UpdateBrainObjectErrors]
+
+export type UpdateBrainObjectResponses = {
+  /**
+   * Success
+   */
+  200: BrainObjectType
+}
+
+export type UpdateBrainObjectResponse = UpdateBrainObjectResponses[keyof UpdateBrainObjectResponses]
+
+export type CreateBrainObjectData = {
+  /**
+   * Request body for the create_brain_object operation on brain_object resource
+   */
+  body: {
+    data: {
+      body: string
+      effective_date?: string | null
+      meta: {
+        [key: string]: unknown
+      }
+      slug: string
+      subtype?: string | null
+      tags?: Array<string> | null
+      title: string
+      type: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/objects'
+}
+
+export type CreateBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateBrainObjectError = CreateBrainObjectErrors[keyof CreateBrainObjectErrors]
+
+export type CreateBrainObjectResponses = {
+  /**
+   * Success
+   */
+  201: BrainObjectType
+}
+
+export type CreateBrainObjectResponse = CreateBrainObjectResponses[keyof CreateBrainObjectResponses]
+
+export type ForgetBrainObjectData = {
+  /**
+   * Request body for the forget_brain_object operation on brain_object resource
+   */
+  body: {
+    data: {
+      reason?: string | null
+      slug: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/objects/forget'
+}
+
+export type ForgetBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ForgetBrainObjectError = ForgetBrainObjectErrors[keyof ForgetBrainObjectErrors]
+
+export type ForgetBrainObjectResponses = {
+  /**
+   * Success
+   */
+  201: BrainObjectType
+}
+
+export type ForgetBrainObjectResponse = ForgetBrainObjectResponses[keyof ForgetBrainObjectResponses]
+
+export type ForkBrainObjectData = {
+  /**
+   * Request body for the fork_brain_object operation on brain_object resource
+   */
+  body: {
+    data: {
+      slug: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/objects/fork'
+}
+
+export type ForkBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ForkBrainObjectError = ForkBrainObjectErrors[keyof ForkBrainObjectErrors]
+
+export type ForkBrainObjectResponses = {
+  /**
+   * Success
+   */
+  201: BrainObjectType
+}
+
+export type ForkBrainObjectResponse = ForkBrainObjectResponses[keyof ForkBrainObjectResponses]
+
+export type RestoreBrainObjectData = {
+  /**
+   * Request body for the restore_brain_object operation on brain_object resource
+   */
+  body: {
+    data: {
+      slug: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/objects/restore'
+}
+
+export type RestoreBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RestoreBrainObjectError = RestoreBrainObjectErrors[keyof RestoreBrainObjectErrors]
+
+export type RestoreBrainObjectResponses = {
+  /**
+   * Success
+   */
+  201: BrainObjectType
+}
+
+export type RestoreBrainObjectResponse = RestoreBrainObjectResponses[keyof RestoreBrainObjectResponses]
+
+export type RollbackBrainObjectData = {
+  /**
+   * Request body for the rollback_brain_object operation on brain_object resource
+   */
+  body: {
+    data: {
+      slug: string
+      version_id: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/objects/rollback'
+}
+
+export type RollbackBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RollbackBrainObjectError = RollbackBrainObjectErrors[keyof RollbackBrainObjectErrors]
+
+export type RollbackBrainObjectResponses = {
+  /**
+   * Success
+   */
+  201: BrainObjectType
+}
+
+export type RollbackBrainObjectResponse = RollbackBrainObjectResponses[keyof RollbackBrainObjectResponses]
+
+export type ListBrainSourcesData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_source
+       */
+      brain_source?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/brain/sources'
+}
+
+export type ListBrainSourcesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainSourcesError = ListBrainSourcesErrors[keyof ListBrainSourcesErrors]
+
+export type ListBrainSourcesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_source
+     */
+    data?: Array<BrainSource>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainSourcesResponse = ListBrainSourcesResponses[keyof ListBrainSourcesResponses]
+
+export type CreateBrainSourceData = {
+  /**
+   * Request body for the create_brain_source operation on brain_source resource
+   */
+  body: {
+    data: {
+      config?: {
+        [key: string]: unknown
+      } | null
+      default_audience_scope?: string | null
+      kind: string
+      name: string
+      upstream_id: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/sources'
+}
+
+export type CreateBrainSourceErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateBrainSourceError = CreateBrainSourceErrors[keyof CreateBrainSourceErrors]
+
+export type CreateBrainSourceResponses = {
+  /**
+   * Success
+   */
+  201: BrainSourceType
+}
+
+export type CreateBrainSourceResponse = CreateBrainSourceResponses[keyof CreateBrainSourceResponses]
+
+export type UpdateBrainSourceData = {
+  /**
+   * Request body for the update_brain_source operation on brain_source resource
+   */
+  body?: {
+    data: {
+      scope?: string | null
+    }
+  }
+  path: {
+    source_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/sources/{source_id}'
+}
+
+export type UpdateBrainSourceErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateBrainSourceError = UpdateBrainSourceErrors[keyof UpdateBrainSourceErrors]
+
+export type UpdateBrainSourceResponses = {
+  /**
+   * Success
+   */
+  200: BrainSourceType
+}
+
+export type UpdateBrainSourceResponse = UpdateBrainSourceResponses[keyof UpdateBrainSourceResponses]
+
+export type ArchiveBrainSourceData = {
+  body?: never
+  path: {
+    source_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/sources/{source_id}/archive'
+}
+
+export type ArchiveBrainSourceErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ArchiveBrainSourceError = ArchiveBrainSourceErrors[keyof ArchiveBrainSourceErrors]
+
+export type ArchiveBrainSourceResponses = {
+  /**
+   * Success
+   */
+  201: BrainSourceType
+}
+
+export type ArchiveBrainSourceResponse = ArchiveBrainSourceResponses[keyof ArchiveBrainSourceResponses]
+
+export type LearnBrainSourceData = {
+  body?: never
+  path: {
+    source_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/sources/{source_id}/learn'
+}
+
+export type LearnBrainSourceErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type LearnBrainSourceError = LearnBrainSourceErrors[keyof LearnBrainSourceErrors]
+
+export type LearnBrainSourceResponses = {
+  /**
+   * Success
+   */
+  201: {
+    success: true
+  }
+}
+
+export type LearnBrainSourceResponse = LearnBrainSourceResponses[keyof LearnBrainSourceResponses]
+
+export type ListBrainSuggestionsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_schema_suggestion
+       */
+      brain_schema_suggestion?: string
+      [key: string]: unknown
+    }
+    status?: 'pending' | 'approved' | 'rejected'
+  }
+  url: '/api/v2/brain/suggestions'
+}
+
+export type ListBrainSuggestionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainSuggestionsError = ListBrainSuggestionsErrors[keyof ListBrainSuggestionsErrors]
+
+export type ListBrainSuggestionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_schema_suggestion
+     */
+    data?: Array<BrainSchemaSuggestion>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainSuggestionsResponse = ListBrainSuggestionsResponses[keyof ListBrainSuggestionsResponses]
+
+export type ApproveBrainSuggestionData = {
+  /**
+   * Request body for the approve_brain_suggestion operation on brain_schema_suggestion resource
+   */
+  body?: {
+    data: {
+      extractable?: boolean | null
+      primitive?: string | null
+      slug_prefix?: string | null
+      target_type?: string | null
+    }
+  }
+  path: {
+    suggestion_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/suggestions/{suggestion_id}/approve'
+}
+
+export type ApproveBrainSuggestionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ApproveBrainSuggestionError = ApproveBrainSuggestionErrors[keyof ApproveBrainSuggestionErrors]
+
+export type ApproveBrainSuggestionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    success: true
+  }
+}
+
+export type ApproveBrainSuggestionResponse = ApproveBrainSuggestionResponses[keyof ApproveBrainSuggestionResponses]
+
+export type RejectBrainSuggestionData = {
+  body?: never
+  path: {
+    suggestion_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/suggestions/{suggestion_id}/reject'
+}
+
+export type RejectBrainSuggestionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RejectBrainSuggestionError = RejectBrainSuggestionErrors[keyof RejectBrainSuggestionErrors]
+
+export type RejectBrainSuggestionResponses = {
+  /**
+   * Success
+   */
+  201: BrainSchemaSuggestionType
+}
+
+export type RejectBrainSuggestionResponse = RejectBrainSuggestionResponses[keyof RejectBrainSuggestionResponses]

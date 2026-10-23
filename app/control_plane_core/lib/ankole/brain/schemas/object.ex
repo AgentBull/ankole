@@ -323,7 +323,7 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
 
       run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.Brain.Objects.fork_library_page_in_tx(args.slug))
+        Ankole.Brain.Console.result(Ankole.Brain.Objects.fork_library_page_in_tx(args.slug))
       end)
     end
 
@@ -332,7 +332,7 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
 
       run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.Brain.Objects.restore_in_tx(args.slug))
+        Ankole.Brain.Console.result(Ankole.Brain.Objects.restore_in_tx(args.slug))
       end)
     end
 
@@ -357,8 +357,8 @@ defmodule Ankole.Brain.Schemas.Object do
       end)
     end
 
-    # The Console operations. The operator comes from the action context
-    # (Ankole.Brain.ConsoleOperator).
+    # The Console operations. The operator is the actor of the action
+    # (Ankole.Brain.Console).
     action :console_create, :struct do
       constraints(instance_of: __MODULE__)
       argument(:slug, :string, allow_nil?: false)
@@ -370,11 +370,11 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:effective_date, :date)
       argument(:tags, {:array, :string}, default: [])
 
-      run(fn %{arguments: args, context: context}, _context ->
+      run(fn %{arguments: args}, context ->
         args
         |> Map.take([:slug, :type, :subtype, :title, :body, :meta, :effective_date, :tags])
-        |> Ankole.Brain.Objects.create_object_in_tx(Ankole.Brain.ConsoleOperator.writer(context))
-        |> Ankole.Errors.wrap()
+        |> Ankole.Brain.Objects.create_object_in_tx(Ankole.Brain.Console.writer(context))
+        |> Ankole.Brain.Console.result()
       end)
     end
 
@@ -391,7 +391,7 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:effective_date, :date)
       argument(:tags, {:array, :string})
 
-      run(fn %{arguments: args, context: context}, _context ->
+      run(fn %{arguments: args}, context ->
         attrs =
           Map.take(args, [:expected_content_hash, :subtype, :title, :body, :meta, :effective_date])
 
@@ -400,10 +400,10 @@ defmodule Ankole.Brain.Schemas.Object do
         args.slug
         |> Ankole.Brain.Objects.update_object_in_tx(
           attrs,
-          Ankole.Brain.ConsoleOperator.writer(context),
-          author: Ankole.Brain.ConsoleOperator.actor_ref(context)
+          Ankole.Brain.Console.writer(context),
+          author: Ankole.Brain.Console.actor_ref(context)
         )
-        |> Ankole.Errors.wrap()
+        |> Ankole.Brain.Console.result()
       end)
     end
 
@@ -412,14 +412,14 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:version_id, :uuid, allow_nil?: false)
 
-      run(fn %{arguments: args, context: context}, _context ->
+      run(fn %{arguments: args}, context ->
         args.slug
         |> Ankole.Brain.Objects.rollback_in_tx(
           args.version_id,
-          Ankole.Brain.ConsoleOperator.writer(context),
-          author: Ankole.Brain.ConsoleOperator.actor_ref(context)
+          Ankole.Brain.Console.writer(context),
+          author: Ankole.Brain.Console.actor_ref(context)
         )
-        |> Ankole.Errors.wrap()
+        |> Ankole.Brain.Console.result()
       end)
     end
 
@@ -431,7 +431,7 @@ defmodule Ankole.Brain.Schemas.Object do
       run(fn %{arguments: args}, _context ->
         args.slug
         |> Ankole.Brain.Forget.forget_object_in_tx(args[:reason] || "", :admin)
-        |> Ankole.Errors.wrap()
+        |> Ankole.Brain.Console.result()
       end)
     end
 
