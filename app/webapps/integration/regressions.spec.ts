@@ -421,9 +421,6 @@ test('schedule names reject whitespace and reopening waits for a completed updat
     const { id, ...attributes } = cron
     return { data: { id, type: 'cron_schedule', attributes } }
   }
-  await page.route('**/api/v1/**', route =>
-    route.fulfill({ json: { signal_bindings: [], sessions: [], app_configurations: [] } })
-  )
   await page.route(
     url => url.pathname.startsWith('/api/v2/'),
     route => {

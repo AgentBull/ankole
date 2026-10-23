@@ -248,6 +248,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
 
     Compose.api!(deployment, :patch, "/api/v2/site/ai-gateway/providers/compose-model", %{
       data: %{
+        id: "compose-model",
         type: "ai_gateway_provider",
         attributes: %{
           provider_kind: "openai_compatible",
@@ -258,10 +259,14 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     })
 
     for profile <- ["primary", "light"] do
-      Compose.api!(deployment, :put, "/api/v1/agents/#{uid}/model-profiles/#{profile}", %{
-        provider_id: "compose-model",
-        model: "fake-main-chaos",
-        context_length: 131_072
+      Compose.api!(deployment, :put, "/api/v2/agents/#{uid}/model-profiles/#{profile}", %{
+        data: %{
+          attrs: %{
+            provider_id: "compose-model",
+            model: "fake-main-chaos",
+            context_length: 131_072
+          }
+        }
       })
     end
 
@@ -599,6 +604,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
 
     Compose.api!(deployment, :patch, "/api/v2/site/ai-gateway/providers/compose-real-model", %{
       data: %{
+        id: "compose-real-model",
         type: "ai_gateway_provider",
         attributes: %{
           provider_kind: "openrouter",
@@ -611,22 +617,28 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     })
 
     for profile <- ["primary", "light"] do
-      Compose.api!(deployment, :put, "/api/v1/agents/#{uid}/model-profiles/#{profile}", %{
-        provider_id: "compose-real-model",
-        model: "deepseek/deepseek-v4.1-flash",
-        context_length: 131_072
+      Compose.api!(deployment, :put, "/api/v2/agents/#{uid}/model-profiles/#{profile}", %{
+        data: %{
+          attrs: %{
+            provider_id: "compose-real-model",
+            model: "deepseek/deepseek-v4.1-flash",
+            context_length: 131_072
+          }
+        }
       })
     end
 
-    Compose.api!(deployment, :put, "/api/v1/agents/#{uid}/signal-bindings/lark/compose-real", %{
-      config: %{
-        appID: app_id,
-        appSecret: app_secret,
-        domain: "feishu",
-        userName: "Compose recovery bot"
-      },
-      group_message_mode: "addressed_only",
-      unmatched_sender_policy: "create_standalone"
+    Compose.api!(deployment, :put, "/api/v2/agents/#{uid}/signal-bindings/lark/compose-real", %{
+      data: %{
+        config: %{
+          appID: app_id,
+          appSecret: app_secret,
+          domain: "feishu",
+          userName: "Compose recovery bot"
+        },
+        group_message_mode: "addressed_only",
+        unmatched_sender_policy: "create_standalone"
+      }
     })
 
     assert {:ok, true} =

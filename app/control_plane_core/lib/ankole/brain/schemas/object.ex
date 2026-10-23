@@ -5,9 +5,8 @@ defmodule Ankole.Brain.Schemas.Object do
     domain: Ankole.Brain,
     extensions: [AshJsonApi.Resource]
 
-  # The Console API gives the summary fields. The page read model with the
-  # body, the Claims, and the links stays at the v1 route
-  # `GET /api/v1/brain/objects/show`.
+  # The resource gives summary fields. `GET /api/v2/brain/objects/show` gives
+  # the page body, Claims, and links.
   json_api do
     type("brain_object")
     derive_filter?(false)

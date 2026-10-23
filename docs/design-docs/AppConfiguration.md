@@ -130,8 +130,8 @@ their key includes a hash of the globally unique Agent UID and binding name; the
 binding lifecycle deletes them.
 
 The settings page shows the site value and current tenant value in separate
-columns. Site writes use `/api/v1/site/app-configurations`; tenant writes use
-`/api/v1/app-configurations`. Both use the same validation and encryption owner.
+columns. Site writes use `/api/v2/site/app-configurations`; tenant writes use
+`/api/v2/app-configurations`. Both use the same validation and encryption owner.
 
 AppConfigure tries the next choice only when a row is absent. A corrupt or
 undecryptable row returns an error instead of hiding the problem.

@@ -130,14 +130,14 @@ Objects 校验写入作用域并按 segment 分块。GetPage 按读取与披露�
 
 ### Console API
 
-Object slug 可包含 `/`，所以 slug 放在查询参数或请求 body 中，不放在路径中。
-详情是组合读模型（正文、Claims、链接、矛盾、时间线），保留在 v1；写入在
-JSON:API v2（`Ankole.Brain` 的 `json_api` 路由，请求和响应使用
-`application/vnd.api+json`，泛型动作的参数在 `data` 中）。
+An Object slug can contain `/`. The Console sends it in the query or request
+body. Detail reads and writes use `/api/v2/brain` with
+`application/vnd.api+json`. Generic operations receive their arguments under
+`data` and return the typed result declared by each operation.
 
 | 方法与路径 | 用途 | 关键输入或输出 |
 | --- | --- | --- |
-| `GET /api/v1/brain/objects/show?slug=...` | 加载详情和编辑基线 | raw `body`、`content_hash`、`editable`、`edit_block_reason` |
+| `GET /api/v2/brain/objects/show?slug=...` | Read the detail and save baseline | raw `body`, `content_hash`, `editable`, `edit_block_reason` |
 | `POST /api/v2/brain/objects` | 创建租户自有 Object（`:console_create`） | slug、type、subtype、title、body、meta、effective_date |
 | `PATCH /api/v2/brain/objects` | 更新租户自有 Object（`:console_update`） | slug、可变字段、`expected_content_hash` |
 | `GET /api/v2/brain/object-versions?slug=...` | 版本历史 | author、body、meta、tags、snapshot_at |

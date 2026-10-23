@@ -74,7 +74,6 @@ const automation = {
 async function home(page: Page, failures = false) {
   const requests: string[] = []
   let workflowDenied = failures
-  await page.route('**/api/v1/**', route => route.fulfill({ json: { identity_providers: [{ enabled: true }] } }))
   // A URL predicate avoids matching the source modules of the v2 clients.
   await page.route(
     url => url.pathname.startsWith('/api/v2/'),

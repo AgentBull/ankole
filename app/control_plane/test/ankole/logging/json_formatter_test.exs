@@ -75,7 +75,7 @@ defmodule Ankole.Logging.JSONFormatterTest do
             conn,
             AnkoleWeb.Endpoint,
             :get,
-            "/api/v1/console-readiness",
+            "/api/v2/console-readiness",
             nil
           )
 

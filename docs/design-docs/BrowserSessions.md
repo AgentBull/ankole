@@ -153,8 +153,8 @@ the tenant and resource.
 
 Pod API gates check the selected tenant, authentication, current Human access,
 and binding. Conversation operations check participant membership. A Console
-API requires current siteadmin membership; Pod login does not open its
-`/api/v1` and `/api/v2` administration scopes. Protected responses cannot enter a shared cache.
+API requires current siteadmin membership; Pod login does not grant access to
+v2 management operations or native Console file transfers. Protected responses cannot enter a shared cache.
 Pod query keys include both identity and tenant. Console data selection is local
 to the document's authentication. Switching the browser default does not change
 an open document or cause a failed request to retry as another person.
