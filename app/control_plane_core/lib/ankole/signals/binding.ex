@@ -11,7 +11,10 @@ defmodule Ankole.Signals.Binding do
   the gateway's routing key.
   """
 
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Signals
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Signals,
+    extensions: [AshJsonApi.Resource]
 
   alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.Signals.BindingFilters
@@ -71,6 +74,30 @@ defmodule Ankole.Signals.Binding do
     attribute(:enabled, :boolean, default: true, allow_nil?: false, public?: true)
     attribute(:unavailable_reason, :string, public?: true)
     timestamps(type: :utc_datetime_usec)
+  end
+
+  json_api do
+    type("signal_binding")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :agent_uid,
+      :name,
+      :adapter,
+      :config_ref,
+      :target,
+      :filters,
+      :unaddressed_group_message_policy,
+      :unmatched_sender_policy,
+      :enabled,
+      :unavailable_reason
+    ])
+
+    primary_key do
+      keys([:agent_uid, :name])
+      delimiter("~")
+    end
   end
 
   actions do
@@ -176,9 +203,10 @@ defmodule Ankole.Signals.Binding do
       end)
     end
 
-    action :disable_by_name, :term do
-      argument(:agent_uid, :term, allow_nil?: false)
-      argument(:name, :term, allow_nil?: false)
+    action :disable_by_name, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:name, :string, allow_nil?: false)
 
       run(fn input, _context ->
         args = input.arguments

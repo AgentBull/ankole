@@ -1,6 +1,9 @@
 defmodule Ankole.OIDC.Client do
   @moduledoc "Operator-managed OAuth client and its authorization boundary."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.OIDC
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.OIDC,
+    extensions: [AshJsonApi.Resource]
 
   @scopes ~w(openid profile email offline_access ai_gateway.write)
   @lists [:redirect_uris, :scopes, :allowed_identity_provider_ids, :post_logout_redirect_uris]
@@ -102,7 +105,46 @@ defmodule Ankole.OIDC.Client do
       default: false
     )
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps(type: :utc_datetime_usec, public?: true)
+  end
+
+  relationships do
+    has_many :client_groups, Ankole.OIDC.ClientGroup do
+      destination_attribute(:client_id)
+    end
+  end
+
+  aggregates do
+    list :allowed_group_ids, :client_groups, :group_id do
+      public?(true)
+      sort(group_id: :asc)
+    end
+  end
+
+  # The secret ciphertext stays private.
+  json_api do
+    type("oidc_client")
+    derive_filter?(false)
+    derive_sort?(false)
+    hide_fields([:secret_ciphertext])
+
+    default_fields([
+      :id,
+      :name,
+      :enabled,
+      :client_type,
+      :redirect_uris,
+      :scopes,
+      :allowed_group_ids,
+      :model_aliases,
+      :allowed_identity_provider_ids,
+      :backchannel_logout_uri,
+      :backchannel_logout_session_required,
+      :post_logout_redirect_uris,
+      :allow_insecure_local_logout,
+      :inserted_at,
+      :updated_at
+    ])
   end
 
   changes do
@@ -133,6 +175,10 @@ defmodule Ankole.OIDC.Client do
       multitenancy(:allow_global)
     end
 
+    read :console_list do
+      prepare(build(sort: [inserted_at: :asc]))
+    end
+
     create :create_in_tx do
       accept([:id, :client_type, :secret_ciphertext] ++ @fields)
     end
@@ -147,6 +193,67 @@ defmodule Ankole.OIDC.Client do
     end
 
     destroy(:delete_in_tx)
+
+    # The Console writes. The create result has the plaintext secret of a
+    # confidential client; no other response has it.
+    action :console_create, :map do
+      constraints(
+        fields: [
+          oidc_client: [type: :struct, allow_nil?: false, constraints: [instance_of: __MODULE__]],
+          client_secret: [type: :string]
+        ]
+      )
+
+      argument(:client_type, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:public, :confidential]]
+      )
+
+      argument(:name, :string, allow_nil?: false)
+      argument(:enabled, :boolean)
+      argument(:redirect_uris, {:array, :string})
+      argument(:scopes, {:array, :string})
+      argument(:allowed_group_ids, {:array, :string})
+      argument(:model_aliases, :map)
+      argument(:allowed_identity_provider_ids, {:array, :string})
+      argument(:backchannel_logout_uri, :string)
+      argument(:backchannel_logout_session_required, :boolean)
+      argument(:post_logout_redirect_uris, {:array, :string})
+      argument(:allow_insecure_local_logout, :boolean)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(Ankole.OIDC.console_create_in_tx(input.arguments))
+      end)
+    end
+
+    action :console_update, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:name, :string)
+      argument(:enabled, :boolean)
+      argument(:redirect_uris, {:array, :string})
+      argument(:scopes, {:array, :string})
+      argument(:allowed_group_ids, {:array, :string})
+      argument(:model_aliases, :map)
+      argument(:allowed_identity_provider_ids, {:array, :string})
+      argument(:backchannel_logout_uri, :string)
+      argument(:backchannel_logout_session_required, :boolean)
+      argument(:post_logout_redirect_uris, {:array, :string})
+      argument(:allow_insecure_local_logout, :boolean)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(Ankole.OIDC.console_update_in_tx(input.arguments))
+      end)
+    end
+
+    action :console_delete, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(Ankole.OIDC.console_delete_in_tx(input.arguments.id))
+      end)
+    end
 
     action :create_client, :struct do
       constraints(instance_of: __MODULE__)

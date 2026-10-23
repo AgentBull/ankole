@@ -8,7 +8,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   """
 
   use Ankole.Ash.Resource,
-    extensions: [AshStateMachine],
+    extensions: [AshStateMachine, AshJsonApi.Resource],
     tenancy: :tenant,
     domain: Ankole.Schedule
 
@@ -78,11 +78,49 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     )
 
     attribute(:automation_job_id, :integer, public?: true)
-    timestamps(type: :utc_datetime_usec)
+    timestamps(type: :utc_datetime_usec, public?: true)
   end
 
   identities do
     identity(:idempotency, [:agent_uid, :owner_session_id, :idempotency_key], all_tenants?: true)
+  end
+
+  calculations do
+    calculate(
+      :execution_session_id,
+      :string,
+      fn records, _context ->
+        Enum.map(records, &Ankole.Schedule.Cron.execution_session_id(&1.id))
+      end,
+      public?: true
+    )
+  end
+
+  json_api do
+    type("cron_schedule")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :id,
+      :status,
+      :agent_uid,
+      :owner_session_id,
+      :execution_session_id,
+      :binding_name,
+      :name,
+      :schedule,
+      :timezone,
+      :payload,
+      :delivery,
+      :next_fire_at,
+      :last_fire_at,
+      :idempotency_key,
+      :created_by,
+      :automation_job_id,
+      :inserted_at,
+      :updated_at
+    ])
   end
 
   state_machine do
@@ -101,6 +139,103 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
 
   actions do
     defaults([:read])
+
+    # The Console list: the schedules that are not deleted, of one Agent or of
+    # all Agents.
+    read :console_list do
+      argument(:agent, Ankole.Ash.Types.PrincipalKey)
+      filter(expr(status != :deleted and (is_nil(^arg(:agent)) or agent_uid == ^arg(:agent))))
+      prepare(build(sort: [agent_uid: :asc, owner_session_id: :asc, name: :asc]))
+    end
+
+    # The Console writes address a schedule through its Agent. A schedule of
+    # another Agent reads as not found.
+    action :console_create, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:owner_session_id, :string, allow_nil?: false)
+      argument(:binding_name, :string)
+      argument(:name, :string, allow_nil?: false)
+      argument(:status, :string)
+      argument(:schedule, :map, allow_nil?: false)
+      argument(:timezone, :string)
+      argument(:payload, :map)
+      argument(:delivery, :map, allow_nil?: false)
+      argument(:idempotency_key, :string, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Cron.console_create_in_tx(input.arguments, input.context[:operator])
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :console_update, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:name, :string)
+      argument(:schedule, :map)
+      argument(:timezone, :string)
+      argument(:payload, :map)
+      argument(:delivery, :map)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Cron.console_update_in_tx(input.arguments)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :console_pause, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Cron.console_pause_in_tx(input.arguments)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :console_resume, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Cron.console_resume_in_tx(input.arguments)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :console_remove, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Cron.console_remove_in_tx(input.arguments)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    # A manual fire. The idempotency key makes a repeated request one fire.
+    action :console_run, :struct do
+      constraints(instance_of: Ankole.Schedule.Schemas.ScheduledEvent)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:idempotency_key, :string, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Cron.console_run_in_tx(input.arguments)
+        |> Ankole.Errors.wrap()
+      end)
+    end
 
     action :create_cron_schedule, :term do
       argument(:attrs, :term, allow_nil?: false)

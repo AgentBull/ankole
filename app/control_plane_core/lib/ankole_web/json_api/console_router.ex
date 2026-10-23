@@ -1,5 +1,5 @@
 defmodule AnkoleWeb.JSONAPI.ConsoleRouter do
   @moduledoc "Serves the tenant Console JSON:API at `/api/v2`."
 
-  use AnkoleWeb.JSONAPI.Router, scope: :console, prefix: "/api/v2", domains: []
+  use AnkoleWeb.JSONAPI.Router, scope: :console, prefix: "/api/v2", domains: [Ankole.AutomationJobs, Ankole.OIDC, Ankole.Schedule, Ankole.Signals]
 end

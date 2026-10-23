@@ -5,7 +5,7 @@ defmodule Ankole.OIDC do
   A Client write that has more than one step runs as a generic action on
   `Ankole.OIDC.Client`, and that action owns its transaction.
   """
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   require Ash.Query
 
@@ -20,6 +20,27 @@ defmodule Ankole.OIDC do
   alias Ankole.OIDC.Session
   alias Ankole.OIDC.RefreshToken
   alias Ankole.Repo
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/oidc-clients", Client do
+        index(:console_list, name: "list_oidc_clients", derive_sort?: false)
+        route(:post, "/", :console_create, name: "create_oidc_client")
+        get(:read, name: "get_oidc_client")
+        route(:patch, "/:id", :console_update, name: "update_oidc_client")
+        route(:delete, "/:id", :console_delete, name: "delete_oidc_client")
+      end
+
+      base_route "/oidc-clients/:client_id/logout-deliveries", Ankole.OIDC.LogoutDelivery do
+        index(:console_list, name: "list_oidc_logout_deliveries", derive_sort?: false)
+        route(:post, "/:id/retries", :console_retry, name: "retry_oidc_logout_delivery")
+      end
+    end
+  end
 
   resources do
     resource(Ankole.OIDC.Client)
@@ -206,6 +227,23 @@ defmodule Ankole.OIDC do
   @spec create_client(map()) ::
           {:ok, %{client: map(), client_secret: String.t() | nil}} | {:error, term()}
   def create_client(attrs) when is_map(attrs) do
+    with {:ok, args, secret} <- prepare_create(attrs),
+         {:ok, client} <- Ankole.Ash.run_action(Client, :create_client, args) do
+      {:ok, %{client: projection(client), client_secret: secret}}
+    end
+  end
+
+  def create_client(_attrs), do: {:error, :invalid_request_body}
+
+  @doc false
+  def console_create_in_tx(attrs) do
+    with {:ok, %{attrs: attrs, group_ids: group_ids}, secret} <- prepare_create(attrs),
+         {:ok, client} <- create_client_in_tx(attrs, group_ids) do
+      {:ok, %{oidc_client: load_console_fields(client), client_secret: secret}}
+    end
+  end
+
+  defp prepare_create(attrs) do
     id = Ankole.Ecto.UUIDv7.autogenerate()
     client_type = Ankole.Attrs.get(attrs, :type) || Ankole.Attrs.get(attrs, :client_type)
     secret = if client_type in [:confidential, "confidential"], do: opaque_token(), else: nil
@@ -213,17 +251,10 @@ defmodule Ankole.OIDC do
     with {:ok, secret_ciphertext} <- maybe_seal_secret(secret, id),
          normalized <- normalize_write_attrs(attrs, secret_ciphertext),
          {:ok, normalized} <- normalize_model_aliases(normalized),
-         {:ok, group_ids} <- group_ids(normalized),
-         {:ok, client} <-
-           Ankole.Ash.run_action(Client, :create_client, %{
-             attrs: Map.put(normalized, :id, id),
-             group_ids: group_ids
-           }) do
-      {:ok, %{client: projection(client), client_secret: secret}}
+         {:ok, group_ids} <- group_ids(normalized) do
+      {:ok, %{attrs: Map.put(normalized, :id, id), group_ids: group_ids}, secret}
     end
   end
-
-  def create_client(_attrs), do: {:error, :invalid_request_body}
 
   @doc false
   def create_client_in_tx(attrs, group_ids) do
@@ -270,6 +301,26 @@ defmodule Ankole.OIDC do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @doc false
+  def console_update_in_tx(%{id: id} = args) do
+    with {:ok, client} <- update_client_in_tx(id, Map.delete(args, :id)) do
+      {:ok, load_console_fields(client)}
+    end
+  end
+
+  @doc false
+  # The result keeps the allowed groups that the client had before the delete.
+  def console_delete_in_tx(id) do
+    with {:ok, client} <- get_client(id),
+         client = load_console_fields(client),
+         {:ok, _deleted} <- Ankole.Ash.destroy(client, :delete_in_tx) do
+      {:ok, client}
+    end
+  end
+
+  defp load_console_fields(client),
+    do: Ash.load!(client, [:allowed_group_ids], tenant: Repo.tenant_id(), authorize?: false)
 
   @doc "Deletes a client and all of its OAuth credentials, but no Principal data."
   @spec delete_client(String.t()) :: {:ok, map()} | {:error, term()}

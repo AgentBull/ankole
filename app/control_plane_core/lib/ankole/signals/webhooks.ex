@@ -40,17 +40,41 @@ defmodule Ankole.Signals.Webhooks do
   def create_endpoint(attrs, opts \\ [])
 
   def create_endpoint(attrs, opts) when is_map(attrs) do
+    with {:ok, attrs, token} <- prepare_endpoint(attrs, opts) do
+      attrs |> Ankole.Signals.create_webhook_endpoint(token) |> Ankole.Errors.reason()
+    end
+  end
+
+  def create_endpoint(_attrs, _opts), do: {:error, :invalid_webhook_endpoint}
+
+  @doc false
+  # The Console creates a standing CloudEvents endpoint for an operator.
+  def create_operator_endpoint_in_tx(repo, %{label: label, expires_at: expires_at}) do
+    with {:ok, attrs, token} <-
+           prepare_endpoint(
+             %{
+               label: label,
+               expires_at: expires_at,
+               mode: "standing",
+               event_format: "cloudevents",
+               source_provenance: %{"kind" => "operator_api"}
+             },
+             []
+           ) do
+      create_endpoint_in_tx(repo, attrs, token)
+    end
+  end
+
+  defp prepare_endpoint(attrs, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
     token = "wh_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
 
     with {:ok, attrs} <- create_attrs(attrs, token),
          :ok <- validate_public_target(attrs),
          :ok <- validate_expiry(attrs, now) do
-      attrs |> Ankole.Signals.create_webhook_endpoint(token) |> Ankole.Errors.reason()
+      {:ok, attrs, token}
     end
   end
-
-  def create_endpoint(_attrs, _opts), do: {:error, :invalid_webhook_endpoint}
 
   @doc false
   def create_endpoint_in_tx(repo, attrs, token) do
@@ -116,6 +140,15 @@ defmodule Ankole.Signals.Webhooks do
 
   def cancel_endpoint(_agent_uid, _session_id, _endpoint_id, _opts),
     do: {:error, :webhook_endpoint_not_found}
+
+  @doc false
+  # The Console cancels an endpoint of any Agent and gives the endpoint.
+  def cancel_operator_endpoint_in_tx(repo, endpoint_id) do
+    with {:ok, %{webhook_endpoint: endpoint}} <-
+           cancel_endpoint_in_tx(repo, nil, nil, endpoint_id, DateTime.utc_now(:microsecond)) do
+      {:ok, endpoint}
+    end
+  end
 
   @doc false
   def cancel_endpoint_in_tx(_repo, agent_uid, session_id, endpoint_id, now) do
@@ -222,34 +255,6 @@ defmodule Ankole.Signals.Webhooks do
       |> Ankole.Ash.update_where(:expire)
 
     length(expired)
-  end
-
-  @doc """
-  Returns the Console-safe endpoint projection.
-  """
-  @spec console_projection(WebhookEndpoint.t()) :: map()
-  def console_projection(%WebhookEndpoint{} = endpoint) do
-    %{
-      id: endpoint.id,
-      agent_uid: endpoint.agent_uid,
-      binding_name: endpoint.binding_name,
-      session_id: endpoint.session_id,
-      conversation_id: endpoint.conversation_id,
-      provider_thread_id: endpoint.provider_thread_id,
-      source_signal_id: endpoint.source_signal_id,
-      event_format: endpoint.event_format,
-      provider_message_id: endpoint.provider_message_id,
-      source_provenance: endpoint.source_provenance || %{},
-      automation_job_id: endpoint.automation_job_id,
-      label: endpoint.label,
-      mode: endpoint.mode,
-      status: Atom.to_string(endpoint.status),
-      expires_at: Ankole.Attrs.datetime_iso8601(endpoint.expires_at),
-      fired_at: Ankole.Attrs.datetime_iso8601(endpoint.fired_at),
-      cancelled_at: Ankole.Attrs.datetime_iso8601(endpoint.cancelled_at),
-      created_at: Ankole.Attrs.datetime_iso8601(endpoint.inserted_at),
-      updated_at: Ankole.Attrs.datetime_iso8601(endpoint.updated_at)
-    }
   end
 
   @doc """

@@ -10,7 +10,7 @@ defmodule Ankole.AutomationJobs do
   be the top-level call. It gives `{:ok, value}` or `{:error, reason}`.
   """
 
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   require Ash.Query
   require Ankole.ModelIntegerID
@@ -34,6 +34,26 @@ defmodule Ankole.AutomationJobs do
           required(:automation_job_run) => Run.t(),
           optional(:signal) => Ankole.Signals.Signal.t() | nil
         }
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/automation-jobs", Job do
+        index(:console_list, name: "list_automation_jobs", derive_sort?: false)
+      end
+
+      base_route "/agents/:agent_uid/automation-jobs", Job do
+        get(:read, name: "get_automation_job")
+      end
+
+      base_route "/agents/:agent_uid/automation-jobs/:automation_job_id/runs", Run do
+        index(:console_list, name: "list_automation_job_runs", derive_sort?: false)
+      end
+    end
+  end
 
   resources do
     resource Job do
@@ -606,15 +626,6 @@ defmodule Ankole.AutomationJobs do
       },
       "runs" => Enum.map(runs, &run_projection/1)
     }
-  end
-
-  @doc """
-  Returns a Console-safe detail projection.
-  """
-  @spec console_projection(Job.t(), [Run.t()]) :: map()
-  def console_projection(%Job{} = job, runs \\ []) do
-    detail = model_detail_projection(job, runs)
-    Map.put(detail["automation_job"], "runs", detail["runs"])
   end
 
   defp enqueue_for_status(_repo, %Job{status: :active} = job, event, _now, opts) do

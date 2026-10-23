@@ -11,7 +11,8 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   a rule and that each rule has a route.
 
   The policy also gives the tenant of `Ankole.Repo` to the Ash action of a
-  Console route. `Ankole.Repo` stays the owner of the tenant: the action gets
+  Console route, and the `Ankole.ActorRef` of the Console Principal as the
+  `:operator` of the action context. `Ankole.Repo` stays the owner of the tenant: the action gets
   the same value that `AnkoleWeb.Plugs.PutDataContext` selected. A site route
   gets no tenant.
 
@@ -29,7 +30,57 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   @type rule :: {authz_resource :: String.t(), authz_action :: String.t()}
 
   # {resource, route type, action or relationship} => {AuthZ resource, AuthZ action}
-  @rules %{site: %{}, console: %{}}
+  @rules %{
+    site: %{},
+    console: %{
+      # J3 automation jobs (v1: automation_job_controller.ex)
+      {Ankole.AutomationJobs.Schemas.Job, :index, :console_list} => {"automation_jobs", "read"},
+      {Ankole.AutomationJobs.Schemas.Job, :get, :read} =>
+        {"agent:{agent_uid}:automation_jobs", "read"},
+      {Ankole.AutomationJobs.Schemas.Run, :index, :console_list} =>
+        {"agent:{agent_uid}:automation_jobs", "read"},
+      # J3 OIDC clients (v1: oidc_client_controller.ex)
+      {Ankole.OIDC.Client, :index, :console_list} => {"oidc_clients", "read"},
+      {Ankole.OIDC.Client, :route, :console_create} => {"oidc_clients", "update"},
+      {Ankole.OIDC.Client, :get, :read} => {"oidc_client:{id}", "read"},
+      {Ankole.OIDC.Client, :route, :console_update} => {"oidc_client:{id}", "update"},
+      {Ankole.OIDC.Client, :route, :console_delete} => {"oidc_client:{id}", "delete"},
+      {Ankole.OIDC.LogoutDelivery, :index, :console_list} => {"oidc_client:{client_id}", "read"},
+      {Ankole.OIDC.LogoutDelivery, :route, :console_retry} =>
+        {"oidc_client:{client_id}", "update"},
+      # J3 webhook endpoints (v1: webhook_endpoint_controller.ex)
+      {Ankole.Signals.WebhookEndpoint, :index, :console_list} => {"webhooks", "read"},
+      {Ankole.Signals.WebhookEndpoint, :route, :create_operator_endpoint} =>
+        {"webhooks", "update"},
+      {Ankole.Signals.WebhookEndpoint, :route, :cancel_operator_endpoint} =>
+        {"webhooks", "delete"},
+      # J3 cron schedules and checkbacks (v1: schedule_controller.ex)
+      {Ankole.Schedule.Schemas.CronSchedule, :index, :console_list} => {"schedules", "read"},
+      {Ankole.Schedule.Schemas.CronSchedule, :route, :console_create} =>
+        {"agent:{agent_uid}:schedules", "update"},
+      {Ankole.Schedule.Schemas.CronSchedule, :get, :read} =>
+        {"agent:{agent_uid}:schedules", "read"},
+      {Ankole.Schedule.Schemas.CronSchedule, :route, :console_update} =>
+        {"agent:{agent_uid}:schedules", "update"},
+      {Ankole.Schedule.Schemas.CronSchedule, :route, :console_pause} =>
+        {"agent:{agent_uid}:schedules", "update"},
+      {Ankole.Schedule.Schemas.CronSchedule, :route, :console_resume} =>
+        {"agent:{agent_uid}:schedules", "update"},
+      {Ankole.Schedule.Schemas.CronSchedule, :route, :console_remove} =>
+        {"agent:{agent_uid}:schedules", "delete"},
+      {Ankole.Schedule.Schemas.CronSchedule, :route, :console_run} =>
+        {"agent:{agent_uid}:schedules", "update"},
+      {Ankole.Schedule.Schemas.ScheduledEvent, :index, :console_cron_runs} =>
+        {"agent:{agent_uid}:schedules", "read"},
+      {Ankole.Schedule.Schemas.ScheduledEvent, :index, :console_checkbacks} =>
+        {"schedules", "read"},
+      {Ankole.Schedule.Schemas.ScheduledEvent, :route, :console_cancel_checkback} =>
+        {"agent:{agent_uid}:schedules", "delete"},
+      # J3 signal bindings (v1: signal_binding_controller.ex)
+      {Ankole.Signals.Binding, :route, :disable_by_name} =>
+        {"agent:{agent_uid}:signal_bindings", "delete"}
+    }
+  }
 
   @doc "Gives the rules of the routers of one scope."
   @spec rules(scope()) :: %{rule_key() => rule()}
@@ -65,7 +116,9 @@ defmodule AnkoleWeb.JSONAPI.Policy do
     with {:ok, {authz_resource, action}} <-
            Map.fetch(rules || rules(scope), rule_key(resource, route)),
          :ok <- ConsolePolicy.authorize(conn, expand(authz_resource, params), action) do
-      Ash.PlugHelpers.set_tenant(conn, tenant(scope))
+      conn
+      |> Ash.PlugHelpers.set_tenant(tenant(scope))
+      |> Ash.PlugHelpers.set_context(%{operator: operator(conn)})
     else
       _refused -> refuse(conn)
     end
@@ -80,6 +133,11 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   catch
     {__MODULE__, %Plug.Conn{} = refused} -> refused
   end
+
+  defp operator(%{assigns: %{current_principal: %_{} = principal}}),
+    do: Ankole.ActorRef.from_principal(principal)
+
+  defp operator(_conn), do: nil
 
   defp tenant(:site), do: nil
   defp tenant(:console), do: Ankole.Repo.tenant_id()

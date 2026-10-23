@@ -4,7 +4,7 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
   """
 
   use Ankole.Ash.Resource,
-    extensions: [AshStateMachine],
+    extensions: [AshStateMachine, AshJsonApi.Resource],
     tenancy: :tenant,
     domain: Ankole.AutomationJobs
 
@@ -71,13 +71,35 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
 
     attribute(:wake_on_failure, :boolean, default: false, allow_nil?: false, public?: true)
     attribute(:cancelled_at, :utc_datetime_usec, public?: true)
-    timestamps(type: :utc_datetime_usec)
+    timestamps(type: :utc_datetime_usec, public?: true)
   end
 
   relationships do
     has_many :runs, Ankole.AutomationJobs.Schemas.Run do
       destination_attribute(:automation_job_id)
     end
+  end
+
+  json_api do
+    type("automation_job")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :agent_uid,
+      :owner_session_id,
+      :source_signal_id,
+      :provider_message_id,
+      :source_provenance,
+      :reply_route,
+      :drive_prefix,
+      :label,
+      :wake_on_failure,
+      :status,
+      :cancelled_at,
+      :inserted_at,
+      :updated_at
+    ])
   end
 
   state_machine do
@@ -93,6 +115,14 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
 
   actions do
     defaults([:read])
+
+    # The Console list: the newest jobs first, of one Agent or of all Agents.
+    read :console_list do
+      argument(:agent, Ankole.Ash.Types.PrincipalKey)
+      filter(expr(is_nil(^arg(:agent)) or agent_uid == ^arg(:agent)))
+      prepare(build(sort: [inserted_at: :desc, id: :desc]))
+      pagination(keyset?: true, default_limit: 100, max_page_size: 500, countable: false)
+    end
 
     action :create_job, :term do
       argument(:attrs, :term, allow_nil?: false)

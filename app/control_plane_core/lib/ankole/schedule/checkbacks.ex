@@ -91,6 +91,16 @@ defmodule Ankole.Schedule.Checkbacks do
     end
   end
 
+  @doc false
+  # The Console addresses a checkback through its Agent. The checkback of
+  # another Agent reads as not found.
+  def console_cancel_in_tx(repo, %{agent_uid: agent_uid, id: id}) do
+    case Store.get_scheduled_event(id) do
+      %ScheduledEvent{agent_uid: ^agent_uid} -> cancel_checkback_in_tx(repo, id, [])
+      _other -> {:error, :scheduled_event_not_found}
+    end
+  end
+
   @spec get_checkback(pos_integer()) ::
           {:ok, ScheduledEvent.t()} | {:error, term()}
   def get_checkback(scheduled_event_id)
