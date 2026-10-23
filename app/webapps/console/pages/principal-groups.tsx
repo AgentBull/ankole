@@ -26,7 +26,6 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   addPrincipalGroupMemberMutation,
@@ -49,7 +48,11 @@ import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
 import { ConfirmDeleteButton, EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
-import { principalGroupDescription, principalGroupDisplayName } from '../state/principal-group-text'
+import {
+  principalGroupDescription,
+  principalGroupDisplayName,
+  principalGroupErrorMessage
+} from '../state/principal-group-text'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { useEditorDraft } from '../use-editor-draft'
 import {
@@ -63,25 +66,6 @@ import { AccessSubNav } from './principals'
 /** The flat Console record of a principal group. */
 export type PrincipalGroupRecord = Flat<PrincipalGroup>
 type PrincipalGroupMember = ListPrincipalGroupMembersResponse[number]
-
-const groupErrorCodes = [
-  'built_in_group',
-  'computed_group',
-  'group_domain_mismatch',
-  'group_has_grants',
-  'last_admin_member',
-  'last_active_human_admin',
-  'not_human',
-  'principal_disabled'
-]
-
-/** Localizes the domain refusals of group and membership writes. */
-export function principalGroupErrorMessage(t: TFunction, error: unknown): string {
-  const code = requestErrorCode(error)
-  return code && groupErrorCodes.includes(code)
-    ? t(`console.principal_groups.error_${code}`)
-    : requestErrorMessage(error)
-}
 
 export function PrincipalGroupsListPage() {
   const { t } = useTranslation()
