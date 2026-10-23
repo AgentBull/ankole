@@ -16,26 +16,26 @@ export type AutomationJob = {
      * Field included by default.
      */
     agent_uid: unknown
-    authorization_kind?: string | null | unknown
+    authorization_kind?: string | null
     /**
      * Field included by default.
      */
-    cancelled_at?: unknown
+    cancelled_at?: string | null
     /**
      * Field included by default.
      */
     drive_prefix: string
-    human_access_version?: number | null | unknown
-    human_uid?: unknown
+    human_access_version?: number | null
+    human_uid?: unknown | null
     /**
      * Field included by default.
      */
-    inserted_at: unknown
+    inserted_at: string
     /**
      * Field included by default.
      */
     label: string
-    legacy_directory_path?: string | null | unknown
+    legacy_directory_path?: string | null
     /**
      * Field included by default.
      */
@@ -43,7 +43,7 @@ export type AutomationJob = {
     /**
      * Field included by default.
      */
-    provider_message_id?: string | null | unknown
+    provider_message_id?: string | null
     /**
      * Field included by default.
      */
@@ -55,7 +55,7 @@ export type AutomationJob = {
     /**
      * Field included by default.
      */
-    source_signal_id?: string | null | unknown
+    source_signal_id?: string | null
     /**
      * Field included by default.
      */
@@ -63,7 +63,7 @@ export type AutomationJob = {
     /**
      * Field included by default.
      */
-    updated_at: unknown
+    updated_at: string
     /**
      * Field included by default.
      */
@@ -87,7 +87,7 @@ export type AutomationJobRun = {
    * An attributes object for a automation_job_run
    */
   attributes?: {
-    attempt_id?: string | null | unknown
+    attempt_id?: string | null
     /**
      * Field included by default.
      */
@@ -99,20 +99,20 @@ export type AutomationJobRun = {
     /**
      * Field included by default.
      */
-    error?: string | null | unknown
+    error?: string | null
     event: unknown
     /**
      * Field included by default.
      */
-    exit_code?: number | null | unknown
+    exit_code?: number | null
     /**
      * Field included by default.
      */
-    finished_at?: unknown
+    finished_at?: string | null
     /**
      * Field included by default.
      */
-    started_at?: unknown
+    started_at?: string | null
     /**
      * Field included by default.
      */
@@ -120,7 +120,7 @@ export type AutomationJobRun = {
     /**
      * Field included by default.
      */
-    stderr?: string | null | unknown
+    stderr?: string | null
     /**
      * Field included by default.
      */
@@ -128,12 +128,12 @@ export type AutomationJobRun = {
     /**
      * Field included by default.
      */
-    stdout?: string | null | unknown
+    stdout?: string | null
     /**
      * Field included by default.
      */
     stdout_truncated: boolean
-    worker_wait_started_at?: unknown
+    worker_wait_started_at?: string | null
   }
   id: string
   /**
@@ -157,15 +157,15 @@ export type CronSchedule = {
      * Field included by default.
      */
     agent_uid: unknown
-    authorization_kind?: string | null | unknown
+    authorization_kind?: string | null
     /**
      * Field included by default.
      */
-    automation_job_id?: number | null | unknown
+    automation_job_id?: number | null
     /**
      * Field included by default.
      */
-    binding_name?: string | null | unknown
+    binding_name?: string | null
     /**
      * Field included by default.
      */
@@ -173,13 +173,13 @@ export type CronSchedule = {
     /**
      * Field included by default.
      */
-    delivery?: unknown
+    delivery?: unknown | null
     /**
      * Field included by default.
      */
-    execution_session_id?: string | null | unknown
-    human_access_version?: number | null | unknown
-    human_uid?: unknown
+    execution_session_id?: string | null
+    human_access_version?: number | null
+    human_uid?: unknown | null
     /**
      * Field included by default.
      */
@@ -187,11 +187,11 @@ export type CronSchedule = {
     /**
      * Field included by default.
      */
-    inserted_at: unknown
+    inserted_at: string
     /**
      * Field included by default.
      */
-    last_fire_at?: unknown
+    last_fire_at?: string | null
     /**
      * Field included by default.
      */
@@ -199,7 +199,7 @@ export type CronSchedule = {
     /**
      * Field included by default.
      */
-    next_fire_at?: unknown
+    next_fire_at?: string | null
     /**
      * Field included by default.
      */
@@ -223,7 +223,7 @@ export type CronSchedule = {
     /**
      * Field included by default.
      */
-    updated_at: unknown
+    updated_at: string
   }
   id: string
   /**
@@ -243,15 +243,15 @@ export type CronScheduleType = {
   /**
    * Field included by default.
    */
-  authorization_kind?: string | null | unknown
+  authorization_kind?: string | null
   /**
    * Field included by default.
    */
-  automation_job_id?: number | null | unknown
+  automation_job_id?: number | null
   /**
    * Field included by default.
    */
-  binding_name?: string | null | unknown
+  binding_name?: string | null
   /**
    * Field included by default.
    */
@@ -259,23 +259,23 @@ export type CronScheduleType = {
   /**
    * Field included by default.
    */
-  delivery?: unknown
+  delivery?: unknown | null
   /**
    * Field included by default.
    */
-  execution_session_id?: string | null | unknown
+  execution_session_id?: string | null
   /**
    * Field included by default.
    */
-  human_access_version?: number | null | unknown
+  human_access_version?: number | null
   /**
    * Field included by default.
    */
-  human_uid?: unknown
+  human_uid?: unknown | null
   /**
    * Field included by default.
    */
-  id?: string | unknown
+  id?: string | null
   /**
    * Field included by default.
    */
@@ -283,11 +283,11 @@ export type CronScheduleType = {
   /**
    * Field included by default.
    */
-  inserted_at: unknown
+  inserted_at: string
   /**
    * Field included by default.
    */
-  last_fire_at?: unknown
+  last_fire_at?: string | null
   /**
    * Field included by default.
    */
@@ -295,7 +295,7 @@ export type CronScheduleType = {
   /**
    * Field included by default.
    */
-  next_fire_at?: unknown
+  next_fire_at?: string | null
   /**
    * Field included by default.
    */
@@ -319,7 +319,7 @@ export type CronScheduleType = {
   /**
    * Field included by default.
    */
-  updated_at: unknown
+  updated_at: string
 }
 
 export type Error = {
@@ -382,7 +382,7 @@ export type OidcClient = {
     /**
      * Field included by default.
      */
-    allowed_group_ids?: Array<string> | unknown
+    allowed_group_ids?: Array<string> | null
     /**
      * Field included by default.
      */
@@ -394,7 +394,7 @@ export type OidcClient = {
     /**
      * Field included by default.
      */
-    backchannel_logout_uri?: string | null | unknown
+    backchannel_logout_uri?: string | null
     /**
      * Field included by default.
      */
@@ -406,7 +406,7 @@ export type OidcClient = {
     /**
      * Field included by default.
      */
-    inserted_at: unknown
+    inserted_at: string
     /**
      * Field included by default.
      */
@@ -430,7 +430,7 @@ export type OidcClient = {
     /**
      * Field included by default.
      */
-    updated_at: unknown
+    updated_at: string
   }
   id: string
   /**
@@ -450,7 +450,7 @@ export type OidcClientType = {
   /**
    * Field included by default.
    */
-  allowed_group_ids?: Array<string> | unknown
+  allowed_group_ids?: Array<string> | null
   /**
    * Field included by default.
    */
@@ -462,7 +462,7 @@ export type OidcClientType = {
   /**
    * Field included by default.
    */
-  backchannel_logout_uri?: string | null | unknown
+  backchannel_logout_uri?: string | null
   /**
    * Field included by default.
    */
@@ -474,11 +474,11 @@ export type OidcClientType = {
   /**
    * Field included by default.
    */
-  id?: string | unknown
+  id?: string | null
   /**
    * Field included by default.
    */
-  inserted_at: unknown
+  inserted_at: string
   /**
    * Field included by default.
    */
@@ -502,7 +502,7 @@ export type OidcClientType = {
   /**
    * Field included by default.
    */
-  updated_at: unknown
+  updated_at: string
 }
 
 /**
@@ -520,28 +520,28 @@ export type OidcLogoutDelivery = {
     /**
      * Field included by default.
      */
-    deadline: unknown
+    deadline: string
     /**
      * Field included by default.
      */
-    delivered_at?: unknown
+    delivered_at?: string | null
     endpoint: string
     /**
      * Field included by default.
      */
-    last_attempt_at?: unknown
+    last_attempt_at?: string | null
     /**
      * Field included by default.
      */
-    last_error?: string | null | unknown
+    last_error?: string | null
     /**
      * Field included by default.
      */
-    next_attempt_at?: unknown
+    next_attempt_at?: string | null
     /**
      * Field included by default.
      */
-    principal_uid?: string | null | unknown
+    principal_uid?: string | null
     /**
      * Field included by default.
      */
@@ -569,11 +569,11 @@ export type OidcLogoutDeliveryType = {
   /**
    * Field included by default.
    */
-  deadline: unknown
+  deadline: string
   /**
    * Field included by default.
    */
-  delivered_at?: unknown
+  delivered_at?: string | null
   /**
    * Field included by default.
    */
@@ -581,23 +581,23 @@ export type OidcLogoutDeliveryType = {
   /**
    * Field included by default.
    */
-  id?: string | unknown
+  id?: string | null
   /**
    * Field included by default.
    */
-  last_attempt_at?: unknown
+  last_attempt_at?: string | null
   /**
    * Field included by default.
    */
-  last_error?: string | null | unknown
+  last_error?: string | null
   /**
    * Field included by default.
    */
-  next_attempt_at?: unknown
+  next_attempt_at?: string | null
   /**
    * Field included by default.
    */
-  principal_uid?: string | null | unknown
+  principal_uid?: string | null
   /**
    * Field included by default.
    */
@@ -620,45 +620,45 @@ export type ScheduledEvent = {
      * Field included by default.
      */
     agent_uid: unknown
-    authorization_kind?: string | null | unknown
+    authorization_kind?: string | null
     /**
      * Field included by default.
      */
-    automation_job_id?: number | null | unknown
+    automation_job_id?: number | null
     /**
      * Field included by default.
      */
-    automation_job_run_id?: number | null | unknown
+    automation_job_run_id?: number | null
     /**
      * Field included by default.
      */
-    binding_name?: string | null | unknown
+    binding_name?: string | null
     /**
      * Field included by default.
      */
-    cancelled_at?: unknown
+    cancelled_at?: string | null
     /**
      * Field included by default.
      */
-    conversation_id?: string | null | unknown
+    conversation_id?: string | null
     /**
      * Field included by default.
      */
-    cron_fire_slot_at?: unknown
+    cron_fire_slot_at?: string | null
     /**
      * Field included by default.
      */
-    cron_schedule_id?: string | null | unknown
+    cron_schedule_id?: string | null
     /**
      * Field included by default.
      */
-    due_at: unknown
+    due_at: string
     /**
      * Field included by default.
      */
-    fired_at?: unknown
-    human_access_version?: number | null | unknown
-    human_uid?: unknown
+    fired_at?: string | null
+    human_access_version?: number | null
+    human_uid?: unknown | null
     /**
      * Field included by default.
      */
@@ -666,7 +666,7 @@ export type ScheduledEvent = {
     /**
      * Field included by default.
      */
-    inserted_at: unknown
+    inserted_at: string
     /**
      * Field included by default.
      */
@@ -678,19 +678,19 @@ export type ScheduledEvent = {
     /**
      * Field included by default.
      */
-    origin_ai_message_id?: string | null | unknown
+    origin_ai_message_id?: string | null
     /**
      * Field included by default.
      */
-    provider_message_id?: string | null | unknown
+    provider_message_id?: string | null
     /**
      * Field included by default.
      */
-    provider_thread_id?: string | null | unknown
+    provider_thread_id?: string | null
     /**
      * Field included by default.
      */
-    requested_at: unknown
+    requested_at: string
     /**
      * Field included by default.
      */
@@ -698,7 +698,7 @@ export type ScheduledEvent = {
     /**
      * Field included by default.
      */
-    signal_id?: string | null | unknown
+    signal_id?: string | null
     /**
      * Field included by default.
      */
@@ -706,7 +706,7 @@ export type ScheduledEvent = {
     /**
      * Field included by default.
      */
-    source_signal_id?: string | null | unknown
+    source_signal_id?: string | null
     /**
      * Field included by default.
      */
@@ -718,11 +718,11 @@ export type ScheduledEvent = {
     /**
      * Field included by default.
      */
-    tool_call_id?: string | null | unknown
+    tool_call_id?: string | null
     /**
      * Field included by default.
      */
-    updated_at: unknown
+    updated_at: string
     /**
      * Field included by default.
      */
@@ -746,55 +746,55 @@ export type ScheduledEventType = {
   /**
    * Field included by default.
    */
-  authorization_kind?: string | null | unknown
+  authorization_kind?: string | null
   /**
    * Field included by default.
    */
-  automation_job_id?: number | null | unknown
+  automation_job_id?: number | null
   /**
    * Field included by default.
    */
-  automation_job_run_id?: number | null | unknown
+  automation_job_run_id?: number | null
   /**
    * Field included by default.
    */
-  binding_name?: string | null | unknown
+  binding_name?: string | null
   /**
    * Field included by default.
    */
-  cancelled_at?: unknown
+  cancelled_at?: string | null
   /**
    * Field included by default.
    */
-  conversation_id?: string | null | unknown
+  conversation_id?: string | null
   /**
    * Field included by default.
    */
-  cron_fire_slot_at?: unknown
+  cron_fire_slot_at?: string | null
   /**
    * Field included by default.
    */
-  cron_schedule_id?: string | null | unknown
+  cron_schedule_id?: string | null
   /**
    * Field included by default.
    */
-  due_at: unknown
+  due_at: string
   /**
    * Field included by default.
    */
-  fired_at?: unknown
+  fired_at?: string | null
   /**
    * Field included by default.
    */
-  human_access_version?: number | null | unknown
+  human_access_version?: number | null
   /**
    * Field included by default.
    */
-  human_uid?: unknown
+  human_uid?: unknown | null
   /**
    * Field included by default.
    */
-  id?: number | unknown
+  id?: number | null
   /**
    * Field included by default.
    */
@@ -802,7 +802,7 @@ export type ScheduledEventType = {
   /**
    * Field included by default.
    */
-  inserted_at: unknown
+  inserted_at: string
   /**
    * Field included by default.
    */
@@ -814,19 +814,19 @@ export type ScheduledEventType = {
   /**
    * Field included by default.
    */
-  origin_ai_message_id?: string | null | unknown
+  origin_ai_message_id?: string | null
   /**
    * Field included by default.
    */
-  provider_message_id?: string | null | unknown
+  provider_message_id?: string | null
   /**
    * Field included by default.
    */
-  provider_thread_id?: string | null | unknown
+  provider_thread_id?: string | null
   /**
    * Field included by default.
    */
-  requested_at: unknown
+  requested_at: string
   /**
    * Field included by default.
    */
@@ -834,7 +834,7 @@ export type ScheduledEventType = {
   /**
    * Field included by default.
    */
-  signal_id?: string | null | unknown
+  signal_id?: string | null
   /**
    * Field included by default.
    */
@@ -842,7 +842,7 @@ export type ScheduledEventType = {
   /**
    * Field included by default.
    */
-  source_signal_id?: string | null | unknown
+  source_signal_id?: string | null
   /**
    * Field included by default.
    */
@@ -854,11 +854,11 @@ export type ScheduledEventType = {
   /**
    * Field included by default.
    */
-  tool_call_id?: string | null | unknown
+  tool_call_id?: string | null
   /**
    * Field included by default.
    */
-  updated_at: unknown
+  updated_at: string
   /**
    * Field included by default.
    */
@@ -908,7 +908,7 @@ export type SignalBinding = {
     /**
      * Field included by default.
      */
-    unavailable_reason?: string | null | unknown
+    unavailable_reason?: string | null
     /**
      * Field included by default.
      */
@@ -960,7 +960,7 @@ export type SignalBindingType = {
   /**
    * Field included by default.
    */
-  unavailable_reason?: string | null | unknown
+  unavailable_reason?: string | null
   /**
    * Field included by default.
    */
@@ -978,23 +978,23 @@ export type WebhookEndpoint = {
     /**
      * Field included by default.
      */
-    agent_uid?: unknown
+    agent_uid?: unknown | null
     /**
      * Field included by default.
      */
-    automation_job_id?: number | null | unknown
+    automation_job_id?: number | null
     /**
      * Field included by default.
      */
-    binding_name?: string | null | unknown
+    binding_name?: string | null
     /**
      * Field included by default.
      */
-    cancelled_at?: unknown
+    cancelled_at?: string | null
     /**
      * Field included by default.
      */
-    conversation_id?: string | null | unknown
+    conversation_id?: string | null
     /**
      * Field included by default.
      */
@@ -1002,15 +1002,15 @@ export type WebhookEndpoint = {
     /**
      * Field included by default.
      */
-    expires_at: unknown
+    expires_at: string
     /**
      * Field included by default.
      */
-    fired_at?: unknown
+    fired_at?: string | null
     /**
      * Field included by default.
      */
-    inserted_at: unknown
+    inserted_at: string
     /**
      * Field included by default.
      */
@@ -1022,15 +1022,15 @@ export type WebhookEndpoint = {
     /**
      * Field included by default.
      */
-    provider_message_id?: string | null | unknown
+    provider_message_id?: string | null
     /**
      * Field included by default.
      */
-    provider_thread_id?: string | null | unknown
+    provider_thread_id?: string | null
     /**
      * Field included by default.
      */
-    session_id?: string | null | unknown
+    session_id?: string | null
     /**
      * Field included by default.
      */
@@ -1038,7 +1038,7 @@ export type WebhookEndpoint = {
     /**
      * Field included by default.
      */
-    source_signal_id?: string | null | unknown
+    source_signal_id?: string | null
     /**
      * Field included by default.
      */
@@ -1046,7 +1046,7 @@ export type WebhookEndpoint = {
     /**
      * Field included by default.
      */
-    updated_at: unknown
+    updated_at: string
   }
   id: string
   /**
@@ -1062,23 +1062,23 @@ export type WebhookEndpointType = {
   /**
    * Field included by default.
    */
-  agent_uid?: unknown
+  agent_uid?: unknown | null
   /**
    * Field included by default.
    */
-  automation_job_id?: number | null | unknown
+  automation_job_id?: number | null
   /**
    * Field included by default.
    */
-  binding_name?: string | null | unknown
+  binding_name?: string | null
   /**
    * Field included by default.
    */
-  cancelled_at?: unknown
+  cancelled_at?: string | null
   /**
    * Field included by default.
    */
-  conversation_id?: string | null | unknown
+  conversation_id?: string | null
   /**
    * Field included by default.
    */
@@ -1086,19 +1086,19 @@ export type WebhookEndpointType = {
   /**
    * Field included by default.
    */
-  expires_at: unknown
+  expires_at: string
   /**
    * Field included by default.
    */
-  fired_at?: unknown
+  fired_at?: string | null
   /**
    * Field included by default.
    */
-  id?: string | unknown
+  id?: string | null
   /**
    * Field included by default.
    */
-  inserted_at: unknown
+  inserted_at: string
   /**
    * Field included by default.
    */
@@ -1110,15 +1110,15 @@ export type WebhookEndpointType = {
   /**
    * Field included by default.
    */
-  provider_message_id?: string | null | unknown
+  provider_message_id?: string | null
   /**
    * Field included by default.
    */
-  provider_thread_id?: string | null | unknown
+  provider_thread_id?: string | null
   /**
    * Field included by default.
    */
-  session_id?: string | null | unknown
+  session_id?: string | null
   /**
    * Field included by default.
    */
@@ -1126,7 +1126,7 @@ export type WebhookEndpointType = {
   /**
    * Field included by default.
    */
-  source_signal_id?: string | null | unknown
+  source_signal_id?: string | null
   /**
    * Field included by default.
    */
@@ -1134,7 +1134,7 @@ export type WebhookEndpointType = {
   /**
    * Field included by default.
    */
-  updated_at: unknown
+  updated_at: string
 }
 
 export type ListAutomationJobRunsData = {
@@ -1280,23 +1280,21 @@ export type CreateCronScheduleData = {
    */
   body: {
     data: {
-      binding_name?: string | unknown
+      binding_name?: string | null
       delivery: {
         [key: string]: unknown
       }
       idempotency_key: string
       name: string
       owner_session_id: string
-      payload?:
-        | {
-            [key: string]: unknown
-          }
-        | unknown
+      payload?: {
+        [key: string]: unknown
+      } | null
       schedule: {
         [key: string]: unknown
       }
-      status?: string | unknown
-      timezone?: string | unknown
+      status?: string | null
+      timezone?: string | null
     }
   }
   path: {
@@ -1467,23 +1465,17 @@ export type UpdateCronScheduleData = {
    */
   body?: {
     data: {
-      delivery?:
-        | {
-            [key: string]: unknown
-          }
-        | unknown
-      name?: string | unknown
-      payload?:
-        | {
-            [key: string]: unknown
-          }
-        | unknown
-      schedule?:
-        | {
-            [key: string]: unknown
-          }
-        | unknown
-      timezone?: string | unknown
+      delivery?: {
+        [key: string]: unknown
+      } | null
+      name?: string | null
+      payload?: {
+        [key: string]: unknown
+      } | null
+      schedule?: {
+        [key: string]: unknown
+      } | null
+      timezone?: string | null
     }
   }
   path: {
@@ -1852,22 +1844,20 @@ export type CreateOidcClientData = {
    */
   body: {
     data: {
-      allow_insecure_local_logout?: boolean | unknown
-      allowed_group_ids?: Array<string> | unknown
-      allowed_identity_provider_ids?: Array<string> | unknown
-      backchannel_logout_session_required?: boolean | unknown
-      backchannel_logout_uri?: string | unknown
+      allow_insecure_local_logout?: boolean | null
+      allowed_group_ids?: Array<string> | null
+      allowed_identity_provider_ids?: Array<string> | null
+      backchannel_logout_session_required?: boolean | null
+      backchannel_logout_uri?: string | null
       client_type: 'public' | 'confidential'
-      enabled?: boolean | unknown
-      model_aliases?:
-        | {
-            [key: string]: unknown
-          }
-        | unknown
+      enabled?: boolean | null
+      model_aliases?: {
+        [key: string]: unknown
+      } | null
       name: string
-      post_logout_redirect_uris?: Array<string> | unknown
-      redirect_uris?: Array<string> | unknown
-      scopes?: Array<string> | unknown
+      post_logout_redirect_uris?: Array<string> | null
+      redirect_uris?: Array<string> | null
+      scopes?: Array<string> | null
     }
   }
   path?: never
@@ -1889,7 +1879,7 @@ export type CreateOidcClientResponses = {
    * Success
    */
   201: {
-    client_secret?: string | unknown
+    client_secret?: string | null
     oidc_client: OidcClientType
   }
 }
@@ -2057,21 +2047,19 @@ export type UpdateOidcClientData = {
    */
   body?: {
     data: {
-      allow_insecure_local_logout?: boolean | unknown
-      allowed_group_ids?: Array<string> | unknown
-      allowed_identity_provider_ids?: Array<string> | unknown
-      backchannel_logout_session_required?: boolean | unknown
-      backchannel_logout_uri?: string | unknown
-      enabled?: boolean | unknown
-      model_aliases?:
-        | {
-            [key: string]: unknown
-          }
-        | unknown
-      name?: string | unknown
-      post_logout_redirect_uris?: Array<string> | unknown
-      redirect_uris?: Array<string> | unknown
-      scopes?: Array<string> | unknown
+      allow_insecure_local_logout?: boolean | null
+      allowed_group_ids?: Array<string> | null
+      allowed_identity_provider_ids?: Array<string> | null
+      backchannel_logout_session_required?: boolean | null
+      backchannel_logout_uri?: string | null
+      enabled?: boolean | null
+      model_aliases?: {
+        [key: string]: unknown
+      } | null
+      name?: string | null
+      post_logout_redirect_uris?: Array<string> | null
+      redirect_uris?: Array<string> | null
+      scopes?: Array<string> | null
     }
   }
   path: {

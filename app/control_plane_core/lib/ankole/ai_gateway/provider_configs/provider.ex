@@ -3,9 +3,30 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
 
   use Ankole.Ash.Resource,
     tenancy: :site,
-    domain: Ankole.AIGateway
+    domain: Ankole.AIGateway.ProviderConfigs,
+    extensions: [AshJsonApi.Resource]
 
   alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.AIGateway.ProviderConfigs.Projection
+
+  json_api do
+    type("ai_gateway_provider")
+    derive_filter?(false)
+    derive_sort?(false)
+    # The stored `credential_pool` holds ciphertext and is not public. The API
+    # field of that name is the calculated view.
+    field_names(credential_pool_view: :credential_pool)
+
+    default_fields([
+      :provider_id,
+      :provider_kind,
+      :base_url,
+      :connection_options,
+      :disabled_at,
+      :credential_pool_view,
+      :provider_metadata
+    ])
+  end
 
   postgres do
     table("ai_gateway_providers")
@@ -64,8 +85,27 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
     identity(:provider_id, [:provider_id])
   end
 
+  calculations do
+    calculate(
+      :credential_pool_view,
+      ProviderConfigs.CredentialPoolView,
+      {Projection, field: :credential_pool},
+      allow_nil?: false,
+      public?: true
+    )
+
+    calculate(:provider_metadata, :map, {Projection, field: :provider_metadata},
+      allow_nil?: false,
+      public?: true
+    )
+  end
+
   actions do
     defaults([:read])
+
+    read :list do
+      prepare(build(sort: [provider_id: :asc]))
+    end
 
     create :create do
       accept([])
@@ -177,7 +217,6 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
         constraints: [
           one_of: [
             :configure,
-            :enable,
             :add_credential,
             :replace_credential,
             :remove_credential,
@@ -193,12 +232,43 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       end)
     end
 
+    # The arguments keep the raw values: the `create` and `configure` actions
+    # validate them. An omitted argument keeps the stored value.
+    action :put, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:provider_kind, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:base_url, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:connection_options, :map)
+      argument(:credential_pool, :map, sensitive?: true)
+
+      run(fn input, _context ->
+        input.arguments
+        |> ProviderConfigs.put()
+        |> Ankole.Errors.wrap(&ProviderConfigs.rejection/1)
+      end)
+    end
+
+    action :enable_provider, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :string, allow_nil?: false)
+
+      run(fn input, _context ->
+        input.arguments
+        |> Map.merge(%{update: :enable, params: %{}})
+        |> ProviderConfigs.change_locked()
+        |> Ankole.Errors.wrap(&ProviderConfigs.rejection/1)
+      end)
+    end
+
     action :retire, :struct do
       constraints(instance_of: __MODULE__)
       argument(:provider_id, :string, allow_nil?: false)
 
       run(fn input, _context ->
-        input.arguments |> ProviderConfigs.retire() |> Ankole.Errors.wrap()
+        input.arguments
+        |> ProviderConfigs.retire()
+        |> Ankole.Errors.wrap(&ProviderConfigs.rejection/1)
       end)
     end
 

@@ -163,15 +163,6 @@ import type {
   AnkoleWebAiGatewayProviderControllerDeleteCredentialData,
   AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors,
   AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerDeleteProviderData,
-  AnkoleWebAiGatewayProviderControllerDeleteProviderErrors,
-  AnkoleWebAiGatewayProviderControllerDeleteProviderResponses,
-  AnkoleWebAiGatewayProviderControllerEnableProviderData,
-  AnkoleWebAiGatewayProviderControllerEnableProviderErrors,
-  AnkoleWebAiGatewayProviderControllerEnableProviderResponses,
-  AnkoleWebAiGatewayProviderControllerIndexData,
-  AnkoleWebAiGatewayProviderControllerIndexErrors,
-  AnkoleWebAiGatewayProviderControllerIndexResponses,
   AnkoleWebAiGatewayProviderControllerModelsData,
   AnkoleWebAiGatewayProviderControllerModelsErrors,
   AnkoleWebAiGatewayProviderControllerModelsResponses,
@@ -187,12 +178,6 @@ import type {
   AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData,
   AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors,
   AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses,
-  AnkoleWebAiGatewayProviderControllerPutProviderData,
-  AnkoleWebAiGatewayProviderControllerPutProviderErrors,
-  AnkoleWebAiGatewayProviderControllerPutProviderResponses,
-  AnkoleWebAiGatewayProviderControllerShowData,
-  AnkoleWebAiGatewayProviderControllerShowErrors,
-  AnkoleWebAiGatewayProviderControllerShowResponses,
   AnkoleWebAiGatewayProviderControllerStartChatgptLoginData,
   AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors,
   AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses,
@@ -449,30 +434,6 @@ import type {
   AnkoleWebSignalBindingControllerUpdateBindingData,
   AnkoleWebSignalBindingControllerUpdateBindingErrors,
   AnkoleWebSignalBindingControllerUpdateBindingResponses,
-  AnkoleWebTenantControllerCreateData,
-  AnkoleWebTenantControllerCreateErrors,
-  AnkoleWebTenantControllerCreateResponses,
-  AnkoleWebTenantControllerDeleteData,
-  AnkoleWebTenantControllerDeleteErrors,
-  AnkoleWebTenantControllerDeleteResponses,
-  AnkoleWebTenantControllerIndexData,
-  AnkoleWebTenantControllerIndexErrors,
-  AnkoleWebTenantControllerIndexResponses,
-  AnkoleWebTenantControllerPrivilegedData,
-  AnkoleWebTenantControllerPrivilegedErrors,
-  AnkoleWebTenantControllerPrivilegedResponses,
-  AnkoleWebTenantControllerResumeData,
-  AnkoleWebTenantControllerResumeErrors,
-  AnkoleWebTenantControllerResumeResponses,
-  AnkoleWebTenantControllerSuspendData,
-  AnkoleWebTenantControllerSuspendErrors,
-  AnkoleWebTenantControllerSuspendResponses,
-  AnkoleWebTenantControllerTransferData,
-  AnkoleWebTenantControllerTransferErrors,
-  AnkoleWebTenantControllerTransferResponses,
-  AnkoleWebTenantControllerUpdateData,
-  AnkoleWebTenantControllerUpdateErrors,
-  AnkoleWebTenantControllerUpdateResponses,
   AnkoleWebWorkerEnvControllerDecryptData,
   AnkoleWebWorkerEnvControllerDecryptErrors,
   AnkoleWebWorkerEnvControllerDecryptForAgentData,
@@ -515,21 +476,9 @@ import type {
   AnkoleWebWorkerProviderControllerCheckData,
   AnkoleWebWorkerProviderControllerCheckErrors,
   AnkoleWebWorkerProviderControllerCheckResponses,
-  AnkoleWebWorkerProviderControllerCreateData,
-  AnkoleWebWorkerProviderControllerCreateErrors,
-  AnkoleWebWorkerProviderControllerCreateResponses,
-  AnkoleWebWorkerProviderControllerDeleteData,
-  AnkoleWebWorkerProviderControllerDeleteErrors,
-  AnkoleWebWorkerProviderControllerDeleteResponses,
-  AnkoleWebWorkerProviderControllerIndexData,
-  AnkoleWebWorkerProviderControllerIndexErrors,
-  AnkoleWebWorkerProviderControllerIndexResponses,
   AnkoleWebWorkerProviderControllerKindsData,
   AnkoleWebWorkerProviderControllerKindsErrors,
   AnkoleWebWorkerProviderControllerKindsResponses,
-  AnkoleWebWorkerProviderControllerUpdateData,
-  AnkoleWebWorkerProviderControllerUpdateErrors,
-  AnkoleWebWorkerProviderControllerUpdateResponses,
   BackgroundActivityAutomationRunsData,
   BackgroundActivityAutomationRunsErrors,
   BackgroundActivityAutomationRunsResponses,
@@ -643,70 +592,6 @@ export const ankoleWebAiGatewayProviderControllerStartChatgptLogin = <ThrowOnErr
   })
 
 /**
- * Re-enable one disabled AIGateway provider
- */
-export const ankoleWebAiGatewayProviderControllerEnableProvider = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerEnableProviderData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerEnableProviderResponses,
-  AnkoleWebAiGatewayProviderControllerEnableProviderErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerEnableProviderResponses,
-    AnkoleWebAiGatewayProviderControllerEnableProviderErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/enable',
-    ...options
-  })
-
-/**
- * Delete an unused Worker provider
- */
-export const ankoleWebWorkerProviderControllerDelete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWorkerProviderControllerDeleteData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerProviderControllerDeleteResponses,
-  AnkoleWebWorkerProviderControllerDeleteErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebWorkerProviderControllerDeleteResponses,
-    AnkoleWebWorkerProviderControllerDeleteErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/worker-providers/{provider_id}',
-    ...options
-  })
-
-/**
- * Update a Worker provider
- */
-export const ankoleWebWorkerProviderControllerUpdate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWorkerProviderControllerUpdateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerProviderControllerUpdateResponses,
-  AnkoleWebWorkerProviderControllerUpdateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).patch<
-    AnkoleWebWorkerProviderControllerUpdateResponses,
-    AnkoleWebWorkerProviderControllerUpdateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/worker-providers/{provider_id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * List the Worker of each Agent
  */
 export const ankoleWebAgentWorkerControllerIndex = <ThrowOnError extends boolean = false>(
@@ -776,42 +661,6 @@ export const ankoleWebAiGatewayFilesControllerShow = <ThrowOnError extends boole
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/api/v1/ai-gateway/files/{file_id}',
     ...options
-  })
-
-/**
- * List tenants
- */
-export const ankoleWebTenantControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebTenantControllerIndexData, ThrowOnError>
-): RequestResult<AnkoleWebTenantControllerIndexResponses, AnkoleWebTenantControllerIndexErrors, ThrowOnError> =>
-  (options?.client ?? client).get<
-    AnkoleWebTenantControllerIndexResponses,
-    AnkoleWebTenantControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/tenants',
-    ...options
-  })
-
-/**
- * Create a tenant
- */
-export const ankoleWebTenantControllerCreate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebTenantControllerCreateData, ThrowOnError>
-): RequestResult<AnkoleWebTenantControllerCreateResponses, AnkoleWebTenantControllerCreateErrors, ThrowOnError> =>
-  (options.client ?? client).post<
-    AnkoleWebTenantControllerCreateResponses,
-    AnkoleWebTenantControllerCreateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/tenants',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -1087,90 +936,6 @@ export const ankoleWebBrainControllerForgetClaim = <ThrowOnError extends boolean
   (options.client ?? client).post<AnkoleWebBrainControllerForgetClaimResponses, unknown, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/brain/claims/{claim_id}/forget',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Read the privileged tenant
- */
-export const ankoleWebTenantControllerPrivileged = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebTenantControllerPrivilegedData, ThrowOnError>
-): RequestResult<
-  AnkoleWebTenantControllerPrivilegedResponses,
-  AnkoleWebTenantControllerPrivilegedErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebTenantControllerPrivilegedResponses,
-    AnkoleWebTenantControllerPrivilegedErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/privileged-tenant',
-    ...options
-  })
-
-/**
- * Transfer site administration
- */
-export const ankoleWebTenantControllerTransfer = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebTenantControllerTransferData, ThrowOnError>
-): RequestResult<AnkoleWebTenantControllerTransferResponses, AnkoleWebTenantControllerTransferErrors, ThrowOnError> =>
-  (options.client ?? client).put<
-    AnkoleWebTenantControllerTransferResponses,
-    AnkoleWebTenantControllerTransferErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/privileged-tenant',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * List Worker providers
- */
-export const ankoleWebWorkerProviderControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebWorkerProviderControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerProviderControllerIndexResponses,
-  AnkoleWebWorkerProviderControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebWorkerProviderControllerIndexResponses,
-    AnkoleWebWorkerProviderControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/worker-providers',
-    ...options
-  })
-
-/**
- * Create a Worker provider
- */
-export const ankoleWebWorkerProviderControllerCreate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWorkerProviderControllerCreateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerProviderControllerCreateResponses,
-  AnkoleWebWorkerProviderControllerCreateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebWorkerProviderControllerCreateResponses,
-    AnkoleWebWorkerProviderControllerCreateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/worker-providers',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -1505,42 +1270,6 @@ export const ankoleWebAiGatewayControllerModels = <ThrowOnError extends boolean 
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/api/v1/ai-gateway/models',
     ...options
-  })
-
-/**
- * Start tenant deletion
- */
-export const ankoleWebTenantControllerDelete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebTenantControllerDeleteData, ThrowOnError>
-): RequestResult<AnkoleWebTenantControllerDeleteResponses, AnkoleWebTenantControllerDeleteErrors, ThrowOnError> =>
-  (options.client ?? client).delete<
-    AnkoleWebTenantControllerDeleteResponses,
-    AnkoleWebTenantControllerDeleteErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/tenants/{tenant_id}',
-    ...options
-  })
-
-/**
- * Update a tenant
- */
-export const ankoleWebTenantControllerUpdate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebTenantControllerUpdateData, ThrowOnError>
-): RequestResult<AnkoleWebTenantControllerUpdateResponses, AnkoleWebTenantControllerUpdateErrors, ThrowOnError> =>
-  (options.client ?? client).patch<
-    AnkoleWebTenantControllerUpdateResponses,
-    AnkoleWebTenantControllerUpdateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/tenants/{tenant_id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -2909,70 +2638,6 @@ export const ankoleWebAiGatewayConversationControllerIndex = <ThrowOnError exten
   })
 
 /**
- * Disable or delete one AIGateway provider
- */
-export const ankoleWebAiGatewayProviderControllerDeleteProvider = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerDeleteProviderData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerDeleteProviderResponses,
-  AnkoleWebAiGatewayProviderControllerDeleteProviderErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAiGatewayProviderControllerDeleteProviderResponses,
-    AnkoleWebAiGatewayProviderControllerDeleteProviderErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}',
-    ...options
-  })
-
-/**
- * Get one AIGateway provider and its credential-pool status
- */
-export const ankoleWebAiGatewayProviderControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerShowData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerShowResponses,
-  AnkoleWebAiGatewayProviderControllerShowErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAiGatewayProviderControllerShowResponses,
-    AnkoleWebAiGatewayProviderControllerShowErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}',
-    ...options
-  })
-
-/**
- * Create or update one AIGateway provider
- */
-export const ankoleWebAiGatewayProviderControllerPutProvider = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerPutProviderData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerPutProviderResponses,
-  AnkoleWebAiGatewayProviderControllerPutProviderErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAiGatewayProviderControllerPutProviderResponses,
-    AnkoleWebAiGatewayProviderControllerPutProviderErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * List claims with filters
  */
 export const ankoleWebBrainControllerListClaims = <ThrowOnError extends boolean = false>(
@@ -3856,38 +3521,6 @@ export const ankoleWebBrainControllerDecideMergeSuggestion = <ThrowOnError exten
   })
 
 /**
- * Resume work in a tenant
- */
-export const ankoleWebTenantControllerResume = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebTenantControllerResumeData, ThrowOnError>
-): RequestResult<AnkoleWebTenantControllerResumeResponses, AnkoleWebTenantControllerResumeErrors, ThrowOnError> =>
-  (options.client ?? client).delete<
-    AnkoleWebTenantControllerResumeResponses,
-    AnkoleWebTenantControllerResumeErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/tenants/{tenant_id}/suspension',
-    ...options
-  })
-
-/**
- * Suspend new work in a tenant
- */
-export const ankoleWebTenantControllerSuspend = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebTenantControllerSuspendData, ThrowOnError>
-): RequestResult<AnkoleWebTenantControllerSuspendResponses, AnkoleWebTenantControllerSuspendErrors, ThrowOnError> =>
-  (options.client ?? client).put<
-    AnkoleWebTenantControllerSuspendResponses,
-    AnkoleWebTenantControllerSuspendErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/tenants/{tenant_id}/suspension',
-    ...options
-  })
-
-/**
  * Reset one tenant AppConfigure value
  */
 export const ankoleWebAppConfigurationControllerDeleteTenant = <ThrowOnError extends boolean = false>(
@@ -3989,26 +3622,6 @@ export const ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPlugin = <Th
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * List configured AIGateway providers
- */
-export const ankoleWebAiGatewayProviderControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAiGatewayProviderControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerIndexResponses,
-  AnkoleWebAiGatewayProviderControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAiGatewayProviderControllerIndexResponses,
-    AnkoleWebAiGatewayProviderControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers',
-    ...options
   })
 
 /**

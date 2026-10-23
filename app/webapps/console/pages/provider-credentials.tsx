@@ -29,9 +29,7 @@ import {
   ankoleWebAiGatewayProviderControllerPutCredentialStrategyMutation as putCredentialStrategyMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type {
-  AiGatewayCredentialPoolEntry as AIGatewayCredentialPoolEntry,
   AiGatewayCredentialStrategyWriteRequest as AIGatewayCredentialStrategyWriteRequest,
-  AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem
 } from '../api/generated/types.gen'
 import {
@@ -53,6 +51,7 @@ import { ProviderSettingField, providerSettingLabel } from './provider-setting-f
 
 import { ChatGPTLoginDialog } from './provider-chatgpt-login'
 import { EnterpriseCredentialDialog } from './provider-enterprise-credential'
+import type { AIGatewayProviderItem, AIGatewayCredentialPoolEntry } from '../state/provider-settings'
 
 type CredentialStrategy = AIGatewayCredentialStrategyWriteRequest['strategy']
 const credentialStrategies = [

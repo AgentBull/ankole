@@ -2,7 +2,9 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
-  Console REST API for operator-managed AIGateway providers.
+  Console REST API for the AIGateway model catalog, the provider kinds, and the
+  credential pool of a provider. The site JSON:API
+  (`Ankole.AIGateway.ProviderConfigs`) serves the provider records.
   """
 
   use AnkoleWeb, :controller
@@ -25,9 +27,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayCredentialWriteRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayModelCatalogResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderKindListResponse
-  alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderResponse
-  alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderWriteRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
 
   tags(["AIGateway"])
@@ -49,34 +49,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     summary: "List AIGateway provider kinds",
     responses: [
       ok: {"Provider kinds", "application/json", AIGatewayProviderKindListResponse},
-      default: {"Error", "application/json", ErrorEnvelope}
-    ]
-  )
-
-  operation(:index,
-    summary: "List configured AIGateway providers",
-    responses: [
-      ok: {"AIGateway providers", "application/json", AIGatewayProviderListResponse},
-      default: {"Error", "application/json", ErrorEnvelope}
-    ]
-  )
-
-  operation(:put_provider,
-    summary: "Create or update one AIGateway provider",
-    parameters: [provider_id: [in: :path, type: :string, required: true]],
-    request_body:
-      {"AIGateway provider", "application/json", AIGatewayProviderWriteRequest, required: true},
-    responses: [
-      ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
-      default: {"Error", "application/json", ErrorEnvelope}
-    ]
-  )
-
-  operation(:show,
-    summary: "Get one AIGateway provider and its credential-pool status",
-    parameters: [provider_id: [in: :path, type: :string, required: true]],
-    responses: [
-      ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
       default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
@@ -177,24 +149,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     ]
   )
 
-  operation(:enable_provider,
-    summary: "Re-enable one disabled AIGateway provider",
-    parameters: [provider_id: [in: :path, type: :string, required: true]],
-    responses: [
-      ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
-      default: {"Error", "application/json", ErrorEnvelope}
-    ]
-  )
-
-  operation(:delete_provider,
-    summary: "Disable or delete one AIGateway provider",
-    parameters: [provider_id: [in: :path, type: :string, required: true]],
-    responses: [
-      ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
-      default: {"Error", "application/json", ErrorEnvelope}
-    ]
-  )
-
   def models(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "ai_gateway_providers", "read") do
       json(conn, %{models: Models.console_catalog()})
@@ -204,44 +158,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   def provider_kinds(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider_kinds", "read") do
       json(conn, %{provider_kinds: ProviderConfigs.list_provider_kinds()})
-    end
-  end
-
-  def index(conn, _params) do
-    with :ok <- ConsolePolicy.authorize(conn, "ai_gateway_providers", "read") do
-      json(conn, %{ai_gateway_providers: ProviderConfigs.list_providers()})
-    end
-  end
-
-  def show(conn, params) do
-    with {:ok, provider_id} <- provider_id_param(params),
-         :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "read"),
-         {:ok, provider} <- ProviderConfigs.get_provider(provider_id) do
-      json(conn, %{ai_gateway_provider: provider})
-    end
-  end
-
-  def put_provider(conn, params) do
-    with {:ok, provider_id} <- provider_id_param(params),
-         :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
-         {:ok, provider} <- ProviderConfigs.put_provider(provider_id, conn.body_params) do
-      json(conn, %{ai_gateway_provider: ProviderConfigs.projection(provider)})
-    end
-  end
-
-  def delete_provider(conn, params) do
-    with {:ok, provider_id} <- provider_id_param(params),
-         :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "delete"),
-         {:ok, provider} <- ProviderConfigs.delete_provider(provider_id) do
-      json(conn, %{ai_gateway_provider: ProviderConfigs.projection(provider)})
-    end
-  end
-
-  def enable_provider(conn, params) do
-    with {:ok, provider_id} <- provider_id_param(params),
-         :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
-         {:ok, provider} <- ProviderConfigs.enable_provider(provider_id) do
-      render_provider(conn, provider)
     end
   end
 
@@ -356,29 +272,8 @@ defmodule AnkoleWeb.AIGatewayProviderController do
 
   defp error(conn, :agent_not_found), do: ConsoleErrors.not_found(conn, "agent was not found")
 
-  defp error(conn, {:provider_in_use, references}) do
-    ConsoleErrors.render(
-      conn,
-      422,
-      "provider_in_use",
-      "provider is referenced by active model profiles",
-      [
-        %{references: references}
-      ]
-    )
-  end
-
   defp error(conn, {:missing, key}) do
     ConsoleErrors.required_field(conn, key)
-  end
-
-  defp error(conn, :provider_id_mismatch) do
-    ConsoleErrors.render(
-      conn,
-      422,
-      "provider_id_mismatch",
-      "body provider_id must match the path provider_id"
-    )
   end
 
   # ChatGPT sign-in and refresh failures carry the real upstream response, so
@@ -582,17 +477,12 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   # Known configuration reasons keep the established envelope but name the
   # rejected rule; anything unlisted logs as a server-side gap.
   defp error(conn, reason) do
-    case config_reason_label(reason) do
+    case ProviderConfigs.rejection(reason) do
       nil ->
         ConsoleErrors.unexpected(conn, "ai_gateway.provider_api.unexpected_error", reason)
 
-      label ->
-        ConsoleErrors.render(
-          conn,
-          422,
-          "invalid_value",
-          "AIGateway provider configuration is invalid: #{label}"
-        )
+      {message, _details} ->
+        ConsoleErrors.render(conn, 422, "invalid_value", message)
     end
   end
 
@@ -603,30 +493,4 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   defp transport_label(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp transport_label(reason) when is_binary(reason), do: reason
   defp transport_label(_reason), do: "transport_error"
-
-  @config_reason_labels %{
-    unknown_ai_gateway_provider: "the provider kind is unknown",
-    provider_disabled: "the provider is disabled",
-    invalid_provider_id: "provider_id is invalid",
-    invalid_auth_issuer: "the configured auth issuer is not a valid URL",
-    provider_id_immutable: "provider_id cannot change after creation",
-    invalid_credential_pool: "the credential pool is invalid",
-    invalid_credential_pool_strategy: "the credential selection strategy is unknown",
-    invalid_credential_entry: "a credential entry is invalid",
-    invalid_credential_update: "the credential update is invalid",
-    invalid_credential_disabled_at: "disabled_at is not a valid timestamp",
-    duplicate_credential_id: "a credential with this id already exists",
-    credential_id_immutable: "a credential id cannot change",
-    credential_field_removed: "a stored credential field cannot be removed",
-    credential_fields_required: "the credential is missing required fields",
-    missing_base_url: "the provider has no base URL"
-  }
-
-  defp config_reason_label(reason) when is_atom(reason),
-    do: Map.get(@config_reason_labels, reason)
-
-  defp config_reason_label({:credential_entry_unknown_keys, keys}),
-    do: "a credential entry carries unknown keys: #{Enum.join(keys, ", ")}"
-
-  defp config_reason_label(_reason), do: nil
 end

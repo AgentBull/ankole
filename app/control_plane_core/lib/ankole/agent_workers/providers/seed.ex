@@ -15,7 +15,7 @@ defmodule Ankole.AgentWorkers.Providers.Seed do
     end
   end
 
-  def import_file(path), do: Errors.reason(AgentWorkers.import_providers(path))
+  def import_file(path), do: Errors.reason(Providers.import_providers(path))
 
   @doc "Imports the seed file in the caller's transaction when no provider exists."
   def import_in_tx(repo, path) do

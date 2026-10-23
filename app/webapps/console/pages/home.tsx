@@ -22,7 +22,6 @@ import {
   ankoleWebAgentWorkerControllerIndexOptions,
   ankoleWebAgentControllerIndexOptions,
   ankoleWebAiGatewayConversationControllerIndexOptions,
-  ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerHealthOptions,
   ankoleWebConsoleReadinessControllerShowOptions,
@@ -37,6 +36,8 @@ import { PageHeader, PageStack, RefreshButton } from '../console-page'
 import { readinessSteps, type ReadinessStep } from '../console-readiness'
 import { workerNeedsAttention } from './workers'
 import { BackgroundActivity } from './background-activity'
+import { listAiGatewayProvidersOptions } from '../api/v2-site/generated/@tanstack/react-query.gen'
+import { aiGatewayProviders } from '../state/provider-settings'
 
 const NEXT_STEP_ICONS: Record<ReadinessStep['key'], ComponentType<{ className?: string }>> = {
   provider: RiSparkling2Line,
@@ -57,7 +58,8 @@ export function HomePage() {
     refetchInterval: LIST_REFRESH_MS
   })
   const providers = useQuery({
-    ...ankoleWebAIGatewayProviderControllerIndexOptions(),
+    ...listAiGatewayProvidersOptions(),
+    select: aiGatewayProviders,
     refetchInterval: LIST_REFRESH_MS
   })
   const identityProviders = useQuery({
@@ -92,7 +94,7 @@ export function HomePage() {
 
   const agentRows = agents.data?.agents ?? []
   const workerRows = workers.data?.workers ?? []
-  const providerRows = providers.data?.ai_gateway_providers ?? []
+  const providerRows = providers.data ?? []
   const jobRows = jobs.data?.jobs ?? []
 
   const activeAgents = agentRows.filter(agent => agent.status === 'active').length

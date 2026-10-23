@@ -14,12 +14,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ankoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialMutation as addChatGPTEnterpriseCredentialMutation } from '../api/generated/@tanstack/react-query.gen'
-import type {
-  AiGatewayCredentialPoolEntry as AIGatewayCredentialPoolEntry,
-  AiGatewayProviderItem as AIGatewayProviderItem
-} from '../api/generated/types.gen'
 import { DiscardConfirmDialog, LabeledField, SaveButton, useDialogDiscardGuard } from '../console-form'
 import { EncryptedValueInput } from '../encrypted-value-input'
+import type { AIGatewayProviderItem, AIGatewayCredentialPoolEntry } from '../state/provider-settings'
 
 export function EnterpriseCredentialDialog({
   entry,

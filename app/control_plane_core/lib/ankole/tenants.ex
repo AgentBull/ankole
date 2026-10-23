@@ -7,11 +7,11 @@ defmodule Ankole.Tenants do
   `Ankole.Tenants.Tenant` that owns its transaction. The `_in_tx` functions
   let another domain's action do the same steps in its own transaction.
   """
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   require Ash.Query
 
-  alias Ankole.{AppConfigure, Principals, Repo}
+  alias Ankole.{AppConfigure, Errors, Principals, Repo}
   alias Ankole.AuthZ.Grants
   alias Ankole.AuthZ.Root
   alias Ankole.AuthZ.Store
@@ -21,6 +21,34 @@ defmodule Ankole.Tenants do
     resource Tenant do
       define(:get_tenant, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_tenants, action: :read)
+    end
+  end
+
+  # The site administration API at `/api/v2/site` (`AnkoleWeb.JSONAPI.SiteRouter`).
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/tenants", Tenant do
+        index(:list, name: "list_tenants", derive_sort?: false)
+        post(:create, name: "create_tenant")
+        patch(:change_profile, route: "/:id", name: "update_tenant")
+        delete(:begin_delete, route: "/:id", name: "delete_tenant")
+        post(:suspend, route: "/:id/suspension", name: "suspend_tenant")
+        delete(:resume, route: "/:id/suspension", name: "resume_tenant")
+        route(:get, "/brain-packs", :brain_packs, name: "list_tenant_brain_packs")
+      end
+
+      base_route "/privileged-tenant", Tenant do
+        get(:privileged, route: "/", name: "get_privileged_tenant", derive_sort?: false)
+
+        patch(:transfer_site_administration,
+          route: "/",
+          name: "transfer_site_administration"
+        )
+      end
     end
   end
 
@@ -44,7 +72,7 @@ defmodule Ankole.Tenants do
   end
 
   def privileged do
-    with {:ok, id} <- AppConfigure.get_global_by_key_in_tx(Repo, @privileged_key),
+    with {:ok, id} <- privileged_id(),
          {:ok, %Tenant{} = tenant} <- get_tenant(id) do
       {:ok, tenant}
     else
@@ -52,11 +80,10 @@ defmodule Ankole.Tenants do
     end
   end
 
-  def list do
-    Tenant
-    |> Ash.Query.sort(inserted_at: :asc, id: :asc)
-    |> Ankole.Ash.read!()
-  end
+  @doc false
+  def privileged_id, do: AppConfigure.get_global_by_key_in_tx(Repo, @privileged_key)
+
+  def list, do: Ankole.Ash.read!(Ash.Query.for_read(Tenant, :list))
 
   def get(id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
@@ -180,7 +207,7 @@ defmodule Ankole.Tenants do
     end
   end
 
-  def create(attrs), do: Ankole.Ash.run_action(Tenant, :create_tenant, %{attrs: attrs})
+  def create(attrs), do: Ankole.Ash.run_action(Tenant, :create, attrs)
 
   @doc false
   def create_in_tx(repo, attrs) do
@@ -231,11 +258,16 @@ defmodule Ankole.Tenants do
   end
 
   def update(%Tenant{id: id}, attrs),
-    do: Ankole.Ash.run_action(Tenant, :change_profile, %{id: id, attrs: attrs})
+    do: lifecycle(:change_profile, attrs |> Map.take([:slug, :display_name]) |> Map.put(:id, id))
 
-  def suspend(%Tenant{id: id}), do: Ankole.Ash.run_action(Tenant, :suspend, %{id: id})
-  def resume(%Tenant{id: id}), do: Ankole.Ash.run_action(Tenant, :resume, %{id: id})
-  def delete(%Tenant{id: id}), do: Ankole.Ash.run_action(Tenant, :begin_delete, %{id: id})
+  def suspend(%Tenant{id: id}), do: lifecycle(:suspend, %{id: id})
+  def resume(%Tenant{id: id}), do: lifecycle(:resume, %{id: id})
+  def delete(%Tenant{id: id}), do: lifecycle(:begin_delete, %{id: id})
+
+  # A missing tenant is `Ankole.Errors.Invalid.NotFound` in the action (404 in
+  # the JSON:API); domain callers get `:not_found`.
+  defp lifecycle(action, arguments),
+    do: Tenant |> Ankole.Ash.run_action(action, arguments) |> Errors.reason()
 
   @doc false
   def change_profile_in_tx(repo, id, attrs) do
@@ -276,12 +308,8 @@ defmodule Ankole.Tenants do
     end
   end
 
-  def transfer_site_administration(%Tenant{id: id}, uid) do
-    case Ankole.Ash.run_action(Tenant, :transfer_site_administration, %{id: id, uid: uid}) do
-      {:ok, {tenant, _write}} -> {:ok, tenant}
-      error -> error
-    end
-  end
+  def transfer_site_administration(%Tenant{id: id}, uid),
+    do: lifecycle(:transfer_site_administration, %{tenant_id: id, site_admin_uid: uid})
 
   @doc false
   def transfer_site_administration_in_tx(repo, id, uid) do
@@ -299,11 +327,11 @@ defmodule Ankole.Tenants do
                   {:ok, _} <- Grants.upsert_console_admin_grants(repo, group),
                   do: {:ok, group}
            end),
-         {:ok, write} <-
+         {:ok, _write} <-
            AppConfigure.put_global_by_key_in_tx(repo, @privileged_key, target.id),
          :ok <-
            Repo.with_tenant(privileged_id, fn -> Root.delete_site_admin_group_in_tx(repo) end) do
-      {:ok, {target, write}}
+      {:ok, target}
     else
       false -> {:error, :tenant_not_active}
       {:error, {:built_in_group_conflict, "siteadmin"}} -> {:error, :group_name_taken}
@@ -312,8 +340,8 @@ defmodule Ankole.Tenants do
   end
 
   @doc false
-  def publish_site_administration({_tenant, write}) do
-    {:ok, _value} = AppConfigure.cache_committed_write(write)
+  def publish_site_administration(%Tenant{id: id}) do
+    {:ok, _value} = AppConfigure.cache_committed_write({id, "global", @privileged_key})
     :ok
   end
 
@@ -347,6 +375,18 @@ defmodule Ankole.Tenants do
   defp row_lock(:update), do: :for_update
   defp row_lock(:share), do: "FOR SHARE"
   defp row_lock(:key_share), do: "FOR KEY SHARE"
+
+  @doc """
+  Gives the v2 error of a lifecycle rejection for `Ankole.Errors.wrap/2`: a
+  missing tenant is not found, and a refused operation conflicts with the state
+  of the tenant or of the site administration.
+  """
+  def rejection(:not_found), do: Ankole.Errors.Invalid.NotFound.exception(resource: Tenant)
+
+  def rejection(reason) when is_atom(reason),
+    do: {:conflict, "The tenant operation was refused", []}
+
+  def rejection(_reason), do: nil
 
   defp not_deleting(%Tenant{deleting_at: nil}), do: :ok
   defp not_deleting(_), do: {:error, :tenant_deleting}

@@ -21,11 +21,8 @@ import {
   ankoleWebAiGatewayProviderControllerPollChatgptLoginMutation as pollChatGPTLoginMutation,
   ankoleWebAiGatewayProviderControllerStartChatgptLoginMutation as startChatGPTLoginMutation
 } from '../api/generated/@tanstack/react-query.gen'
-import type {
-  AiGatewayCredentialPoolEntry as AIGatewayCredentialPoolEntry,
-  AiGatewayProviderItem as AIGatewayProviderItem
-} from '../api/generated/types.gen'
 import { DiscardConfirmDialog, LabeledField, ReadOnlyValue, useDialogDiscardGuard } from '../console-form'
+import type { AIGatewayProviderItem, AIGatewayCredentialPoolEntry } from '../state/provider-settings'
 
 type LoginPayload = Record<string, unknown>
 

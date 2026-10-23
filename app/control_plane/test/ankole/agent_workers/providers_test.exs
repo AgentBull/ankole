@@ -119,7 +119,10 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
 
   test "provider identity and storage location cannot change" do
     assert {:ok, provider} = Providers.create(attrs("local"))
-    assert {:error, changeset} = Providers.update("local", %{provider_id: "another"})
+
+    assert {:error, changeset} =
+             Ankole.Ash.update(provider, :configure, %{provider_id: "another"})
+
     assert "cannot change after creation" in errors_on(changeset).provider_id
     assert {:error, changeset} = Providers.update("local", %{kind: "cloudflare"})
     assert "cannot change after creation" in errors_on(changeset).kind
@@ -141,7 +144,7 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
 
     assert {:ok, provider} = Providers.create(attrs)
     refute provider.credentials["adapterToken"] == "first-secret"
-    assert Providers.projection(provider).credentials == %{"adapterToken" => "********"}
+    assert [%{stored_credentials: ["adapterToken"]}] = projections()
     assert {:ok, loaded} = Providers.load(provider)
     assert loaded.secrets == %{"adapterToken" => "first-secret"}
 
@@ -318,8 +321,8 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
         })
       end)
 
-    assert [%{agent_count: 2}] = Providers.list_projections()
-    assert Providers.projection(provider).agent_count == 2
+    assert [%{agent_count: 2, id: id}] = projections()
+    assert id == provider.id
     assert {:ok, _} = Providers.update(provider.provider_id, %{display_name: "Shared provider"})
     jobs = all_enqueued(worker: Ankole.AgentWorkers.ReconcileJob)
 
@@ -345,7 +348,7 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
     Repo.insert!(%AgentWorker{agent_uid: "legacy"})
     assert {:ok, %{provider_id: "local"}} = Providers.assign("legacy", "local")
     assert {:error, :worker_provider_immutable} = Providers.assign("legacy", "local")
-    assert [%{agent_count: 1}] = Providers.list_projections()
+    assert [%{agent_count: 1}] = projections()
     Repo.update_all(AgentWorker, set: [state: :deleting])
     assert {:error, :worker_provider_in_use} = Providers.delete("local")
     Repo.delete_all(AgentWorker)
@@ -667,6 +670,13 @@ defmodule Ankole.AgentWorkers.ProvidersTest do
           user: worker
     """
   end
+
+  defp projections,
+    do:
+      Provider
+      |> Ash.Query.for_read(:list)
+      |> Ash.Query.load([:agent_count, :selectable, :stored_credentials])
+      |> Ankole.Ash.read!()
 
   defp attrs(id, config \\ Docker.definition().example),
     do: %{provider_id: id, display_name: id, kind: "docker", config: config}

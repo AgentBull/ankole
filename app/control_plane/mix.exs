@@ -97,7 +97,8 @@ defmodule Ankole.MixProject do
   defp patch_ash_dependencies(_args) do
     for {dependency_name, filename} <- [
           {"ash", "ash-3.36.1.patch"},
-          {"ash_postgres", "ash_postgres-2.15.1.patch"}
+          {"ash_postgres", "ash_postgres-2.15.1.patch"},
+          {"ash_json_api", "ash_json_api-1.7.1.patch"}
         ] do
       dependency = Path.join(Mix.Project.deps_path(), dependency_name)
       patch = Path.expand("../control_plane_core/patches/#{filename}", __DIR__)
@@ -123,7 +124,7 @@ defmodule Ankole.MixProject do
   # Build before deps.loadpaths snapshots dependencies, including warm builds.
   defp compile_ash_dependencies(args) do
     unless "--no-compile" in args or "--no-deps-check" in args do
-      Mix.Task.rerun("deps.compile", ["ash", "ash_postgres", "--include-children"])
+      Mix.Task.rerun("deps.compile", ["ash", "ash_postgres", "ash_json_api", "--include-children"])
     end
   end
 

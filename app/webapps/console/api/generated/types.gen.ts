@@ -60,13 +60,6 @@ export type AgentLibraryDocumentItem = {
 }
 
 /**
- * AIGatewayProviderListResponse
- */
-export type AiGatewayProviderListResponse = {
-  ai_gateway_providers: Array<AiGatewayProviderItem>
-}
-
-/**
  * ProviderHostedWriteRequest
  *
  * Sets any of the capability switches. Omitted keys stay unchanged.
@@ -245,14 +238,6 @@ export type WorkerProviderAssignRequest = {
 export type BackgroundAgentJobTurnPlanStep = {
   status: 'pending' | 'in_progress' | 'completed'
   step: string
-}
-
-/**
- * SiteAdministrationTransferRequest
- */
-export type SiteAdministrationTransferRequest = {
-  site_admin_uid: string
-  tenant_id: string
 }
 
 /**
@@ -618,14 +603,6 @@ export type ModelProfileResponse = {
  */
 export type IdentityProviderListResponse = {
   identity_providers: Array<IdentityProviderItem>
-}
-
-/**
- * TenantListResponse
- */
-export type TenantListResponse = {
-  brain_packs: Array<string>
-  tenants: Array<Tenant>
 }
 
 /**
@@ -1099,31 +1076,6 @@ export type BackgroundAgentJobListResponse = {
 }
 
 /**
- * WorkerProvider
- */
-export type WorkerProvider = {
-  agent_count: number
-  /**
-   * The original YAML, including comments.
-   */
-  config: string
-  /**
-   * Stored credentials are masked.
-   */
-  credentials: {
-    [key: string]: string
-  }
-  display_name: string
-  is_default: boolean
-  kind: string
-  provider_id: string
-  /**
-   * The kind is active and its Plugin is selected for the next start. This does not check cloud connectivity.
-   */
-  selectable: boolean
-}
-
-/**
  * BackgroundAgentJobItem
  */
 export type BackgroundAgentJobItem = {
@@ -1404,15 +1356,6 @@ export type ModelProfilesResponse = {
 }
 
 /**
- * TenantCreateRequest
- */
-export type TenantCreateRequest = {
-  brain_packs?: Array<string>
-  display_name: string
-  slug: string
-}
-
-/**
  * ProviderHostedCapabilities
  *
  * Capabilities the Agent leaves to its language-model Provider. A capability set to true declares no Ankole tool or capability profile, and the Agent has no such capability when its Provider cannot run it.
@@ -1667,18 +1610,6 @@ export type BrainObjectRestoreRequest = {
 }
 
 /**
- * WorkerProviderCreateRequest
- */
-export type WorkerProviderCreateRequest = {
-  config: string
-  credentials?: WorkerProviderCredentialsInput
-  display_name: string
-  is_default?: boolean
-  kind: string
-  provider_id: string
-}
-
-/**
  * SignalBindingListResponse
  */
 export type SignalBindingListResponse = {
@@ -1859,15 +1790,6 @@ export type ModelProfileWriteRequest = {
   provider_options?: {
     [key: string]: unknown
   }
-}
-
-/**
- * WorkerProviderCredentialsInput
- *
- * Text replaces the stored credential. An empty string or an absent key keeps it. Null removes an optional credential.
- */
-export type WorkerProviderCredentialsInput = {
-  [key: string]: string | null
 }
 
 /**
@@ -2072,26 +1994,6 @@ export type TokenQuotaUsage = {
   used_tokens: number
   window_ends_at: string
   window_started_at: string
-}
-
-/**
- * WorkerProviderListResponse
- */
-export type WorkerProviderListResponse = {
-  worker_providers: Array<WorkerProvider>
-}
-
-/**
- * Tenant
- */
-export type Tenant = {
-  deleting_at: string | null
-  display_name: string
-  id: string
-  inserted_at: string
-  slug: string
-  suspended_at: string | null
-  updated_at: string
 }
 
 /**
@@ -2551,21 +2453,6 @@ export type TokenQuotaResponse = {
 }
 
 /**
- * AIGatewayProviderWriteRequest
- */
-export type AiGatewayProviderWriteRequest = {
-  base_url?: string | null
-  connection_options?: {
-    [key: string]: unknown
-  }
-  credential_pool?: {
-    [key: string]: unknown
-  }
-  provider_id?: string
-  provider_kind?: string
-}
-
-/**
  * ComputedMemberPreviewRequest
  */
 export type ComputedMemberPreviewRequest = {
@@ -2646,27 +2533,10 @@ export type SignalBindingItem = {
 }
 
 /**
- * WorkerProviderUpdateRequest
- */
-export type WorkerProviderUpdateRequest = {
-  config?: string
-  credentials?: WorkerProviderCredentialsInput
-  display_name?: string
-  is_default?: boolean
-}
-
-/**
  * AppConfigurationDecryptionResponse
  */
 export type AppConfigurationDecryptionResponse = {
   decrypted_value: AppConfigurationDecryptionValue
-}
-
-/**
- * TenantResponse
- */
-export type TenantResponse = {
-  tenant: Tenant
 }
 
 /**
@@ -2798,14 +2668,6 @@ export type PermissionGrantCreateRequest = {
    * AuthZ resource glob pattern, for example workspace:**
    */
   resource_pattern: string
-}
-
-/**
- * TenantUpdateRequest
- */
-export type TenantUpdateRequest = {
-  display_name?: string
-  slug?: string
 }
 
 /**
@@ -2956,13 +2818,6 @@ export type AgentFileMoveRequest = {
 }
 
 /**
- * WorkerProviderResponse
- */
-export type WorkerProviderResponse = {
-  worker_provider: WorkerProvider
-}
-
-/**
  * ConversationStandingOrdersWriteRequest
  */
 export type ConversationStandingOrdersWriteRequest = {
@@ -3096,96 +2951,6 @@ export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses = {
 
 export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponse =
   AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses[keyof AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses]
-
-export type AnkoleWebAiGatewayProviderControllerEnableProviderData = {
-  body?: never
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/site/ai-gateway/providers/{provider_id}/enable'
-}
-
-export type AnkoleWebAiGatewayProviderControllerEnableProviderErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerEnableProviderError =
-  AnkoleWebAiGatewayProviderControllerEnableProviderErrors[keyof AnkoleWebAiGatewayProviderControllerEnableProviderErrors]
-
-export type AnkoleWebAiGatewayProviderControllerEnableProviderResponses = {
-  /**
-   * AIGateway provider
-   */
-  200: AiGatewayProviderResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerEnableProviderResponse =
-  AnkoleWebAiGatewayProviderControllerEnableProviderResponses[keyof AnkoleWebAiGatewayProviderControllerEnableProviderResponses]
-
-export type AnkoleWebWorkerProviderControllerDeleteData = {
-  body?: never
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/site/worker-providers/{provider_id}'
-}
-
-export type AnkoleWebWorkerProviderControllerDeleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerProviderControllerDeleteError =
-  AnkoleWebWorkerProviderControllerDeleteErrors[keyof AnkoleWebWorkerProviderControllerDeleteErrors]
-
-export type AnkoleWebWorkerProviderControllerDeleteResponses = {
-  /**
-   * Deleted
-   */
-  204: void
-}
-
-export type AnkoleWebWorkerProviderControllerDeleteResponse =
-  AnkoleWebWorkerProviderControllerDeleteResponses[keyof AnkoleWebWorkerProviderControllerDeleteResponses]
-
-export type AnkoleWebWorkerProviderControllerUpdateData = {
-  /**
-   * Worker provider
-   */
-  body: WorkerProviderUpdateRequest
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/site/worker-providers/{provider_id}'
-}
-
-export type AnkoleWebWorkerProviderControllerUpdateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerProviderControllerUpdateError =
-  AnkoleWebWorkerProviderControllerUpdateErrors[keyof AnkoleWebWorkerProviderControllerUpdateErrors]
-
-export type AnkoleWebWorkerProviderControllerUpdateResponses = {
-  /**
-   * Worker provider
-   */
-  200: WorkerProviderResponse
-}
-
-export type AnkoleWebWorkerProviderControllerUpdateResponse =
-  AnkoleWebWorkerProviderControllerUpdateResponses[keyof AnkoleWebWorkerProviderControllerUpdateResponses]
 
 export type AnkoleWebAgentWorkerControllerIndexData = {
   body?: never
@@ -3332,63 +3097,6 @@ export type AnkoleWebAiGatewayFilesControllerShowResponses = {
 
 export type AnkoleWebAiGatewayFilesControllerShowResponse =
   AnkoleWebAiGatewayFilesControllerShowResponses[keyof AnkoleWebAiGatewayFilesControllerShowResponses]
-
-export type AnkoleWebTenantControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/site/tenants'
-}
-
-export type AnkoleWebTenantControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebTenantControllerIndexError =
-  AnkoleWebTenantControllerIndexErrors[keyof AnkoleWebTenantControllerIndexErrors]
-
-export type AnkoleWebTenantControllerIndexResponses = {
-  /**
-   * Tenant result
-   */
-  200: TenantListResponse
-}
-
-export type AnkoleWebTenantControllerIndexResponse =
-  AnkoleWebTenantControllerIndexResponses[keyof AnkoleWebTenantControllerIndexResponses]
-
-export type AnkoleWebTenantControllerCreateData = {
-  /**
-   * Tenant request
-   */
-  body: TenantCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/site/tenants'
-}
-
-export type AnkoleWebTenantControllerCreateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebTenantControllerCreateError =
-  AnkoleWebTenantControllerCreateErrors[keyof AnkoleWebTenantControllerCreateErrors]
-
-export type AnkoleWebTenantControllerCreateResponses = {
-  /**
-   * Tenant result
-   */
-  201: TenantResponse
-}
-
-export type AnkoleWebTenantControllerCreateResponse =
-  AnkoleWebTenantControllerCreateResponses[keyof AnkoleWebTenantControllerCreateResponses]
 
 export type AnkoleWebWorkerEnvControllerDecryptData = {
   body?: never
@@ -3780,120 +3488,6 @@ export type AnkoleWebBrainControllerForgetClaimResponses = {
 
 export type AnkoleWebBrainControllerForgetClaimResponse =
   AnkoleWebBrainControllerForgetClaimResponses[keyof AnkoleWebBrainControllerForgetClaimResponses]
-
-export type AnkoleWebTenantControllerPrivilegedData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/site/privileged-tenant'
-}
-
-export type AnkoleWebTenantControllerPrivilegedErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebTenantControllerPrivilegedError =
-  AnkoleWebTenantControllerPrivilegedErrors[keyof AnkoleWebTenantControllerPrivilegedErrors]
-
-export type AnkoleWebTenantControllerPrivilegedResponses = {
-  /**
-   * Tenant result
-   */
-  200: TenantResponse
-}
-
-export type AnkoleWebTenantControllerPrivilegedResponse =
-  AnkoleWebTenantControllerPrivilegedResponses[keyof AnkoleWebTenantControllerPrivilegedResponses]
-
-export type AnkoleWebTenantControllerTransferData = {
-  /**
-   * Tenant request
-   */
-  body: SiteAdministrationTransferRequest
-  path?: never
-  query?: never
-  url: '/api/v1/site/privileged-tenant'
-}
-
-export type AnkoleWebTenantControllerTransferErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebTenantControllerTransferError =
-  AnkoleWebTenantControllerTransferErrors[keyof AnkoleWebTenantControllerTransferErrors]
-
-export type AnkoleWebTenantControllerTransferResponses = {
-  /**
-   * Tenant result
-   */
-  200: TenantResponse
-}
-
-export type AnkoleWebTenantControllerTransferResponse =
-  AnkoleWebTenantControllerTransferResponses[keyof AnkoleWebTenantControllerTransferResponses]
-
-export type AnkoleWebWorkerProviderControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/site/worker-providers'
-}
-
-export type AnkoleWebWorkerProviderControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerProviderControllerIndexError =
-  AnkoleWebWorkerProviderControllerIndexErrors[keyof AnkoleWebWorkerProviderControllerIndexErrors]
-
-export type AnkoleWebWorkerProviderControllerIndexResponses = {
-  /**
-   * Worker providers
-   */
-  200: WorkerProviderListResponse
-}
-
-export type AnkoleWebWorkerProviderControllerIndexResponse =
-  AnkoleWebWorkerProviderControllerIndexResponses[keyof AnkoleWebWorkerProviderControllerIndexResponses]
-
-export type AnkoleWebWorkerProviderControllerCreateData = {
-  /**
-   * Worker provider
-   */
-  body: WorkerProviderCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/site/worker-providers'
-}
-
-export type AnkoleWebWorkerProviderControllerCreateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerProviderControllerCreateError =
-  AnkoleWebWorkerProviderControllerCreateErrors[keyof AnkoleWebWorkerProviderControllerCreateErrors]
-
-export type AnkoleWebWorkerProviderControllerCreateResponses = {
-  /**
-   * Worker provider
-   */
-  201: WorkerProviderResponse
-}
-
-export type AnkoleWebWorkerProviderControllerCreateResponse =
-  AnkoleWebWorkerProviderControllerCreateResponses[keyof AnkoleWebWorkerProviderControllerCreateResponses]
 
 export type AnkoleWebDirectoryAccessControllerApproveData = {
   /**
@@ -4449,67 +4043,6 @@ export type AnkoleWebAiGatewayControllerModelsResponses = {
 
 export type AnkoleWebAiGatewayControllerModelsResponse =
   AnkoleWebAiGatewayControllerModelsResponses[keyof AnkoleWebAiGatewayControllerModelsResponses]
-
-export type AnkoleWebTenantControllerDeleteData = {
-  body?: never
-  path: {
-    tenant_id: string
-  }
-  query?: never
-  url: '/api/v1/site/tenants/{tenant_id}'
-}
-
-export type AnkoleWebTenantControllerDeleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebTenantControllerDeleteError =
-  AnkoleWebTenantControllerDeleteErrors[keyof AnkoleWebTenantControllerDeleteErrors]
-
-export type AnkoleWebTenantControllerDeleteResponses = {
-  /**
-   * Tenant result
-   */
-  202: TenantResponse
-}
-
-export type AnkoleWebTenantControllerDeleteResponse =
-  AnkoleWebTenantControllerDeleteResponses[keyof AnkoleWebTenantControllerDeleteResponses]
-
-export type AnkoleWebTenantControllerUpdateData = {
-  /**
-   * Tenant request
-   */
-  body: TenantUpdateRequest
-  path: {
-    tenant_id: string
-  }
-  query?: never
-  url: '/api/v1/site/tenants/{tenant_id}'
-}
-
-export type AnkoleWebTenantControllerUpdateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebTenantControllerUpdateError =
-  AnkoleWebTenantControllerUpdateErrors[keyof AnkoleWebTenantControllerUpdateErrors]
-
-export type AnkoleWebTenantControllerUpdateResponses = {
-  /**
-   * Tenant result
-   */
-  200: TenantResponse
-}
-
-export type AnkoleWebTenantControllerUpdateResponse =
-  AnkoleWebTenantControllerUpdateResponses[keyof AnkoleWebTenantControllerUpdateResponses]
 
 export type AnkoleWebBrainControllerSearchPreviewData = {
   /**
@@ -6560,96 +6093,6 @@ export type AnkoleWebAiGatewayConversationControllerIndexResponses = {
 export type AnkoleWebAiGatewayConversationControllerIndexResponse =
   AnkoleWebAiGatewayConversationControllerIndexResponses[keyof AnkoleWebAiGatewayConversationControllerIndexResponses]
 
-export type AnkoleWebAiGatewayProviderControllerDeleteProviderData = {
-  body?: never
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/site/ai-gateway/providers/{provider_id}'
-}
-
-export type AnkoleWebAiGatewayProviderControllerDeleteProviderErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerDeleteProviderError =
-  AnkoleWebAiGatewayProviderControllerDeleteProviderErrors[keyof AnkoleWebAiGatewayProviderControllerDeleteProviderErrors]
-
-export type AnkoleWebAiGatewayProviderControllerDeleteProviderResponses = {
-  /**
-   * AIGateway provider
-   */
-  200: AiGatewayProviderResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerDeleteProviderResponse =
-  AnkoleWebAiGatewayProviderControllerDeleteProviderResponses[keyof AnkoleWebAiGatewayProviderControllerDeleteProviderResponses]
-
-export type AnkoleWebAiGatewayProviderControllerShowData = {
-  body?: never
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/site/ai-gateway/providers/{provider_id}'
-}
-
-export type AnkoleWebAiGatewayProviderControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerShowError =
-  AnkoleWebAiGatewayProviderControllerShowErrors[keyof AnkoleWebAiGatewayProviderControllerShowErrors]
-
-export type AnkoleWebAiGatewayProviderControllerShowResponses = {
-  /**
-   * AIGateway provider
-   */
-  200: AiGatewayProviderResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerShowResponse =
-  AnkoleWebAiGatewayProviderControllerShowResponses[keyof AnkoleWebAiGatewayProviderControllerShowResponses]
-
-export type AnkoleWebAiGatewayProviderControllerPutProviderData = {
-  /**
-   * AIGateway provider
-   */
-  body: AiGatewayProviderWriteRequest
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/site/ai-gateway/providers/{provider_id}'
-}
-
-export type AnkoleWebAiGatewayProviderControllerPutProviderErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerPutProviderError =
-  AnkoleWebAiGatewayProviderControllerPutProviderErrors[keyof AnkoleWebAiGatewayProviderControllerPutProviderErrors]
-
-export type AnkoleWebAiGatewayProviderControllerPutProviderResponses = {
-  /**
-   * AIGateway provider
-   */
-  200: AiGatewayProviderResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerPutProviderResponse =
-  AnkoleWebAiGatewayProviderControllerPutProviderResponses[keyof AnkoleWebAiGatewayProviderControllerPutProviderResponses]
-
 export type AnkoleWebBrainControllerListClaimsData = {
   body?: never
   path?: never
@@ -7934,64 +7377,6 @@ export type AnkoleWebBrainControllerDecideMergeSuggestionResponses = {
 export type AnkoleWebBrainControllerDecideMergeSuggestionResponse =
   AnkoleWebBrainControllerDecideMergeSuggestionResponses[keyof AnkoleWebBrainControllerDecideMergeSuggestionResponses]
 
-export type AnkoleWebTenantControllerResumeData = {
-  body?: never
-  path: {
-    tenant_id: string
-  }
-  query?: never
-  url: '/api/v1/site/tenants/{tenant_id}/suspension'
-}
-
-export type AnkoleWebTenantControllerResumeErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebTenantControllerResumeError =
-  AnkoleWebTenantControllerResumeErrors[keyof AnkoleWebTenantControllerResumeErrors]
-
-export type AnkoleWebTenantControllerResumeResponses = {
-  /**
-   * Tenant result
-   */
-  200: TenantResponse
-}
-
-export type AnkoleWebTenantControllerResumeResponse =
-  AnkoleWebTenantControllerResumeResponses[keyof AnkoleWebTenantControllerResumeResponses]
-
-export type AnkoleWebTenantControllerSuspendData = {
-  body?: never
-  path: {
-    tenant_id: string
-  }
-  query?: never
-  url: '/api/v1/site/tenants/{tenant_id}/suspension'
-}
-
-export type AnkoleWebTenantControllerSuspendErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebTenantControllerSuspendError =
-  AnkoleWebTenantControllerSuspendErrors[keyof AnkoleWebTenantControllerSuspendErrors]
-
-export type AnkoleWebTenantControllerSuspendResponses = {
-  /**
-   * Tenant result
-   */
-  200: TenantResponse
-}
-
-export type AnkoleWebTenantControllerSuspendResponse =
-  AnkoleWebTenantControllerSuspendResponses[keyof AnkoleWebTenantControllerSuspendResponses]
-
 export type AnkoleWebAppConfigurationControllerDeleteTenantData = {
   body?: never
   path: {
@@ -8142,33 +7527,6 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginRespons
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponse =
   AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponses[keyof AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponses]
-
-export type AnkoleWebAiGatewayProviderControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/site/ai-gateway/providers'
-}
-
-export type AnkoleWebAiGatewayProviderControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayProviderControllerIndexError =
-  AnkoleWebAiGatewayProviderControllerIndexErrors[keyof AnkoleWebAiGatewayProviderControllerIndexErrors]
-
-export type AnkoleWebAiGatewayProviderControllerIndexResponses = {
-  /**
-   * AIGateway providers
-   */
-  200: AiGatewayProviderListResponse
-}
-
-export type AnkoleWebAiGatewayProviderControllerIndexResponse =
-  AnkoleWebAiGatewayProviderControllerIndexResponses[keyof AnkoleWebAiGatewayProviderControllerIndexResponses]
 
 export type AnkoleWebSignalBindingControllerRequeueDeliveryData = {
   /**

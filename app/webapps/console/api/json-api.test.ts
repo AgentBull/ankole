@@ -82,6 +82,33 @@ test('JSON:API errors get the Console failure shape and other payloads stay the 
     { path: 'label', message: 'is required' }
   ])
 
+  const described = fromErrors({
+    errors: [
+      {
+        code: 'invalid_worker_provider_config',
+        detail: 'Worker provider YAML is invalid',
+        meta: { details: [{ path: 'env.HOME', line: 3, message: 'must be a string' }] }
+      }
+    ]
+  })
+  expect(requestErrorCode(described)).toBe('invalid_worker_provider_config')
+  expect(requestErrorMessage(described)).toBe('Worker provider YAML is invalid')
+  expect(requestErrorDetailList(described)).toEqual([{ path: 'env.HOME', line: 3, message: 'must be a string' }])
+
+  const templated = fromErrors({
+    errors: [
+      {
+        code: 'invalid',
+        detail: 'exactly %{exactly} of %{keys} must be present',
+        meta: { exactly: 2, keys: 'kind,config' },
+        source: { pointer: '/data/attributes/kind' }
+      }
+    ]
+  })
+  expect(requestErrorDetailList(templated)).toEqual([
+    { path: 'kind', message: 'exactly 2 of kind,config must be present' }
+  ])
+
   const unauthorized = { error: { code: 'unauthorized', message: 'active administrator session required' } }
   expect(fromErrors(unauthorized)).toBe(unauthorized)
   expect(fromErrors({ errors: { detail: 'Internal Server Error' } })).toEqual({
