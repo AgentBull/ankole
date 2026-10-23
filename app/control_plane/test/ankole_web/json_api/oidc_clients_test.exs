@@ -86,6 +86,15 @@ defmodule AnkoleWeb.JSONAPI.OIDCClientsTest do
 
     assert deleted["id"] == client_id
     assert {:error, :not_found} = OIDC.get_client(client_id)
+
+    for {method, path, data} <- [
+          {:get, "/api/v2/oidc-clients/#{client_id}", nil},
+          {:patch, "/api/v2/oidc-clients/#{client_id}", %{name: "Gone"}},
+          {:delete, "/api/v2/oidc-clients/#{client_id}", nil}
+        ] do
+      assert %{"errors" => [%{"code" => "not_found"}]} =
+               conn |> request(method, path, data) |> json_response(404)
+    end
   end
 
   test "a public Client has no secret, and validation rejects unsafe input", %{conn: conn} do
@@ -212,7 +221,7 @@ defmodule AnkoleWeb.JSONAPI.OIDCClientsTest do
     assert %{"errors" => [%{"code" => "not_found"}]} =
              conn
              |> request(:post, "/api/v2/oidc-clients/#{other.id}/logout-deliveries/#{id}/retries")
-             |> json_response(422)
+             |> json_response(404)
 
     assert {:ok, _} =
              Repo.transact(fn _repo ->

@@ -77,10 +77,14 @@ defmodule AnkoleWeb.JSONAPI.SchedulesTest do
              |> request(:post, "/api/v2/agents/#{agent.uid}/cron-schedules/#{evening.id}/resume")
              |> json_response(201)
 
-    assert %{"errors" => [%{"code" => "cron_schedule_not_found"}]} =
-             conn
-             |> request(:delete, "/api/v2/agents/#{other_agent.uid}/cron-schedules/#{morning.id}")
-             |> json_response(422)
+    for {method, path} <- [
+          {:delete, "/api/v2/agents/#{other_agent.uid}/cron-schedules/#{morning.id}"},
+          {:post, "/api/v2/agents/#{other_agent.uid}/cron-schedules/#{morning.id}/pause"},
+          {:delete, "/api/v2/agents/#{agent.uid}/cron-schedules/#{Ecto.UUID.generate()}"}
+        ] do
+      assert %{"errors" => [%{"code" => "not_found"}]} =
+               conn |> request(method, path) |> json_response(404)
+    end
 
     removed =
       conn
@@ -207,10 +211,13 @@ defmodule AnkoleWeb.JSONAPI.SchedulesTest do
     assert MapSet.new(list["data"], & &1["attributes"]["session_id"]) ==
              MapSet.new(["session-a", "session-b"])
 
-    assert %{"errors" => [%{"code" => "scheduled_event_not_found"}]} =
-             conn
-             |> request(:delete, "/api/v2/agents/#{other_agent.uid}/checkbacks/#{first.id}")
-             |> json_response(422)
+    for path <- [
+          "/api/v2/agents/#{other_agent.uid}/checkbacks/#{first.id}",
+          "/api/v2/agents/#{agent.uid}/checkbacks/9007199254740991"
+        ] do
+      assert %{"errors" => [%{"code" => "not_found"}]} =
+               conn |> request(:delete, path) |> json_response(404)
+    end
 
     assert %{"status" => "cancelled"} =
              conn

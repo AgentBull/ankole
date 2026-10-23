@@ -144,9 +144,9 @@ defmodule Ankole.Signals.Webhooks do
   @doc false
   # The Console cancels an endpoint of any Agent and gives the endpoint.
   def cancel_operator_endpoint_in_tx(repo, endpoint_id) do
-    with {:ok, %{webhook_endpoint: endpoint}} <-
-           cancel_endpoint_in_tx(repo, nil, nil, endpoint_id, DateTime.utc_now(:microsecond)) do
-      {:ok, endpoint}
+    case cancel_endpoint_in_tx(repo, nil, nil, endpoint_id, DateTime.utc_now(:microsecond)) do
+      {:ok, %{webhook_endpoint: endpoint}} -> {:ok, endpoint}
+      error -> Ankole.Errors.not_found(error, [:webhook_endpoint_not_found], WebhookEndpoint)
     end
   end
 

@@ -163,9 +163,9 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       argument(:delivery, :map, allow_nil?: false)
       argument(:idempotency_key, :string, allow_nil?: false)
 
-      run(fn input, _context ->
+      run(fn input, context ->
         Ankole.Repo
-        |> Ankole.Schedule.Cron.console_create_in_tx(input.arguments, input.context[:operator])
+        |> Ankole.Schedule.Cron.console_create_in_tx(input.arguments, context.actor)
         |> Ankole.Errors.wrap()
       end)
     end

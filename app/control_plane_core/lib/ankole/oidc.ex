@@ -304,8 +304,9 @@ defmodule Ankole.OIDC do
 
   @doc false
   def console_update_in_tx(%{id: id} = args) do
-    with {:ok, client} <- update_client_in_tx(id, Map.delete(args, :id)) do
-      {:ok, load_console_fields(client)}
+    case update_client_in_tx(id, Map.delete(args, :id)) do
+      {:ok, client} -> {:ok, load_console_fields(client)}
+      error -> Ankole.Errors.not_found(error, [:not_found], Client)
     end
   end
 
@@ -316,6 +317,8 @@ defmodule Ankole.OIDC do
          client = load_console_fields(client),
          {:ok, _deleted} <- Ankole.Ash.destroy(client, :delete_in_tx) do
       {:ok, client}
+    else
+      error -> Ankole.Errors.not_found(error, [:not_found], Client)
     end
   end
 

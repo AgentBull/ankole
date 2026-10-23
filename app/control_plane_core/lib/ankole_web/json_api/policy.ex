@@ -11,10 +11,10 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   a rule and that each rule has a route.
 
   The policy also gives the tenant of `Ankole.Repo` to the Ash action of a
-  Console route, and the `Ankole.ActorRef` of the Console Principal as the
-  `:operator` of the action context. `Ankole.Repo` stays the owner of the tenant: the action gets
-  the same value that `AnkoleWeb.Plugs.PutDataContext` selected. A site route
-  gets no tenant.
+  Console route, and the Console Principal as the actor of the action. Ash
+  policies stay disabled, so the actor only tells the action who operates.
+  `Ankole.Repo` stays the owner of the tenant: the action gets the same value
+  that `AnkoleWeb.Plugs.PutDataContext` selected. A site route gets no tenant.
 
   `AshJsonApi.Router` calls the controller of a route also after a halted
   `before_dispatch`. Thus a refusal throws the refused connection, and the
@@ -77,7 +77,7 @@ defmodule AnkoleWeb.JSONAPI.Policy do
       {Ankole.Schedule.Schemas.ScheduledEvent, :route, :console_cancel_checkback} =>
         {"agent:{agent_uid}:schedules", "delete"},
       # J3 signal bindings (v1: signal_binding_controller.ex)
-      {Ankole.Signals.Binding, :route, :disable_by_name} =>
+      {Ankole.Signals.Binding, :route, :console_disable} =>
         {"agent:{agent_uid}:signal_bindings", "delete"}
     }
   }
@@ -118,7 +118,7 @@ defmodule AnkoleWeb.JSONAPI.Policy do
          :ok <- ConsolePolicy.authorize(conn, expand(authz_resource, params), action) do
       conn
       |> Ash.PlugHelpers.set_tenant(tenant(scope))
-      |> Ash.PlugHelpers.set_context(%{operator: operator(conn)})
+      |> Ash.PlugHelpers.set_actor(conn.assigns[:current_principal])
     else
       _refused -> refuse(conn)
     end
@@ -133,11 +133,6 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   catch
     {__MODULE__, %Plug.Conn{} = refused} -> refused
   end
-
-  defp operator(%{assigns: %{current_principal: %_{} = principal}}),
-    do: Ankole.ActorRef.from_principal(principal)
-
-  defp operator(_conn), do: nil
 
   defp tenant(:site), do: nil
   defp tenant(:console), do: Ankole.Repo.tenant_id()

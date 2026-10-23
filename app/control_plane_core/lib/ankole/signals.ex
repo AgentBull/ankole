@@ -26,7 +26,7 @@ defmodule Ankole.Signals do
       end
 
       base_route "/agents/:agent_uid/signal-bindings", Binding do
-        route(:delete, "/:name", :disable_by_name, name: "disable_signal_binding")
+        route(:delete, "/:name", :console_disable, name: "disable_signal_binding")
       end
     end
   end

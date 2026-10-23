@@ -105,6 +105,23 @@ defmodule AnkoleWeb.JSONAPI.WebhookEndpointsTest do
       conn |> request(:delete, "/api/v2/webhook-endpoints/#{id}") |> json_response(200)
 
     assert %{"id" => ^id, "status" => "cancelled"} = cancelled
+
+    assert %{"errors" => [%{"code" => "not_found"}]} =
+             conn
+             |> request(:delete, "/api/v2/webhook-endpoints/#{Ecto.UUID.generate()}")
+             |> json_response(404)
+  end
+
+  test "disabling an unknown signal binding is not found", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    conn = console_conn(conn)
+
+    for agent_uid <- [agent.uid, "agt_missing"] do
+      assert %{"errors" => [%{"code" => "not_found"}]} =
+               conn
+               |> request(:delete, "/api/v2/agents/#{agent_uid}/signal-bindings/missing")
+               |> json_response(404)
+    end
   end
 
   test "a request without the webhook grant changes nothing", %{conn: conn} do

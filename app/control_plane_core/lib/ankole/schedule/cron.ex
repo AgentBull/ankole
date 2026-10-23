@@ -212,16 +212,19 @@ defmodule Ankole.Schedule.Cron do
   end
 
   @doc false
-  # The Console creates a schedule for the Console Principal (`operator`).
-  def console_create_in_tx(repo, args, operator) do
+  # The Console creates a schedule for the Console Principal (the actor).
+  def console_create_in_tx(repo, args, actor) do
     created_by =
-      if operator,
-        do: %{"kind" => "operator_api", "principal_uid" => to_string(operator)},
+      if actor,
+        do: %{
+          "kind" => "operator_api",
+          "principal_uid" => actor |> Ankole.ActorRef.from_principal() |> to_string()
+        },
         else: %{"kind" => "operator_api"}
 
-    with {:ok, %{cron_schedule: schedule}} <-
-           create_cron_schedule_in_tx(repo, args, created_by: created_by) do
-      {:ok, console_result(schedule)}
+    case create_cron_schedule_in_tx(repo, args, created_by: created_by) do
+      {:ok, %{cron_schedule: schedule}} -> {:ok, console_result(schedule)}
+      error -> Ankole.Errors.not_found(error, [:not_found], CronSchedule)
     end
   end
 
@@ -261,12 +264,15 @@ defmodule Ankole.Schedule.Cron do
     case Store.get_cron_schedule(id) do
       %CronSchedule{agent_uid: ^agent_uid} ->
         case operation.(id) do
-          {:ok, %CronSchedule{} = schedule} -> {:ok, console_result(schedule)}
-          result -> result
+          {:ok, %CronSchedule{} = schedule} ->
+            {:ok, console_result(schedule)}
+
+          result ->
+            Ankole.Errors.not_found(result, [:cron_schedule_not_found, :not_found], CronSchedule)
         end
 
       _other ->
-        {:error, :cron_schedule_not_found}
+        {:error, Ankole.Errors.Invalid.NotFound.exception(resource: CronSchedule, id: id)}
     end
   end
 

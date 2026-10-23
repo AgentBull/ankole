@@ -203,10 +203,26 @@ defmodule Ankole.Signals.Binding do
       end)
     end
 
-    action :disable_by_name, :struct do
+    # The Console disables a binding of one Agent. An unknown Agent or binding
+    # reads as not found.
+    action :console_disable, :struct do
       constraints(instance_of: __MODULE__)
       argument(:agent_uid, :string, allow_nil?: false)
       argument(:name, :string, allow_nil?: false)
+
+      run(fn input, _context ->
+        args = input.arguments
+
+        Ankole.Repo
+        |> Bindings.disable_binding_in_tx(args.agent_uid, args.name)
+        |> Ankole.Errors.not_found([:agent_not_found, :binding_not_found], __MODULE__)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :disable_by_name, :term do
+      argument(:agent_uid, :term, allow_nil?: false)
+      argument(:name, :term, allow_nil?: false)
 
       run(fn input, _context ->
         args = input.arguments

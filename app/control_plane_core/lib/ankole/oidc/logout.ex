@@ -41,13 +41,17 @@ defmodule Ankole.OIDC.Logout do
          |> Ash.Query.filter(id == ^id and session.client_id == ^client_id)
          |> Ankole.Ash.read_one!() do
       %LogoutDelivery{} ->
-        with {:ok, delivery} <- retry_in_tx(id) do
-          {:ok,
-           Ash.load!(delivery, [:principal_uid], tenant: Repo.tenant_id(), authorize?: false)}
+        case retry_in_tx(id) do
+          {:ok, delivery} ->
+            {:ok,
+             Ash.load!(delivery, [:principal_uid], tenant: Repo.tenant_id(), authorize?: false)}
+
+          error ->
+            Ankole.Errors.not_found(error, [:not_found], LogoutDelivery)
         end
 
       nil ->
-        {:error, :not_found}
+        {:error, Ankole.Errors.Invalid.NotFound.exception(resource: LogoutDelivery, id: id)}
     end
   end
 
