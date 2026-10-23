@@ -1,6 +1,9 @@
 defmodule Ankole.AuthZ.Group do
   @moduledoc "Principal group used by the AuthZ rule engine."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AuthZ
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.AuthZ,
+    extensions: [AshJsonApi.Resource]
 
   @fields [
     :name,
@@ -12,6 +15,36 @@ defmodule Ankole.AuthZ.Group do
     :description,
     :metadata
   ]
+
+  # The Principal fields of one group member in the Console API.
+  @member_fields [
+    uid: [type: :string, allow_nil?: false],
+    type: [type: :atom, allow_nil?: false, constraints: [one_of: [:human, :agent, :system]]],
+    status: [type: :atom, allow_nil?: false, constraints: [one_of: [:active, :disabled]]],
+    display_name: [type: :string],
+    avatar_url: [type: :string],
+    member_since: [type: :utc_datetime_usec]
+  ]
+
+  json_api do
+    type("principal_group")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :name,
+      :display_name,
+      :domain,
+      :kind,
+      :built_in,
+      :computed_condition,
+      :description,
+      :member_count,
+      :grant_count,
+      :inserted_at,
+      :updated_at
+    ])
+  end
 
   postgres do
     table("principal_groups")
@@ -69,12 +102,16 @@ defmodule Ankole.AuthZ.Group do
   relationships do
     has_many(:memberships, Ankole.AuthZ.Membership, destination_attribute: :group_id)
     has_many(:external_bindings, Ankole.AuthZ.ExternalBinding, destination_attribute: :group_id)
-    has_many(:grants, Ankole.AuthZ.Grant, destination_attribute: :group_id)
+    has_many :grants, Ankole.AuthZ.Grant do
+      public?(true)
+      destination_attribute(:group_id)
+      sort(resource_pattern: :asc, action: :asc)
+    end
   end
 
   aggregates do
-    count(:member_count, :memberships)
-    count(:grant_count, :grants)
+    count(:member_count, :memberships, public?: true)
+    count(:grant_count, :grants, public?: true)
   end
 
   changes do
@@ -118,47 +155,70 @@ defmodule Ankole.AuthZ.Group do
       upsert_fields([:name])
     end
 
+    read :console_list do
+      prepare(build(sort: [name: :asc]))
+    end
+
+    create :create do
+      description("Creates an operator group.")
+      accept([:name, :display_name, :kind, :computed_condition, :description])
+    end
+
     update :profile_in_tx do
       accept(@fields -- [:built_in])
+      validate(&__MODULE__.keep_built_in/2)
+    end
 
-      validate(fn changeset, _context ->
-        immutable =
-          if changeset.data.built_in,
-            do:
-              Enum.filter([:name, :kind, :computed_condition], fn field ->
-                Ash.Changeset.changing_attribute?(changeset, field)
-              end),
-            else: []
-
-        case immutable do
-          [] -> :ok
-          fields -> {:error, fields: fields, message: "cannot change a built-in group"}
-        end
-      end)
+    update :update do
+      description("Updates the display fields or the condition of a group.")
+      accept([:display_name, :computed_condition, :description])
+      validate(&__MODULE__.keep_built_in/2)
     end
 
     destroy(:delete_in_tx)
 
     action :delete_operator_group, :struct do
+      description("Deletes an operator group that has no grants.")
       constraints(instance_of: __MODULE__)
-      argument(:id_or_name, :term, allow_nil?: false)
+      argument(:name, :string, allow_nil?: false, description: "The group name or ID.")
 
       run(fn input, _context ->
-        Ankole.AuthZ.Store.delete_operator_group(Ankole.Repo, input.arguments.id_or_name)
+        Ankole.AuthZ.Store.delete_operator_group(Ankole.Repo, input.arguments.name)
         |> Ankole.Errors.wrap()
       end)
     end
 
+    action :list_members, {:array, :map} do
+      description("Lists the effective members of a group.")
+      constraints(items: [fields: @member_fields])
+      argument(:name, :string, allow_nil?: false)
+
+      run(fn input, _context ->
+        input.arguments.name |> Ankole.AuthZ.effective_group_members() |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :preview_computed_members, {:array, :map} do
+      description("Lists the active Principals that a computed group condition matches.")
+      constraints(items: [fields: @member_fields])
+      argument(:condition, :string, allow_nil?: false)
+
+      run(fn input, _context ->
+        input.arguments.condition |> Ankole.AuthZ.preview_members() |> Ankole.Errors.wrap()
+      end)
+    end
+
     action :add_member, :struct do
+      description("Adds a Principal to a static operator group.")
       constraints(instance_of: Ankole.AuthZ.Membership)
-      argument(:principal_uid, :term, allow_nil?: false)
-      argument(:group, :term, allow_nil?: false)
+      argument(:principal_uid, :string, allow_nil?: false)
+      argument(:name, :string, allow_nil?: false, description: "The group name or ID.")
 
       run(fn input, _context ->
         Ankole.Repo
         |> Ankole.AuthZ.Store.add_principal_to_group(
           input.arguments.principal_uid,
-          input.arguments.group,
+          input.arguments.name,
           Ankole.AuthZ.Root.admin_group_name()
         )
         |> Ankole.Errors.wrap()
@@ -166,14 +226,15 @@ defmodule Ankole.AuthZ.Group do
     end
 
     action :remove_member, :atom do
-      argument(:principal_uid, :term, allow_nil?: false)
-      argument(:group, :term, allow_nil?: false)
+      description("Removes a Principal from a static operator group.")
+      argument(:principal_uid, :string, allow_nil?: false)
+      argument(:name, :string, allow_nil?: false, description: "The group name or ID.")
 
       run(fn input, _context ->
         Ankole.Repo
         |> Ankole.AuthZ.Store.remove_principal_from_group(
           input.arguments.principal_uid,
-          input.arguments.group,
+          input.arguments.name,
           Ankole.AuthZ.Root.admin_group_name()
         )
         |> Ankole.Errors.wrap()
@@ -212,6 +273,23 @@ defmodule Ankole.AuthZ.Group do
         )
         |> Ankole.Errors.wrap()
       end)
+    end
+  end
+
+  @doc false
+  # A built-in group keeps its name, kind, and condition.
+  def keep_built_in(changeset, _context) do
+    immutable =
+      if changeset.data.built_in,
+        do:
+          Enum.filter([:name, :kind, :computed_condition], fn field ->
+            Ash.Changeset.changing_attribute?(changeset, field)
+          end),
+        else: []
+
+    case immutable do
+      [] -> :ok
+      fields -> {:error, fields: fields, message: "cannot change a built-in group"}
     end
   end
 

@@ -1,6 +1,26 @@
 defmodule Ankole.Principals.MappingRequest do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Principals,
+    extensions: [AshJsonApi.Resource]
+
+  json_api do
+    type("identity_mapping_request")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :provider,
+      :external_id,
+      :display_name,
+      :email,
+      :mobile,
+      :metadata,
+      :inserted_at,
+      :updated_at
+    ])
+  end
 
   postgres do
     table("identity_mapping_requests")
@@ -43,6 +63,10 @@ defmodule Ankole.Principals.MappingRequest do
   actions do
     defaults([:read])
 
+    read :console_list do
+      prepare(build(sort: [updated_at: :desc]))
+    end
+
     create :observe_in_tx do
       accept([:provider, :external_id, :display_name, :email, :mobile, :metadata])
       upsert?(true)
@@ -52,9 +76,11 @@ defmodule Ankole.Principals.MappingRequest do
 
     destroy(:delete_in_tx)
 
-    action :bind_request, :map do
-      argument(:id, :term, allow_nil?: false)
-      argument(:principal_uid, :term, allow_nil?: false)
+    action :bind_request, :struct do
+      description("Binds a pending request to a Human and removes the request.")
+      constraints(instance_of: Ankole.Principals.ExternalIdentity)
+      argument(:id, :string, allow_nil?: false)
+      argument(:principal_uid, :string, allow_nil?: false)
 
       run(fn input, _context ->
         Ankole.Principals.MappingRequests.bind_request_in_tx(
@@ -67,15 +93,17 @@ defmodule Ankole.Principals.MappingRequest do
     end
 
     action :bind_subject, :struct do
+      description("Binds a provider subject to a Human and removes its pending request.")
       constraints(instance_of: Ankole.Principals.ExternalIdentity)
-      argument(:principal_uid, :term, allow_nil?: false)
-      argument(:attrs, :map, allow_nil?: false)
+      argument(:principal_uid, :string, allow_nil?: false)
+      argument(:provider, :string, allow_nil?: false)
+      argument(:external_id, :string, allow_nil?: false)
 
       run(fn input, _context ->
         Ankole.Principals.MappingRequests.bind_subject_in_tx(
           Ankole.Repo,
           input.arguments.principal_uid,
-          input.arguments.attrs
+          Map.take(input.arguments, [:provider, :external_id])
         )
         |> Ankole.Errors.wrap()
       end)

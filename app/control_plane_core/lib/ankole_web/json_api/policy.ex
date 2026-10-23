@@ -29,7 +29,43 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   @type rule :: {authz_resource :: String.t(), authz_action :: String.t()}
 
   # {resource, route type, action or relationship} => {AuthZ resource, AuthZ action}
-  @rules %{site: %{}, console: %{}}
+  @rules %{
+    site: %{},
+    console: %{
+      # J2 identity (v1: principal_controller.ex, authz_group_controller.ex,
+      # permission_grant_controller.ex, identity_mapping_request_controller.ex)
+      {Ankole.Principals.Principal, :index, :console_list} => {"principals", "read"},
+      {Ankole.Principals.Principal, :get, :read} => {"principal:{uid}", "read"},
+      {Ankole.Principals.Principal, :post, :create_local_user} => {"principals", "update"},
+      {Ankole.Principals.Principal, :patch, :update_human} => {"principal:{uid}", "update"},
+      {Ankole.Principals.Principal, :related, :groups} => {"principal:{uid}:groups", "read"},
+      {Ankole.Principals.Principal, :related, :grants} => {"principal:{uid}:grants", "read"},
+      {Ankole.Principals.MappingRequest, :index, :console_list} =>
+        {"identity_mapping_requests", "read"},
+      {Ankole.Principals.MappingRequest, :delete, :delete_in_tx} =>
+        {"identity_mapping_requests", "update"},
+      {Ankole.Principals.MappingRequest, :route, :bind_request} =>
+        {"identity_mapping_requests", "update"},
+      {Ankole.Principals.MappingRequest, :route, :bind_subject} =>
+        {"identity_mapping_requests", "update"},
+      {Ankole.AuthZ.Group, :index, :console_list} => {"principal_groups", "read"},
+      {Ankole.AuthZ.Group, :post, :create} => {"principal_groups", "update"},
+      {Ankole.AuthZ.Group, :route, :preview_computed_members} => {"principal_groups", "read"},
+      {Ankole.AuthZ.Group, :get, :read} => {"principal_group:{name}", "read"},
+      {Ankole.AuthZ.Group, :patch, :update} => {"principal_group:{name}", "update"},
+      {Ankole.AuthZ.Group, :delete, :delete_operator_group} =>
+        {"principal_group:{name}", "delete"},
+      {Ankole.AuthZ.Group, :route, :list_members} => {"principal_group:{name}:members", "read"},
+      {Ankole.AuthZ.Group, :route, :add_member} => {"principal_group:{name}:members", "update"},
+      {Ankole.AuthZ.Group, :route, :remove_member} =>
+        {"principal_group:{name}:members", "update"},
+      {Ankole.AuthZ.Group, :related, :grants} => {"principal_group:{name}:grants", "read"},
+      {Ankole.AuthZ.Grant, :post, :create_operator_grant} => {"permission_grants", "update"},
+      {Ankole.AuthZ.Grant, :get, :read} => {"permission_grant:{id}", "read"},
+      {Ankole.AuthZ.Grant, :patch, :update_operator_grant} => {"permission_grant:{id}", "update"},
+      {Ankole.AuthZ.Grant, :delete, :delete_operator_grant} => {"permission_grant:{id}", "delete"}
+    }
+  }
 
   @doc "Gives the rules of the routers of one scope."
   @spec rules(scope()) :: %{rule_key() => rule()}

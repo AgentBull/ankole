@@ -292,8 +292,6 @@ defmodule AnkoleWeb.Router do
          WorkerEnvController,
          :decrypt_for_agent
 
-    get "/principals", PrincipalController, :index
-    post "/principals", PrincipalController, :create
     get "/work-access-reviews", HumanAccessController, :unresolved_work
     post "/work-access-reviews", HumanAccessController, :classify_work
     get "/principals/:uid/access", HumanAccessController, :show
@@ -305,10 +303,6 @@ defmodule AnkoleWeb.Router do
          :clear_restriction
 
     post "/principals/:uid/work-cleanup-retries", HumanAccessController, :retry_cleanup
-    get "/principals/:uid", PrincipalController, :show
-    patch "/principals/:uid", PrincipalController, :update
-    get "/principals/:uid/groups", PrincipalController, :groups
-    get "/principals/:uid/grants", PrincipalController, :grants
 
     post "/principals/:uid/local-password-resets",
          PrincipalController,
@@ -326,26 +320,6 @@ defmodule AnkoleWeb.Router do
     post "/oidc-clients/:id/logout-deliveries/:delivery_id/retries",
          OIDCClientController,
          :retry_logout
-
-    get "/principal-groups", AuthZGroupController, :index
-    post "/principal-groups", AuthZGroupController, :create
-
-    post "/principal-groups/computed-member-previews",
-         AuthZGroupController,
-         :preview_computed_members
-
-    get "/principal-groups/:name", AuthZGroupController, :show
-    patch "/principal-groups/:name", AuthZGroupController, :update
-    delete "/principal-groups/:name", AuthZGroupController, :delete
-    get "/principal-groups/:name/members", AuthZGroupController, :members
-    put "/principal-groups/:name/members/:principal_uid", AuthZGroupController, :add_member
-    delete "/principal-groups/:name/members/:principal_uid", AuthZGroupController, :remove_member
-    get "/principal-groups/:name/grants", AuthZGroupController, :grants
-
-    post "/permission-grants", PermissionGrantController, :create
-    get "/permission-grants/:id", PermissionGrantController, :show
-    patch "/permission-grants/:id", PermissionGrantController, :update
-    delete "/permission-grants/:id", PermissionGrantController, :delete
 
     get "/brain/health", BrainController, :health
     post "/brain/dream", BrainController, :dream
@@ -485,10 +459,6 @@ defmodule AnkoleWeb.Router do
     put "/identity-providers/:provider_id", IdentityProviderController, :put_provider
     post "/identity-providers/:provider_id/sync-runs", IdentityProviderController, :run_sync
 
-    get "/identity-mapping-requests", IdentityMappingRequestController, :index
-    post "/identity-mapping-requests/:id/bind", IdentityMappingRequestController, :bind
-    delete "/identity-mapping-requests/:id", IdentityMappingRequestController, :delete
-    post "/identity-mappings", IdentityMappingRequestController, :create_mapping
 
     put "/agents/:agent_uid/provider-hosted", AgentController, :put_provider_hosted
 

@@ -9,7 +9,7 @@ defmodule Ankole.AuthZ do
   the Pod tree is a generic action that owns its transaction. `Ankole.AuthZ.Store`
   and `Ankole.AuthZ.Grants` give the same steps to another domain's action.
   """
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   import Ecto.Query, only: [from: 2]
   require Ash.Query
@@ -28,6 +28,45 @@ defmodule Ankole.AuthZ do
   alias Ankole.Principals
   alias Ankole.Principals.Principal
   alias Ankole.Repo
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/principal-groups", Group do
+        index(:console_list, name: "list_principal_groups")
+        post(:create, name: "create_principal_group")
+
+        route(:post, "/computed-member-previews", :preview_computed_members,
+          name: "preview_computed_principal_group_members"
+        )
+
+        get(:read, route: "/:name", name: "get_principal_group")
+        patch(:update, route: "/:name", name: "update_principal_group")
+        delete(:delete_operator_group, route: "/:name", name: "delete_principal_group")
+        route(:get, "/:name/members", :list_members, name: "list_principal_group_members")
+
+        route(:put, "/:name/members/:principal_uid", :add_member,
+          name: "add_principal_group_member"
+        )
+
+        route(:delete, "/:name/members/:principal_uid", :remove_member,
+          name: "remove_principal_group_member"
+        )
+
+        related(:grants, :read, route: "/:name/grants", name: "list_principal_group_grants")
+      end
+
+      base_route "/permission-grants", Grant do
+        post(:create_operator_grant, name: "create_permission_grant")
+        get(:read, name: "get_permission_grant")
+        patch(:update_operator_grant, name: "update_permission_grant")
+        delete(:delete_operator_grant, name: "delete_permission_grant")
+      end
+    end
+  end
 
   resources do
     resource Group do
@@ -198,7 +237,7 @@ defmodule Ankole.AuthZ do
   def delete_principal_group(%Group{} = group), do: delete_principal_group(group.id)
 
   def delete_principal_group(id_or_name) do
-    Ankole.Ash.run_action(Group, :delete_operator_group, %{id_or_name: id_or_name})
+    Ankole.Ash.run_action(Group, :delete_operator_group, %{name: id_or_name})
   end
 
   @doc """
@@ -228,6 +267,51 @@ defmodule Ankole.AuthZ do
 
       {:ok, members}
     end
+  end
+
+  @doc """
+  Lists the effective members of one Principal group as Console member rows.
+
+  A static group gives its stored members and the time each one joined. A
+  computed group gives the active Principals that its condition matches now.
+  """
+  @spec effective_group_members(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def effective_group_members(id_or_name) do
+    with {:ok, group} <- Store.fetch_group(Repo, id_or_name) do
+      case group.kind do
+        :static ->
+          with {:ok, members} <- list_group_members(group.id),
+               do: {:ok, Enum.map(members, &member_row(&1.principal, &1.membership.inserted_at))}
+
+        :computed ->
+          preview_members(group.computed_condition)
+      end
+    end
+  end
+
+  @doc """
+  Gives the Console member rows of the active Principals that a computed group
+  condition matches. A condition that is not valid gives an error on the
+  `condition` argument.
+  """
+  @spec preview_members(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def preview_members(condition) do
+    case preview_computed_group_members(condition) do
+      {:ok, principals} ->
+        {:ok, Enum.map(principals, &member_row(&1, nil))}
+
+      {:error, message} when is_binary(message) ->
+        {:error, Ash.Error.Changes.InvalidArgument.exception(field: :condition, message: message)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp member_row(%Principal{} = principal, member_since) do
+    principal
+    |> Map.take([:uid, :type, :status, :display_name, :avatar_url])
+    |> Map.put(:member_since, member_since)
   end
 
   @doc """
@@ -422,7 +506,7 @@ defmodule Ankole.AuthZ do
   def add_principal_to_group(principal_uid, group_id_or_name) do
     Ankole.Ash.run_action(Group, :add_member, %{
       principal_uid: principal_uid,
-      group: group_id_or_name
+      name: group_id_or_name
     })
   end
 
@@ -433,7 +517,7 @@ defmodule Ankole.AuthZ do
   def remove_principal_from_group(principal_uid, group_id_or_name) do
     Ankole.Ash.run_action(Group, :remove_member, %{
       principal_uid: principal_uid,
-      group: group_id_or_name
+      name: group_id_or_name
     })
   end
 
