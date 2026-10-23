@@ -4,8 +4,6 @@ defmodule Ankole.Signals.AdaptersTest do
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsFixtures
 
-  alias Ankole.Conversations.Delivery.PreviewState
-
   alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
