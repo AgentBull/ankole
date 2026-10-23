@@ -56,6 +56,38 @@ defmodule Ankole.AuthZ.Grants do
     end
   end
 
+  @doc """
+  Creates a grant for the Console operator. The Pod writes the grants of its
+  page actions, so the operator cannot create one.
+  """
+  def create_operator_grant(repo, attrs) do
+    with :ok <- refuse_page_action(Map.get(attrs, :action)) do
+      create_permission_grant(repo, attrs)
+    end
+  end
+
+  @doc """
+  Updates a grant for the Console operator. A Pod page grant keeps the resource
+  pattern, the action, and the condition that the Pod wrote; only its
+  description can change.
+  """
+  def update_operator_grant(repo, id, attrs) do
+    with {:ok, grant} <- fetch_grant(id),
+         :ok <- refuse_page_action(Map.get(attrs, :action)),
+         :ok <- keep_page_grant(grant, attrs) do
+      update_permission_grant(repo, grant, attrs)
+    end
+  end
+
+  @doc "Deletes a grant for the Console operator. A Pod page grant is refused."
+  def delete_operator_grant(repo, id) do
+    with {:ok, grant} <- fetch_grant(id) do
+      if page_action?(grant.action),
+        do: {:error, :page_grant},
+        else: delete_permission_grant(repo, grant.id)
+    end
+  end
+
   def upsert_console_admin_grants(repo, %Group{} = admin_group) do
     Enum.reduce_while(@console_admin_actions, {:ok, []}, fn action, {:ok, acc} ->
       case upsert_permission_grant(repo, %{
@@ -88,6 +120,36 @@ defmodule Ankole.AuthZ.Grants do
         {:ok, attrs}
     end
   end
+
+  defp fetch_grant(id) do
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         %Grant{} = grant <- Grant |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!() do
+      {:ok, grant}
+    else
+      _not_found -> {:error, Ankole.Errors.Invalid.NotFound.exception(resource: Grant, id: id)}
+    end
+  end
+
+  defp page_action?(action), do: action in Ankole.Pod.Access.page_actions()
+
+  defp refuse_page_action(action) do
+    if page_action?(action),
+      do: {:error, invalid_argument(:action, "#{action} is written by the Pod")},
+      else: :ok
+  end
+
+  defp keep_page_grant(%Grant{action: action}, attrs) do
+    with true <- page_action?(action),
+         [_ | _] = fields <-
+           Enum.filter([:resource_pattern, :action, :condition], &Map.has_key?(attrs, &1)) do
+      {:error, Enum.map(fields, &invalid_argument(&1, "cannot change on a Pod page grant"))}
+    else
+      _no_change -> :ok
+    end
+  end
+
+  defp invalid_argument(field, message),
+    do: Ash.Error.Changes.InvalidArgument.exception(field: field, message: message)
 
   defp permission_grant_identity(attrs) do
     case Ankole.PrincipalKey.normalize_optional(Map.get(attrs, :principal_uid)) do

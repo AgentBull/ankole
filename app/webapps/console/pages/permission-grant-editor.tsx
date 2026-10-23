@@ -20,14 +20,15 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
-  ankoleWebAuthZGroupControllerIndexOptions,
-  ankoleWebPermissionGrantControllerCreateMutation,
-  ankoleWebPermissionGrantControllerDeleteMutation,
-  ankoleWebPermissionGrantControllerShowOptions,
-  ankoleWebPermissionGrantControllerUpdateMutation
-} from '../api/generated/@tanstack/react-query.gen'
-import type { PermissionGrantItem } from '../api/generated/types.gen'
-import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
+  createPermissionGrantMutation,
+  deletePermissionGrantMutation,
+  getPermissionGrantOptions,
+  listPrincipalGroupsOptions,
+  updatePermissionGrantMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import type { GetPermissionGrantResponse, PermissionGrant } from '../api/v2/generated/types.gen'
+import { type Flat, fromDocument } from '../api/json-api'
+import { requestErrorCode, requestErrorDetailList, requestErrorMessage } from '../../common/request-errors'
 import { ErrorBlock } from '../../common/error-block'
 import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
 import { RowActions } from '../console-list-page'
@@ -37,6 +38,9 @@ import {
   type PermissionGrantOwner
 } from '../state/permission-grant-editor-model'
 import { useEditorDraft } from '../use-editor-draft'
+
+/** The flat Console record of a permission grant. */
+export type PermissionGrantRecord = Flat<PermissionGrant>
 
 /**
  * Grants table shared by the group editor and the principal detail page: one
@@ -57,17 +61,22 @@ export function PermissionGrantsSection({
   description: string
   empty: string
   error?: unknown
-  grants: PermissionGrantItem[]
+  grants: PermissionGrantRecord[]
   isLoading: boolean
   title: string
 }) {
   const { t } = useTranslation()
   const deleteGrant = useMutation({
-    ...ankoleWebPermissionGrantControllerDeleteMutation(),
+    ...deletePermissionGrantMutation(),
     onSuccess: () => {
       toast.success(t('console.permission_grants.deleted'))
     },
-    onError: error => toast.error(requestErrorMessage(error))
+    onError: error =>
+      toast.error(
+        requestErrorCode(error) === 'page_grant'
+          ? t('console.permission_grants.error_page_grant')
+          : requestErrorMessage(error)
+      )
   })
 
   return (
@@ -171,15 +180,16 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
         : undefined
 
   const grant = useQuery(permissionGrantDetailOptions(grantID ?? ''))
-  const loadedGrant = grant.data?.permission_grant
+  const loadedGrant = grant.data
   // The edit-mode back link and owner label need the owning group's name, which
   // only the groups index carries (the grant itself stores the opaque group id).
   const groups = useQuery({
-    ...ankoleWebAuthZGroupControllerIndexOptions(),
+    ...listPrincipalGroupsOptions(),
+    select: data => fromDocument(data),
     enabled: Boolean(loadedGrant?.group_id)
   })
   const ownerGroupName = loadedGrant?.group_id
-    ? groups.data?.principal_groups.find(group => group.id === loadedGrant.group_id)?.name
+    ? groups.data?.find(group => group.id === loadedGrant.group_id)?.name
     : undefined
   const grantDraft = useMemo(
     () => (mode === 'new' ? emptyGrantForm() : loadedGrant ? formFromGrant(loadedGrant) : undefined),
@@ -203,7 +213,7 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
       : ''
 
   const createGrant = useMutation({
-    ...ankoleWebPermissionGrantControllerCreateMutation(),
+    ...createPermissionGrantMutation(),
     onSuccess: () => {
       toast.success(t('console.permission_grants.saved'))
 
@@ -211,16 +221,16 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
     }
   })
   const updateGrant = useMutation({
-    ...ankoleWebPermissionGrantControllerUpdateMutation(),
+    ...updatePermissionGrantMutation(),
     onSuccess: () => {
       toast.success(t('console.permission_grants.saved'))
     }
   })
   const mutationError = createGrant.error ?? updateGrant.error
-  // The client throws the raw response text (or a fetch TypeError) when the
-  // body is not the JSON error envelope, so every step needs a guard.
-  const serverFieldError = (field: string) =>
-    mutationError?.error?.details?.find(detail => detail.path === field)?.message
+  const serverFieldError = (field: string) => {
+    const message = requestErrorDetailList(mutationError).find(detail => detail.path === field)?.message
+    return typeof message === 'string' ? message : undefined
+  }
 
   const submit = () => {
     model.clearValidation()
@@ -230,7 +240,9 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
       return
     }
     if (mode === 'new') {
-      if (owner) createGrant.mutate({ body: model.createBody(owner) })
+      if (owner) {
+        createGrant.mutate({ body: { data: { type: 'permission_grant', attributes: model.createBody(owner) } } })
+      }
       return
     }
     if (grantID) {
@@ -241,7 +253,10 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
         description: model.description.value
       }
       updateGrant.mutate(
-        { body: model.updateBody(), path: { id: grantID } },
+        {
+          body: { data: { type: 'permission_grant', id: grantID, attributes: model.updateBody() } },
+          path: { id: grantID }
+        },
         { onSuccess: () => model.markSaved(submission) }
       )
     }
@@ -323,7 +338,8 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
 
 export function permissionGrantDetailOptions(grantID: string) {
   return {
-    ...ankoleWebPermissionGrantControllerShowOptions({ path: { id: grantID } }),
+    ...getPermissionGrantOptions({ path: { id: grantID } }),
+    select: (data: GetPermissionGrantResponse) => fromDocument(data),
     enabled: Boolean(grantID),
     refetchOnMount: 'always' as const
   }
@@ -336,11 +352,11 @@ function ownerBackTo(owner: PermissionGrantOwner | undefined): string | undefine
     : `/access/principals/${encodeURIComponent(owner.principalUID)}`
 }
 
-function grantBackTo(grant: PermissionGrantItem | undefined, groupName: string | undefined): string {
+function grantBackTo(grant: PermissionGrantRecord | undefined, groupName: string | undefined): string {
   if (grant?.group_id) {
     return groupName ? `/access/groups/${encodeURIComponent(groupName)}` : '/access/groups'
   }
-  if (grant?.principal_uid) return `/access/principals/${encodeURIComponent(grant.principal_uid)}`
+  if (grant?.principal_uid) return `/access/principals/${encodeURIComponent(String(grant.principal_uid))}`
   return '/access/groups'
 }
 
@@ -348,7 +364,7 @@ function emptyGrantForm(): PermissionGrantEditorDraft {
   return { resourcePattern: '', action: '', condition: 'true', description: '' }
 }
 
-function formFromGrant(grant: PermissionGrantItem): PermissionGrantEditorDraft {
+function formFromGrant(grant: PermissionGrantRecord): PermissionGrantEditorDraft {
   return {
     resourcePattern: grant.resource_pattern,
     action: grant.action,

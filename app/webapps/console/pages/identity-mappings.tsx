@@ -19,22 +19,37 @@ import { RiUserReceivedLine } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useNavigate } from '@tanstack/react-router'
-import { requestErrorMessage } from '../../common/request-errors'
+import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import {
-  ankoleWebIdentityMappingRequestControllerBindMutation,
-  ankoleWebIdentityMappingRequestControllerCreateMappingMutation,
-  ankoleWebIdentityMappingRequestControllerDeleteMutation,
-  ankoleWebIdentityMappingRequestControllerIndexOptions,
-  ankoleWebPrincipalControllerIndexOptions
-} from '../api/generated/@tanstack/react-query.gen'
-import type { IdentityMappingRequestItem, PrincipalItem } from '../api/generated/types.gen'
+  bindIdentityMappingRequestMutation,
+  createIdentityMappingMutation,
+  deleteIdentityMappingRequestMutation,
+  listIdentityMappingRequestsOptions,
+  listPrincipalsOptions
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import type { IdentityMappingRequest } from '../api/v2/generated/types.gen'
+import { type Flat, fromDocument } from '../api/json-api'
+import type { PrincipalRecord } from './principals'
 import { ConfirmDeleteButton, LabeledField, ResourceEditorPage } from '../console-form'
 import { LIST_REFRESH_MS } from '../refresh-intervals'
 import { ResourceListPage, ResourceSearch, SubNav } from '../console-list-page'
 import { formatConsoleDate } from '../console-primitives'
 import { SinglePrincipalPicker } from '../principal-picker'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
+
+type IdentityMappingRequestRecord = Flat<IdentityMappingRequest>
+
+const mappingErrorCodes = ['not_human', 'principal_disabled', 'platform_subject_already_bound']
+
+/** Localizes the domain refusals of a bind; other failures keep their message. */
+function mappingErrorMessage(t: TFunction, error: unknown): string {
+  const code = requestErrorCode(error)
+  return code && mappingErrorCodes.includes(code)
+    ? t(`console.identity_mappings.error_${code}`)
+    : requestErrorMessage(error)
+}
 
 /** Sibling views of the "Identity" nav area: providers and the pending-mapping queue. */
 export function IdentitySubNav() {
@@ -58,16 +73,17 @@ export function IdentityMappingsPage() {
   // The operator often sits on this queue waiting for a sender's first
   // message, so the list refreshes itself like the other live queues.
   const requests = useQuery({
-    ...ankoleWebIdentityMappingRequestControllerIndexOptions(),
+    ...listIdentityMappingRequestsOptions(),
+    select: data => fromDocument(data),
     refetchInterval: LIST_REFRESH_MS
   })
-  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
+  const principals = useQuery({ ...listPrincipalsOptions(), select: data => fromDocument(data) })
   // Only a person can own an IM sender; agent and system principals are not bind targets.
-  const humanPrincipals = (principals.data?.principals ?? []).filter(principal => principal.type === 'human')
-  const [bindTarget, setBindTarget] = useState<IdentityMappingRequestItem>()
+  const humanPrincipals = (principals.data ?? []).filter(principal => principal.type === 'human')
+  const [bindTarget, setBindTarget] = useState<IdentityMappingRequestRecord>()
   const [bindOpen, setBindOpen] = useState(false)
 
-  const rows = (requests.data?.identity_mapping_requests ?? []).filter(request =>
+  const rows = (requests.data ?? []).filter(request =>
     matchesResourceSearch(
       searchQuery,
       request.display_name,
@@ -79,7 +95,7 @@ export function IdentityMappingsPage() {
   )
 
   const dismiss = useMutation({
-    ...ankoleWebIdentityMappingRequestControllerDeleteMutation(),
+    ...deleteIdentityMappingRequestMutation(),
     onSuccess: () => {
       toast.success(t('console.identity_mappings.dismissed'))
     },
@@ -137,7 +153,7 @@ export function IdentityMappingsPage() {
             </span>
           </TableCell>
           <TableCell>{[request.email, request.mobile].filter(Boolean).join(' · ') || '—'}</TableCell>
-          <TableCell>{formatConsoleDate(request.last_seen_at)}</TableCell>
+          <TableCell>{formatConsoleDate(request.updated_at)}</TableCell>
           <TableCell className="text-right">
             <div className="flex justify-end gap-2">
               <Button
@@ -176,15 +192,15 @@ export function IdentityMappingsPage() {
 export function IdentityMappingCreatePage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
-  const humanPrincipals = (principals.data?.principals ?? []).filter(principal => principal.type === 'human')
+  const principals = useQuery({ ...listPrincipalsOptions(), select: data => fromDocument(data) })
+  const humanPrincipals = (principals.data ?? []).filter(principal => principal.type === 'human')
   const [provider, setProvider] = useState('')
   const [externalID, setExternalID] = useState('')
   const [principalUID, setPrincipalUID] = useState<string>()
   const [validationError, setValidationError] = useState<string>()
 
   const create = useMutation({
-    ...ankoleWebIdentityMappingRequestControllerCreateMappingMutation(),
+    ...createIdentityMappingMutation(),
     onSuccess: () => {
       toast.success(t('console.identity_mappings.created'))
       void navigate({ to: '/identity/mappings' })
@@ -207,7 +223,9 @@ export function IdentityMappingCreatePage() {
       setValidationError(t('console.identity_mappings.principal_required'))
       return
     }
-    create.mutate({ body: { provider: trimmedProvider, external_id: trimmedExternalID, principal_uid: principalUID } })
+    create.mutate({
+      body: { data: { provider: trimmedProvider, external_id: trimmedExternalID, principal_uid: principalUID } }
+    })
   }
 
   return (
@@ -217,7 +235,7 @@ export function IdentityMappingCreatePage() {
       backTo="/identity/mappings"
       dirty={Boolean(provider.trim() || externalID.trim() || principalUID)}
       validationError={validationError}
-      error={create.error ?? principals.error}
+      error={create.error ? mappingErrorMessage(t, create.error) : principals.error}
       submitting={create.isPending}
       onSubmit={submit}>
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
@@ -239,7 +257,7 @@ export function IdentityMappingCreatePage() {
           ariaLabel={t('console.identity_mappings.picker_label')}
           placeholder={t('console.identity_mappings.picker_placeholder')}
           candidates={humanPrincipals.map(principal => ({
-            id: principal.uid,
+            id: principal.id,
             label: principalLabel(principal),
             description: principal.email ?? principal.handle
           }))}
@@ -264,14 +282,14 @@ function BindMappingDialog({
 }: {
   onOpenChange: (open: boolean) => void
   open: boolean
-  principals: PrincipalItem[]
+  principals: PrincipalRecord[]
   principalsError: unknown
   principalsLoading: boolean
-  request: IdentityMappingRequestItem | undefined
+  request: IdentityMappingRequestRecord | undefined
 }) {
   const { t } = useTranslation()
   const [selectedUID, setSelectedUID] = useState<string>()
-  const selected = principals.find(principal => principal.uid === selectedUID)
+  const selected = principals.find(principal => principal.id === selectedUID)
   const senderName = request ? request.display_name || request.external_id : ''
 
   useEffect(() => {
@@ -279,12 +297,12 @@ function BindMappingDialog({
   }, [open, request?.id])
 
   const bind = useMutation({
-    ...ankoleWebIdentityMappingRequestControllerBindMutation(),
+    ...bindIdentityMappingRequestMutation(),
     onSuccess: () => {
       toast.success(t('console.identity_mappings.bound', { name: selected?.display_name ?? selectedUID }))
       onOpenChange(false)
     },
-    onError: error => toast.error(requestErrorMessage(error))
+    onError: error => toast.error(mappingErrorMessage(t, error))
   })
 
   return (
@@ -300,7 +318,7 @@ function BindMappingDialog({
           ariaLabel={t('console.identity_mappings.picker_label')}
           placeholder={t('console.identity_mappings.picker_placeholder')}
           candidates={principals.map(principal => ({
-            id: principal.uid,
+            id: principal.id,
             label: principalLabel(principal),
             description: principal.email ?? principal.handle
           }))}
@@ -319,7 +337,9 @@ function BindMappingDialog({
             size="sm"
             type="button"
             onClick={() =>
-              request && selectedUID && bind.mutate({ path: { id: request.id }, body: { principal_uid: selectedUID } })
+              request &&
+              selectedUID &&
+              bind.mutate({ path: { id: request.id }, body: { data: { principal_uid: selectedUID } } })
             }>
             {t('console.identity_mappings.bind_confirm')}
           </Button>

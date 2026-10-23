@@ -4,5 +4,13 @@ defmodule AnkoleWeb.JSONAPI.ConsoleRouter do
   use AnkoleWeb.JSONAPI.Router,
     scope: :console,
     prefix: "/api/v2",
-    domains: [Ankole.AutomationJobs, Ankole.Brain, Ankole.OIDC, Ankole.Schedule, Ankole.Signals]
+    domains: [
+      Ankole.AutomationJobs,
+      Ankole.Brain,
+      Ankole.OIDC,
+      Ankole.Schedule,
+      Ankole.Signals,
+      Ankole.Principals,
+      Ankole.AuthZ
+    ]
 end

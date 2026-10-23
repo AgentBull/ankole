@@ -1,5 +1,8 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
-import type { PrincipalGroupCreateRequest, PrincipalGroupUpdateRequest } from '../api/generated/types.gen'
+import type { CreatePrincipalGroupData, UpdatePrincipalGroupData } from '../api/v2/generated/types.gen'
+
+type PrincipalGroupCreateRequest = NonNullable<CreatePrincipalGroupData['body']['data']['attributes']>
+type PrincipalGroupUpdateRequest = NonNullable<NonNullable<UpdatePrincipalGroupData['body']>['data']['attributes']>
 
 export type PrincipalGroupKind = 'static' | 'computed'
 

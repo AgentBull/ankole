@@ -44,24 +44,26 @@ defmodule Ankole.PrincipalsTest do
     end
 
     test "update_human/2 preserves omitted profile fields and clears explicit nil" do
+      {:ok, _provider} = Ankole.IdentityProviders.save_provider("local-main", "local", %{}, true)
+
       %{principal: principal, human_user: human_user} =
         human_fixture(%{
           uid: unique_uid("profile-human"),
+          display_name: "Profile",
           email: "profile@example.com",
           mobile: "+14155550000",
           job_title: "Operator"
         })
 
-      assert {:ok, %{principal: updated_principal, human_user: updated_human}} =
-               Principals.update_human(principal.uid, %{
-                 display_name: "Updated",
-                 job_title: nil
-               })
+      assert {:ok, %{display_name: nil, human_user: updated_human}} =
+               Principals.update_human(principal.uid, %{display_name: nil})
 
-      assert updated_principal.display_name == "Updated"
       assert updated_human.email == human_user.email
       assert updated_human.mobile == human_user.mobile
-      assert updated_human.job_title == nil
+      assert updated_human.job_title == "Operator"
+
+      assert {:ok, %{display_name: nil, human_user: %{email: "renamed@example.com"}}} =
+               Principals.update_human(principal.uid, %{email: "Renamed@Example.com"})
     end
   end
 
@@ -560,6 +562,8 @@ defmodule Ankole.PrincipalsTest do
     end
 
     test "subject text does not claim a local account without verified contact" do
+      {:ok, _provider} = Ankole.IdentityProviders.save_provider("local-main", "local", %{}, true)
+
       assert {:ok, %{principal: local}} =
                Principals.create_local_user(%{email: "owner@corp.example"}, false)
 

@@ -213,36 +213,6 @@ import type {
   AnkoleWebAppConfigurationControllerUpdateTenantResponses,
   AnkoleWebAuthControllerDeleteSessionData,
   AnkoleWebAuthControllerDeleteSessionResponses,
-  AnkoleWebAuthZGroupControllerAddMemberData,
-  AnkoleWebAuthZGroupControllerAddMemberErrors,
-  AnkoleWebAuthZGroupControllerAddMemberResponses,
-  AnkoleWebAuthZGroupControllerCreateData,
-  AnkoleWebAuthZGroupControllerCreateErrors,
-  AnkoleWebAuthZGroupControllerCreateResponses,
-  AnkoleWebAuthZGroupControllerDeleteData,
-  AnkoleWebAuthZGroupControllerDeleteErrors,
-  AnkoleWebAuthZGroupControllerDeleteResponses,
-  AnkoleWebAuthZGroupControllerGrantsData,
-  AnkoleWebAuthZGroupControllerGrantsErrors,
-  AnkoleWebAuthZGroupControllerGrantsResponses,
-  AnkoleWebAuthZGroupControllerIndexData,
-  AnkoleWebAuthZGroupControllerIndexErrors,
-  AnkoleWebAuthZGroupControllerIndexResponses,
-  AnkoleWebAuthZGroupControllerMembersData,
-  AnkoleWebAuthZGroupControllerMembersErrors,
-  AnkoleWebAuthZGroupControllerMembersResponses,
-  AnkoleWebAuthZGroupControllerPreviewComputedMembersData,
-  AnkoleWebAuthZGroupControllerPreviewComputedMembersErrors,
-  AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses,
-  AnkoleWebAuthZGroupControllerRemoveMemberData,
-  AnkoleWebAuthZGroupControllerRemoveMemberErrors,
-  AnkoleWebAuthZGroupControllerRemoveMemberResponses,
-  AnkoleWebAuthZGroupControllerShowData,
-  AnkoleWebAuthZGroupControllerShowErrors,
-  AnkoleWebAuthZGroupControllerShowResponses,
-  AnkoleWebAuthZGroupControllerUpdateData,
-  AnkoleWebAuthZGroupControllerUpdateErrors,
-  AnkoleWebAuthZGroupControllerUpdateResponses,
   AnkoleWebBackgroundAgentJobControllerCancelData,
   AnkoleWebBackgroundAgentJobControllerCancelErrors,
   AnkoleWebBackgroundAgentJobControllerCancelResponses,
@@ -304,18 +274,6 @@ import type {
   AnkoleWebHumanAccessControllerShowResponses,
   AnkoleWebHumanAccessControllerUnresolvedWorkData,
   AnkoleWebHumanAccessControllerUnresolvedWorkResponses,
-  AnkoleWebIdentityMappingRequestControllerBindData,
-  AnkoleWebIdentityMappingRequestControllerBindErrors,
-  AnkoleWebIdentityMappingRequestControllerBindResponses,
-  AnkoleWebIdentityMappingRequestControllerCreateMappingData,
-  AnkoleWebIdentityMappingRequestControllerCreateMappingErrors,
-  AnkoleWebIdentityMappingRequestControllerCreateMappingResponses,
-  AnkoleWebIdentityMappingRequestControllerDeleteData,
-  AnkoleWebIdentityMappingRequestControllerDeleteErrors,
-  AnkoleWebIdentityMappingRequestControllerDeleteResponses,
-  AnkoleWebIdentityMappingRequestControllerIndexData,
-  AnkoleWebIdentityMappingRequestControllerIndexErrors,
-  AnkoleWebIdentityMappingRequestControllerIndexResponses,
   AnkoleWebIdentityProviderControllerAdaptersData,
   AnkoleWebIdentityProviderControllerAdaptersErrors,
   AnkoleWebIdentityProviderControllerAdaptersResponses,
@@ -331,39 +289,9 @@ import type {
   AnkoleWebOidcClientControllerRotateSecretData,
   AnkoleWebOidcClientControllerRotateSecretErrors,
   AnkoleWebOidcClientControllerRotateSecretResponses,
-  AnkoleWebPermissionGrantControllerCreateData,
-  AnkoleWebPermissionGrantControllerCreateErrors,
-  AnkoleWebPermissionGrantControllerCreateResponses,
-  AnkoleWebPermissionGrantControllerDeleteData,
-  AnkoleWebPermissionGrantControllerDeleteErrors,
-  AnkoleWebPermissionGrantControllerDeleteResponses,
-  AnkoleWebPermissionGrantControllerShowData,
-  AnkoleWebPermissionGrantControllerShowErrors,
-  AnkoleWebPermissionGrantControllerShowResponses,
-  AnkoleWebPermissionGrantControllerUpdateData,
-  AnkoleWebPermissionGrantControllerUpdateErrors,
-  AnkoleWebPermissionGrantControllerUpdateResponses,
-  AnkoleWebPrincipalControllerCreateData,
-  AnkoleWebPrincipalControllerCreateErrors,
   AnkoleWebPrincipalControllerCreateLocalPasswordResetData,
   AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors,
   AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses,
-  AnkoleWebPrincipalControllerCreateResponses,
-  AnkoleWebPrincipalControllerGrantsData,
-  AnkoleWebPrincipalControllerGrantsErrors,
-  AnkoleWebPrincipalControllerGrantsResponses,
-  AnkoleWebPrincipalControllerGroupsData,
-  AnkoleWebPrincipalControllerGroupsErrors,
-  AnkoleWebPrincipalControllerGroupsResponses,
-  AnkoleWebPrincipalControllerIndexData,
-  AnkoleWebPrincipalControllerIndexErrors,
-  AnkoleWebPrincipalControllerIndexResponses,
-  AnkoleWebPrincipalControllerShowData,
-  AnkoleWebPrincipalControllerShowErrors,
-  AnkoleWebPrincipalControllerShowResponses,
-  AnkoleWebPrincipalControllerUpdateData,
-  AnkoleWebPrincipalControllerUpdateErrors,
-  AnkoleWebPrincipalControllerUpdateResponses,
   AnkoleWebSignalBindingControllerAdaptersData,
   AnkoleWebSignalBindingControllerAdaptersErrors,
   AnkoleWebSignalBindingControllerAdaptersResponses,
@@ -506,22 +434,6 @@ export const ankoleWebIdentityProviderControllerIndex = <ThrowOnError extends bo
   })
 
 /**
- * List the static Principal groups one Principal belongs to
- */
-export const ankoleWebPrincipalControllerGroups = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebPrincipalControllerGroupsData, ThrowOnError>
-): RequestResult<AnkoleWebPrincipalControllerGroupsResponses, AnkoleWebPrincipalControllerGroupsErrors, ThrowOnError> =>
-  (options.client ?? client).get<
-    AnkoleWebPrincipalControllerGroupsResponses,
-    AnkoleWebPrincipalControllerGroupsErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}/groups',
-    ...options
-  })
-
-/**
  * Start a ChatGPT device or browser-paste login
  */
 export const ankoleWebAiGatewayProviderControllerStartChatgptLogin = <ThrowOnError extends boolean = false>(
@@ -658,46 +570,6 @@ export const ankoleWebAppConfigurationControllerIndexTenant = <ThrowOnError exte
   })
 
 /**
- * List Principal groups
- */
-export const ankoleWebAuthZGroupControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAuthZGroupControllerIndexData, ThrowOnError>
-): RequestResult<AnkoleWebAuthZGroupControllerIndexResponses, AnkoleWebAuthZGroupControllerIndexErrors, ThrowOnError> =>
-  (options?.client ?? client).get<
-    AnkoleWebAuthZGroupControllerIndexResponses,
-    AnkoleWebAuthZGroupControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principal-groups',
-    ...options
-  })
-
-/**
- * Create one operator Principal group
- */
-export const ankoleWebAuthZGroupControllerCreate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAuthZGroupControllerCreateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAuthZGroupControllerCreateResponses,
-  AnkoleWebAuthZGroupControllerCreateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAuthZGroupControllerCreateResponses,
-    AnkoleWebAuthZGroupControllerCreateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principal-groups',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Rename or move a file or folder in an Agent's drive
  */
 export const ankoleWebAgentFileControllerMove = <ThrowOnError extends boolean = false>(
@@ -734,30 +606,6 @@ export const ankoleWebPrincipalControllerCreateLocalPasswordReset = <ThrowOnErro
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/principals/{uid}/local-password-resets',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Preview active Principals matching a computed group condition
- */
-export const ankoleWebAuthZGroupControllerPreviewComputedMembers = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAuthZGroupControllerPreviewComputedMembersData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses,
-  AnkoleWebAuthZGroupControllerPreviewComputedMembersErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses,
-    AnkoleWebAuthZGroupControllerPreviewComputedMembersErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principal-groups/computed-member-previews',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -950,46 +798,6 @@ export const ankoleWebAgentLibraryCapabilityControllerAgentIndex = <ThrowOnError
   })
 
 /**
- * Remove one Principal from a static operator group
- */
-export const ankoleWebAuthZGroupControllerRemoveMember = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAuthZGroupControllerRemoveMemberData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAuthZGroupControllerRemoveMemberResponses,
-  AnkoleWebAuthZGroupControllerRemoveMemberErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAuthZGroupControllerRemoveMemberResponses,
-    AnkoleWebAuthZGroupControllerRemoveMemberErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principal-groups/{name}/members/{principal_uid}',
-    ...options
-  })
-
-/**
- * Add one Principal to a static operator group
- */
-export const ankoleWebAuthZGroupControllerAddMember = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAuthZGroupControllerAddMemberData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAuthZGroupControllerAddMemberResponses,
-  AnkoleWebAuthZGroupControllerAddMemberErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAuthZGroupControllerAddMemberResponses,
-    AnkoleWebAuthZGroupControllerAddMemberErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principal-groups/{name}/members/{principal_uid}',
-    ...options
-  })
-
-/**
  * Download one file from an Agent's drive
  */
 export const ankoleWebAgentFileControllerDownload = <ThrowOnError extends boolean = false>(
@@ -1099,30 +907,6 @@ export const ankoleWebAiGatewayFilesControllerCreate = <ThrowOnError extends boo
   })
 
 /**
- * Map a provider subject to a principal proactively
- */
-export const ankoleWebIdentityMappingRequestControllerCreateMapping = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebIdentityMappingRequestControllerCreateMappingData, ThrowOnError>
-): RequestResult<
-  AnkoleWebIdentityMappingRequestControllerCreateMappingResponses,
-  AnkoleWebIdentityMappingRequestControllerCreateMappingErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebIdentityMappingRequestControllerCreateMappingResponses,
-    AnkoleWebIdentityMappingRequestControllerCreateMappingErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-mappings',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * List AIGateway model selectors
  */
 export const ankoleWebAiGatewayControllerModels = <ThrowOnError extends boolean = false>(
@@ -1199,30 +983,6 @@ export const ankoleWebAgentLibraryCapabilityControllerPutGlobalSkill = <ThrowOnE
   })
 
 /**
- * Bind one pending mapping request to a principal
- */
-export const ankoleWebIdentityMappingRequestControllerBind = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebIdentityMappingRequestControllerBindData, ThrowOnError>
-): RequestResult<
-  AnkoleWebIdentityMappingRequestControllerBindResponses,
-  AnkoleWebIdentityMappingRequestControllerBindErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebIdentityMappingRequestControllerBindResponses,
-    AnkoleWebIdentityMappingRequestControllerBindErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-mapping-requests/{id}/bind',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Fetch web pages through AIGateway
  */
 export const ankoleWebAiGatewayControllerWebFetch = <ThrowOnError extends boolean = false>(
@@ -1288,86 +1048,6 @@ export const ankoleWebWorkerProviderControllerKinds = <ThrowOnError extends bool
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/site/worker-provider-kinds',
     ...options
-  })
-
-/**
- * List pending identity mapping requests
- */
-export const ankoleWebIdentityMappingRequestControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebIdentityMappingRequestControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebIdentityMappingRequestControllerIndexResponses,
-  AnkoleWebIdentityMappingRequestControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebIdentityMappingRequestControllerIndexResponses,
-    AnkoleWebIdentityMappingRequestControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-mapping-requests',
-    ...options
-  })
-
-/**
- * Delete one operator Principal group without grants
- */
-export const ankoleWebAuthZGroupControllerDelete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAuthZGroupControllerDeleteData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAuthZGroupControllerDeleteResponses,
-  AnkoleWebAuthZGroupControllerDeleteErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAuthZGroupControllerDeleteResponses,
-    AnkoleWebAuthZGroupControllerDeleteErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principal-groups/{name}',
-    ...options
-  })
-
-/**
- * Read one Principal group
- */
-export const ankoleWebAuthZGroupControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAuthZGroupControllerShowData, ThrowOnError>
-): RequestResult<AnkoleWebAuthZGroupControllerShowResponses, AnkoleWebAuthZGroupControllerShowErrors, ThrowOnError> =>
-  (options.client ?? client).get<
-    AnkoleWebAuthZGroupControllerShowResponses,
-    AnkoleWebAuthZGroupControllerShowErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principal-groups/{name}',
-    ...options
-  })
-
-/**
- * Update mutable fields of one Principal group
- */
-export const ankoleWebAuthZGroupControllerUpdate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAuthZGroupControllerUpdateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAuthZGroupControllerUpdateResponses,
-  AnkoleWebAuthZGroupControllerUpdateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).patch<
-    AnkoleWebAuthZGroupControllerUpdateResponses,
-    AnkoleWebAuthZGroupControllerUpdateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principal-groups/{name}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -1731,22 +1411,6 @@ export const ankoleWebAgentSkillLessonControllerRetire = <ThrowOnError extends b
   })
 
 /**
- * List permission grants owned directly by one Principal
- */
-export const ankoleWebPrincipalControllerGrants = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebPrincipalControllerGrantsData, ThrowOnError>
-): RequestResult<AnkoleWebPrincipalControllerGrantsResponses, AnkoleWebPrincipalControllerGrantsErrors, ThrowOnError> =>
-  (options.client ?? client).get<
-    AnkoleWebPrincipalControllerGrantsResponses,
-    AnkoleWebPrincipalControllerGrantsErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}/grants',
-    ...options
-  })
-
-/**
  * Read one AIGateway conversation
  */
 export const ankoleWebAiGatewayConversationControllerShow = <ThrowOnError extends boolean = false>(
@@ -1991,66 +1655,6 @@ export const ankoleWebAiGatewayProviderControllerPollChatgptLogin = <ThrowOnErro
   })
 
 /**
- * List principals
- */
-export const ankoleWebPrincipalControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebPrincipalControllerIndexData, ThrowOnError>
-): RequestResult<AnkoleWebPrincipalControllerIndexResponses, AnkoleWebPrincipalControllerIndexErrors, ThrowOnError> =>
-  (options?.client ?? client).get<
-    AnkoleWebPrincipalControllerIndexResponses,
-    AnkoleWebPrincipalControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals',
-    ...options
-  })
-
-/**
- * Create a human user with a local sign-in password
- */
-export const ankoleWebPrincipalControllerCreate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebPrincipalControllerCreateData, ThrowOnError>
-): RequestResult<AnkoleWebPrincipalControllerCreateResponses, AnkoleWebPrincipalControllerCreateErrors, ThrowOnError> =>
-  (options.client ?? client).post<
-    AnkoleWebPrincipalControllerCreateResponses,
-    AnkoleWebPrincipalControllerCreateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Create one permission grant for a Principal or a group
- */
-export const ankoleWebPermissionGrantControllerCreate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebPermissionGrantControllerCreateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebPermissionGrantControllerCreateResponses,
-  AnkoleWebPermissionGrantControllerCreateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebPermissionGrantControllerCreateResponses,
-    AnkoleWebPermissionGrantControllerCreateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/permission-grants',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Read one signal binding for editing
  */
 export const ankoleWebSignalBindingControllerShow = <ThrowOnError extends boolean = false>(
@@ -2116,28 +1720,6 @@ export const ankoleWebHumanAccessControllerClearRestriction = <ThrowOnError exte
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * List effective members of one Principal group
- *
- * Static groups return stored memberships. Computed groups return the members evaluated from their condition.
- */
-export const ankoleWebAuthZGroupControllerMembers = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAuthZGroupControllerMembersData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAuthZGroupControllerMembersResponses,
-  AnkoleWebAuthZGroupControllerMembersErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAuthZGroupControllerMembersResponses,
-    AnkoleWebAuthZGroupControllerMembersErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principal-groups/{name}/members',
-    ...options
   })
 
 /**
@@ -2295,26 +1877,6 @@ export const backgroundActivityAutomationRuns = <ThrowOnError extends boolean = 
   })
 
 /**
- * Dismiss one pending mapping request
- */
-export const ankoleWebIdentityMappingRequestControllerDelete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebIdentityMappingRequestControllerDeleteData, ThrowOnError>
-): RequestResult<
-  AnkoleWebIdentityMappingRequestControllerDeleteResponses,
-  AnkoleWebIdentityMappingRequestControllerDeleteErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebIdentityMappingRequestControllerDeleteResponses,
-    AnkoleWebIdentityMappingRequestControllerDeleteErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-mapping-requests/{id}',
-    ...options
-  })
-
-/**
  * Delete a file, or a folder and every file in it, from an Agent's drive
  */
 export const ankoleWebAgentFileControllerDelete = <ThrowOnError extends boolean = false>(
@@ -2409,42 +1971,6 @@ export const ankoleWebAiGatewayConversationControllerIndex = <ThrowOnError exten
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/ai-gateway/conversations',
     ...options
-  })
-
-/**
- * Read one principal
- */
-export const ankoleWebPrincipalControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebPrincipalControllerShowData, ThrowOnError>
-): RequestResult<AnkoleWebPrincipalControllerShowResponses, AnkoleWebPrincipalControllerShowErrors, ThrowOnError> =>
-  (options.client ?? client).get<
-    AnkoleWebPrincipalControllerShowResponses,
-    AnkoleWebPrincipalControllerShowErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}',
-    ...options
-  })
-
-/**
- * Update the display name or email of one human user
- */
-export const ankoleWebPrincipalControllerUpdate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebPrincipalControllerUpdateData, ThrowOnError>
-): RequestResult<AnkoleWebPrincipalControllerUpdateResponses, AnkoleWebPrincipalControllerUpdateErrors, ThrowOnError> =>
-  (options.client ?? client).patch<
-    AnkoleWebPrincipalControllerUpdateResponses,
-    AnkoleWebPrincipalControllerUpdateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -3079,70 +2605,6 @@ export const ankoleWebBrainControllerShowObject = <ThrowOnError extends boolean 
   })
 
 /**
- * Delete one permission grant
- */
-export const ankoleWebPermissionGrantControllerDelete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebPermissionGrantControllerDeleteData, ThrowOnError>
-): RequestResult<
-  AnkoleWebPermissionGrantControllerDeleteResponses,
-  AnkoleWebPermissionGrantControllerDeleteErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebPermissionGrantControllerDeleteResponses,
-    AnkoleWebPermissionGrantControllerDeleteErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/permission-grants/{id}',
-    ...options
-  })
-
-/**
- * Read one permission grant
- */
-export const ankoleWebPermissionGrantControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebPermissionGrantControllerShowData, ThrowOnError>
-): RequestResult<
-  AnkoleWebPermissionGrantControllerShowResponses,
-  AnkoleWebPermissionGrantControllerShowErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebPermissionGrantControllerShowResponses,
-    AnkoleWebPermissionGrantControllerShowErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/permission-grants/{id}',
-    ...options
-  })
-
-/**
- * Update one permission grant
- */
-export const ankoleWebPermissionGrantControllerUpdate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebPermissionGrantControllerUpdateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebPermissionGrantControllerUpdateResponses,
-  AnkoleWebPermissionGrantControllerUpdateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).patch<
-    AnkoleWebPermissionGrantControllerUpdateResponses,
-    AnkoleWebPermissionGrantControllerUpdateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/permission-grants/{id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Reset one tenant AppConfigure value
  */
 export const ankoleWebAppConfigurationControllerDeleteTenant = <ThrowOnError extends boolean = false>(
@@ -3412,26 +2874,6 @@ export const ankoleWebWorkerEnvControllerUpdateForAgent = <ThrowOnError extends 
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * List permission grants owned by one Principal group
- */
-export const ankoleWebAuthZGroupControllerGrants = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAuthZGroupControllerGrantsData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAuthZGroupControllerGrantsResponses,
-  AnkoleWebAuthZGroupControllerGrantsErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAuthZGroupControllerGrantsResponses,
-    AnkoleWebAuthZGroupControllerGrantsErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principal-groups/{name}/grants',
-    ...options
   })
 
 /**

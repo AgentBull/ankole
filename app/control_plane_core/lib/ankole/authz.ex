@@ -9,7 +9,7 @@ defmodule Ankole.AuthZ do
   the Pod tree is a generic action that owns its transaction. `Ankole.AuthZ.Store`
   and `Ankole.AuthZ.Grants` give the same steps to another domain's action.
   """
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   import Ecto.Query, only: [from: 2]
   require Ash.Query
@@ -27,6 +27,55 @@ defmodule Ankole.AuthZ do
   alias Ankole.Principals
   alias Ankole.Principals.Principal
   alias Ankole.Repo
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/principal-groups", Group do
+        index(:console_list, name: "list_principal_groups", derive_sort?: false)
+        post(:create, name: "create_principal_group")
+
+        route(:post, "/computed-member-previews", :preview_computed_members,
+          name: "preview_computed_principal_group_members"
+        )
+
+        get(:read, route: "/:name", name: "get_principal_group")
+        patch(:update, route: "/:name", name: "update_principal_group")
+        delete(:delete_operator_group, route: "/:name", name: "delete_principal_group")
+        route(:get, "/:name/members", :list_members, name: "list_principal_group_members")
+
+        route(:put, "/:name/members/:principal_uid", :add_member,
+          name: "add_principal_group_member"
+        )
+
+        route(:delete, "/:name/members/:principal_uid", :remove_member,
+          name: "remove_principal_group_member"
+        )
+      end
+
+      base_route "/principal-groups/:name/grants", Grant do
+        index(:of_group, name: "list_principal_group_grants", derive_sort?: false)
+      end
+
+      base_route "/principals/:uid/groups", Group do
+        index(:of_principal, name: "list_groups_of_principal", derive_sort?: false)
+      end
+
+      base_route "/principals/:uid/grants", Grant do
+        index(:of_principal, name: "list_grants_of_principal", derive_sort?: false)
+      end
+
+      base_route "/permission-grants", Grant do
+        post(:create_operator_grant, name: "create_permission_grant")
+        get(:by_id, name: "get_permission_grant")
+        patch(:update_operator_grant, name: "update_permission_grant")
+        delete(:delete_operator_grant, name: "delete_permission_grant")
+      end
+    end
+  end
 
   resources do
     resource Group do
@@ -56,6 +105,18 @@ defmodule Ankole.AuthZ do
   @type decision_result :: :ok | {:error, term()}
 
   @computed_preview_group_id "preview"
+
+  @group_conflicts %{
+    built_in_group: {:conflict, "Built-in groups cannot be changed or deleted.", []},
+    computed_group: {:conflict, "A computed group gets its members from its condition.", []},
+    group_domain_mismatch: {:conflict, "Directory sync manages the members of this group.", []},
+    group_has_grants: {:conflict, "Delete the permission grants of this group first.", []},
+    last_admin_member: {:conflict, "The admin group must keep at least one member.", []},
+    last_active_human_admin:
+      {:conflict, "The installation must keep one active human administrator.", []},
+    not_human: {:conflict, "Only active human users can join the admin group.", []},
+    principal_disabled: {:conflict, "Disabled users cannot join the admin group.", []}
+  }
 
   def administrator_recovery_required? do
     admin_group_name = Root.admin_group_name()
@@ -191,16 +252,6 @@ defmodule Ankole.AuthZ do
   end
 
   @doc """
-  Deletes an operator-defined group when no grants still refer to it.
-  """
-  @spec delete_principal_group(String.t() | Group.t()) :: {:ok, Group.t()} | {:error, term()}
-  def delete_principal_group(%Group{} = group), do: delete_principal_group(group.id)
-
-  def delete_principal_group(id_or_name) do
-    Ankole.Ash.run_action(Group, :delete_operator_group, %{id_or_name: id_or_name})
-  end
-
-  @doc """
   Lists static members of a Principal group with their Principal display fields.
 
   Members are ordered by Principal display name. Computed groups derive
@@ -230,22 +281,62 @@ defmodule Ankole.AuthZ do
   end
 
   @doc """
+  Lists the effective members of one Principal group as Console member rows.
+
+  A static group gives its stored members and the time each one joined. A
+  computed group gives the active Principals that its condition matches now.
+  """
+  @spec effective_group_members(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def effective_group_members(id_or_name) do
+    with {:ok, group} <- Store.fetch_group(Repo, id_or_name) do
+      case group.kind do
+        :static ->
+          with {:ok, members} <- list_group_members(group.id),
+               do: {:ok, Enum.map(members, &member_row(&1.principal, &1.membership.inserted_at))}
+
+        :computed ->
+          preview_members(group.computed_condition)
+      end
+    end
+  end
+
+  @doc """
+  Gives the Console member rows of the active Principals that a computed group
+  condition matches. A condition that is not valid gives an error on the
+  `condition` argument.
+  """
+  @spec preview_members(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def preview_members(condition) do
+    case preview_computed_group_members(condition) do
+      {:ok, principals} ->
+        {:ok, Enum.map(principals, &member_row(&1, nil))}
+
+      {:error, message} when is_binary(message) ->
+        {:error, Ash.Error.Changes.InvalidArgument.exception(field: :condition, message: message)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp member_row(%Principal{} = principal, member_since) do
+    principal
+    |> Map.take([:uid, :type, :status, :display_name, :avatar_url])
+    |> Map.put(:member_since, member_since)
+  end
+
+  @doc false
+  # The operator text of a refused group or membership change. A refusal that
+  # conflicts with the current group or membership state is a conflict.
+  def describe_group_refusal(reason), do: Map.get(@group_conflicts, reason)
+
+  @doc """
   Lists permission grants owned by a Principal group ordered by pattern and action.
   """
   @spec list_group_grants(String.t()) :: {:ok, [Grant.t()]} | {:error, :not_found}
   def list_group_grants(id_or_name) do
     with {:ok, group} <- Store.fetch_group(Repo, id_or_name) do
       {:ok, list_ordered_grants(group_id: group.id)}
-    end
-  end
-
-  @doc """
-  Lists permission grants owned directly by one Principal ordered by pattern and action.
-  """
-  @spec list_principal_grants(String.t()) :: {:ok, [Grant.t()]} | {:error, term()}
-  def list_principal_grants(principal_uid) do
-    with {:ok, principal} <- Principals.get_principal(principal_uid) do
-      {:ok, list_ordered_grants(principal_uid: principal.uid)}
     end
   end
 
@@ -363,22 +454,6 @@ defmodule Ankole.AuthZ do
   end
 
   @doc """
-  Counts stored members and owned grants per Principal group, defaulting to zero.
-  """
-  @spec summarize_principal_groups() :: %{
-          String.t() => %{member_count: non_neg_integer(), grant_count: non_neg_integer()}
-        }
-  def summarize_principal_groups do
-    Group
-    |> Ash.Query.filter(member_count > 0 or grant_count > 0)
-    |> Ash.Query.load([:member_count, :grant_count])
-    |> Ankole.Ash.read!()
-    |> Map.new(fn group ->
-      {group.id, %{member_count: group.member_count, grant_count: group.grant_count}}
-    end)
-  end
-
-  @doc """
   Looks up one permission grant by id.
   """
   @spec get_permission_grant(String.t()) :: {:ok, Grant.t()} | {:error, :not_found}
@@ -421,8 +496,9 @@ defmodule Ankole.AuthZ do
   def add_principal_to_group(principal_uid, group_id_or_name) do
     Ankole.Ash.run_action(Group, :add_member, %{
       principal_uid: principal_uid,
-      group: group_id_or_name
+      name: group_id_or_name
     })
+    |> Ankole.Errors.reason()
   end
 
   @doc """
@@ -461,8 +537,9 @@ defmodule Ankole.AuthZ do
   def remove_principal_from_group(principal_uid, group_id_or_name) do
     Ankole.Ash.run_action(Group, :remove_member, %{
       principal_uid: principal_uid,
-      group: group_id_or_name
+      name: group_id_or_name
     })
+    |> Ankole.Errors.reason()
   end
 
   @doc """

@@ -42,7 +42,7 @@ defmodule Ankole.Principals.MappingRequests do
   @spec list_requests() :: [MappingRequest.t()]
   def list_requests do
     MappingRequest
-    |> Ash.Query.sort(updated_at: :desc)
+    |> Ash.Query.for_read(:console_list)
     |> Ankole.Ash.read!()
   end
 
@@ -64,10 +64,10 @@ defmodule Ankole.Principals.MappingRequests do
   The bind is the operator's explicit decision, so it writes the identity to
   exactly the chosen Principal instead of running the automatic match ladder.
   """
-  @spec bind_request(String.t(), String.t()) ::
-          {:ok, %{request: MappingRequest.t(), identity: struct()}} | {:error, term()}
+  @spec bind_request(String.t(), String.t()) :: {:ok, ExternalIdentity.t()} | {:error, term()}
   def bind_request(id, principal_uid) when is_binary(id) and is_binary(principal_uid) do
     Ankole.Ash.run_action(MappingRequest, :bind_request, %{id: id, principal_uid: principal_uid})
+    |> Ankole.Errors.reason()
   end
 
   @doc false
@@ -92,7 +92,7 @@ defmodule Ankole.Principals.MappingRequests do
              request.provider,
              request.external_id
            ) do
-      {:ok, %{request: request, identity: identity}}
+      {:ok, identity}
     end
   end
 
@@ -104,12 +104,14 @@ defmodule Ankole.Principals.MappingRequests do
   ever messages an Agent. Any pending request for the same subject is removed.
   """
   @spec bind_subject(String.t(), map()) :: {:ok, struct()} | {:error, term()}
-  def bind_subject(principal_uid, %{provider: provider, external_id: external_id} = attrs)
+  def bind_subject(principal_uid, %{provider: provider, external_id: external_id})
       when is_binary(principal_uid) and is_binary(provider) and is_binary(external_id) do
     Ankole.Ash.run_action(MappingRequest, :bind_subject, %{
       principal_uid: principal_uid,
-      attrs: attrs
+      provider: provider,
+      external_id: external_id
     })
+    |> Ankole.Errors.reason()
   end
 
   @doc false

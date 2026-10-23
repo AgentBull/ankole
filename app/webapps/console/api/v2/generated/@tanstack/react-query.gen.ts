@@ -4,18 +4,27 @@ import { type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutation
 
 import { client } from '../client.gen'
 import {
+  addPrincipalGroupMember,
   approveBrainMergeSuggestion,
   approveBrainSuggestion,
   archiveBrainSource,
+  bindIdentityMappingRequest,
   cancelCheckback,
   cancelWebhookEndpoint,
   createBrainObject,
   createBrainSource,
   createCronSchedule,
+  createIdentityMapping,
+  createLocalUser,
   createOidcClient,
+  createPermissionGrant,
+  createPrincipalGroup,
   createWebhookEndpoint,
   decideBrainContradiction,
+  deleteIdentityMappingRequest,
   deleteOidcClient,
+  deletePermissionGrant,
+  deletePrincipalGroup,
   disableSignalBinding,
   forgetBrainClaim,
   forgetBrainObject,
@@ -23,6 +32,9 @@ import {
   getAutomationJob,
   getCronSchedule,
   getOidcClient,
+  getPermissionGrant,
+  getPrincipal,
+  getPrincipalGroup,
   learnBrainSource,
   listAutomationJobRuns,
   listAutomationJobs,
@@ -36,14 +48,23 @@ import {
   listCheckbacks,
   listCronScheduleRuns,
   listCronSchedules,
+  listGrantsOfPrincipal,
+  listGroupsOfPrincipal,
+  listIdentityMappingRequests,
   listOidcClients,
   listOidcLogoutDeliveries,
+  listPrincipalGroupGrants,
+  listPrincipalGroupMembers,
+  listPrincipalGroups,
+  listPrincipals,
   listWebhookEndpoints,
   type Options,
   pauseCronSchedule,
+  previewComputedPrincipalGroupMembers,
   rejectBrainMergeSuggestion,
   rejectBrainSuggestion,
   removeCronSchedule,
+  removePrincipalGroupMember,
   resolveBrainTake,
   restoreBrainObject,
   resumeCronSchedule,
@@ -54,9 +75,15 @@ import {
   updateBrainObject,
   updateBrainSource,
   updateCronSchedule,
-  updateOidcClient
+  updateHuman,
+  updateOidcClient,
+  updatePermissionGrant,
+  updatePrincipalGroup
 } from '../sdk.gen'
 import type {
+  AddPrincipalGroupMemberData,
+  AddPrincipalGroupMemberError,
+  AddPrincipalGroupMemberResponse,
   ApproveBrainMergeSuggestionData,
   ApproveBrainMergeSuggestionError,
   ApproveBrainMergeSuggestionResponse,
@@ -66,6 +93,9 @@ import type {
   ArchiveBrainSourceData,
   ArchiveBrainSourceError,
   ArchiveBrainSourceResponse,
+  BindIdentityMappingRequestData,
+  BindIdentityMappingRequestError,
+  BindIdentityMappingRequestResponse,
   CancelCheckbackData,
   CancelCheckbackError,
   CancelCheckbackResponse,
@@ -81,18 +111,36 @@ import type {
   CreateCronScheduleData,
   CreateCronScheduleError,
   CreateCronScheduleResponse,
+  CreateIdentityMappingData,
+  CreateIdentityMappingError,
+  CreateIdentityMappingResponse,
+  CreateLocalUserData,
+  CreateLocalUserError,
+  CreateLocalUserResponse,
   CreateOidcClientData,
   CreateOidcClientError,
   CreateOidcClientResponse,
+  CreatePermissionGrantData,
+  CreatePermissionGrantError,
+  CreatePermissionGrantResponse,
+  CreatePrincipalGroupData,
+  CreatePrincipalGroupError,
+  CreatePrincipalGroupResponse,
   CreateWebhookEndpointData,
   CreateWebhookEndpointError,
   CreateWebhookEndpointResponse,
   DecideBrainContradictionData,
   DecideBrainContradictionError,
   DecideBrainContradictionResponse,
+  DeleteIdentityMappingRequestData,
+  DeleteIdentityMappingRequestError,
   DeleteOidcClientData,
   DeleteOidcClientError,
   DeleteOidcClientResponse,
+  DeletePermissionGrantData,
+  DeletePermissionGrantError,
+  DeletePrincipalGroupData,
+  DeletePrincipalGroupError,
   DisableSignalBindingData,
   DisableSignalBindingError,
   DisableSignalBindingResponse,
@@ -114,6 +162,15 @@ import type {
   GetOidcClientData,
   GetOidcClientError,
   GetOidcClientResponse,
+  GetPermissionGrantData,
+  GetPermissionGrantError,
+  GetPermissionGrantResponse,
+  GetPrincipalData,
+  GetPrincipalError,
+  GetPrincipalGroupData,
+  GetPrincipalGroupError,
+  GetPrincipalGroupResponse,
+  GetPrincipalResponse,
   LearnBrainSourceData,
   LearnBrainSourceError,
   LearnBrainSourceResponse,
@@ -153,18 +210,42 @@ import type {
   ListCronSchedulesData,
   ListCronSchedulesError,
   ListCronSchedulesResponse,
+  ListGrantsOfPrincipalData,
+  ListGrantsOfPrincipalError,
+  ListGrantsOfPrincipalResponse,
+  ListGroupsOfPrincipalData,
+  ListGroupsOfPrincipalError,
+  ListGroupsOfPrincipalResponse,
+  ListIdentityMappingRequestsData,
+  ListIdentityMappingRequestsError,
+  ListIdentityMappingRequestsResponse,
   ListOidcClientsData,
   ListOidcClientsError,
   ListOidcClientsResponse,
   ListOidcLogoutDeliveriesData,
   ListOidcLogoutDeliveriesError,
   ListOidcLogoutDeliveriesResponse,
+  ListPrincipalGroupGrantsData,
+  ListPrincipalGroupGrantsError,
+  ListPrincipalGroupGrantsResponse,
+  ListPrincipalGroupMembersData,
+  ListPrincipalGroupMembersError,
+  ListPrincipalGroupMembersResponse,
+  ListPrincipalGroupsData,
+  ListPrincipalGroupsError,
+  ListPrincipalGroupsResponse,
+  ListPrincipalsData,
+  ListPrincipalsError,
+  ListPrincipalsResponse,
   ListWebhookEndpointsData,
   ListWebhookEndpointsError,
   ListWebhookEndpointsResponse,
   PauseCronScheduleData,
   PauseCronScheduleError,
   PauseCronScheduleResponse,
+  PreviewComputedPrincipalGroupMembersData,
+  PreviewComputedPrincipalGroupMembersError,
+  PreviewComputedPrincipalGroupMembersResponse,
   RejectBrainMergeSuggestionData,
   RejectBrainMergeSuggestionError,
   RejectBrainMergeSuggestionResponse,
@@ -174,6 +255,9 @@ import type {
   RemoveCronScheduleData,
   RemoveCronScheduleError,
   RemoveCronScheduleResponse,
+  RemovePrincipalGroupMemberData,
+  RemovePrincipalGroupMemberError,
+  RemovePrincipalGroupMemberResponse,
   ResolveBrainTakeData,
   ResolveBrainTakeError,
   ResolveBrainTakeResponse,
@@ -204,10 +288,42 @@ import type {
   UpdateCronScheduleData,
   UpdateCronScheduleError,
   UpdateCronScheduleResponse,
+  UpdateHumanData,
+  UpdateHumanError,
+  UpdateHumanResponse,
   UpdateOidcClientData,
   UpdateOidcClientError,
-  UpdateOidcClientResponse
+  UpdateOidcClientResponse,
+  UpdatePermissionGrantData,
+  UpdatePermissionGrantError,
+  UpdatePermissionGrantResponse,
+  UpdatePrincipalGroupData,
+  UpdatePrincipalGroupError,
+  UpdatePrincipalGroupResponse
 } from '../types.gen'
+
+/**
+ * delete_identity_mapping_request operation on identity_mapping_request resource
+ */
+export const deleteIdentityMappingRequestMutation = (
+  options?: Partial<Options<DeleteIdentityMappingRequestData>>
+): UseMutationOptions<unknown, DeleteIdentityMappingRequestError, Options<DeleteIdentityMappingRequestData>> => {
+  const mutationOptions: UseMutationOptions<
+    unknown,
+    DeleteIdentityMappingRequestError,
+    Options<DeleteIdentityMappingRequestData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteIdentityMappingRequest({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 export type QueryKey<TOptions extends Options> = [
   Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -405,6 +521,33 @@ export const createWebhookEndpointMutation = (
 }
 
 /**
+ * Creates a grant for a Principal or a group. A Pod page action is refused.
+ */
+export const createPermissionGrantMutation = (
+  options?: Partial<Options<CreatePermissionGrantData>>
+): UseMutationOptions<
+  CreatePermissionGrantResponse,
+  CreatePermissionGrantError,
+  Options<CreatePermissionGrantData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreatePermissionGrantResponse,
+    CreatePermissionGrantError,
+    Options<CreatePermissionGrantData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await createPermissionGrant({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * cancel_checkback operation on scheduled_event resource
  */
 export const cancelCheckbackMutation = (
@@ -417,6 +560,77 @@ export const cancelCheckbackMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await cancelCheckback({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Deletes a grant. A Pod page grant is refused.
+ */
+export const deletePermissionGrantMutation = (
+  options?: Partial<Options<DeletePermissionGrantData>>
+): UseMutationOptions<unknown, DeletePermissionGrantError, Options<DeletePermissionGrantData>> => {
+  const mutationOptions: UseMutationOptions<unknown, DeletePermissionGrantError, Options<DeletePermissionGrantData>> = {
+    mutationFn: async fnOptions => {
+      const { data } = await deletePermissionGrant({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getPermissionGrantQueryKey = (options: Options<GetPermissionGrantData>) =>
+  createQueryKey('getPermissionGrant', options)
+
+/**
+ * Reads one row by ID. An ID that is not a UUID matches no row.
+ */
+export const getPermissionGrantOptions = (options: Options<GetPermissionGrantData>) =>
+  queryOptions<
+    GetPermissionGrantResponse,
+    GetPermissionGrantError,
+    GetPermissionGrantResponse,
+    ReturnType<typeof getPermissionGrantQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getPermissionGrant({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getPermissionGrantQueryKey(options)
+  })
+
+/**
+ * Updates a grant. A Pod page grant can change only its description.
+ */
+export const updatePermissionGrantMutation = (
+  options?: Partial<Options<UpdatePermissionGrantData>>
+): UseMutationOptions<
+  UpdatePermissionGrantResponse,
+  UpdatePermissionGrantError,
+  Options<UpdatePermissionGrantData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    UpdatePermissionGrantResponse,
+    UpdatePermissionGrantError,
+    Options<UpdatePermissionGrantData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updatePermissionGrant({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -478,6 +692,31 @@ export const retryOidcLogoutDeliveryMutation = (
   }
   return mutationOptions
 }
+
+export const listPrincipalGroupMembersQueryKey = (options: Options<ListPrincipalGroupMembersData>) =>
+  createQueryKey('listPrincipalGroupMembers', options)
+
+/**
+ * Lists the effective members of a group.
+ */
+export const listPrincipalGroupMembersOptions = (options: Options<ListPrincipalGroupMembersData>) =>
+  queryOptions<
+    ListPrincipalGroupMembersResponse,
+    ListPrincipalGroupMembersError,
+    ListPrincipalGroupMembersResponse,
+    ReturnType<typeof listPrincipalGroupMembersQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listPrincipalGroupMembers({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listPrincipalGroupMembersQueryKey(options)
+  })
 
 export const listCronSchedulesQueryKey = (options?: Options<ListCronSchedulesData>) =>
   createQueryKey('listCronSchedules', options)
@@ -628,6 +867,73 @@ export const createCronScheduleMutation = (
 }
 
 /**
+ * Deletes an operator group that has no grants.
+ */
+export const deletePrincipalGroupMutation = (
+  options?: Partial<Options<DeletePrincipalGroupData>>
+): UseMutationOptions<unknown, DeletePrincipalGroupError, Options<DeletePrincipalGroupData>> => {
+  const mutationOptions: UseMutationOptions<unknown, DeletePrincipalGroupError, Options<DeletePrincipalGroupData>> = {
+    mutationFn: async fnOptions => {
+      const { data } = await deletePrincipalGroup({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getPrincipalGroupQueryKey = (options: Options<GetPrincipalGroupData>) =>
+  createQueryKey('getPrincipalGroup', options)
+
+/**
+ * get_principal_group operation on principal_group resource
+ */
+export const getPrincipalGroupOptions = (options: Options<GetPrincipalGroupData>) =>
+  queryOptions<
+    GetPrincipalGroupResponse,
+    GetPrincipalGroupError,
+    GetPrincipalGroupResponse,
+    ReturnType<typeof getPrincipalGroupQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getPrincipalGroup({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getPrincipalGroupQueryKey(options)
+  })
+
+/**
+ * Updates the display fields or the condition of a group.
+ */
+export const updatePrincipalGroupMutation = (
+  options?: Partial<Options<UpdatePrincipalGroupData>>
+): UseMutationOptions<UpdatePrincipalGroupResponse, UpdatePrincipalGroupError, Options<UpdatePrincipalGroupData>> => {
+  const mutationOptions: UseMutationOptions<
+    UpdatePrincipalGroupResponse,
+    UpdatePrincipalGroupError,
+    Options<UpdatePrincipalGroupData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updatePrincipalGroup({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * learn_brain_source operation on brain_source resource
  */
 export const learnBrainSourceMutation = (
@@ -640,6 +946,33 @@ export const learnBrainSourceMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await learnBrainSource({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Lists the active Principals that a computed group condition matches.
+ */
+export const previewComputedPrincipalGroupMembersMutation = (
+  options?: Partial<Options<PreviewComputedPrincipalGroupMembersData>>
+): UseMutationOptions<
+  PreviewComputedPrincipalGroupMembersResponse,
+  PreviewComputedPrincipalGroupMembersError,
+  Options<PreviewComputedPrincipalGroupMembersData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    PreviewComputedPrincipalGroupMembersResponse,
+    PreviewComputedPrincipalGroupMembersError,
+    Options<PreviewComputedPrincipalGroupMembersData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await previewComputedPrincipalGroupMembers({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -795,6 +1128,44 @@ export const getAutomationJobOptions = (options: Options<GetAutomationJobData>) 
     queryKey: getAutomationJobQueryKey(options)
   })
 
+export const getPrincipalQueryKey = (options: Options<GetPrincipalData>) => createQueryKey('getPrincipal', options)
+
+/**
+ * get_principal operation on principal resource
+ */
+export const getPrincipalOptions = (options: Options<GetPrincipalData>) =>
+  queryOptions<GetPrincipalResponse, GetPrincipalError, GetPrincipalResponse, ReturnType<typeof getPrincipalQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getPrincipal({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getPrincipalQueryKey(options)
+  })
+
+/**
+ * Updates the display name or the email of a Human with local sign-in.
+ */
+export const updateHumanMutation = (
+  options?: Partial<Options<UpdateHumanData>>
+): UseMutationOptions<UpdateHumanResponse, UpdateHumanError, Options<UpdateHumanData>> => {
+  const mutationOptions: UseMutationOptions<UpdateHumanResponse, UpdateHumanError, Options<UpdateHumanData>> = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateHuman({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 /**
  * restore_brain_object operation on brain_object resource
  */
@@ -889,6 +1260,31 @@ export const listAutomationJobsInfiniteOptions = (options?: Options<ListAutomati
   )
   return opts as Omit<typeof opts, 'initialData'>
 }
+
+export const listPrincipalGroupGrantsQueryKey = (options: Options<ListPrincipalGroupGrantsData>) =>
+  createQueryKey('listPrincipalGroupGrants', options)
+
+/**
+ * Lists the grants that one group owns.
+ */
+export const listPrincipalGroupGrantsOptions = (options: Options<ListPrincipalGroupGrantsData>) =>
+  queryOptions<
+    ListPrincipalGroupGrantsResponse,
+    ListPrincipalGroupGrantsError,
+    ListPrincipalGroupGrantsResponse,
+    ReturnType<typeof listPrincipalGroupGrantsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listPrincipalGroupGrants({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listPrincipalGroupGrantsQueryKey(options)
+  })
 
 export const listCheckbacksQueryKey = (options?: Options<ListCheckbacksData>) =>
   createQueryKey('listCheckbacks', options)
@@ -1080,6 +1476,31 @@ export const resumeCronScheduleMutation = (
   return mutationOptions
 }
 
+export const listGrantsOfPrincipalQueryKey = (options: Options<ListGrantsOfPrincipalData>) =>
+  createQueryKey('listGrantsOfPrincipal', options)
+
+/**
+ * Lists the grants that one Principal owns directly.
+ */
+export const listGrantsOfPrincipalOptions = (options: Options<ListGrantsOfPrincipalData>) =>
+  queryOptions<
+    ListGrantsOfPrincipalResponse,
+    ListGrantsOfPrincipalError,
+    ListGrantsOfPrincipalResponse,
+    ReturnType<typeof listGrantsOfPrincipalQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listGrantsOfPrincipal({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listGrantsOfPrincipalQueryKey(options)
+  })
+
 export const listOidcClientsQueryKey = (options?: Options<ListOidcClientsData>) =>
   createQueryKey('listOidcClients', options)
 
@@ -1127,6 +1548,79 @@ export const createOidcClientMutation = (
   }
   return mutationOptions
 }
+
+export const listPrincipalsQueryKey = (options?: Options<ListPrincipalsData>) =>
+  createQueryKey('listPrincipals', options)
+
+/**
+ * list_principals operation on principal resource
+ */
+export const listPrincipalsOptions = (options?: Options<ListPrincipalsData>) =>
+  queryOptions<
+    ListPrincipalsResponse,
+    ListPrincipalsError,
+    ListPrincipalsResponse,
+    ReturnType<typeof listPrincipalsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listPrincipals({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listPrincipalsQueryKey(options)
+  })
+
+/**
+ * Creates a Human with an email and a generated one-time local password.
+ */
+export const createLocalUserMutation = (
+  options?: Partial<Options<CreateLocalUserData>>
+): UseMutationOptions<CreateLocalUserResponse, CreateLocalUserError, Options<CreateLocalUserData>> => {
+  const mutationOptions: UseMutationOptions<
+    CreateLocalUserResponse,
+    CreateLocalUserError,
+    Options<CreateLocalUserData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await createLocalUser({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listIdentityMappingRequestsQueryKey = (options?: Options<ListIdentityMappingRequestsData>) =>
+  createQueryKey('listIdentityMappingRequests', options)
+
+/**
+ * list_identity_mapping_requests operation on identity_mapping_request resource
+ */
+export const listIdentityMappingRequestsOptions = (options?: Options<ListIdentityMappingRequestsData>) =>
+  queryOptions<
+    ListIdentityMappingRequestsResponse,
+    ListIdentityMappingRequestsError,
+    ListIdentityMappingRequestsResponse,
+    ReturnType<typeof listIdentityMappingRequestsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listIdentityMappingRequests({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listIdentityMappingRequestsQueryKey(options)
+  })
 
 /**
  * reject_brain_suggestion operation on brain_schema_suggestion resource
@@ -1412,6 +1906,33 @@ export const updateBrainSourceMutation = (
 }
 
 /**
+ * Binds a pending request to a Human and removes the request.
+ */
+export const bindIdentityMappingRequestMutation = (
+  options?: Partial<Options<BindIdentityMappingRequestData>>
+): UseMutationOptions<
+  BindIdentityMappingRequestResponse,
+  BindIdentityMappingRequestError,
+  Options<BindIdentityMappingRequestData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    BindIdentityMappingRequestResponse,
+    BindIdentityMappingRequestError,
+    Options<BindIdentityMappingRequestData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await bindIdentityMappingRequest({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * rollback_brain_object operation on brain_object resource
  */
 export const rollbackBrainObjectMutation = (
@@ -1424,6 +1945,54 @@ export const rollbackBrainObjectMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await rollbackBrainObject({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listPrincipalGroupsQueryKey = (options?: Options<ListPrincipalGroupsData>) =>
+  createQueryKey('listPrincipalGroups', options)
+
+/**
+ * list_principal_groups operation on principal_group resource
+ */
+export const listPrincipalGroupsOptions = (options?: Options<ListPrincipalGroupsData>) =>
+  queryOptions<
+    ListPrincipalGroupsResponse,
+    ListPrincipalGroupsError,
+    ListPrincipalGroupsResponse,
+    ReturnType<typeof listPrincipalGroupsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listPrincipalGroups({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listPrincipalGroupsQueryKey(options)
+  })
+
+/**
+ * Creates an operator group.
+ */
+export const createPrincipalGroupMutation = (
+  options?: Partial<Options<CreatePrincipalGroupData>>
+): UseMutationOptions<CreatePrincipalGroupResponse, CreatePrincipalGroupError, Options<CreatePrincipalGroupData>> => {
+  const mutationOptions: UseMutationOptions<
+    CreatePrincipalGroupResponse,
+    CreatePrincipalGroupError,
+    Options<CreatePrincipalGroupData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await createPrincipalGroup({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1504,6 +2073,85 @@ export const updateCronScheduleMutation = (
   }
   return mutationOptions
 }
+
+/**
+ * Removes a Principal from a static operator group.
+ */
+export const removePrincipalGroupMemberMutation = (
+  options?: Partial<Options<RemovePrincipalGroupMemberData>>
+): UseMutationOptions<
+  RemovePrincipalGroupMemberResponse,
+  RemovePrincipalGroupMemberError,
+  Options<RemovePrincipalGroupMemberData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RemovePrincipalGroupMemberResponse,
+    RemovePrincipalGroupMemberError,
+    Options<RemovePrincipalGroupMemberData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await removePrincipalGroupMember({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Adds a Principal to a static operator group.
+ */
+export const addPrincipalGroupMemberMutation = (
+  options?: Partial<Options<AddPrincipalGroupMemberData>>
+): UseMutationOptions<
+  AddPrincipalGroupMemberResponse,
+  AddPrincipalGroupMemberError,
+  Options<AddPrincipalGroupMemberData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AddPrincipalGroupMemberResponse,
+    AddPrincipalGroupMemberError,
+    Options<AddPrincipalGroupMemberData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await addPrincipalGroupMember({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listGroupsOfPrincipalQueryKey = (options: Options<ListGroupsOfPrincipalData>) =>
+  createQueryKey('listGroupsOfPrincipal', options)
+
+/**
+ * Lists the static groups of one Principal.
+ */
+export const listGroupsOfPrincipalOptions = (options: Options<ListGroupsOfPrincipalData>) =>
+  queryOptions<
+    ListGroupsOfPrincipalResponse,
+    ListGroupsOfPrincipalError,
+    ListGroupsOfPrincipalResponse,
+    ReturnType<typeof listGroupsOfPrincipalQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listGroupsOfPrincipal({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listGroupsOfPrincipalQueryKey(options)
+  })
 
 export const listBrainSuggestionsQueryKey = (options?: Options<ListBrainSuggestionsData>) =>
   createQueryKey('listBrainSuggestions', options)
@@ -1651,6 +2299,33 @@ export const approveBrainSuggestionMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await approveBrainSuggestion({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Binds a provider subject to a Human and removes its pending request.
+ */
+export const createIdentityMappingMutation = (
+  options?: Partial<Options<CreateIdentityMappingData>>
+): UseMutationOptions<
+  CreateIdentityMappingResponse,
+  CreateIdentityMappingError,
+  Options<CreateIdentityMappingData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreateIdentityMappingResponse,
+    CreateIdentityMappingError,
+    Options<CreateIdentityMappingData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await createIdentityMapping({
         ...options,
         ...fnOptions,
         throwOnError: true

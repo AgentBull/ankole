@@ -145,7 +145,7 @@ defmodule Ankole.Principals.MappingRequestsTest do
                display_name: "Bindable"
              })
 
-    assert {:ok, %{identity: identity}} = MappingRequests.bind_request(request.id, principal.uid)
+    assert {:ok, identity} = MappingRequests.bind_request(request.id, principal.uid)
     assert identity.principal_uid == principal.uid
     assert identity.metadata["origin"] == "manual"
 

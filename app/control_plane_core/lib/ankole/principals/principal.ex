@@ -1,6 +1,26 @@
 defmodule Ankole.Principals.Principal do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Principals,
+    extensions: [AshJsonApi.Resource]
+
+  json_api do
+    type("principal")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :type,
+      :status,
+      :display_name,
+      :avatar_url,
+      :email,
+      :handle,
+      :has_external_identity,
+      :local_credential_status
+    ])
+  end
 
   postgres do
     table("principals")
@@ -77,11 +97,36 @@ defmodule Ankole.Principals.Principal do
   end
 
   aggregates do
-    exists(:has_external_identity, :external_identities)
+    exists(:has_external_identity, :external_identities, public?: true)
+  end
+
+  calculations do
+    calculate(:email, :string, expr(human_user.email), public?: true)
+    calculate(:handle, :string, expr(agent.handle), public?: true)
+
+    calculate(
+      :local_credential_status,
+      :atom,
+      expr(
+        if is_nil(local_credential.principal_uid) do
+          nil
+        else
+          if local_credential.must_change_password, do: :must_change, else: :active
+        end
+      ),
+      constraints: [one_of: [:must_change, :active]],
+      public?: true
+    )
   end
 
   actions do
     defaults([:read])
+
+    read :console_list do
+      argument(:include_disabled, :boolean, default: false)
+      filter(expr(status == :active or ^arg(:include_disabled) == true))
+      prepare(build(sort: [uid: :asc]))
+    end
 
     read :read_across_tenants do
       multitenancy(:allow_global)
@@ -161,35 +206,38 @@ defmodule Ankole.Principals.Principal do
       end)
     end
 
-    action :update_human, :map do
-      argument(:uid, :term, allow_nil?: false)
-      argument(:attrs, :map, allow_nil?: false)
+    action :update_human, :struct do
+      description("Updates the display name or the email of a Human with local sign-in.")
+      constraints(instance_of: __MODULE__)
+      argument(:uid, :string, allow_nil?: false)
+      argument(:display_name, :string)
+      argument(:email, :string)
 
       run(fn input, _context ->
-        Ankole.Principals.update_human_in_tx(
-          Ankole.Repo,
-          input.arguments.uid,
-          input.arguments.attrs
-        )
-        |> Ankole.Errors.wrap()
+        Ankole.Principals.update_human_in_tx(Ankole.Repo, input.arguments)
+        |> Ankole.Errors.not_found([:not_found, :principal_not_found], __MODULE__)
+        |> Ankole.Errors.wrap(&Ankole.Principals.describe_refusal/1)
       end)
     end
 
-    action :create_local_user, :map do
-      argument(:attrs, :map, allow_nil?: false)
+    action :create_local_user, :struct do
+      description("Creates a Human with an email and a generated one-time local password.")
+      constraints(instance_of: __MODULE__)
+      argument(:email, :string, allow_nil?: false)
+      argument(:display_name, :string)
 
-      argument(:password_hash, :term, allow_nil?: false, sensitive?: true)
+      argument(:must_change_password, :boolean,
+        default: true,
+        description: "Omitted or null means true."
+      )
 
-      argument(:must_change_password, :boolean, allow_nil?: false)
+      argument(:initial_password, :string, public?: false, sensitive?: true)
+      argument(:password_hash, :string, public?: false, sensitive?: true)
+      prepare(Ankole.Principals.Changes.InitialPassword)
 
       run(fn input, _context ->
-        Ankole.Principals.create_local_user_in_tx(
-          Ankole.Repo,
-          input.arguments.attrs,
-          input.arguments.password_hash,
-          input.arguments.must_change_password
-        )
-        |> Ankole.Errors.wrap()
+        Ankole.Principals.create_local_user_in_tx(Ankole.Repo, input.arguments)
+        |> Ankole.Errors.wrap(&Ankole.Principals.describe_refusal/1)
       end)
     end
 
