@@ -258,12 +258,6 @@ import type {
   AnkoleWebAuthZGroupControllerUpdateData,
   AnkoleWebAuthZGroupControllerUpdateErrors,
   AnkoleWebAuthZGroupControllerUpdateResponses,
-  AnkoleWebAutomationJobControllerIndexData,
-  AnkoleWebAutomationJobControllerIndexErrors,
-  AnkoleWebAutomationJobControllerIndexResponses,
-  AnkoleWebAutomationJobControllerShowData,
-  AnkoleWebAutomationJobControllerShowErrors,
-  AnkoleWebAutomationJobControllerShowResponses,
   AnkoleWebBackgroundAgentJobControllerCancelData,
   AnkoleWebBackgroundAgentJobControllerCancelErrors,
   AnkoleWebBackgroundAgentJobControllerCancelResponses,
@@ -395,28 +389,9 @@ import type {
   AnkoleWebIdentityProviderControllerRunSyncData,
   AnkoleWebIdentityProviderControllerRunSyncErrors,
   AnkoleWebIdentityProviderControllerRunSyncResponses,
-  AnkoleWebOidcClientControllerCreateData,
-  AnkoleWebOidcClientControllerCreateErrors,
-  AnkoleWebOidcClientControllerCreateResponses,
-  AnkoleWebOidcClientControllerDeleteData,
-  AnkoleWebOidcClientControllerDeleteErrors,
-  AnkoleWebOidcClientControllerDeleteResponses,
-  AnkoleWebOidcClientControllerIndexData,
-  AnkoleWebOidcClientControllerIndexErrors,
-  AnkoleWebOidcClientControllerIndexResponses,
-  AnkoleWebOidcClientControllerLogoutDeliveriesData,
-  AnkoleWebOidcClientControllerLogoutDeliveriesResponses,
-  AnkoleWebOidcClientControllerRetryLogoutData,
-  AnkoleWebOidcClientControllerRetryLogoutResponses,
   AnkoleWebOidcClientControllerRotateSecretData,
   AnkoleWebOidcClientControllerRotateSecretErrors,
   AnkoleWebOidcClientControllerRotateSecretResponses,
-  AnkoleWebOidcClientControllerShowData,
-  AnkoleWebOidcClientControllerShowErrors,
-  AnkoleWebOidcClientControllerShowResponses,
-  AnkoleWebOidcClientControllerUpdateData,
-  AnkoleWebOidcClientControllerUpdateErrors,
-  AnkoleWebOidcClientControllerUpdateResponses,
   AnkoleWebPermissionGrantControllerCreateData,
   AnkoleWebPermissionGrantControllerCreateErrors,
   AnkoleWebPermissionGrantControllerCreateResponses,
@@ -450,39 +425,9 @@ import type {
   AnkoleWebPrincipalControllerUpdateData,
   AnkoleWebPrincipalControllerUpdateErrors,
   AnkoleWebPrincipalControllerUpdateResponses,
-  AnkoleWebScheduleControllerCancelCheckbackData,
-  AnkoleWebScheduleControllerCancelCheckbackResponses,
-  AnkoleWebScheduleControllerCreateCronData,
-  AnkoleWebScheduleControllerCreateCronErrors,
-  AnkoleWebScheduleControllerCreateCronResponses,
-  AnkoleWebScheduleControllerCronRunsData,
-  AnkoleWebScheduleControllerCronRunsResponses,
-  AnkoleWebScheduleControllerIndexCheckbacksData,
-  AnkoleWebScheduleControllerIndexCheckbacksErrors,
-  AnkoleWebScheduleControllerIndexCheckbacksResponses,
-  AnkoleWebScheduleControllerIndexCronData,
-  AnkoleWebScheduleControllerIndexCronErrors,
-  AnkoleWebScheduleControllerIndexCronResponses,
-  AnkoleWebScheduleControllerPauseCronData,
-  AnkoleWebScheduleControllerPauseCronResponses,
-  AnkoleWebScheduleControllerRemoveCronData,
-  AnkoleWebScheduleControllerRemoveCronResponses,
-  AnkoleWebScheduleControllerResumeCronData,
-  AnkoleWebScheduleControllerResumeCronResponses,
-  AnkoleWebScheduleControllerRunCronData,
-  AnkoleWebScheduleControllerRunCronResponses,
-  AnkoleWebScheduleControllerShowCronData,
-  AnkoleWebScheduleControllerShowCronErrors,
-  AnkoleWebScheduleControllerShowCronResponses,
-  AnkoleWebScheduleControllerUpdateCronData,
-  AnkoleWebScheduleControllerUpdateCronErrors,
-  AnkoleWebScheduleControllerUpdateCronResponses,
   AnkoleWebSignalBindingControllerAdaptersData,
   AnkoleWebSignalBindingControllerAdaptersErrors,
   AnkoleWebSignalBindingControllerAdaptersResponses,
-  AnkoleWebSignalBindingControllerDeleteData,
-  AnkoleWebSignalBindingControllerDeleteErrors,
-  AnkoleWebSignalBindingControllerDeleteResponses,
   AnkoleWebSignalBindingControllerIndexData,
   AnkoleWebSignalBindingControllerIndexErrors,
   AnkoleWebSignalBindingControllerIndexResponses,
@@ -528,18 +473,6 @@ import type {
   AnkoleWebTenantControllerUpdateData,
   AnkoleWebTenantControllerUpdateErrors,
   AnkoleWebTenantControllerUpdateResponses,
-  AnkoleWebWebhookEndpointControllerCancelData,
-  AnkoleWebWebhookEndpointControllerCancelErrors,
-  AnkoleWebWebhookEndpointControllerCancelResponses,
-  AnkoleWebWebhookEndpointControllerCreateData,
-  AnkoleWebWebhookEndpointControllerCreateErrors,
-  AnkoleWebWebhookEndpointControllerCreateResponses,
-  AnkoleWebWebhookEndpointControllerDeleteData,
-  AnkoleWebWebhookEndpointControllerDeleteErrors,
-  AnkoleWebWebhookEndpointControllerDeleteResponses,
-  AnkoleWebWebhookEndpointControllerIndexData,
-  AnkoleWebWebhookEndpointControllerIndexErrors,
-  AnkoleWebWebhookEndpointControllerIndexResponses,
   AnkoleWebWorkerEnvControllerDecryptData,
   AnkoleWebWorkerEnvControllerDecryptErrors,
   AnkoleWebWorkerEnvControllerDecryptForAgentData,
@@ -650,18 +583,6 @@ export const ankoleWebAiGatewayFilesControllerContent = <ThrowOnError extends bo
   })
 
 /**
- * Pause one recurring schedule
- */
-export const ankoleWebScheduleControllerPauseCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerPauseCronData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerPauseCronResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebScheduleControllerPauseCronResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/pause',
-    ...options
-  })
-
-/**
  * List configured identity providers
  */
 export const ankoleWebIdentityProviderControllerIndex = <ThrowOnError extends boolean = false>(
@@ -679,30 +600,6 @@ export const ankoleWebIdentityProviderControllerIndex = <ThrowOnError extends bo
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/identity-providers',
     ...options
-  })
-
-/**
- * Create one recurring schedule
- */
-export const ankoleWebScheduleControllerCreateCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerCreateCronData, ThrowOnError>
-): RequestResult<
-  AnkoleWebScheduleControllerCreateCronResponses,
-  AnkoleWebScheduleControllerCreateCronErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebScheduleControllerCreateCronResponses,
-    AnkoleWebScheduleControllerCreateCronErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/cron-schedules',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -882,26 +779,6 @@ export const ankoleWebAiGatewayFilesControllerShow = <ThrowOnError extends boole
   })
 
 /**
- * Cancel one CloudEvents endpoint
- */
-export const ankoleWebWebhookEndpointControllerCancel = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWebhookEndpointControllerCancelData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWebhookEndpointControllerCancelResponses,
-  AnkoleWebWebhookEndpointControllerCancelErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebWebhookEndpointControllerCancelResponses,
-    AnkoleWebWebhookEndpointControllerCancelErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/webhook-endpoints/{webhook_endpoint_id}',
-    ...options
-  })
-
-/**
  * List tenants
  */
 export const ankoleWebTenantControllerIndex = <ThrowOnError extends boolean = false>(
@@ -986,18 +863,6 @@ export const ankoleWebAppConfigurationControllerIndexTenant = <ThrowOnError exte
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/app-configurations',
-    ...options
-  })
-
-/**
- * Cancel one pending checkback wakeup
- */
-export const ankoleWebScheduleControllerCancelCheckback = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerCancelCheckbackData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerCancelCheckbackResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).delete<AnkoleWebScheduleControllerCancelCheckbackResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/checkbacks/{scheduled_event_id}',
     ...options
   })
 
@@ -1107,26 +972,6 @@ export const ankoleWebAuthZGroupControllerPreviewComputedMembers = <ThrowOnError
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * List checkback wakeups
- */
-export const ankoleWebScheduleControllerIndexCheckbacks = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebScheduleControllerIndexCheckbacksData, ThrowOnError>
-): RequestResult<
-  AnkoleWebScheduleControllerIndexCheckbacksResponses,
-  AnkoleWebScheduleControllerIndexCheckbacksErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebScheduleControllerIndexCheckbacksResponses,
-    AnkoleWebScheduleControllerIndexCheckbacksErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/checkbacks',
-    ...options
   })
 
 /**
@@ -1570,50 +1415,6 @@ export const ankoleWebSignalBindingControllerPutConversationStandingOrders = <Th
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/conversations/{conversation_id}/standing-orders',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * List webhook endpoints
- */
-export const ankoleWebWebhookEndpointControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebWebhookEndpointControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWebhookEndpointControllerIndexResponses,
-  AnkoleWebWebhookEndpointControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebWebhookEndpointControllerIndexResponses,
-    AnkoleWebWebhookEndpointControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/webhook-endpoints',
-    ...options
-  })
-
-/**
- * Create one authenticated CloudEvents endpoint
- */
-export const ankoleWebWebhookEndpointControllerCreate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWebhookEndpointControllerCreateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWebhookEndpointControllerCreateResponses,
-  AnkoleWebWebhookEndpointControllerCreateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebWebhookEndpointControllerCreateResponses,
-    AnkoleWebWebhookEndpointControllerCreateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/webhook-endpoints',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -2151,66 +1952,6 @@ export const ankoleWebBrainControllerCreateSource = <ThrowOnError extends boolea
   })
 
 /**
- * Delete an OIDC Client
- */
-export const ankoleWebOidcClientControllerDelete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebOidcClientControllerDeleteData, ThrowOnError>
-): RequestResult<
-  AnkoleWebOidcClientControllerDeleteResponses,
-  AnkoleWebOidcClientControllerDeleteErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebOidcClientControllerDeleteResponses,
-    AnkoleWebOidcClientControllerDeleteErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/oidc-clients/{id}',
-    ...options
-  })
-
-/**
- * Read an OIDC Client
- */
-export const ankoleWebOidcClientControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebOidcClientControllerShowData, ThrowOnError>
-): RequestResult<AnkoleWebOidcClientControllerShowResponses, AnkoleWebOidcClientControllerShowErrors, ThrowOnError> =>
-  (options.client ?? client).get<
-    AnkoleWebOidcClientControllerShowResponses,
-    AnkoleWebOidcClientControllerShowErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/oidc-clients/{id}',
-    ...options
-  })
-
-/**
- * Update an OIDC Client
- */
-export const ankoleWebOidcClientControllerUpdate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebOidcClientControllerUpdateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebOidcClientControllerUpdateResponses,
-  AnkoleWebOidcClientControllerUpdateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).patch<
-    AnkoleWebOidcClientControllerUpdateResponses,
-    AnkoleWebOidcClientControllerUpdateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/oidc-clients/{id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Retrieve a stored stateful OpenResponses response
  */
 export const ankoleWebAiGatewayControllerRetrieveResponse = <ThrowOnError extends boolean = false>(
@@ -2379,26 +2120,6 @@ export const ankoleWebIdentityProviderControllerRunSync = <ThrowOnError extends 
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/identity-providers/{provider_id}/sync-runs',
-    ...options
-  })
-
-/**
- * Read one automation job and its recent run history
- */
-export const ankoleWebAutomationJobControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAutomationJobControllerShowData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAutomationJobControllerShowResponses,
-  AnkoleWebAutomationJobControllerShowErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAutomationJobControllerShowResponses,
-    AnkoleWebAutomationJobControllerShowErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/automation-jobs/{automation_job_id}',
     ...options
   })
 
@@ -2635,18 +2356,6 @@ export const ankoleWebWorkerProviderControllerCheck = <ThrowOnError extends bool
   })
 
 /**
- * Resume one recurring schedule
- */
-export const ankoleWebScheduleControllerResumeCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerResumeCronData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerResumeCronResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebScheduleControllerResumeCronResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/resume',
-    ...options
-  })
-
-/**
  * List work whose Human or service authority needs review
  */
 export const ankoleWebHumanAccessControllerUnresolvedWork = <ThrowOnError extends boolean = false>(
@@ -2680,26 +2389,6 @@ export const ankoleWebHumanAccessControllerClassifyWork = <ThrowOnError extends 
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * List automation jobs
- */
-export const ankoleWebAutomationJobControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAutomationJobControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAutomationJobControllerIndexResponses,
-  AnkoleWebAutomationJobControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAutomationJobControllerIndexResponses,
-    AnkoleWebAutomationJobControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/automation-jobs',
-    ...options
   })
 
 /**
@@ -2783,18 +2472,6 @@ export const ankoleWebAiGatewayProviderControllerPollChatgptLogin = <ThrowOnErro
   })
 
 /**
- * List Back-Channel Logout deliveries
- */
-export const ankoleWebOidcClientControllerLogoutDeliveries = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebOidcClientControllerLogoutDeliveriesData, ThrowOnError>
-): RequestResult<AnkoleWebOidcClientControllerLogoutDeliveriesResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).get<AnkoleWebOidcClientControllerLogoutDeliveriesResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/oidc-clients/{id}/logout-deliveries',
-    ...options
-  })
-
-/**
  * List principals
  */
 export const ankoleWebPrincipalControllerIndex = <ThrowOnError extends boolean = false>(
@@ -2852,26 +2529,6 @@ export const ankoleWebPermissionGrantControllerCreate = <ThrowOnError extends bo
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * Disable one signal binding for an agent
- */
-export const ankoleWebSignalBindingControllerDelete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebSignalBindingControllerDeleteData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSignalBindingControllerDeleteResponses,
-  AnkoleWebSignalBindingControllerDeleteErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebSignalBindingControllerDeleteResponses,
-    AnkoleWebSignalBindingControllerDeleteErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}',
-    ...options
   })
 
 /**
@@ -3091,18 +2748,6 @@ export const ankoleWebAiGatewayControllerWebSearch = <ThrowOnError extends boole
   })
 
 /**
- * Retry a Back-Channel Logout delivery
- */
-export const ankoleWebOidcClientControllerRetryLogout = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebOidcClientControllerRetryLogoutData, ThrowOnError>
-): RequestResult<AnkoleWebOidcClientControllerRetryLogoutResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebOidcClientControllerRetryLogoutResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/oidc-clients/{id}/logout-deliveries/{delivery_id}/retries',
-    ...options
-  })
-
-/**
  * Audit all knowledge related to one Principal
  */
 export const ankoleWebBrainControllerPrincipalKnowledge = <ThrowOnError extends boolean = false>(
@@ -3143,26 +2788,6 @@ export const backgroundActivityAutomationRuns = <ThrowOnError extends boolean = 
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/agents/{agent_uid}/background-activities/automation-runs',
-    ...options
-  })
-
-/**
- * List recurring schedules
- */
-export const ankoleWebScheduleControllerIndexCron = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebScheduleControllerIndexCronData, ThrowOnError>
-): RequestResult<
-  AnkoleWebScheduleControllerIndexCronResponses,
-  AnkoleWebScheduleControllerIndexCronErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebScheduleControllerIndexCronResponses,
-    AnkoleWebScheduleControllerIndexCronErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/cron-schedules',
     ...options
   })
 
@@ -3256,62 +2881,6 @@ export const ankoleWebSignalBindingControllerPutBinding = <ThrowOnError extends 
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Remove one recurring schedule
- */
-export const ankoleWebScheduleControllerRemoveCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerRemoveCronData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerRemoveCronResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).delete<AnkoleWebScheduleControllerRemoveCronResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}',
-    ...options
-  })
-
-/**
- * Read one recurring schedule
- */
-export const ankoleWebScheduleControllerShowCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerShowCronData, ThrowOnError>
-): RequestResult<
-  AnkoleWebScheduleControllerShowCronResponses,
-  AnkoleWebScheduleControllerShowCronErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebScheduleControllerShowCronResponses,
-    AnkoleWebScheduleControllerShowCronErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}',
-    ...options
-  })
-
-/**
- * Update one recurring schedule
- */
-export const ankoleWebScheduleControllerUpdateCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerUpdateCronData, ThrowOnError>
-): RequestResult<
-  AnkoleWebScheduleControllerUpdateCronResponses,
-  AnkoleWebScheduleControllerUpdateCronErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).patch<
-    AnkoleWebScheduleControllerUpdateCronResponses,
-    AnkoleWebScheduleControllerUpdateCronErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -3521,26 +3090,6 @@ export const ankoleWebBrainControllerDecideContradiction = <ThrowOnError extends
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * Cancel one webhook endpoint
- */
-export const ankoleWebWebhookEndpointControllerDelete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWebhookEndpointControllerDeleteData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWebhookEndpointControllerDeleteResponses,
-  AnkoleWebWebhookEndpointControllerDeleteErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebWebhookEndpointControllerDeleteResponses,
-    AnkoleWebWebhookEndpointControllerDeleteErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/webhook-endpoints/{webhook_endpoint_id}',
-    ...options
   })
 
 /**
@@ -4419,30 +3968,6 @@ export const ankoleWebAgentControllerEnable = <ThrowOnError extends boolean = fa
   })
 
 /**
- * List recent concrete fires for one recurring schedule
- */
-export const ankoleWebScheduleControllerCronRuns = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerCronRunsData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerCronRunsResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).get<AnkoleWebScheduleControllerCronRunsResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs',
-    ...options
-  })
-
-/**
- * Manually run one recurring schedule
- */
-export const ankoleWebScheduleControllerRunCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerRunCronData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerRunCronResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebScheduleControllerRunCronResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs',
-    ...options
-  })
-
-/**
  * Set one global Agent Plugin default
  */
 export const ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPlugin = <ThrowOnError extends boolean = false>(
@@ -4603,46 +4128,6 @@ export const ankoleWebHumanAccessControllerRestore = <ThrowOnError extends boole
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/principals/{uid}/access-restorations',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * List OIDC Clients
- */
-export const ankoleWebOidcClientControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebOidcClientControllerIndexData, ThrowOnError>
-): RequestResult<AnkoleWebOidcClientControllerIndexResponses, AnkoleWebOidcClientControllerIndexErrors, ThrowOnError> =>
-  (options?.client ?? client).get<
-    AnkoleWebOidcClientControllerIndexResponses,
-    AnkoleWebOidcClientControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/oidc-clients',
-    ...options
-  })
-
-/**
- * Create an OIDC Client
- */
-export const ankoleWebOidcClientControllerCreate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebOidcClientControllerCreateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebOidcClientControllerCreateResponses,
-  AnkoleWebOidcClientControllerCreateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebOidcClientControllerCreateResponses,
-    AnkoleWebOidcClientControllerCreateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/oidc-clients',
     ...options,
     headers: {
       'Content-Type': 'application/json',

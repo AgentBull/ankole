@@ -38,20 +38,22 @@ import { requestErrorCode, requestErrorMessage } from '../../common/request-erro
 import {
   ankoleWebAgentControllerIndexOptions,
   ankoleWebAgentSessionControllerIndexOptions,
-  ankoleWebScheduleControllerCancelCheckbackMutation,
-  ankoleWebScheduleControllerCreateCronMutation,
-  ankoleWebScheduleControllerCronRunsOptions,
-  ankoleWebScheduleControllerIndexCheckbacksOptions,
-  ankoleWebScheduleControllerIndexCronOptions,
-  ankoleWebScheduleControllerPauseCronMutation,
-  ankoleWebScheduleControllerRemoveCronMutation,
-  ankoleWebScheduleControllerResumeCronMutation,
-  ankoleWebScheduleControllerRunCronMutation,
-  ankoleWebScheduleControllerShowCronOptions,
-  ankoleWebScheduleControllerUpdateCronMutation,
   ankoleWebSignalBindingControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
-import type { CronScheduleItem, ScheduledEventItem, ScheduleRecurrence } from '../api/generated/types.gen'
+import { fromDocument } from '../api/json-api'
+import {
+  cancelCheckbackMutation,
+  createCronScheduleMutation,
+  getCronScheduleOptions,
+  listCheckbacksOptions,
+  listCronScheduleRunsOptions,
+  listCronSchedulesOptions,
+  pauseCronScheduleMutation,
+  removeCronScheduleMutation,
+  resumeCronScheduleMutation,
+  runCronScheduleMutation,
+  updateCronScheduleMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
 import { activeAgents, AgentFilter, resolveAgentUID, useAgentScope, type AgentScope } from '../console-agent-scope'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
@@ -70,10 +72,55 @@ import {
   isMutableCronStatus,
   scheduleOccurrenceBound,
   ScheduleEditorModel,
-  type ScheduleEditorDraft
+  type CronStatus,
+  type ScheduleDelivery,
+  type ScheduleEditorDraft,
+  type ScheduleRecurrence
 } from '../state/schedule-editor-model'
 import { matchesResourceSearch } from '../state/resource-search'
 import { useEditorDraft } from '../use-editor-draft'
+
+type CronScheduleItem = {
+  id: string
+  status: CronStatus | 'deleted' | 'completed'
+  agent_uid: string
+  owner_session_id: string
+  /** Derived session `cron:<id>` where every fire runs. */
+  execution_session_id: string
+  binding_name: string | null
+  name: string
+  schedule: ScheduleRecurrence
+  timezone: string
+  payload: Record<string, unknown>
+  delivery: ScheduleDelivery | null
+  next_fire_at: string | null
+  last_fire_at: string | null
+  idempotency_key: string
+  automation_job_id: number | null
+}
+
+/** One concrete fire: a one-shot checkback or one slot of a cron schedule. */
+type ScheduledEventItem = {
+  id: string
+  kind: 'check_back_later' | 'cron_fire'
+  status: 'scheduled' | 'fired' | 'cancelled' | 'failed'
+  agent_uid: string
+  session_id: string
+  binding_name: string | null
+  due_at: string
+  wake_payload: Record<string, unknown>
+  fired_at: string | null
+}
+
+/** The list of cron schedules, also read by the route loader. */
+export function cronScheduleListOptions(agentUID: string | undefined) {
+  return listCronSchedulesOptions({ query: { agent: agentUID || undefined } })
+}
+
+/** The list of checkbacks, also read by the route loader. */
+export function checkbackListOptions(agentUID: string | undefined) {
+  return listCheckbacksOptions({ query: { agent: agentUID || undefined, page: { limit: 100 } } })
+}
 
 /** A pending checkback still has a wake edge ahead of it; the rest are history. */
 function pending(row: ScheduledEventItem): boolean {
@@ -87,11 +134,12 @@ export function SchedulesListPage() {
   const hasActiveAgents = activeAgents(scope.agents).length > 0
 
   const crons = useQuery({
-    ...ankoleWebScheduleControllerIndexCronOptions({ query: { agent: scope.agentUID || undefined } }),
+    ...cronScheduleListOptions(scope.agentUID),
+    select: document => fromDocument(document) as CronScheduleItem[],
     refetchInterval: LIST_REFRESH_MS
   })
 
-  const rows = (crons.data?.cron_schedules ?? []).filter(row =>
+  const rows = (crons.data ?? []).filter(row =>
     matchesResourceSearch(
       query,
       row.name,
@@ -105,28 +153,28 @@ export function SchedulesListPage() {
   )
 
   const pauseCron = useMutation({
-    ...ankoleWebScheduleControllerPauseCronMutation(),
+    ...pauseCronScheduleMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.paused'))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
   const resumeCron = useMutation({
-    ...ankoleWebScheduleControllerResumeCronMutation(),
+    ...resumeCronScheduleMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.resumed'))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
   const runCron = useMutation({
-    ...ankoleWebScheduleControllerRunCronMutation(),
+    ...runCronScheduleMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.ran'))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
   const removeCron = useMutation({
-    ...ankoleWebScheduleControllerRemoveCronMutation(),
+    ...removeCronScheduleMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.deleted'))
     },
@@ -217,8 +265,8 @@ export function SchedulesListPage() {
                         pending: runCron.isPending,
                         onAction: () =>
                           runCron.mutate({
-                            headers: { 'Idempotency-Key': crypto.randomUUID() },
-                            path: { agent_uid: row.agent_uid, cron_schedule_id: row.id }
+                            body: { data: { idempotency_key: crypto.randomUUID() } },
+                            path: { agent_uid: row.agent_uid, id: row.id }
                           })
                       }
                     ]
@@ -230,7 +278,7 @@ export function SchedulesListPage() {
                         label: row.status === 'paused' ? t('console.schedules.resume') : t('console.schedules.pause'),
                         pending: pauseCron.isPending || resumeCron.isPending,
                         onAction: () => {
-                          const path = { agent_uid: row.agent_uid, cron_schedule_id: row.id }
+                          const path = { agent_uid: row.agent_uid, id: row.id }
                           if (row.status === 'paused') resumeCron.mutate({ path })
                           else pauseCron.mutate({ path })
                         }
@@ -244,7 +292,7 @@ export function SchedulesListPage() {
                 description: t('console.schedules.delete_description', { name: row.name || row.binding_name }),
                 confirmLabel: t('common.delete')
               }}
-              onDelete={() => removeCron.mutate({ path: { agent_uid: row.agent_uid, cron_schedule_id: row.id } })}
+              onDelete={() => removeCron.mutate({ path: { agent_uid: row.agent_uid, id: row.id } })}
             />
           </TableRow>
         )
@@ -260,11 +308,12 @@ export function ScheduleCheckbacksPage() {
   const scope = useAgentScope()
 
   const checkbacks = useQuery({
-    ...ankoleWebScheduleControllerIndexCheckbacksOptions({ query: { agent: scope.agentUID || undefined } }),
+    ...checkbackListOptions(scope.agentUID),
+    select: document => fromDocument(document) as ScheduledEventItem[],
     refetchInterval: LIST_REFRESH_MS
   })
 
-  const rows = (checkbacks.data?.schedule_events ?? [])
+  const rows = (checkbacks.data ?? [])
     .filter(row => includeFinished || pending(row))
     .filter(row =>
       matchesResourceSearch(
@@ -279,7 +328,7 @@ export function ScheduleCheckbacksPage() {
     )
 
   const cancelCheckback = useMutation({
-    ...ankoleWebScheduleControllerCancelCheckbackMutation(),
+    ...cancelCheckbackMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.cancelled'))
     },
@@ -357,9 +406,7 @@ export function ScheduleCheckbacksPage() {
                 }}
                 icon={<RiCloseCircleLine />}
                 pending={cancelCheckback.isPending}
-                onConfirm={() =>
-                  cancelCheckback.mutate({ path: { agent_uid: row.agent_uid, scheduled_event_id: row.id } })
-                }
+                onConfirm={() => cancelCheckback.mutate({ path: { agent_uid: row.agent_uid, id: Number(row.id) } })}
               />
             ) : (
               <span className="text-xs text-muted-foreground">—</span>
@@ -422,20 +469,21 @@ export function ScheduleCronEditorPage() {
   const sessionList = sessions.data?.sessions ?? []
 
   const existing = useQuery({
-    ...ankoleWebScheduleControllerShowCronOptions({
-      path: { agent_uid: agentUID, cron_schedule_id: cronID ?? '' }
-    }),
+    ...getCronScheduleOptions({ path: { agent_uid: agentUID, id: cronID ?? '' } }),
+    select: document => fromDocument(document) as CronScheduleItem,
     enabled: editing && Boolean(agentUID && cronID)
   })
-  const existingRow = existing.data?.cron_schedule
+  const existingRow = existing.data
 
   const runs = useQuery({
-    ...ankoleWebScheduleControllerCronRunsOptions({
-      path: { agent_uid: agentUID, cron_schedule_id: cronID ?? '' }
+    ...listCronScheduleRunsOptions({
+      path: { agent_uid: agentUID, cron_schedule_id: cronID ?? '' },
+      query: { page: { limit: 25 } }
     }),
+    select: document => fromDocument(document) as ScheduledEventItem[],
     enabled: editing && Boolean(agentUID && cronID)
   })
-  const runRows = (runs.data?.schedule_runs ?? []).slice(0, 25)
+  const runRows = runs.data ?? []
 
   // A reopened editor must not seed its draft from an invalidated cache entry.
   const sourceKey = `cron:${agentUID}:${cronID ?? 'new'}`
@@ -454,14 +502,14 @@ export function ScheduleCronEditorPage() {
   // Save errors render once in the page ErrorBlock; a toast on top of the
   // same message would say it twice.
   const saveCron = useMutation({
-    ...ankoleWebScheduleControllerCreateCronMutation(),
+    ...createCronScheduleMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.saved'))
       void navigate(linkTarget(backTo))
     }
   })
   const updateCron = useMutation({
-    ...ankoleWebScheduleControllerUpdateCronMutation(),
+    ...updateCronScheduleMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.saved'))
       void navigate(linkTarget(backTo))
@@ -469,28 +517,28 @@ export function ScheduleCronEditorPage() {
   })
 
   const runCron = useMutation({
-    ...ankoleWebScheduleControllerRunCronMutation(),
+    ...runCronScheduleMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.ran'))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
   const pauseCron = useMutation({
-    ...ankoleWebScheduleControllerPauseCronMutation(),
+    ...pauseCronScheduleMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.paused'))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
   const resumeCron = useMutation({
-    ...ankoleWebScheduleControllerResumeCronMutation(),
+    ...resumeCronScheduleMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.resumed'))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
   const removeCron = useMutation({
-    ...ankoleWebScheduleControllerRemoveCronMutation(),
+    ...removeCronScheduleMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.deleted'))
 
@@ -516,7 +564,7 @@ export function ScheduleCronEditorPage() {
         void navigate(linkTarget(backTo))
         return
       }
-      updateCron.mutate({ body, path: { agent_uid: agentUID, cron_schedule_id: cronID } })
+      updateCron.mutate({ body: { data: body }, path: { agent_uid: agentUID, id: cronID } })
       return
     }
     if (!model.ownerSessionId.value.trim()) {
@@ -531,7 +579,7 @@ export function ScheduleCronEditorPage() {
       model.validationError.value = t('console.schedules.schedule_invalid')
       return
     }
-    saveCron.mutate({ body, path: { agent_uid: agentUID } })
+    saveCron.mutate({ body: { data: body }, path: { agent_uid: agentUID } })
   }
 
   const backTo = agentUID ? `/schedules?agent=${encodeURIComponent(agentUID)}` : '/schedules'
@@ -577,8 +625,8 @@ export function ScheduleCronEditorPage() {
                 disabled={runCron.isPending}
                 onClick={() =>
                   runCron.mutate({
-                    headers: { 'Idempotency-Key': crypto.randomUUID() },
-                    path: { agent_uid: agentUID, cron_schedule_id: existingRow.id }
+                    body: { data: { idempotency_key: crypto.randomUUID() } },
+                    path: { agent_uid: agentUID, id: existingRow.id }
                   })
                 }>
                 <RiPlayCircleLine data-icon="inline-start" />
@@ -592,7 +640,7 @@ export function ScheduleCronEditorPage() {
                 variant="outline"
                 disabled={pauseCron.isPending || resumeCron.isPending}
                 onClick={() => {
-                  const path = { agent_uid: agentUID, cron_schedule_id: existingRow.id }
+                  const path = { agent_uid: agentUID, id: existingRow.id }
                   if (existingRow.status === 'paused') resumeCron.mutate({ path })
                   else pauseCron.mutate({ path })
                 }}>
@@ -615,7 +663,7 @@ export function ScheduleCronEditorPage() {
               label={t('common.delete')}
               pending={removeCron.isPending}
               size="sm"
-              onConfirm={() => removeCron.mutate({ path: { agent_uid: agentUID, cron_schedule_id: existingRow.id } })}
+              onConfirm={() => removeCron.mutate({ path: { agent_uid: agentUID, id: existingRow.id } })}
             />
           </div>
         ) : undefined

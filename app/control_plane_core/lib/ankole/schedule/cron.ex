@@ -211,6 +211,78 @@ defmodule Ankole.Schedule.Cron do
     end
   end
 
+  @doc false
+  # The Console creates a schedule for the Console Principal (the actor).
+  def console_create_in_tx(repo, args, actor) do
+    created_by =
+      if actor,
+        do: %{
+          "kind" => "operator_api",
+          "principal_uid" => actor |> Ankole.ActorRef.from_principal() |> to_string()
+        },
+        else: %{"kind" => "operator_api"}
+
+    case create_cron_schedule_in_tx(repo, args, created_by: created_by) do
+      {:ok, %{cron_schedule: schedule}} -> {:ok, console_result(schedule)}
+      error -> Ankole.Errors.not_found(error, [:not_found], CronSchedule)
+    end
+  end
+
+  @doc false
+  def console_update_in_tx(repo, args),
+    do:
+      for_agent(
+        args,
+        &update_cron_schedule_in_tx(repo, &1, Map.drop(args, [:agent_uid, :id]), [])
+      )
+
+  @doc false
+  def console_pause_in_tx(repo, args),
+    do: for_agent(args, &pause_cron_schedule_in_tx(repo, &1, []))
+
+  @doc false
+  def console_resume_in_tx(repo, args),
+    do: for_agent(args, &resume_cron_schedule_in_tx(repo, &1, []))
+
+  @doc false
+  def console_remove_in_tx(repo, args),
+    do: for_agent(args, &remove_cron_schedule_in_tx(repo, &1, []))
+
+  @doc false
+  def console_run_in_tx(repo, args) do
+    for_agent(args, fn id ->
+      with {:ok, %{scheduled_event: event}} <-
+             run_cron_schedule_in_tx(repo, id, idempotency_key: args.idempotency_key) do
+        {:ok, event}
+      end
+    end)
+  end
+
+  # The Console addresses a schedule through its Agent. The schedule of another
+  # Agent reads as not found.
+  defp for_agent(%{agent_uid: agent_uid, id: id}, operation) do
+    case Store.get_cron_schedule(id) do
+      %CronSchedule{agent_uid: ^agent_uid} ->
+        case operation.(id) do
+          {:ok, %CronSchedule{} = schedule} ->
+            {:ok, console_result(schedule)}
+
+          result ->
+            Ankole.Errors.not_found(result, [:cron_schedule_not_found, :not_found], CronSchedule)
+        end
+
+      _other ->
+        {:error, Ankole.Errors.Invalid.NotFound.exception(resource: CronSchedule, id: id)}
+    end
+  end
+
+  defp console_result(schedule),
+    do:
+      Ash.load!(schedule, [:execution_session_id],
+        tenant: Ankole.Repo.tenant_id(),
+        authorize?: false
+      )
+
   @spec validate_fire_schedule(CronSchedule.t()) :: :ok | {:cancel, atom()}
   def validate_fire_schedule(%CronSchedule{status: status} = schedule)
       when status in [:active, :paused], do: validate_fire_preconditions(schedule)

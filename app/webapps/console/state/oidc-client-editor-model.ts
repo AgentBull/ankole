@@ -1,13 +1,28 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
-import type {
-  ModelProfileWriteRequest,
-  OidcClientCreateRequest,
-  OidcClientItem,
-  OidcClientUpdateRequest
-} from '../api/generated/types.gen'
+import type { ModelProfileWriteRequest } from '../api/generated/types.gen'
+import type { CreateOidcClientData } from '../api/v2/generated/types.gen'
 import type { ProfileDraft } from './model-profiles-model'
 export const supportedScopes = ['openid', 'profile', 'email', 'offline_access', 'ai_gateway.write'] as const
 export type OidcScope = (typeof supportedScopes)[number]
+
+/** The OIDC Client record of the `/api/v2` JSON:API. */
+export type OidcClientItem = {
+  id: string
+  name: string
+  enabled: boolean
+  client_type: 'public' | 'confidential'
+  redirect_uris: string[]
+  scopes: string[]
+  allowed_group_ids: string[]
+  model_aliases: Record<string, ModelProfileWriteRequest>
+  allowed_identity_provider_ids: string[]
+  backchannel_logout_uri: string | null
+  backchannel_logout_session_required: boolean
+  post_logout_redirect_uris: string[]
+  allow_insecure_local_logout: boolean
+}
+
+type ClientWriteBody = Omit<CreateOidcClientData['body']['data'], 'client_type'>
 
 export type ClientDraft = {
   allowedGroupIDs: string[]
@@ -58,7 +73,7 @@ export function draftFromClient(client: OidcClientItem): ClientDraft {
     backchannelLogoutSessionRequired: client.backchannel_logout_session_required,
     postLogoutRedirectURIs: client.post_logout_redirect_uris.join('\n'),
     allowInsecureLocalLogout: client.allow_insecure_local_logout,
-    modelAliases: Object.entries(client.allowed_models)
+    modelAliases: Object.entries(client.model_aliases)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([name, profile]) => {
         const draft = profileDraftFromRequest(profile)
@@ -75,7 +90,7 @@ export function draftFromClient(client: OidcClientItem): ClientDraft {
     name: client.name,
     redirectURIs: client.redirect_uris.join('\n'),
     scopes: supportedScopes.filter(scope => client.scopes.includes(scope)),
-    type: client.type
+    type: client.client_type
   }
 }
 
@@ -95,10 +110,7 @@ function draftKey(draft: ClientDraft): string {
   })
 }
 
-export function writeBody(
-  draft: ClientDraft,
-  modelAliases: Record<string, ModelProfileWriteRequest>
-): OidcClientUpdateRequest & Omit<OidcClientCreateRequest, 'type'> {
+export function writeBody(draft: ClientDraft, modelAliases: Record<string, ModelProfileWriteRequest>): ClientWriteBody {
   return {
     allowed_group_ids: draft.allowedGroupIDs,
     allowed_identity_provider_ids: draft.allowedIdentityProviderIDs,
@@ -106,7 +118,7 @@ export function writeBody(
     backchannel_logout_session_required: draft.backchannelLogoutSessionRequired,
     post_logout_redirect_uris: lines(draft.postLogoutRedirectURIs),
     allow_insecure_local_logout: draft.allowInsecureLocalLogout,
-    allowed_models: modelAliases,
+    model_aliases: modelAliases,
     enabled: draft.enabled,
     name: draft.name.trim(),
     redirect_uris: lines(draft.redirectURIs),

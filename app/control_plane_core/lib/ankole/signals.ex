@@ -6,12 +6,30 @@ defmodule Ankole.Signals do
   domains. A generic action owns its transaction; the `*_in_tx` functions are
   steps that the generic action of another domain calls in its own transaction.
   """
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   require Ash.Query
   require Ash.Sort
 
-  alias Ankole.Signals.{Intake, Signal}
+  alias Ankole.Signals.{Binding, Intake, Signal, WebhookEndpoint}
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/webhook-endpoints", WebhookEndpoint do
+        index(:console_list, name: "list_webhook_endpoints", derive_sort?: false)
+        route(:post, "/", :create_operator_endpoint, name: "create_webhook_endpoint")
+        route(:delete, "/:id", :cancel_operator_endpoint, name: "cancel_webhook_endpoint")
+      end
+
+      base_route "/agents/:agent_uid/signal-bindings", Binding do
+        route(:delete, "/:name", :console_disable, name: "disable_signal_binding")
+      end
+    end
+  end
 
   resources do
     resource Ankole.Signals.Signal do
