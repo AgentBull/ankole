@@ -509,6 +509,20 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       end)
     end
 
+    # The Console assignment keeps the v1 answers: a missing Agent or provider
+    # is not found, and an Agent that has a provider or is being deleted is a
+    # conflict.
+    action :console_assign_provider, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
+      after_commit({ReconcileJob, :enqueue})
+
+      run(fn %{arguments: arguments}, _context ->
+        Providers.console_assign_in_tx(arguments.agent_uid, arguments.provider_id)
+      end)
+    end
+
     action :decide_reconcile_step, :term do
       argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:seen, :term, allow_nil?: false)

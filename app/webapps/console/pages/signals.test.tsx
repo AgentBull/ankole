@@ -3,11 +3,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
-import {
-  ankoleWebAgentControllerIndexQueryKey,
-  ankoleWebSignalBindingControllerIndexQueryKey
-} from '../api/generated/@tanstack/react-query.gen'
-import type { AgentItem } from '../api/generated/types.gen'
+import type { AgentItem } from '../api/agents'
+import { ankoleWebSignalBindingControllerIndexQueryKey } from '../api/generated/@tanstack/react-query.gen'
+import { listAgentsQueryKey } from '../api/v2/generated/@tanstack/react-query.gen'
 import { finishSignalBindingSave, SignalBindingEditorPage, SignalsListPage } from './signals'
 
 describe('Signal Routing editor navigation', () => {
@@ -74,7 +72,9 @@ describe('Signal Routing empty state', () => {
 
 function renderEmptySignalsList(agents: AgentItem[]) {
   const queryClient = freshQueryClient()
-  queryClient.setQueryData(ankoleWebAgentControllerIndexQueryKey(), { agents })
+  queryClient.setQueryData(listAgentsQueryKey(), {
+    data: agents.map(({ uid, ...attributes }) => ({ id: uid, type: 'agent', attributes }))
+  })
   queryClient.setQueryData(ankoleWebSignalBindingControllerIndexQueryKey({ query: { agent: undefined } }), {
     delivery_failures: [],
     signal_bindings: []

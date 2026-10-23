@@ -10,27 +10,15 @@ import {
 } from './client'
 import { client } from './client.gen'
 import type {
-  AnkoleWebAgentControllerCreateData,
-  AnkoleWebAgentControllerCreateErrors,
-  AnkoleWebAgentControllerCreateResponses,
-  AnkoleWebAgentControllerDeleteData,
-  AnkoleWebAgentControllerDeleteErrors,
   AnkoleWebAgentControllerDeleteModelProfileData,
   AnkoleWebAgentControllerDeleteModelProfileErrors,
   AnkoleWebAgentControllerDeleteModelProfileResponses,
-  AnkoleWebAgentControllerDeleteResponses,
   AnkoleWebAgentControllerDeleteTokenQuotaData,
   AnkoleWebAgentControllerDeleteTokenQuotaErrors,
   AnkoleWebAgentControllerDeleteTokenQuotaResponses,
-  AnkoleWebAgentControllerEnableData,
-  AnkoleWebAgentControllerEnableErrors,
-  AnkoleWebAgentControllerEnableResponses,
-  AnkoleWebAgentControllerIndexData,
-  AnkoleWebAgentControllerIndexErrors,
   AnkoleWebAgentControllerIndexModelProfilesData,
   AnkoleWebAgentControllerIndexModelProfilesErrors,
   AnkoleWebAgentControllerIndexModelProfilesResponses,
-  AnkoleWebAgentControllerIndexResponses,
   AnkoleWebAgentControllerPutModelProfileData,
   AnkoleWebAgentControllerPutModelProfileErrors,
   AnkoleWebAgentControllerPutModelProfileResponses,
@@ -43,15 +31,9 @@ import type {
   AnkoleWebAgentControllerResetTokenQuotaData,
   AnkoleWebAgentControllerResetTokenQuotaErrors,
   AnkoleWebAgentControllerResetTokenQuotaResponses,
-  AnkoleWebAgentControllerShowData,
-  AnkoleWebAgentControllerShowErrors,
-  AnkoleWebAgentControllerShowResponses,
   AnkoleWebAgentControllerShowTokenQuotaData,
   AnkoleWebAgentControllerShowTokenQuotaErrors,
   AnkoleWebAgentControllerShowTokenQuotaResponses,
-  AnkoleWebAgentControllerUpdateData,
-  AnkoleWebAgentControllerUpdateErrors,
-  AnkoleWebAgentControllerUpdateResponses,
   AnkoleWebAgentFileControllerDeleteData,
   AnkoleWebAgentFileControllerDeleteErrors,
   AnkoleWebAgentFileControllerDeleteResponses,
@@ -94,18 +76,6 @@ import type {
   AnkoleWebAgentSessionControllerIndexData,
   AnkoleWebAgentSessionControllerIndexErrors,
   AnkoleWebAgentSessionControllerIndexResponses,
-  AnkoleWebAgentSkillLessonControllerCreateData,
-  AnkoleWebAgentSkillLessonControllerCreateErrors,
-  AnkoleWebAgentSkillLessonControllerCreateResponses,
-  AnkoleWebAgentSkillLessonControllerIndexData,
-  AnkoleWebAgentSkillLessonControllerIndexErrors,
-  AnkoleWebAgentSkillLessonControllerIndexResponses,
-  AnkoleWebAgentSkillLessonControllerRetireData,
-  AnkoleWebAgentSkillLessonControllerRetireErrors,
-  AnkoleWebAgentSkillLessonControllerRetireResponses,
-  AnkoleWebAgentWorkerControllerIndexData,
-  AnkoleWebAgentWorkerControllerIndexErrors,
-  AnkoleWebAgentWorkerControllerIndexResponses,
   AnkoleWebAiGatewayControllerEmbeddingsData,
   AnkoleWebAiGatewayControllerEmbeddingsErrors,
   AnkoleWebAiGatewayControllerEmbeddingsResponses,
@@ -127,15 +97,6 @@ import type {
   AnkoleWebAiGatewayControllerWebSearchData,
   AnkoleWebAiGatewayControllerWebSearchErrors,
   AnkoleWebAiGatewayControllerWebSearchResponses,
-  AnkoleWebAiGatewayConversationControllerIndexData,
-  AnkoleWebAiGatewayConversationControllerIndexErrors,
-  AnkoleWebAiGatewayConversationControllerIndexResponses,
-  AnkoleWebAiGatewayConversationControllerMessagesData,
-  AnkoleWebAiGatewayConversationControllerMessagesErrors,
-  AnkoleWebAiGatewayConversationControllerMessagesResponses,
-  AnkoleWebAiGatewayConversationControllerShowData,
-  AnkoleWebAiGatewayConversationControllerShowErrors,
-  AnkoleWebAiGatewayConversationControllerShowResponses,
   AnkoleWebAiGatewayFilesControllerContentData,
   AnkoleWebAiGatewayFilesControllerContentErrors,
   AnkoleWebAiGatewayFilesControllerContentResponses,
@@ -264,21 +225,12 @@ import type {
   AnkoleWebAutomationJobControllerShowData,
   AnkoleWebAutomationJobControllerShowErrors,
   AnkoleWebAutomationJobControllerShowResponses,
-  AnkoleWebBackgroundAgentJobControllerCancelData,
-  AnkoleWebBackgroundAgentJobControllerCancelErrors,
-  AnkoleWebBackgroundAgentJobControllerCancelResponses,
-  AnkoleWebBackgroundAgentJobControllerCompleteData,
-  AnkoleWebBackgroundAgentJobControllerCompleteErrors,
-  AnkoleWebBackgroundAgentJobControllerCompleteResponses,
   AnkoleWebBackgroundAgentJobControllerHealthData,
   AnkoleWebBackgroundAgentJobControllerHealthErrors,
   AnkoleWebBackgroundAgentJobControllerHealthResponses,
-  AnkoleWebBackgroundAgentJobControllerIndexData,
-  AnkoleWebBackgroundAgentJobControllerIndexErrors,
-  AnkoleWebBackgroundAgentJobControllerIndexResponses,
-  AnkoleWebBackgroundAgentJobControllerShowData,
-  AnkoleWebBackgroundAgentJobControllerShowErrors,
-  AnkoleWebBackgroundAgentJobControllerShowResponses,
+  AnkoleWebBackgroundAgentJobControllerTurnsData,
+  AnkoleWebBackgroundAgentJobControllerTurnsErrors,
+  AnkoleWebBackgroundAgentJobControllerTurnsResponses,
   AnkoleWebBrainControllerArchiveSourceData,
   AnkoleWebBrainControllerArchiveSourceResponses,
   AnkoleWebBrainControllerCreateObjectData,
@@ -576,9 +528,6 @@ import type {
   AnkoleWebWorkerEnvControllerUpdateTenantData,
   AnkoleWebWorkerEnvControllerUpdateTenantErrors,
   AnkoleWebWorkerEnvControllerUpdateTenantResponses,
-  AnkoleWebWorkerProviderControllerAssignData,
-  AnkoleWebWorkerProviderControllerAssignErrors,
-  AnkoleWebWorkerProviderControllerAssignResponses,
   AnkoleWebWorkerProviderControllerCheckData,
   AnkoleWebWorkerProviderControllerCheckErrors,
   AnkoleWebWorkerProviderControllerCheckResponses,
@@ -807,26 +756,6 @@ export const ankoleWebWorkerProviderControllerUpdate = <ThrowOnError extends boo
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * List the Worker of each Agent
- */
-export const ankoleWebAgentWorkerControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAgentWorkerControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentWorkerControllerIndexResponses,
-  AnkoleWebAgentWorkerControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAgentWorkerControllerIndexResponses,
-    AnkoleWebAgentWorkerControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agent-workers',
-    ...options
   })
 
 /**
@@ -1759,26 +1688,6 @@ export const ankoleWebBrainControllerSearchPreview = <ThrowOnError extends boole
   })
 
 /**
- * List background Agent Jobs
- */
-export const ankoleWebBackgroundAgentJobControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebBackgroundAgentJobControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebBackgroundAgentJobControllerIndexResponses,
-  AnkoleWebBackgroundAgentJobControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebBackgroundAgentJobControllerIndexResponses,
-    AnkoleWebBackgroundAgentJobControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/background-agent-jobs',
-    ...options
-  })
-
-/**
  * Set one global Skill default
  */
 export const ankoleWebAgentLibraryCapabilityControllerPutGlobalSkill = <ThrowOnError extends boolean = false>(
@@ -2035,30 +1944,6 @@ export const ankoleWebAiGatewayProviderControllerPutCredential = <ThrowOnError e
   })
 
 /**
- * Assign a provider to an Agent migrated without one
- */
-export const ankoleWebWorkerProviderControllerAssign = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWorkerProviderControllerAssignData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerProviderControllerAssignResponses,
-  AnkoleWebWorkerProviderControllerAssignErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebWorkerProviderControllerAssignResponses,
-    AnkoleWebWorkerProviderControllerAssignErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/worker-provider',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Clear one optional model profile for an agent
  */
 export const ankoleWebAgentControllerDeleteModelProfile = <ThrowOnError extends boolean = false>(
@@ -2231,78 +2116,6 @@ export const ankoleWebAiGatewayControllerRetrieveResponse = <ThrowOnError extend
   })
 
 /**
- * Read one background Agent Job and one page of its runtime Turn trajectory
- */
-export const ankoleWebBackgroundAgentJobControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBackgroundAgentJobControllerShowData, ThrowOnError>
-): RequestResult<
-  AnkoleWebBackgroundAgentJobControllerShowResponses,
-  AnkoleWebBackgroundAgentJobControllerShowErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebBackgroundAgentJobControllerShowResponses,
-    AnkoleWebBackgroundAgentJobControllerShowErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/background-agent-jobs/{job_id}',
-    ...options
-  })
-
-/**
- * Disable an active agent, or delete an agent that is already disabled
- */
-export const ankoleWebAgentControllerDelete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerDeleteData, ThrowOnError>
-): RequestResult<AnkoleWebAgentControllerDeleteResponses, AnkoleWebAgentControllerDeleteErrors, ThrowOnError> =>
-  (options.client ?? client).delete<
-    AnkoleWebAgentControllerDeleteResponses,
-    AnkoleWebAgentControllerDeleteErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}',
-    ...options
-  })
-
-/**
- * Read one agent
- */
-export const ankoleWebAgentControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerShowData, ThrowOnError>
-): RequestResult<AnkoleWebAgentControllerShowResponses, AnkoleWebAgentControllerShowErrors, ThrowOnError> =>
-  (options.client ?? client).get<
-    AnkoleWebAgentControllerShowResponses,
-    AnkoleWebAgentControllerShowErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}',
-    ...options
-  })
-
-/**
- * Update one agent
- */
-export const ankoleWebAgentControllerUpdate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerUpdateData, ThrowOnError>
-): RequestResult<AnkoleWebAgentControllerUpdateResponses, AnkoleWebAgentControllerUpdateErrors, ThrowOnError> =>
-  (options.client ?? client).patch<
-    AnkoleWebAgentControllerUpdateResponses,
-    AnkoleWebAgentControllerUpdateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Rotate a confidential OIDC Client secret
  */
 export const ankoleWebOidcClientControllerRotateSecret = <ThrowOnError extends boolean = false>(
@@ -2439,26 +2252,6 @@ export const ankoleWebWorkerEnvControllerIndex = <ThrowOnError extends boolean =
   })
 
 /**
- * Retire one skill lesson
- */
-export const ankoleWebAgentSkillLessonControllerRetire = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentSkillLessonControllerRetireData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentSkillLessonControllerRetireResponses,
-  AnkoleWebAgentSkillLessonControllerRetireErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAgentSkillLessonControllerRetireResponses,
-    AnkoleWebAgentSkillLessonControllerRetireErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/skill-lessons/{lesson_id}/retire',
-    ...options
-  })
-
-/**
  * List permission grants owned directly by one Principal
  */
 export const ankoleWebPrincipalControllerGrants = <ThrowOnError extends boolean = false>(
@@ -2472,62 +2265,6 @@ export const ankoleWebPrincipalControllerGrants = <ThrowOnError extends boolean 
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/principals/{uid}/grants',
     ...options
-  })
-
-/**
- * Read one AIGateway conversation
- */
-export const ankoleWebAiGatewayConversationControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayConversationControllerShowData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayConversationControllerShowResponses,
-  AnkoleWebAiGatewayConversationControllerShowErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAiGatewayConversationControllerShowResponses,
-    AnkoleWebAiGatewayConversationControllerShowErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/ai-gateway/conversations/{conversation_id}',
-    ...options
-  })
-
-/**
- * List agents, including disabled agents
- */
-export const ankoleWebAgentControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAgentControllerIndexData, ThrowOnError>
-): RequestResult<AnkoleWebAgentControllerIndexResponses, AnkoleWebAgentControllerIndexErrors, ThrowOnError> =>
-  (options?.client ?? client).get<
-    AnkoleWebAgentControllerIndexResponses,
-    AnkoleWebAgentControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents',
-    ...options
-  })
-
-/**
- * Create one agent
- */
-export const ankoleWebAgentControllerCreate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerCreateData, ThrowOnError>
-): RequestResult<AnkoleWebAgentControllerCreateResponses, AnkoleWebAgentControllerCreateErrors, ThrowOnError> =>
-  (options.client ?? client).post<
-    AnkoleWebAgentControllerCreateResponses,
-    AnkoleWebAgentControllerCreateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -3320,26 +3057,6 @@ export const ankoleWebScheduleControllerUpdateCron = <ThrowOnError extends boole
   })
 
 /**
- * List AIGateway conversations
- */
-export const ankoleWebAiGatewayConversationControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAiGatewayConversationControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayConversationControllerIndexResponses,
-  AnkoleWebAiGatewayConversationControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAiGatewayConversationControllerIndexResponses,
-    AnkoleWebAiGatewayConversationControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/ai-gateway/conversations',
-    ...options
-  })
-
-/**
  * Disable or delete one AIGateway provider
  */
 export const ankoleWebAiGatewayProviderControllerDeleteProvider = <ThrowOnError extends boolean = false>(
@@ -3452,50 +3169,6 @@ export const ankoleWebPrincipalControllerUpdate = <ThrowOnError extends boolean 
   })
 
 /**
- * Read the skill lessons of one agent
- */
-export const ankoleWebAgentSkillLessonControllerIndex = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentSkillLessonControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentSkillLessonControllerIndexResponses,
-  AnkoleWebAgentSkillLessonControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAgentSkillLessonControllerIndexResponses,
-    AnkoleWebAgentSkillLessonControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/skill-lessons',
-    ...options
-  })
-
-/**
- * Add one human skill lesson
- */
-export const ankoleWebAgentSkillLessonControllerCreate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentSkillLessonControllerCreateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentSkillLessonControllerCreateResponses,
-  AnkoleWebAgentSkillLessonControllerCreateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAgentSkillLessonControllerCreateResponses,
-    AnkoleWebAgentSkillLessonControllerCreateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/skill-lessons',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * List authentication sources for OIDC Client policy
  */
 export const oidcLoginSources = <ThrowOnError extends boolean = false>(
@@ -3597,30 +3270,6 @@ export const ankoleWebBrainControllerListContradictions = <ThrowOnError extends 
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/brain/contradictions',
     ...options
-  })
-
-/**
- * Commit an externally verified completion for one background Agent Job
- */
-export const ankoleWebBackgroundAgentJobControllerComplete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBackgroundAgentJobControllerCompleteData, ThrowOnError>
-): RequestResult<
-  AnkoleWebBackgroundAgentJobControllerCompleteResponses,
-  AnkoleWebBackgroundAgentJobControllerCompleteErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebBackgroundAgentJobControllerCompleteResponses,
-    AnkoleWebBackgroundAgentJobControllerCompleteErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/background-agent-jobs/{job_id}/complete',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -3879,26 +3528,6 @@ export const ankoleWebAppConfigurationControllerUpdate = <ThrowOnError extends b
   })
 
 /**
- * Cancel one queued or active background Agent Job
- */
-export const ankoleWebBackgroundAgentJobControllerCancel = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBackgroundAgentJobControllerCancelData, ThrowOnError>
-): RequestResult<
-  AnkoleWebBackgroundAgentJobControllerCancelResponses,
-  AnkoleWebBackgroundAgentJobControllerCancelErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebBackgroundAgentJobControllerCancelResponses,
-    AnkoleWebBackgroundAgentJobControllerCancelErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/background-agent-jobs/{job_id}/cancel',
-    ...options
-  })
-
-/**
  * Reveal one encrypted AppConfigure value on demand
  */
 export const ankoleWebAppConfigurationControllerDecryptTenant = <ThrowOnError extends boolean = false>(
@@ -4120,26 +3749,6 @@ export const ankoleWebDirectoryAccessControllerReviewEvent = <ThrowOnError exten
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * List the messages of one AIGateway conversation
- */
-export const ankoleWebAiGatewayConversationControllerMessages = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayConversationControllerMessagesData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayConversationControllerMessagesResponses,
-  AnkoleWebAiGatewayConversationControllerMessagesErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAiGatewayConversationControllerMessagesResponses,
-    AnkoleWebAiGatewayConversationControllerMessagesErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/ai-gateway/conversations/{conversation_id}/messages',
-    ...options
   })
 
 /**
@@ -4403,18 +4012,22 @@ export const ankoleWebAppConfigurationControllerUpdateTenant = <ThrowOnError ext
   })
 
 /**
- * Re-enable one disabled agent
+ * Read one page of the runtime Turn trajectory of one background Agent Job
  */
-export const ankoleWebAgentControllerEnable = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerEnableData, ThrowOnError>
-): RequestResult<AnkoleWebAgentControllerEnableResponses, AnkoleWebAgentControllerEnableErrors, ThrowOnError> =>
-  (options.client ?? client).post<
-    AnkoleWebAgentControllerEnableResponses,
-    AnkoleWebAgentControllerEnableErrors,
+export const ankoleWebBackgroundAgentJobControllerTurns = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBackgroundAgentJobControllerTurnsData, ThrowOnError>
+): RequestResult<
+  AnkoleWebBackgroundAgentJobControllerTurnsResponses,
+  AnkoleWebBackgroundAgentJobControllerTurnsErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebBackgroundAgentJobControllerTurnsResponses,
+    AnkoleWebBackgroundAgentJobControllerTurnsErrors,
     ThrowOnError
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/enable',
+    url: '/api/v1/background-agent-jobs/{job_id}/turns',
     ...options
   })
 

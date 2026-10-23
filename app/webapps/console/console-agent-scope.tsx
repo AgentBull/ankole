@@ -2,7 +2,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from '../common/router'
-import { ankoleWebAgentControllerIndexOptions } from './api/generated/@tanstack/react-query.gen'
+import { agentListOptions } from './api/agents'
 import { resetCursorParams } from './state/cursor-pagination'
 
 /**
@@ -15,7 +15,7 @@ import { resetCursorParams } from './state/cursor-pagination'
  */
 export function useAgentScope() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
+  const agents = useQuery(agentListOptions())
   const agentUID = searchParams.get('agent') ?? ''
 
   // Only the `agent` key and the paging cursor change: the other parameters,
@@ -33,7 +33,7 @@ export function useAgentScope() {
   return {
     /** Selected agent UID, or empty while the page covers every agent. */
     agentUID,
-    agents: agents.data?.agents ?? [],
+    agents: agents.data ?? [],
     error: agents.error,
     isLoading: agents.isLoading,
     selectAgent
@@ -43,7 +43,7 @@ export function useAgentScope() {
 export type AgentScope = ReturnType<typeof useAgentScope>
 
 /** Agents that can run work; editors offer these, and list cues follow the same set. */
-export function activeAgents<T extends { status: 'active' | 'disabled' }>(agents: readonly T[]): T[] {
+export function activeAgents<T extends { status?: 'active' | 'disabled' }>(agents: readonly T[]): T[] {
   return agents.filter(agent => agent.status === 'active')
 }
 

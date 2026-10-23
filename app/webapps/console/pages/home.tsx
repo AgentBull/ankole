@@ -19,16 +19,15 @@ import { Link, useLocation } from '@tanstack/react-router'
 import { requestErrorMessage } from '../../common/request-errors'
 import { linkTarget } from '../../common/router'
 import {
-  ankoleWebAgentWorkerControllerIndexOptions,
-  ankoleWebAgentControllerIndexOptions,
-  ankoleWebAiGatewayConversationControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
-  ankoleWebBackgroundAgentJobControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerHealthOptions,
   ankoleWebConsoleReadinessControllerShowOptions,
   ankoleWebIdentityProviderControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
-import type { BackgroundAgentJobItem } from '../api/generated/types.gen'
+import { agentWorkerListOptions } from '../api/agent-workers'
+import { agentListOptions } from '../api/agents'
+import { aiGatewayConversationsOptions } from '../api/ai-gateway-conversations'
+import { backgroundAgentJobsOptions, type BackgroundAgentJobItem } from '../api/background-agent-jobs'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
 import { conversationDisplayName } from '../conversation-presentation'
@@ -51,9 +50,9 @@ export function HomePage() {
 
   // Refresh each Attention source every 15 seconds so the page updates after
   // a condition changes.
-  const agents = useQuery({ ...ankoleWebAgentControllerIndexOptions(), refetchInterval: LIST_REFRESH_MS })
+  const agents = useQuery({ ...agentListOptions(), refetchInterval: LIST_REFRESH_MS })
   const workers = useQuery({
-    ...ankoleWebAgentWorkerControllerIndexOptions(),
+    ...agentWorkerListOptions(),
     refetchInterval: LIST_REFRESH_MS
   })
   const providers = useQuery({
@@ -65,7 +64,7 @@ export function HomePage() {
     refetchInterval: LIST_REFRESH_MS
   })
   const jobs = useQuery({
-    ...ankoleWebBackgroundAgentJobControllerIndexOptions({ query: { limit: 20 } }),
+    ...backgroundAgentJobsOptions({ limit: 20 }),
     refetchInterval: LIST_REFRESH_MS
   })
   const jobHealth = useQuery({
@@ -83,15 +82,15 @@ export function HomePage() {
   // A slow-moving summary: the min-message filter counts per conversation
   // server-side, so this panel polls at the relaxed cadence.
   const conversations = useQuery({
-    ...ankoleWebAiGatewayConversationControllerIndexOptions({ query: { limit: 5, min_messages: 2 } }),
+    ...aiGatewayConversationsOptions({ limit: 5, min_messages: 2 }),
     refetchInterval: IDLE_REFRESH_MS
   })
 
   const queries = [agents, workers, providers, identityProviders, jobs, jobHealth, conversations, readiness]
   const error = queries.find(query => query.error)?.error
 
-  const agentRows = agents.data?.agents ?? []
-  const workerRows = workers.data?.workers ?? []
+  const agentRows = agents.data ?? []
+  const workerRows = workers.data ?? []
   const providerRows = providers.data?.ai_gateway_providers ?? []
   const jobRows = jobs.data?.jobs ?? []
 

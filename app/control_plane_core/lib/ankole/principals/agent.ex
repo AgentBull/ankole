@@ -113,6 +113,7 @@ defmodule Ankole.Principals.Agent do
   calculations do
     calculate(:status, :atom, expr(principal.status),
       public?: true,
+      allow_nil?: false,
       constraints: [one_of: [:active, :disabled]]
     )
 
@@ -160,9 +161,9 @@ defmodule Ankole.Principals.Agent do
 
       argument(:worker_provider_id, :string)
 
-      run(fn input, _context ->
+      run(fn input, context ->
         input.arguments
-        |> AgentConsole.create_in_tx(input.context.principal)
+        |> AgentConsole.create_in_tx(context.actor)
         |> Ankole.Errors.wrap(&AgentConsole.rejection/1)
       end)
     end

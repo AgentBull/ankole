@@ -31,13 +31,13 @@ import { useTranslation } from 'react-i18next'
 import { Link, useParams } from '@tanstack/react-router'
 import { linkTarget, useSearchParams } from '../../common/router'
 import {
-  ankoleWebAgentControllerShowOptions,
   ankoleWebAgentFileControllerDeleteMutation,
   ankoleWebAgentFileControllerIndexOptions,
   ankoleWebAgentFileControllerMoveMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import { ankoleWebAgentFileControllerDownload, ankoleWebAgentFileControllerUpload } from '../api/generated/sdk.gen'
 import type { AgentFileEntry } from '../api/generated/types.gen'
+import { agentOptions } from '../api/agents'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ResourceListPage, ResourceSearch, ScopeBar } from '../console-list-page'
 import { BackLink } from '../console-page'
@@ -59,7 +59,7 @@ export function AgentFilesPage() {
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
 
-  const agent = useQuery(ankoleWebAgentControllerShowOptions({ path: { agent_uid: agentUID } }))
+  const agent = useQuery(agentOptions(agentUID))
   const listing = useQuery(
     ankoleWebAgentFileControllerIndexOptions({ path: { agent_uid: agentUID }, query: path ? { path } : {} })
   )
@@ -128,7 +128,7 @@ export function AgentFilesPage() {
     setSearchParams(next ? { path: next } : {})
   }
 
-  const agentName = agent.data?.agent.display_name || agentUID
+  const agentName = agent.data?.display_name || agentUID
   const pending = move.isPending || remove.isPending
 
   // Navigation lives in `subNav` so it stays visible over an empty folder: the

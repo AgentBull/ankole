@@ -80,6 +80,11 @@ defmodule AnkoleWeb.JSONAPI.AgentSkillLessonsTest do
              })
              |> json_response(422)
 
+    assert %{"errors" => [%{"code" => "not_found"}]} =
+             conn
+             |> send_v2(:post, path, %{"skill_name" => "no-such-skill", "content" => "Guidance."})
+             |> json_response(404)
+
     assert {:ok, _skill} = Library.set_agent_skill_override(agent.uid, "pdf", false)
 
     assert %{"errors" => [%{"code" => "skill_not_enabled"}]} =

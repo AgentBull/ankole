@@ -253,12 +253,19 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
         config: "network: bridge\n"
       })
 
-    assert %{"errors" => [%{"code" => "worker_provider_immutable"}]} =
+    assert %{"errors" => [%{"code" => "conflict"}]} =
              conn
              |> send_v2(:put, "/api/v2/agents/#{agent_uid}/worker-provider", %{
                "provider_id" => "other"
              })
-             |> json_response(422)
+             |> json_response(409)
+
+    assert %{"errors" => [%{"code" => "not_found"}]} =
+             conn
+             |> send_v2(:put, "/api/v2/agents/#{agent_uid}/worker-provider", %{
+               "provider_id" => "missing"
+             })
+             |> json_response(404)
 
     # This row is the state left by the migration, before an operator assigns it.
     Repo.get!(AgentWorker, agent_uid)

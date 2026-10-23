@@ -159,9 +159,9 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
       argument(:skill_name, :string, allow_nil?: false)
       argument(:content, :string, allow_nil?: false, constraints: [trim?: false])
 
-      run(fn input, _context ->
+      run(fn input, context ->
         input.arguments
-        |> Map.put(:author, Ankole.ActorRef.from_principal(input.context.principal))
+        |> Map.put(:author, Ankole.ActorRef.from_principal(context.actor))
         |> Ankole.AIAgent.Library.console_teach()
         |> Ankole.Errors.wrap(&Ankole.AIAgent.Library.SkillLessons.rejection/1)
       end)

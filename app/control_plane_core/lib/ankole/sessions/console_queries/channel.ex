@@ -35,11 +35,11 @@ defmodule Ankole.Sessions.ConsoleQueries.Channel do
 
   defp value(:kind, conversation, channel) do
     case Ankole.Sessions.Key.parse(conversation.conversation_key) do
-      {:conversation, _} -> "conversation"
-      {:job, _} -> "job"
-      {:cron, _} -> "cron"
-      {:named, "stateful-responses-api:" <> _rest} -> "responses_api"
-      _custom -> if Map.get(channel, :signal_origin?, false), do: "signal", else: "custom"
+      {:conversation, _} -> :conversation
+      {:job, _} -> :job
+      {:cron, _} -> :cron
+      {:named, "stateful-responses-api:" <> _rest} -> :responses_api
+      _custom -> if Map.get(channel, :signal_origin?, false), do: :signal, else: :custom
     end
   end
 

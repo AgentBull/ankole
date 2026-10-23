@@ -13,8 +13,8 @@ import {
   ankoleWebAgentControllerDeleteModelProfile,
   ankoleWebAgentControllerPutModelProfile
 } from '../api/generated/sdk.gen'
+import type { AgentItem } from '../api/agents'
 import type {
-  AgentItem,
   AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem,
   ModelProfileWriteRequest,

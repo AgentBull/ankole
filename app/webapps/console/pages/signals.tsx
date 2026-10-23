@@ -41,7 +41,6 @@ import i18n from '../../common/i18n'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { formatConsoleDate } from '../console-primitives'
 import {
-  ankoleWebAgentControllerIndexOptions,
   ankoleWebSignalBindingControllerAdaptersOptions,
   ankoleWebSignalBindingControllerDeleteMutation,
   ankoleWebSignalBindingControllerIndexOptions,
@@ -50,6 +49,7 @@ import {
   ankoleWebSignalBindingControllerShowOptions,
   ankoleWebSignalBindingControllerUpdateBindingMutation
 } from '../api/generated/@tanstack/react-query.gen'
+import { agentListOptions } from '../api/agents'
 import type { SignalAdapterItem, SignalBindingItem, SignalDeliveryFailureItem } from '../api/generated/types.gen'
 import { activeAgents, AgentFilter, resolveAgentUID, useAgentScope } from '../console-agent-scope'
 import {
@@ -352,8 +352,8 @@ export function SignalBindingEditorPage() {
   const editing = Boolean(lockedName)
   const returnPath = signalBindingReturnPath(returnAgentUID)
 
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const agentList = activeAgents(agents.data?.agents ?? [])
+  const agents = useQuery(agentListOptions())
+  const agentList = activeAgents(agents.data ?? [])
   const defaultAgentUID = resolveAgentUID(agentList, sourceAgentUID)
   const adapters = useQuery(ankoleWebSignalBindingControllerAdaptersOptions())
   const signalAdapters = adapters.data?.signal_adapters ?? []

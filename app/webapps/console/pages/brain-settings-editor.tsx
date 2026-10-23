@@ -17,11 +17,11 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { Link } from '@tanstack/react-router'
 import {
-  ankoleWebAgentControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerModelsOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerProviderKindsOptions
 } from '../api/generated/@tanstack/react-query.gen'
+import { agentListOptions } from '../api/agents'
 import type { AppConfigurationItem } from '../api/generated/types.gen'
 import { LabeledField } from '../console-form'
 import { modelOptionsForBrainModel, providersWithCapability } from './model-profile-options'
@@ -97,12 +97,12 @@ export function BrainSettingsEditor({
   const providers = useQuery(ankoleWebAiGatewayProviderControllerIndexOptions())
   const providerKinds = useQuery(ankoleWebAiGatewayProviderControllerProviderKindsOptions())
   const modelCatalog = useQuery(ankoleWebAiGatewayProviderControllerModelsOptions())
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
+  const agents = useQuery(agentListOptions())
   const providerList = providers.data?.ai_gateway_providers ?? []
   const kindList = providerKinds.data?.provider_kinds ?? []
   const providersLoading = providers.isLoading || providerKinds.isLoading
   const maintainerAgentUID = brainStringDraft(drafts[BRAIN_KEYS.maintainerAgentUID])
-  const agentList = agents.data?.agents ?? []
+  const agentList = agents.data ?? []
   const selectedAgent = agentList.find(agent => agent.uid === maintainerAgentUID)
   const selectableAgents = agentList.filter(agent => agent.status === 'active' || agent.uid === maintainerAgentUID)
   const enabled = drafts[BRAIN_KEYS.enabled] === 'true'

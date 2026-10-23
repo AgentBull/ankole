@@ -84,3 +84,13 @@ function fieldPath(source: { pointer?: string; parameter?: string }): string {
   if (source.pointer) return source.pointer.replace(/^\/data\/((attributes|relationships)\/)?/, '').replace(/^\//, '')
   return source.parameter ?? ''
 }
+
+/**
+ * Gives the keyset after the last record of a page, or `undefined` on the last
+ * page. AshJsonApi puts it in the `page[after]` parameter of `links.next`; the
+ * generated document types do not declare `links`.
+ */
+export function nextPageAfter(document: object | undefined): string | undefined {
+  const next = (document as { links?: { next?: string | null } } | undefined)?.links?.next
+  return next ? (new URL(next, 'http://localhost').searchParams.get('page[after]') ?? undefined) : undefined
+}

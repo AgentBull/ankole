@@ -289,13 +289,6 @@ export type OidcClientSecretResponse = {
 }
 
 /**
- * WorkerProviderAssignRequest
- */
-export type WorkerProviderAssignRequest = {
-  provider_id: string
-}
-
-/**
  * BackgroundAgentJobTurnPlanStep
  */
 export type BackgroundAgentJobTurnPlanStep = {
@@ -327,28 +320,6 @@ export type WorkClassifyRequest = {
   id: string
   kind: string
   reason: string
-}
-
-/**
- * AIGatewayConversationResponse
- */
-export type AiGatewayConversationResponse = {
-  conversation: AiGatewayConversationItem
-}
-
-/**
- * AgentUpdateRequest
- */
-export type AgentUpdateRequest = {
-  avatar_url?: string | null
-  display_name?: string
-  group_memory_disclosure_mode?: 'strict' | 'relaxed'
-  handle?: string
-  options?: {
-    [key: string]: unknown
-  }
-  owner_principal_uid?: string
-  role?: string
 }
 
 /**
@@ -490,14 +461,6 @@ export type ConsoleApiErrorEnvelope = {
  */
 export type LocalPasswordResetResponse = {
   initial_password: string
-}
-
-/**
- * AIGatewayConversationListResponse
- */
-export type AiGatewayConversationListResponse = {
-  conversations: Array<AiGatewayConversationItem>
-  next_cursor: string | null
 }
 
 /**
@@ -934,26 +897,6 @@ export type PrincipalCreateRequest = {
 }
 
 /**
- * AIGatewayMessageItem
- */
-export type AiGatewayMessageItem = {
-  content: Array<{
-    [key: string]: unknown
-  }>
-  conversation_id: string
-  id: string
-  inserted_at: string
-  metadata: {
-    [key: string]: unknown
-  }
-  previous_message_id?: string | null
-  status: 'generating' | 'complete' | 'error' | 'retracted'
-  subject_uid: string
-  type: 'message' | 'checkpoint'
-  updated_at: string
-}
-
-/**
  * AccessReviewGroup
  */
 export type AccessReviewGroup = {
@@ -991,26 +934,6 @@ export type BackgroundActivityAutomationRun = {
   started_at: string | null
   status: 'queued' | 'running'
   updated_at: string | null
-}
-
-/**
- * AIGatewayConversationItem
- */
-export type AiGatewayConversationItem = {
-  channel_kind: 'im_dm' | 'im_group' | 'webhook_endpoint' | 'issue' | 'alert_stream' | 'unknown'
-  conversation_key: string
-  display_name: string | null
-  ended_at?: string | null
-  id: string
-  inserted_at: string
-  kind: 'conversation' | 'signal' | 'dreaming' | 'job' | 'cron' | 'responses_api' | 'custom'
-  message_count: number
-  metadata: {
-    [key: string]: unknown
-  }
-  signal_adapter: string | null
-  subject_uid: string
-  updated_at: string
 }
 
 /**
@@ -1080,13 +1003,6 @@ export type BrainSourceUpdateRequest = {
 }
 
 /**
- * AgentResponse
- */
-export type AgentResponse = {
-  agent: AgentItem
-}
-
-/**
  * PrincipalUpdateRequest
  */
 export type PrincipalUpdateRequest = {
@@ -1112,14 +1028,6 @@ export type AccessReviewGrant = {
   id: string
   principal_uid: string | null
   resource_pattern: string
-}
-
-/**
- * AIGatewayMessageListResponse
- */
-export type AiGatewayMessageListResponse = {
-  messages: Array<AiGatewayMessageItem>
-  next_cursor: string | null
 }
 
 /**
@@ -1164,26 +1072,6 @@ export type BrainDreamResponse = {
   result: {
     status: 'enqueued' | 'already_pending'
   }
-}
-
-/**
- * AgentSkillLessonItem
- */
-export type AgentSkillLessonItem = {
-  agent_plugin_id: string | null
-  author: ConsoleActorRef | null
-  author_kind: 'dreaming' | 'human'
-  checked_release: string | null
-  content: string
-  created_at: string
-  description: string | null
-  effective_enabled: boolean
-  evidence_job_ids: Array<number>
-  id: string
-  retire_reason: 'human_revoked' | 'lapsed' | 'obsolete'
-  retired_at: string | null
-  review_after: string | null
-  skill_name: string
 }
 
 /**
@@ -1276,14 +1164,6 @@ export type IdentityProviderResponse = {
 }
 
 /**
- * BackgroundAgentJobListResponse
- */
-export type BackgroundAgentJobListResponse = {
-  jobs: Array<BackgroundAgentJobListItem>
-  next_cursor: string | null
-}
-
-/**
  * WorkerProvider
  */
 export type WorkerProvider = {
@@ -1306,59 +1186,6 @@ export type WorkerProvider = {
    * The kind is active and its Plugin is selected for the next start. This does not check cloud connectivity.
    */
   selectable: boolean
-}
-
-/**
- * BackgroundAgentJobItem
- */
-export type BackgroundAgentJobItem = {
-  agent_uid: string
-  attempts: number
-  completed_at?: string | null
-  /**
-   * The terminal Job that this Job continues; null for a first Job.
-   */
-  continued_from_job_id: number | null
-  duration_seconds: number
-  error: {
-    [key: string]: unknown
-  }
-  execution_failures: number
-  id: number
-  inserted_at: string
-  metadata: {
-    [key: string]: unknown
-  }
-  model_profile: string
-  owner_session_id: string
-  queued_at?: string | null
-  reply_route: {
-    [key: string]: unknown
-  }
-  result: {
-    [key: string]: unknown
-  }
-  runtime_thread_id?: string | null
-  source_signal_id?: string | null
-  source_tool_call_id: string
-  started_at?: string | null
-  status: BackgroundAgentJobStatus
-  task: string
-  title: string
-  /**
-   * One bounded page of runtime Turns, newest Turns first, in chronological order.
-   */
-  turns?: Array<BackgroundAgentJobTurnItem>
-  /**
-   * Opaque cursor for the page of older Turns; null on the last page.
-   */
-  turns_next_cursor?: string | null
-  updated_at: string
-  /**
-   * The first Job of the continuation chain, whose Workspace every Job in the chain uses.
-   */
-  workspace_owner_job_id: number
-  workspace_template_id: string | null
 }
 
 /**
@@ -1448,26 +1275,6 @@ export type BrainPageLinks = {
     link_type: string
     to: string
   }>
-}
-
-/**
- * BackgroundAgentJobStatus
- */
-export type BackgroundAgentJobStatus = 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
-
-/**
- * BackgroundAgentJobListItem
- */
-export type BackgroundAgentJobListItem = {
-  agent_uid: string
-  attempts: number
-  duration_seconds: number
-  execution_failures: number
-  id: number
-  inserted_at: string
-  status: BackgroundAgentJobStatus
-  title: string
-  workspace_template_id: string | null
 }
 
 /**
@@ -1805,49 +1612,6 @@ export type BrainObjectShowResponse = {
 }
 
 /**
- * AgentComputerWorkerItem
- */
-export type AgentComputerWorkerItem = {
-  agent_uid: string
-  capacity: {
-    [key: string]: unknown
-  }
-  drain_reason?: string | null
-  generation?: string | null
-  image?: string | null
-  last_error?: string | null
-  last_worker_heartbeat_at?: string | null
-  load: {
-    [key: string]: unknown
-  }
-  provider_id?: string | null
-  state: 'absent' | 'starting' | 'ready' | 'stale' | 'paused' | 'draining' | 'deleting'
-  state_changed_at?: string | null
-}
-
-/**
- * AgentItem
- */
-export type AgentItem = {
-  avatar_url?: string | null
-  created_by?: ConsoleActorRef | null
-  display_name: string
-  group_memory_disclosure_mode: 'strict' | 'relaxed'
-  handle: string
-  inserted_at: string
-  options: {
-    [key: string]: unknown
-  }
-  owner_principal_uid: string
-  role: string
-  status: 'active' | 'disabled'
-  type: 'ai_colleague'
-  uid: string
-  updated_at: string
-  worker_provider_id?: string | null
-}
-
-/**
  * BrainContradictionListResponse
  */
 export type BrainContradictionListResponse = {
@@ -1980,6 +1744,20 @@ export type BrainSourceListResponse = {
 }
 
 /**
+ * BackgroundAgentJobTurnPageResponse
+ */
+export type BackgroundAgentJobTurnPageResponse = {
+  /**
+   * Opaque cursor for the page of older Turns; null on the last page.
+   */
+  next_cursor: string | null
+  /**
+   * One bounded page of runtime Turns, newest Turns first, in chronological order.
+   */
+  turns: Array<BackgroundAgentJobTurnItem>
+}
+
+/**
  * AgentPluginCapabilityItem
  */
 export type AgentPluginCapabilityItem = {
@@ -2012,13 +1790,6 @@ export type ControlPlanePluginListResponse = {
 export type AgentFileUploadRequest = {
   file: Blob | File
   path: string
-}
-
-/**
- * AgentSkillLessonsResponse
- */
-export type AgentSkillLessonsResponse = {
-  skill_lessons: Array<AgentSkillLessonItem>
 }
 
 /**
@@ -2182,14 +1953,6 @@ export type IdentityMappingRequestItem = {
 }
 
 /**
- * AgentSkillLessonCreateRequest
- */
-export type AgentSkillLessonCreateRequest = {
-  content: string
-  skill_name: string
-}
-
-/**
  * BackgroundActivityWorkflowResponse
  */
 export type BackgroundActivityWorkflowResponse = {
@@ -2221,13 +1984,6 @@ export type AgentLibraryDocuments = {
   design: AgentLibraryDocumentItem
   mission: AgentLibraryDocumentItem
   soul: AgentLibraryDocumentItem
-}
-
-/**
- * AgentComputerWorkerListResponse
- */
-export type AgentComputerWorkerListResponse = {
-  workers: Array<AgentComputerWorkerItem>
 }
 
 /**
@@ -2436,14 +2192,6 @@ export type BrainSearchPreviewResponse = {
 }
 
 /**
- * WorkerProviderAssignResponse
- */
-export type WorkerProviderAssignResponse = {
-  agent_uid: string
-  provider_id: string
-}
-
-/**
  * ControlPlanePluginWriteRequest
  */
 export type ControlPlanePluginWriteRequest = {
@@ -2614,13 +2362,6 @@ export type WorkerEnvItem = {
 }
 
 /**
- * AgentListResponse
- */
-export type AgentListResponse = {
-  agents: Array<AgentItem>
-}
-
-/**
  * BrainObjectRollbackRequest
  */
 export type BrainObjectRollbackRequest = {
@@ -2670,22 +2411,6 @@ export type ConsoleReadinessSignalRoute = {
  */
 export type IdentityProviderAdapterListResponse = {
   identity_provider_adapters: Array<IdentityProviderAdapterItem>
-}
-
-/**
- * AgentCreateRequest
- */
-export type AgentCreateRequest = {
-  avatar_url?: string | null
-  display_name: string
-  group_memory_disclosure_mode?: 'strict' | 'relaxed'
-  handle: string
-  options?: {
-    [key: string]: unknown
-  }
-  owner_principal_uid: string
-  role: string
-  worker_provider_id?: string | null
 }
 
 /**
@@ -2853,13 +2578,6 @@ export type SignalBindingDetailResponse = {
   config: JsonValue
   signal_binding: SignalBindingItem
   stored_secret_paths: Array<string>
-}
-
-/**
- * BackgroundAgentJobResponse
- */
-export type BackgroundAgentJobResponse = {
-  job: BackgroundAgentJobItem
 }
 
 /**
@@ -3634,33 +3352,6 @@ export type AnkoleWebWorkerProviderControllerUpdateResponses = {
 
 export type AnkoleWebWorkerProviderControllerUpdateResponse =
   AnkoleWebWorkerProviderControllerUpdateResponses[keyof AnkoleWebWorkerProviderControllerUpdateResponses]
-
-export type AnkoleWebAgentWorkerControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/agent-workers'
-}
-
-export type AnkoleWebAgentWorkerControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentWorkerControllerIndexError =
-  AnkoleWebAgentWorkerControllerIndexErrors[keyof AnkoleWebAgentWorkerControllerIndexErrors]
-
-export type AnkoleWebAgentWorkerControllerIndexResponses = {
-  /**
-   * Workers
-   */
-  200: AgentComputerWorkerListResponse
-}
-
-export type AnkoleWebAgentWorkerControllerIndexResponse =
-  AnkoleWebAgentWorkerControllerIndexResponses[keyof AnkoleWebAgentWorkerControllerIndexResponses]
 
 export type BackgroundActivityWorkflowData = {
   body?: never
@@ -5117,42 +4808,6 @@ export type AnkoleWebBrainControllerSearchPreviewResponses = {
 export type AnkoleWebBrainControllerSearchPreviewResponse =
   AnkoleWebBrainControllerSearchPreviewResponses[keyof AnkoleWebBrainControllerSearchPreviewResponses]
 
-export type AnkoleWebBackgroundAgentJobControllerIndexData = {
-  body?: never
-  path?: never
-  query?: {
-    status?: BackgroundAgentJobStatus
-    agent?: string
-    /**
-     * Matches an exact Job ID or a case-insensitive title fragment.
-     */
-    q?: string
-    cursor?: string
-    limit?: number
-  }
-  url: '/api/v1/background-agent-jobs'
-}
-
-export type AnkoleWebBackgroundAgentJobControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebBackgroundAgentJobControllerIndexError =
-  AnkoleWebBackgroundAgentJobControllerIndexErrors[keyof AnkoleWebBackgroundAgentJobControllerIndexErrors]
-
-export type AnkoleWebBackgroundAgentJobControllerIndexResponses = {
-  /**
-   * Background Agent Jobs
-   */
-  200: BackgroundAgentJobListResponse
-}
-
-export type AnkoleWebBackgroundAgentJobControllerIndexResponse =
-  AnkoleWebBackgroundAgentJobControllerIndexResponses[keyof AnkoleWebBackgroundAgentJobControllerIndexResponses]
-
 export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillData = {
   /**
    * Skill default
@@ -5520,38 +5175,6 @@ export type AnkoleWebAiGatewayProviderControllerPutCredentialResponses = {
 export type AnkoleWebAiGatewayProviderControllerPutCredentialResponse =
   AnkoleWebAiGatewayProviderControllerPutCredentialResponses[keyof AnkoleWebAiGatewayProviderControllerPutCredentialResponses]
 
-export type AnkoleWebWorkerProviderControllerAssignData = {
-  /**
-   * Provider selection
-   */
-  body: WorkerProviderAssignRequest
-  path: {
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/worker-provider'
-}
-
-export type AnkoleWebWorkerProviderControllerAssignErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerProviderControllerAssignError =
-  AnkoleWebWorkerProviderControllerAssignErrors[keyof AnkoleWebWorkerProviderControllerAssignErrors]
-
-export type AnkoleWebWorkerProviderControllerAssignResponses = {
-  /**
-   * Provider assigned
-   */
-  200: WorkerProviderAssignResponse
-}
-
-export type AnkoleWebWorkerProviderControllerAssignResponse =
-  AnkoleWebWorkerProviderControllerAssignResponses[keyof AnkoleWebWorkerProviderControllerAssignResponses]
-
 export type AnkoleWebAgentControllerDeleteModelProfileData = {
   body?: never
   path: {
@@ -5811,130 +5434,6 @@ export type AnkoleWebAiGatewayControllerRetrieveResponseResponses = {
 export type AnkoleWebAiGatewayControllerRetrieveResponseResponse =
   AnkoleWebAiGatewayControllerRetrieveResponseResponses[keyof AnkoleWebAiGatewayControllerRetrieveResponseResponses]
 
-export type AnkoleWebBackgroundAgentJobControllerShowData = {
-  body?: never
-  path: {
-    job_id: number
-  }
-  query?: {
-    /**
-     * The `turns_next_cursor` of the preceding page; omit it for the newest Turns.
-     */
-    cursor?: string
-  }
-  url: '/api/v1/background-agent-jobs/{job_id}'
-}
-
-export type AnkoleWebBackgroundAgentJobControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebBackgroundAgentJobControllerShowError =
-  AnkoleWebBackgroundAgentJobControllerShowErrors[keyof AnkoleWebBackgroundAgentJobControllerShowErrors]
-
-export type AnkoleWebBackgroundAgentJobControllerShowResponses = {
-  /**
-   * Background Agent Job
-   */
-  200: BackgroundAgentJobResponse
-}
-
-export type AnkoleWebBackgroundAgentJobControllerShowResponse =
-  AnkoleWebBackgroundAgentJobControllerShowResponses[keyof AnkoleWebBackgroundAgentJobControllerShowResponses]
-
-export type AnkoleWebAgentControllerDeleteData = {
-  body?: never
-  path: {
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}'
-}
-
-export type AnkoleWebAgentControllerDeleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentControllerDeleteError =
-  AnkoleWebAgentControllerDeleteErrors[keyof AnkoleWebAgentControllerDeleteErrors]
-
-export type AnkoleWebAgentControllerDeleteResponses = {
-  /**
-   * Agent
-   */
-  200: AgentResponse
-}
-
-export type AnkoleWebAgentControllerDeleteResponse =
-  AnkoleWebAgentControllerDeleteResponses[keyof AnkoleWebAgentControllerDeleteResponses]
-
-export type AnkoleWebAgentControllerShowData = {
-  body?: never
-  path: {
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}'
-}
-
-export type AnkoleWebAgentControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentControllerShowError =
-  AnkoleWebAgentControllerShowErrors[keyof AnkoleWebAgentControllerShowErrors]
-
-export type AnkoleWebAgentControllerShowResponses = {
-  /**
-   * Agent
-   */
-  200: AgentResponse
-}
-
-export type AnkoleWebAgentControllerShowResponse =
-  AnkoleWebAgentControllerShowResponses[keyof AnkoleWebAgentControllerShowResponses]
-
-export type AnkoleWebAgentControllerUpdateData = {
-  /**
-   * Agent
-   */
-  body: AgentUpdateRequest
-  path: {
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}'
-}
-
-export type AnkoleWebAgentControllerUpdateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentControllerUpdateError =
-  AnkoleWebAgentControllerUpdateErrors[keyof AnkoleWebAgentControllerUpdateErrors]
-
-export type AnkoleWebAgentControllerUpdateResponses = {
-  /**
-   * Agent
-   */
-  200: AgentResponse
-}
-
-export type AnkoleWebAgentControllerUpdateResponse =
-  AnkoleWebAgentControllerUpdateResponses[keyof AnkoleWebAgentControllerUpdateResponses]
-
 export type AnkoleWebOidcClientControllerRotateSecretData = {
   body?: never
   path: {
@@ -6140,36 +5639,6 @@ export type AnkoleWebWorkerEnvControllerIndexResponses = {
 export type AnkoleWebWorkerEnvControllerIndexResponse =
   AnkoleWebWorkerEnvControllerIndexResponses[keyof AnkoleWebWorkerEnvControllerIndexResponses]
 
-export type AnkoleWebAgentSkillLessonControllerRetireData = {
-  body?: never
-  path: {
-    agent_uid: string
-    lesson_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/skill-lessons/{lesson_id}/retire'
-}
-
-export type AnkoleWebAgentSkillLessonControllerRetireErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentSkillLessonControllerRetireError =
-  AnkoleWebAgentSkillLessonControllerRetireErrors[keyof AnkoleWebAgentSkillLessonControllerRetireErrors]
-
-export type AnkoleWebAgentSkillLessonControllerRetireResponses = {
-  /**
-   * Agent skill lessons
-   */
-  200: AgentSkillLessonsResponse
-}
-
-export type AnkoleWebAgentSkillLessonControllerRetireResponse =
-  AnkoleWebAgentSkillLessonControllerRetireResponses[keyof AnkoleWebAgentSkillLessonControllerRetireResponses]
-
 export type AnkoleWebPrincipalControllerGrantsData = {
   body?: never
   path: {
@@ -6198,92 +5667,6 @@ export type AnkoleWebPrincipalControllerGrantsResponses = {
 
 export type AnkoleWebPrincipalControllerGrantsResponse =
   AnkoleWebPrincipalControllerGrantsResponses[keyof AnkoleWebPrincipalControllerGrantsResponses]
-
-export type AnkoleWebAiGatewayConversationControllerShowData = {
-  body?: never
-  path: {
-    conversation_id: string
-  }
-  query?: never
-  url: '/api/v1/ai-gateway/conversations/{conversation_id}'
-}
-
-export type AnkoleWebAiGatewayConversationControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayConversationControllerShowError =
-  AnkoleWebAiGatewayConversationControllerShowErrors[keyof AnkoleWebAiGatewayConversationControllerShowErrors]
-
-export type AnkoleWebAiGatewayConversationControllerShowResponses = {
-  /**
-   * Conversation
-   */
-  200: AiGatewayConversationResponse
-}
-
-export type AnkoleWebAiGatewayConversationControllerShowResponse =
-  AnkoleWebAiGatewayConversationControllerShowResponses[keyof AnkoleWebAiGatewayConversationControllerShowResponses]
-
-export type AnkoleWebAgentControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/agents'
-}
-
-export type AnkoleWebAgentControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentControllerIndexError =
-  AnkoleWebAgentControllerIndexErrors[keyof AnkoleWebAgentControllerIndexErrors]
-
-export type AnkoleWebAgentControllerIndexResponses = {
-  /**
-   * Agents
-   */
-  200: AgentListResponse
-}
-
-export type AnkoleWebAgentControllerIndexResponse =
-  AnkoleWebAgentControllerIndexResponses[keyof AnkoleWebAgentControllerIndexResponses]
-
-export type AnkoleWebAgentControllerCreateData = {
-  /**
-   * Agent
-   */
-  body: AgentCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/agents'
-}
-
-export type AnkoleWebAgentControllerCreateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentControllerCreateError =
-  AnkoleWebAgentControllerCreateErrors[keyof AnkoleWebAgentControllerCreateErrors]
-
-export type AnkoleWebAgentControllerCreateResponses = {
-  /**
-   * Agent
-   */
-  200: AgentResponse
-}
-
-export type AnkoleWebAgentControllerCreateResponse =
-  AnkoleWebAgentControllerCreateResponses[keyof AnkoleWebAgentControllerCreateResponses]
 
 export type AnkoleWebBrainControllerRestoreObjectData = {
   /**
@@ -7461,44 +6844,6 @@ export type AnkoleWebScheduleControllerUpdateCronResponses = {
 export type AnkoleWebScheduleControllerUpdateCronResponse =
   AnkoleWebScheduleControllerUpdateCronResponses[keyof AnkoleWebScheduleControllerUpdateCronResponses]
 
-export type AnkoleWebAiGatewayConversationControllerIndexData = {
-  body?: never
-  path?: never
-  query?: {
-    subject?: string
-    key?: string
-    /**
-     * Matches an exact subject UID, a conversation-key fragment, or a fragment of a channel or DM peer name.
-     */
-    q?: string
-    active?: boolean
-    min_messages?: number
-    cursor?: string
-    limit?: number
-  }
-  url: '/api/v1/ai-gateway/conversations'
-}
-
-export type AnkoleWebAiGatewayConversationControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayConversationControllerIndexError =
-  AnkoleWebAiGatewayConversationControllerIndexErrors[keyof AnkoleWebAiGatewayConversationControllerIndexErrors]
-
-export type AnkoleWebAiGatewayConversationControllerIndexResponses = {
-  /**
-   * Conversations
-   */
-  200: AiGatewayConversationListResponse
-}
-
-export type AnkoleWebAiGatewayConversationControllerIndexResponse =
-  AnkoleWebAiGatewayConversationControllerIndexResponses[keyof AnkoleWebAiGatewayConversationControllerIndexResponses]
-
 export type AnkoleWebAiGatewayProviderControllerDeleteProviderData = {
   body?: never
   path: {
@@ -7672,67 +7017,6 @@ export type AnkoleWebPrincipalControllerUpdateResponses = {
 export type AnkoleWebPrincipalControllerUpdateResponse =
   AnkoleWebPrincipalControllerUpdateResponses[keyof AnkoleWebPrincipalControllerUpdateResponses]
 
-export type AnkoleWebAgentSkillLessonControllerIndexData = {
-  body?: never
-  path: {
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/skill-lessons'
-}
-
-export type AnkoleWebAgentSkillLessonControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentSkillLessonControllerIndexError =
-  AnkoleWebAgentSkillLessonControllerIndexErrors[keyof AnkoleWebAgentSkillLessonControllerIndexErrors]
-
-export type AnkoleWebAgentSkillLessonControllerIndexResponses = {
-  /**
-   * Agent skill lessons
-   */
-  200: AgentSkillLessonsResponse
-}
-
-export type AnkoleWebAgentSkillLessonControllerIndexResponse =
-  AnkoleWebAgentSkillLessonControllerIndexResponses[keyof AnkoleWebAgentSkillLessonControllerIndexResponses]
-
-export type AnkoleWebAgentSkillLessonControllerCreateData = {
-  /**
-   * Agent skill lesson
-   */
-  body: AgentSkillLessonCreateRequest
-  path: {
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/skill-lessons'
-}
-
-export type AnkoleWebAgentSkillLessonControllerCreateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentSkillLessonControllerCreateError =
-  AnkoleWebAgentSkillLessonControllerCreateErrors[keyof AnkoleWebAgentSkillLessonControllerCreateErrors]
-
-export type AnkoleWebAgentSkillLessonControllerCreateResponses = {
-  /**
-   * Agent skill lessons
-   */
-  200: AgentSkillLessonsResponse
-}
-
-export type AnkoleWebAgentSkillLessonControllerCreateResponse =
-  AnkoleWebAgentSkillLessonControllerCreateResponses[keyof AnkoleWebAgentSkillLessonControllerCreateResponses]
-
 export type OidcLoginSourcesData = {
   body?: never
   path?: never
@@ -7889,40 +7173,6 @@ export type AnkoleWebBrainControllerListContradictionsResponses = {
 
 export type AnkoleWebBrainControllerListContradictionsResponse =
   AnkoleWebBrainControllerListContradictionsResponses[keyof AnkoleWebBrainControllerListContradictionsResponses]
-
-export type AnkoleWebBackgroundAgentJobControllerCompleteData = {
-  /**
-   * Completion result
-   */
-  body?: {
-    result_summary: string
-  }
-  path: {
-    job_id: number
-  }
-  query?: never
-  url: '/api/v1/background-agent-jobs/{job_id}/complete'
-}
-
-export type AnkoleWebBackgroundAgentJobControllerCompleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebBackgroundAgentJobControllerCompleteError =
-  AnkoleWebBackgroundAgentJobControllerCompleteErrors[keyof AnkoleWebBackgroundAgentJobControllerCompleteErrors]
-
-export type AnkoleWebBackgroundAgentJobControllerCompleteResponses = {
-  /**
-   * Background Agent Job
-   */
-  200: BackgroundAgentJobResponse
-}
-
-export type AnkoleWebBackgroundAgentJobControllerCompleteResponse =
-  AnkoleWebBackgroundAgentJobControllerCompleteResponses[keyof AnkoleWebBackgroundAgentJobControllerCompleteResponses]
 
 export type AnkoleWebWorkerEnvControllerDeleteTenantData = {
   body?: never
@@ -8291,35 +7541,6 @@ export type AnkoleWebAppConfigurationControllerUpdateResponses = {
 export type AnkoleWebAppConfigurationControllerUpdateResponse =
   AnkoleWebAppConfigurationControllerUpdateResponses[keyof AnkoleWebAppConfigurationControllerUpdateResponses]
 
-export type AnkoleWebBackgroundAgentJobControllerCancelData = {
-  body?: never
-  path: {
-    job_id: number
-  }
-  query?: never
-  url: '/api/v1/background-agent-jobs/{job_id}/cancel'
-}
-
-export type AnkoleWebBackgroundAgentJobControllerCancelErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebBackgroundAgentJobControllerCancelError =
-  AnkoleWebBackgroundAgentJobControllerCancelErrors[keyof AnkoleWebBackgroundAgentJobControllerCancelErrors]
-
-export type AnkoleWebBackgroundAgentJobControllerCancelResponses = {
-  /**
-   * Background Agent Job
-   */
-  200: BackgroundAgentJobResponse
-}
-
-export type AnkoleWebBackgroundAgentJobControllerCancelResponse =
-  AnkoleWebBackgroundAgentJobControllerCancelResponses[keyof AnkoleWebBackgroundAgentJobControllerCancelResponses]
-
 export type AnkoleWebAppConfigurationControllerDecryptTenantData = {
   body?: never
   path: {
@@ -8636,38 +7857,6 @@ export type AnkoleWebDirectoryAccessControllerReviewEventResponses = {
 
 export type AnkoleWebDirectoryAccessControllerReviewEventResponse =
   AnkoleWebDirectoryAccessControllerReviewEventResponses[keyof AnkoleWebDirectoryAccessControllerReviewEventResponses]
-
-export type AnkoleWebAiGatewayConversationControllerMessagesData = {
-  body?: never
-  path: {
-    conversation_id: string
-  }
-  query?: {
-    cursor?: string
-    limit?: number
-  }
-  url: '/api/v1/ai-gateway/conversations/{conversation_id}/messages'
-}
-
-export type AnkoleWebAiGatewayConversationControllerMessagesErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAiGatewayConversationControllerMessagesError =
-  AnkoleWebAiGatewayConversationControllerMessagesErrors[keyof AnkoleWebAiGatewayConversationControllerMessagesErrors]
-
-export type AnkoleWebAiGatewayConversationControllerMessagesResponses = {
-  /**
-   * Messages
-   */
-  200: AiGatewayMessageListResponse
-}
-
-export type AnkoleWebAiGatewayConversationControllerMessagesResponse =
-  AnkoleWebAiGatewayConversationControllerMessagesResponses[keyof AnkoleWebAiGatewayConversationControllerMessagesResponses]
 
 export type AnkoleWebDirectoryAccessControllerShowData = {
   body?: never
@@ -9051,34 +8240,39 @@ export type AnkoleWebAppConfigurationControllerUpdateTenantResponses = {
 export type AnkoleWebAppConfigurationControllerUpdateTenantResponse =
   AnkoleWebAppConfigurationControllerUpdateTenantResponses[keyof AnkoleWebAppConfigurationControllerUpdateTenantResponses]
 
-export type AnkoleWebAgentControllerEnableData = {
+export type AnkoleWebBackgroundAgentJobControllerTurnsData = {
   body?: never
   path: {
-    agent_uid: string
+    job_id: number
   }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/enable'
+  query?: {
+    /**
+     * The `next_cursor` of the preceding page; omit it for the newest Turns.
+     */
+    cursor?: string
+  }
+  url: '/api/v1/background-agent-jobs/{job_id}/turns'
 }
 
-export type AnkoleWebAgentControllerEnableErrors = {
+export type AnkoleWebBackgroundAgentJobControllerTurnsErrors = {
   /**
    * Error
    */
   default: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebAgentControllerEnableError =
-  AnkoleWebAgentControllerEnableErrors[keyof AnkoleWebAgentControllerEnableErrors]
+export type AnkoleWebBackgroundAgentJobControllerTurnsError =
+  AnkoleWebBackgroundAgentJobControllerTurnsErrors[keyof AnkoleWebBackgroundAgentJobControllerTurnsErrors]
 
-export type AnkoleWebAgentControllerEnableResponses = {
+export type AnkoleWebBackgroundAgentJobControllerTurnsResponses = {
   /**
-   * Agent
+   * Turn page
    */
-  200: AgentResponse
+  200: BackgroundAgentJobTurnPageResponse
 }
 
-export type AnkoleWebAgentControllerEnableResponse =
-  AnkoleWebAgentControllerEnableResponses[keyof AnkoleWebAgentControllerEnableResponses]
+export type AnkoleWebBackgroundAgentJobControllerTurnsResponse =
+  AnkoleWebBackgroundAgentJobControllerTurnsResponses[keyof AnkoleWebBackgroundAgentJobControllerTurnsResponses]
 
 export type AnkoleWebScheduleControllerCronRunsData = {
   body?: never

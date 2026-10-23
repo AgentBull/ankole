@@ -574,12 +574,12 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       argument(:id, :integer, allow_nil?: false, constraints: @model_id)
       after_commit({Ankole.BackgroundAgentJobs.Control, :stop_console_turn})
 
-      run(fn input, _context ->
+      run(fn input, context ->
         Ankole.Errors.wrap(
           Ankole.BackgroundAgentJobs.Control.console_cancel_in_tx(
             Ankole.Repo,
             input.arguments.id,
-            input.context.principal
+            context.actor
           )
         )
       end)
@@ -596,15 +596,14 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
 
       after_commit({Ankole.BackgroundAgentJobs.Control, :stop_console_turn})
 
-      run(fn input, _context ->
+      run(fn input, context ->
         Ankole.Errors.wrap(
           Ankole.BackgroundAgentJobs.Control.console_complete_in_tx(
             Ankole.Repo,
             input.arguments.id,
             input.arguments.result_summary,
-            input.context.principal
-          ),
-          &Ankole.BackgroundAgentJobs.Control.rejection/1
+            context.actor
+          )
         )
       end)
     end

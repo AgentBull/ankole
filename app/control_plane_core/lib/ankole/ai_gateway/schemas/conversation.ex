@@ -118,9 +118,23 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
 
   # The display facts of the operator console.
   calculations do
-    calculate(:kind, :string, {Channel, field: :kind}, public?: true, allow_nil?: false)
+    calculate(:kind, :atom, {Channel, field: :kind},
+      public?: true,
+      allow_nil?: false,
+      constraints: [
+        one_of: [:conversation, :signal, :dreaming, :job, :cron, :responses_api, :custom]
+      ]
+    )
+
     calculate(:display_name, :string, {Channel, field: :display_name}, public?: true)
-    calculate(:channel_kind, :string, {Channel, field: :channel_kind}, public?: true)
+
+    calculate(:channel_kind, :atom, {Channel, field: :channel_kind},
+      public?: true,
+      constraints: [
+        one_of: [:im_dm, :im_group, :webhook_endpoint, :issue, :alert_stream, :unknown]
+      ]
+    )
+
     calculate(:signal_adapter, :string, {Channel, field: :signal_adapter}, public?: true)
   end
 

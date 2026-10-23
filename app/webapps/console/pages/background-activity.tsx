@@ -10,8 +10,8 @@ import {
   backgroundActivityWorkflowOptions,
   backgroundActivityAutomationRunsOptions
 } from '../api/generated/@tanstack/react-query.gen'
+import type { AgentItem } from '../api/agents'
 import type {
-  AgentItem,
   BackgroundActivityJob,
   BackgroundActivityWorkflowCall,
   BackgroundActivityWorkflowRun,

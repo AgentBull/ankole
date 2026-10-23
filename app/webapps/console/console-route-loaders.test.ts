@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { QueryClient } from '@tanstack/react-query'
-import { ankoleWebBackgroundAgentJobControllerIndexOptions } from './api/generated/@tanstack/react-query.gen'
+import { backgroundAgentJobsOptions } from './api/background-agent-jobs'
 import { resourceID } from './console-primitives'
 import { createConsoleRouteLoaders } from './console-route-loaders'
 import { conversationListOptions } from './pages/conversations'
@@ -34,9 +34,7 @@ describe('console route identifiers', () => {
 
     expect(requests).toHaveLength(1)
     expect(requests[0]).toMatchObject({
-      queryKey: ankoleWebBackgroundAgentJobControllerIndexOptions({
-        query: { agent: 'agent-a', q: 'quarterly report', limit: 100 }
-      }).queryKey
+      queryKey: backgroundAgentJobsOptions({ agent_uid: 'agent-a', search: 'quarterly report', limit: 100 }).queryKey
     })
   })
 

@@ -4,6 +4,767 @@ export type ClientOptions = {
   baseUrl: `${string}://${string}` | (string & {})
 }
 
+/**
+ * A "Resource object" representing a agent
+ */
+export type Agent = {
+  /**
+   * An attributes object for a agent
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    avatar_url?: string | null
+    /**
+     * Field included by default.
+     */
+    created_by?: {
+      tenant_id: string
+      uid: string
+    } | null
+    /**
+     * Field included by default.
+     */
+    display_name?: string | null
+    /**
+     * Field included by default.
+     */
+    group_memory_disclosure_mode: 'strict' | 'relaxed'
+    /**
+     * Field included by default.
+     */
+    handle: string
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    options: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    owner_principal_uid: string
+    /**
+     * Field included by default.
+     */
+    role: string
+    /**
+     * Field included by default.
+     */
+    status?: 'active' | 'disabled'
+    type: 'ai_colleague'
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+    /**
+     * Field included by default.
+     */
+    worker_provider_id?: string | null
+  }
+  id: string
+  /**
+   * A relationships object for a agent
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type AgentType = {
+  /**
+   * Field included by default.
+   */
+  avatar_url?: string | null
+  /**
+   * Field included by default.
+   */
+  created_by?: {
+    tenant_id: string
+    uid: string
+  } | null
+  /**
+   * Field included by default.
+   */
+  display_name?: string | null
+  /**
+   * Field included by default.
+   */
+  group_memory_disclosure_mode: 'strict' | 'relaxed'
+  /**
+   * Field included by default.
+   */
+  handle: string
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  options: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  owner_principal_uid: string
+  /**
+   * Field included by default.
+   */
+  role: string
+  /**
+   * Field included by default.
+   */
+  status?: 'active' | 'disabled'
+  /**
+   * Field included by default.
+   */
+  type: 'ai_colleague'
+  /**
+   * Field included by default.
+   */
+  uid?: string | null
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+  /**
+   * Field included by default.
+   */
+  worker_provider_id?: string | null
+}
+
+/**
+ * A "Resource object" representing a agent_skill_lesson
+ */
+export type AgentSkillLesson = {
+  /**
+   * An attributes object for a agent_skill_lesson
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    agent_uid: string
+    /**
+     * Field included by default.
+     */
+    author?: {
+      tenant_id: string
+      uid: string
+    } | null
+    /**
+     * Field included by default.
+     */
+    author_kind: 'dreaming' | 'human'
+    /**
+     * Field included by default.
+     */
+    checked_release?: string | null
+    checked_skill_hash?: string | null
+    /**
+     * Field included by default.
+     */
+    content: string
+    /**
+     * Field included by default.
+     */
+    evidence_job_ids: Array<number>
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    retire_reason?: 'human_revoked' | 'lapsed' | 'obsolete'
+    /**
+     * Field included by default.
+     */
+    retired_at?: string | null
+    /**
+     * Field included by default.
+     */
+    review_after?: string | null
+    /**
+     * Field included by default.
+     */
+    skill_name: string
+  }
+  id: string
+  /**
+   * A relationships object for a agent_skill_lesson
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type AgentSkillLessonType = {
+  /**
+   * Field included by default.
+   */
+  agent_uid: string
+  /**
+   * Field included by default.
+   */
+  author?: {
+    tenant_id: string
+    uid: string
+  } | null
+  /**
+   * Field included by default.
+   */
+  author_kind: 'dreaming' | 'human'
+  /**
+   * Field included by default.
+   */
+  checked_release?: string | null
+  /**
+   * Field included by default.
+   */
+  checked_skill_hash?: string | null
+  /**
+   * Field included by default.
+   */
+  content: string
+  /**
+   * Field included by default.
+   */
+  evidence_job_ids: Array<number>
+  /**
+   * Field included by default.
+   */
+  id?: string | null
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  retire_reason?: 'human_revoked' | 'lapsed' | 'obsolete'
+  /**
+   * Field included by default.
+   */
+  retired_at?: string | null
+  /**
+   * Field included by default.
+   */
+  review_after?: string | null
+  /**
+   * Field included by default.
+   */
+  skill_name: string
+}
+
+/**
+ * A "Resource object" representing a agent_worker
+ */
+export type AgentWorker = {
+  /**
+   * An attributes object for a agent_worker
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    capacity: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    drain_reason?: string | null
+    /**
+     * Field included by default.
+     */
+    generation?: string | null
+    /**
+     * Field included by default.
+     */
+    image?: string | null
+    /**
+     * Field included by default.
+     */
+    last_error?: string | null
+    /**
+     * Field included by default.
+     */
+    last_worker_heartbeat_at?: string | null
+    /**
+     * Field included by default.
+     */
+    load: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    provider_id?: string | null
+    /**
+     * Field included by default.
+     */
+    state: 'absent' | 'starting' | 'paused' | 'draining' | 'ready' | 'stale' | 'deleting'
+    /**
+     * Field included by default.
+     */
+    state_changed_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a agent_worker
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type AgentWorkerType = {
+  /**
+   * Field included by default.
+   */
+  agent_uid?: string | null
+  /**
+   * Field included by default.
+   */
+  capacity: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  drain_reason?: string | null
+  /**
+   * Field included by default.
+   */
+  generation?: string | null
+  /**
+   * Field included by default.
+   */
+  image?: string | null
+  /**
+   * Field included by default.
+   */
+  last_error?: string | null
+  /**
+   * Field included by default.
+   */
+  last_worker_heartbeat_at?: string | null
+  /**
+   * Field included by default.
+   */
+  load: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  provider_id?: string | null
+  /**
+   * Field included by default.
+   */
+  state: 'absent' | 'starting' | 'paused' | 'draining' | 'ready' | 'stale' | 'deleting'
+  /**
+   * Field included by default.
+   */
+  state_changed_at: string
+}
+
+/**
+ * A "Resource object" representing a ai_gateway_conversation
+ */
+export type AiGatewayConversation = {
+  /**
+   * An attributes object for a ai_gateway_conversation
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    channel_kind?: 'im_dm' | 'im_group' | 'webhook_endpoint' | 'issue' | 'alert_stream' | 'unknown'
+    /**
+     * Field included by default.
+     */
+    conversation_key: string
+    /**
+     * Field included by default.
+     */
+    display_name?: string | null
+    /**
+     * Field included by default.
+     */
+    ended_at?: string | null
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    kind?: 'conversation' | 'signal' | 'dreaming' | 'job' | 'cron' | 'responses_api' | 'custom'
+    /**
+     * Field included by default.
+     */
+    message_count?: number | null
+    /**
+     * Field included by default.
+     */
+    metadata: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    signal_adapter?: string | null
+    /**
+     * Field included by default.
+     */
+    subject_uid: string
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a ai_gateway_conversation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a ai_gateway_message
+ */
+export type AiGatewayMessage = {
+  /**
+   * An attributes object for a ai_gateway_message
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    content: Array<unknown>
+    /**
+     * Field included by default.
+     */
+    conversation_id: string
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    metadata: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    previous_message_id?: string | null
+    /**
+     * Field included by default.
+     */
+    status: 'generating' | 'complete' | 'error' | 'retracted'
+    /**
+     * Field included by default.
+     */
+    subject_uid: string
+    /**
+     * Field included by default.
+     */
+    type: 'message' | 'checkpoint'
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a ai_gateway_message
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a background_agent_job
+ */
+export type BackgroundAgentJob = {
+  /**
+   * An attributes object for a background_agent_job
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    agent_uid: string
+    /**
+     * Field included by default.
+     */
+    attempts: number
+    authorization_kind?: string | null
+    /**
+     * Field included by default.
+     */
+    completed_at?: string | null
+    /**
+     * Field included by default.
+     */
+    continued_from_job_id?: number | null
+    /**
+     * Field included by default.
+     */
+    duration_seconds?: number | null
+    /**
+     * Field included by default.
+     */
+    error: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    execution_failures: number
+    human_access_version?: number | null
+    human_uid?: string | null
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    metadata: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    model_profile: string
+    /**
+     * Field included by default.
+     */
+    owner_session_id: string
+    /**
+     * Field included by default.
+     */
+    queued_at?: string | null
+    /**
+     * Field included by default.
+     */
+    reply_route: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    result: {
+      [key: string]: unknown
+    }
+    runtime_projection?: {
+      [key: string]: unknown
+    } | null
+    /**
+     * Field included by default.
+     */
+    runtime_thread_id?: string | null
+    /**
+     * Field included by default.
+     */
+    source_signal_id?: string | null
+    /**
+     * Field included by default.
+     */
+    source_tool_call_id?: string | null
+    /**
+     * Field included by default.
+     */
+    started_at?: string | null
+    /**
+     * Field included by default.
+     */
+    status: 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
+    /**
+     * Field included by default.
+     */
+    task?: string | null
+    /**
+     * Field included by default.
+     */
+    title?: string | null
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+    worker_wait_started_at?: string | null
+    /**
+     * Field included by default.
+     */
+    workspace_owner_job_id: number
+    /**
+     * Field included by default.
+     */
+    workspace_template_id?: string | null
+  }
+  id: string
+  /**
+   * A relationships object for a background_agent_job
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type BackgroundAgentJobType = {
+  /**
+   * Field included by default.
+   */
+  agent_uid: string
+  /**
+   * Field included by default.
+   */
+  attempts: number
+  /**
+   * Field included by default.
+   */
+  authorization_kind?: string | null
+  /**
+   * Field included by default.
+   */
+  completed_at?: string | null
+  /**
+   * Field included by default.
+   */
+  continued_from_job_id?: number | null
+  /**
+   * Field included by default.
+   */
+  duration_seconds?: number | null
+  /**
+   * Field included by default.
+   */
+  error: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  execution_failures: number
+  /**
+   * Field included by default.
+   */
+  human_access_version?: number | null
+  /**
+   * Field included by default.
+   */
+  human_uid?: string | null
+  /**
+   * Field included by default.
+   */
+  id?: number | null
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  metadata: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  model_profile: string
+  /**
+   * Field included by default.
+   */
+  owner_session_id: string
+  /**
+   * Field included by default.
+   */
+  queued_at?: string | null
+  /**
+   * Field included by default.
+   */
+  reply_route: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  result: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  runtime_projection?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Field included by default.
+   */
+  runtime_thread_id?: string | null
+  /**
+   * Field included by default.
+   */
+  source_signal_id?: string | null
+  /**
+   * Field included by default.
+   */
+  source_tool_call_id?: string | null
+  /**
+   * Field included by default.
+   */
+  started_at?: string | null
+  /**
+   * Field included by default.
+   */
+  status: 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
+  /**
+   * Field included by default.
+   */
+  task?: string | null
+  /**
+   * Field included by default.
+   */
+  title?: string | null
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+  /**
+   * Field included by default.
+   */
+  worker_wait_started_at?: string | null
+  /**
+   * Field included by default.
+   */
+  workspace_owner_job_id: number
+  /**
+   * Field included by default.
+   */
+  workspace_template_id?: string | null
+}
+
 export type Error = {
   /**
    * An application-specific error code, expressed as a string value.
@@ -48,3 +809,858 @@ export type Link = string
 export type Links = {
   [key: string]: Link
 }
+
+export type ListAgentWorkersData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for agent_worker
+       */
+      agent_worker?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/agent-workers'
+}
+
+export type ListAgentWorkersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAgentWorkersError = ListAgentWorkersErrors[keyof ListAgentWorkersErrors]
+
+export type ListAgentWorkersResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a agent_worker
+     */
+    data?: Array<AgentWorker>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListAgentWorkersResponse = ListAgentWorkersResponses[keyof ListAgentWorkersResponses]
+
+export type ListAgentsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for agent
+       */
+      agent?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/agents'
+}
+
+export type ListAgentsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAgentsError = ListAgentsErrors[keyof ListAgentsErrors]
+
+export type ListAgentsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a agent
+     */
+    data?: Array<Agent>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListAgentsResponse = ListAgentsResponses[keyof ListAgentsResponses]
+
+export type CreateAgentData = {
+  /**
+   * Request body for the create_agent operation on agent resource
+   */
+  body: {
+    data: {
+      avatar_url?: string | null
+      display_name: string
+      group_memory_disclosure_mode?: 'strict' | 'relaxed'
+      handle: string
+      options?: {
+        [key: string]: unknown
+      } | null
+      owner_principal_uid: string
+      role: string
+      worker_provider_id?: string | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/agents'
+}
+
+export type CreateAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateAgentError = CreateAgentErrors[keyof CreateAgentErrors]
+
+export type CreateAgentResponses = {
+  /**
+   * Success
+   */
+  201: AgentType
+}
+
+export type CreateAgentResponse = CreateAgentResponses[keyof CreateAgentResponses]
+
+export type ListAgentSkillLessonsData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for agent_skill_lesson
+       */
+      agent_skill_lesson?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/agents/{agent_uid}/skill-lessons'
+}
+
+export type ListAgentSkillLessonsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAgentSkillLessonsError = ListAgentSkillLessonsErrors[keyof ListAgentSkillLessonsErrors]
+
+export type ListAgentSkillLessonsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a agent_skill_lesson
+     */
+    data?: Array<AgentSkillLesson>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListAgentSkillLessonsResponse = ListAgentSkillLessonsResponses[keyof ListAgentSkillLessonsResponses]
+
+export type CreateAgentSkillLessonData = {
+  /**
+   * Request body for the create_agent_skill_lesson operation on agent_skill_lesson resource
+   */
+  body: {
+    data: {
+      content: string
+      skill_name: string
+    }
+  }
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/skill-lessons'
+}
+
+export type CreateAgentSkillLessonErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateAgentSkillLessonError = CreateAgentSkillLessonErrors[keyof CreateAgentSkillLessonErrors]
+
+export type CreateAgentSkillLessonResponses = {
+  /**
+   * Success
+   */
+  201: AgentSkillLessonType
+}
+
+export type CreateAgentSkillLessonResponse = CreateAgentSkillLessonResponses[keyof CreateAgentSkillLessonResponses]
+
+export type RetireAgentSkillLessonData = {
+  body?: never
+  path: {
+    lesson_id: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/skill-lessons/{lesson_id}/retire'
+}
+
+export type RetireAgentSkillLessonErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RetireAgentSkillLessonError = RetireAgentSkillLessonErrors[keyof RetireAgentSkillLessonErrors]
+
+export type RetireAgentSkillLessonResponses = {
+  /**
+   * Success
+   */
+  201: AgentSkillLessonType
+}
+
+export type RetireAgentSkillLessonResponse = RetireAgentSkillLessonResponses[keyof RetireAgentSkillLessonResponses]
+
+export type AssignAgentWorkerProviderData = {
+  /**
+   * Request body for the assign_agent_worker_provider operation on agent_worker resource
+   */
+  body: {
+    data: {
+      provider_id: string
+    }
+  }
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/worker-provider'
+}
+
+export type AssignAgentWorkerProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type AssignAgentWorkerProviderError = AssignAgentWorkerProviderErrors[keyof AssignAgentWorkerProviderErrors]
+
+export type AssignAgentWorkerProviderResponses = {
+  /**
+   * Success
+   */
+  200: AgentWorkerType
+}
+
+export type AssignAgentWorkerProviderResponse =
+  AssignAgentWorkerProviderResponses[keyof AssignAgentWorkerProviderResponses]
+
+export type DeleteAgentData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{uid}'
+}
+
+export type DeleteAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteAgentError = DeleteAgentErrors[keyof DeleteAgentErrors]
+
+export type DeleteAgentResponses = {
+  /**
+   * Success
+   */
+  200: AgentType
+}
+
+export type DeleteAgentResponse = DeleteAgentResponses[keyof DeleteAgentResponses]
+
+export type GetAgentData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for agent
+       */
+      agent?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/agents/{uid}'
+}
+
+export type GetAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetAgentError = GetAgentErrors[keyof GetAgentErrors]
+
+export type GetAgentResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: Agent
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetAgentResponse = GetAgentResponses[keyof GetAgentResponses]
+
+export type UpdateAgentData = {
+  /**
+   * Request body for the update_agent operation on agent resource
+   */
+  body?: {
+    data: {
+      avatar_url?: string | null
+      display_name?: string | null
+      group_memory_disclosure_mode?: 'strict' | 'relaxed'
+      handle?: string | null
+      options?: {
+        [key: string]: unknown
+      } | null
+      owner_principal_uid?: string | null
+      role?: string | null
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{uid}'
+}
+
+export type UpdateAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateAgentError = UpdateAgentErrors[keyof UpdateAgentErrors]
+
+export type UpdateAgentResponses = {
+  /**
+   * Success
+   */
+  200: AgentType
+}
+
+export type UpdateAgentResponse = UpdateAgentResponses[keyof UpdateAgentResponses]
+
+export type EnableAgentData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{uid}/enable'
+}
+
+export type EnableAgentErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type EnableAgentError = EnableAgentErrors[keyof EnableAgentErrors]
+
+export type EnableAgentResponses = {
+  /**
+   * Success
+   */
+  201: AgentType
+}
+
+export type EnableAgentResponse = EnableAgentResponses[keyof EnableAgentResponses]
+
+export type ListAiGatewayConversationsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      count?: boolean
+      limit?: number
+    }
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_conversation
+       */
+      ai_gateway_conversation?: string
+      [key: string]: unknown
+    }
+    subject_uid?: string
+    conversation_key?: string
+    search?: string
+    active?: boolean
+    min_messages?: number
+  }
+  url: '/api/v2/ai-gateway/conversations'
+}
+
+export type ListAiGatewayConversationsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAiGatewayConversationsError = ListAiGatewayConversationsErrors[keyof ListAiGatewayConversationsErrors]
+
+export type ListAiGatewayConversationsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a ai_gateway_conversation
+     */
+    data?: Array<AiGatewayConversation>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListAiGatewayConversationsResponse =
+  ListAiGatewayConversationsResponses[keyof ListAiGatewayConversationsResponses]
+
+export type ListAiGatewayMessagesData = {
+  body?: never
+  path: {
+    conversation_id: string
+  }
+  query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      count?: boolean
+      limit?: number
+    }
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_message
+       */
+      ai_gateway_message?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/ai-gateway/conversations/{conversation_id}/messages'
+}
+
+export type ListAiGatewayMessagesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAiGatewayMessagesError = ListAiGatewayMessagesErrors[keyof ListAiGatewayMessagesErrors]
+
+export type ListAiGatewayMessagesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a ai_gateway_message
+     */
+    data?: Array<AiGatewayMessage>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListAiGatewayMessagesResponse = ListAiGatewayMessagesResponses[keyof ListAiGatewayMessagesResponses]
+
+export type GetAiGatewayConversationData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_conversation
+       */
+      ai_gateway_conversation?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/ai-gateway/conversations/{id}'
+}
+
+export type GetAiGatewayConversationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetAiGatewayConversationError = GetAiGatewayConversationErrors[keyof GetAiGatewayConversationErrors]
+
+export type GetAiGatewayConversationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: AiGatewayConversation
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetAiGatewayConversationResponse =
+  GetAiGatewayConversationResponses[keyof GetAiGatewayConversationResponses]
+
+export type ListBackgroundAgentJobsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      count?: boolean
+      limit?: number
+    }
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for background_agent_job
+       */
+      background_agent_job?: string
+      [key: string]: unknown
+    }
+    agent_uid?: string
+    status?: string
+    search?: string
+    live_only?: boolean
+  }
+  url: '/api/v2/background-agent-jobs'
+}
+
+export type ListBackgroundAgentJobsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBackgroundAgentJobsError = ListBackgroundAgentJobsErrors[keyof ListBackgroundAgentJobsErrors]
+
+export type ListBackgroundAgentJobsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a background_agent_job
+     */
+    data?: Array<{
+      /**
+       * An attributes object for a background_agent_job
+       */
+      attributes?: {
+        /**
+         * Field included by default.
+         */
+        agent_uid: string
+        /**
+         * Field included by default.
+         */
+        attempts: number
+        authorization_kind?: string | null
+        completed_at?: string | null
+        continued_from_job_id?: number | null
+        /**
+         * Field included by default.
+         */
+        duration_seconds?: number | null
+        error: {
+          [key: string]: unknown
+        }
+        /**
+         * Field included by default.
+         */
+        execution_failures: number
+        human_access_version?: number | null
+        human_uid?: string | null
+        /**
+         * Field included by default.
+         */
+        inserted_at: string
+        metadata: {
+          [key: string]: unknown
+        }
+        model_profile: string
+        owner_session_id: string
+        queued_at?: string | null
+        reply_route: {
+          [key: string]: unknown
+        }
+        result: {
+          [key: string]: unknown
+        }
+        runtime_projection?: {
+          [key: string]: unknown
+        } | null
+        runtime_thread_id?: string | null
+        source_signal_id?: string | null
+        source_tool_call_id?: string | null
+        started_at?: string | null
+        /**
+         * Field included by default.
+         */
+        status: 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
+        task?: string | null
+        /**
+         * Field included by default.
+         */
+        title?: string | null
+        updated_at: string
+        worker_wait_started_at?: string | null
+        workspace_owner_job_id: number
+        /**
+         * Field included by default.
+         */
+        workspace_template_id?: string | null
+      }
+      id: string
+      /**
+       * A relationships object for a background_agent_job
+       */
+      relationships?: {
+        [key: string]: never
+      }
+      type: string
+    }>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBackgroundAgentJobsResponse = ListBackgroundAgentJobsResponses[keyof ListBackgroundAgentJobsResponses]
+
+export type GetBackgroundAgentJobData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for background_agent_job
+       */
+      background_agent_job?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/background-agent-jobs/{id}'
+}
+
+export type GetBackgroundAgentJobErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetBackgroundAgentJobError = GetBackgroundAgentJobErrors[keyof GetBackgroundAgentJobErrors]
+
+export type GetBackgroundAgentJobResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: BackgroundAgentJob
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetBackgroundAgentJobResponse = GetBackgroundAgentJobResponses[keyof GetBackgroundAgentJobResponses]
+
+export type CancelBackgroundAgentJobData = {
+  body?: never
+  path: {
+    id: number
+  }
+  query?: never
+  url: '/api/v2/background-agent-jobs/{id}/cancel'
+}
+
+export type CancelBackgroundAgentJobErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CancelBackgroundAgentJobError = CancelBackgroundAgentJobErrors[keyof CancelBackgroundAgentJobErrors]
+
+export type CancelBackgroundAgentJobResponses = {
+  /**
+   * Success
+   */
+  201: BackgroundAgentJobType
+}
+
+export type CancelBackgroundAgentJobResponse =
+  CancelBackgroundAgentJobResponses[keyof CancelBackgroundAgentJobResponses]
+
+export type CompleteBackgroundAgentJobData = {
+  /**
+   * Request body for the complete_background_agent_job operation on background_agent_job resource
+   */
+  body: {
+    data: {
+      result_summary: string
+    }
+  }
+  path: {
+    id: number
+  }
+  query?: never
+  url: '/api/v2/background-agent-jobs/{id}/complete'
+}
+
+export type CompleteBackgroundAgentJobErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CompleteBackgroundAgentJobError = CompleteBackgroundAgentJobErrors[keyof CompleteBackgroundAgentJobErrors]
+
+export type CompleteBackgroundAgentJobResponses = {
+  /**
+   * Success
+   */
+  201: BackgroundAgentJobType
+}
+
+export type CompleteBackgroundAgentJobResponse =
+  CompleteBackgroundAgentJobResponses[keyof CompleteBackgroundAgentJobResponses]

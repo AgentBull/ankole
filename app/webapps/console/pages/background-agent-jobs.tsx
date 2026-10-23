@@ -49,21 +49,28 @@ import { useTranslation } from 'react-i18next'
 import { useSearchParams } from '../../common/router'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
-  ankoleWebBackgroundAgentJobControllerCancelMutation,
-  ankoleWebBackgroundAgentJobControllerCompleteMutation,
+  backgroundAgentJobOptions,
+  backgroundAgentJobsOptions,
+  type BackgroundAgentJobItem,
+  type BackgroundAgentJobListItem
+} from '../api/background-agent-jobs'
+import {
   ankoleWebBackgroundAgentJobControllerHealthOptions,
-  ankoleWebBackgroundAgentJobControllerIndexOptions,
-  ankoleWebBackgroundAgentJobControllerIndexQueryKey,
-  ankoleWebBackgroundAgentJobControllerShowOptions
+  ankoleWebBackgroundAgentJobControllerTurnsOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type {
   BackgroundAgentJobHealthResponse,
-  BackgroundAgentJobItem,
-  BackgroundAgentJobListItem,
-  BackgroundAgentJobListResponse,
+  BackgroundAgentJobTurnItem,
+  BackgroundAgentJobTurnPageResponse,
   BackgroundAgentJobTurnPlanStep,
   BackgroundAgentJobTurnUsageBreakdown
 } from '../api/generated/types.gen'
+import {
+  cancelBackgroundAgentJobMutation,
+  completeBackgroundAgentJobMutation,
+  type listBackgroundAgentJobsQueryKey
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import type { ListBackgroundAgentJobsResponse } from '../api/v2/generated/types.gen'
 import { AgentFilter, type AgentScope, useAgentScope } from '../console-agent-scope'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate, formatDuration, formatJSON, resourceID, truncate } from '../console-primitives'
@@ -86,7 +93,7 @@ type Column = {
   statuses: JobStatus[]
 }
 
-type BackgroundAgentJobTurn = NonNullable<BackgroundAgentJobItem['turns']>[number]
+type BackgroundAgentJobTurn = BackgroundAgentJobTurnItem
 
 type TrajectoryMessage = BackgroundAgentJobTurn['trajectory']['messages'][number]
 
@@ -128,7 +135,14 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
   // This list endpoint spans agents on its own; the scope only narrows it.
   const list = useQuery(backgroundAgentJobListOptions(scope.agentUID, searchFilter))
   const detail = useQuery({
-    ...ankoleWebBackgroundAgentJobControllerShowOptions({
+    ...backgroundAgentJobOptions(selectedID ?? 1000),
+    enabled: selectedID !== undefined,
+    refetchInterval: selectedID !== undefined ? ACTIVITY_REFRESH_MS : false,
+    retry: false
+  })
+  // The Turn trajectory is a read model of its own; it pages newest first.
+  const turns = useQuery({
+    ...ankoleWebBackgroundAgentJobControllerTurnsOptions({
       path: { job_id: selectedID ?? 1000 },
       query: { cursor: turnsCursor }
     }),
@@ -137,7 +151,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
     retry: false
   })
   const cancel = useMutation({
-    ...ankoleWebBackgroundAgentJobControllerCancelMutation(),
+    ...cancelBackgroundAgentJobMutation(),
     onSuccess: () => {
       toast.success(t('console.background_agent_jobs.cancelled'))
       setCancelTargetID(undefined)
@@ -145,7 +159,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
     onError: error => toast.error(requestErrorMessage(error))
   })
   const complete = useMutation({
-    ...ankoleWebBackgroundAgentJobControllerCompleteMutation(),
+    ...completeBackgroundAgentJobMutation(),
     onSuccess: () => {
       toast.success(t('console.background_agent_jobs.completed'))
       setCompleteTargetID(undefined)
@@ -164,7 +178,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
     pending: complete.isPending
   })
   const jobs = list.data?.jobs ?? []
-  const selected = detail.data?.job
+  const selected = detail.data
   const cancelTarget =
     jobs.find(job => job.id === cancelTargetID) ?? (selected?.id === cancelTargetID ? selected : undefined)
 
@@ -291,7 +305,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
       {/* The board reads one page and the finished column grows without bound, so
           a busy deployment instance silently loses its older jobs off the end. Say that
           the view is capped rather than let it look complete. */}
-      {list.data?.next_cursor ? (
+      {list.data?.nextAfter ? (
         <p className="text-sm text-muted-foreground">
           {t('console.background_agent_jobs.capped', { count: jobs.length })}
         </p>
@@ -321,16 +335,16 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
                   <span aria-hidden>·</span>
                   <span className="font-mono text-xs">#{selected.id}</span>
                   <span aria-hidden>·</span>
-                  <span>{formatDuration(selected.duration_seconds)}</span>
+                  <span>{formatDuration(selected.duration_seconds ?? 0)}</span>
                 </>
               ) : null}
             </SheetDescription>
           </SheetHeader>
 
           <div className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
-            {detail.error ? (
-              <ErrorBlock error={detail.error} />
-            ) : detail.isLoading || !selected ? (
+            {detail.error || turns.error ? (
+              <ErrorBlock error={detail.error ?? turns.error} />
+            ) : detail.isLoading || !selected || !turns.data ? (
               <Skeleton className="h-64 w-full" />
             ) : (
               <div className="grid grid-cols-1 min-w-0 gap-8 xl:grid-cols-[18rem_minmax(0,1fr)] xl:gap-10">
@@ -338,7 +352,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
                 <div className="grid min-w-0 gap-8">
                   <JobPrompt job={selected} />
                   <JobOutcome job={selected} />
-                  <JobTrajectory job={selected} />
+                  <JobTrajectory job={selected} page={turns.data} />
                 </div>
               </div>
             )}
@@ -378,8 +392,8 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
               onClick={() =>
                 completeTargetID !== undefined &&
                 complete.mutate({
-                  path: { job_id: completeTargetID },
-                  body: { result_summary: completeSummary.trim() }
+                  path: { id: completeTargetID },
+                  body: { data: { result_summary: completeSummary.trim() } }
                 })
               }>
               {t('console.background_agent_jobs.complete')}
@@ -408,7 +422,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
             <Button
               variant="destructive"
               disabled={!cancelTarget || cancel.isPending}
-              onClick={() => cancelTarget && cancel.mutate({ path: { job_id: cancelTarget.id } })}>
+              onClick={() => cancelTarget && cancel.mutate({ path: { id: cancelTarget.id } })}>
               {t('console.background_agent_jobs.cancel')}
             </Button>
           </DialogFooter>
@@ -421,17 +435,15 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
 export function backgroundAgentJobListOptions(agentUID: string, search = '') {
   const agent = agentUID || undefined
   return {
-    ...ankoleWebBackgroundAgentJobControllerIndexOptions({
-      query: { agent, q: search.trim() || undefined, limit: 100 }
-    }),
+    ...backgroundAgentJobsOptions({ agent_uid: agent, search: search.trim() || undefined, limit: 100 }),
     refetchInterval: ACTIVITY_REFRESH_MS,
     // A search commit changes the query key; keep the previous board on screen
     // instead of collapsing the columns into skeletons. Never across an agent
     // scope change: another Agent's rows must not show under the new scope.
     placeholderData: (
-      previousData: BackgroundAgentJobListResponse | undefined,
-      previousQuery: { queryKey: ReturnType<typeof ankoleWebBackgroundAgentJobControllerIndexQueryKey> } | undefined
-    ) => (previousQuery?.queryKey[0].query?.agent === agent ? previousData : undefined)
+      previousData: ListBackgroundAgentJobsResponse | undefined,
+      previousQuery: { queryKey: ReturnType<typeof listBackgroundAgentJobsQueryKey> } | undefined
+    ) => (previousQuery?.queryKey[0].query?.agent_uid === agent ? previousData : undefined)
   }
 }
 
@@ -581,7 +593,7 @@ function BackgroundAgentJobCard({
           <span className="truncate font-mono">{task.agent_uid}</span>
           <span className="flex items-center gap-1.5">
             <RiTimeLine className="size-3.5" />
-            {formatDuration(task.duration_seconds)} ·{' '}
+            {formatDuration(task.duration_seconds ?? 0)} ·{' '}
             {t('console.background_agent_jobs.attempt_count', { count: task.attempts })}
           </span>
           {task.workspace_template_id ? <span className="truncate">{task.workspace_template_id}</span> : null}
@@ -632,7 +644,7 @@ function JobFacts({ job }: { job: BackgroundAgentJobItem }) {
         mono
       />
       <Fact label={t('console.background_agent_jobs.attempts')} value={job.attempts} />
-      <Fact label={t('console.background_agent_jobs.duration')} value={formatDuration(job.duration_seconds)} />
+      <Fact label={t('console.background_agent_jobs.duration')} value={formatDuration(job.duration_seconds ?? 0)} />
       <Fact label={t('console.background_agent_jobs.queued_at')} value={formatConsoleDate(job.queued_at)} />
       <Fact label={t('console.background_agent_jobs.started_at')} value={formatConsoleDate(job.started_at)} />
       <Fact label={t('console.background_agent_jobs.completed_at')} value={formatConsoleDate(job.completed_at)} />
@@ -715,17 +727,17 @@ function JobOutcome({ job }: { job: BackgroundAgentJobItem }) {
  * The server pages the trajectory newest first, so the first page holds the
  * latest Turns and the pager walks back into the older history.
  */
-function JobTrajectory({ job }: { job: BackgroundAgentJobItem }) {
+function JobTrajectory({ job, page }: { job: BackgroundAgentJobItem; page: BackgroundAgentJobTurnPageResponse }) {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
-  const turns = job.turns ?? []
+  const turns = page.turns
   const latest = turns.at(-1)
 
   const pager = (
     <CursorPagination
       page={cursorPageNumber(searchParams)}
       hasPrevious={hasPreviousCursor(searchParams)}
-      nextCursor={job.turns_next_cursor}
+      nextCursor={page.next_cursor}
       resultCount={turns.length}
       onPrevious={() => setSearchParams(previousCursorParams(searchParams))}
       onNext={cursor => setSearchParams(nextCursorParams(searchParams, cursor))}

@@ -121,12 +121,12 @@ defmodule AnkoleWeb.JSONAPI.BackgroundAgentJobsTest do
     stopped = create_job!(agent.uid, "stopped-completion")
     {:ok, _} = BackgroundAgentJobs.request_stop(stopped.id, %{"agent_uid" => agent.uid})
 
-    assert %{"errors" => [%{"code" => "background_agent_job_terminal"}]} =
+    assert %{"errors" => [%{"code" => "conflict"}]} =
              conn
              |> send_v2(:post, "/api/v2/background-agent-jobs/#{stopped.id}/complete", %{
                "result_summary" => "late"
              })
-             |> json_response(422)
+             |> json_response(409)
   end
 
   test "title search treats LIKE control characters as ordinary text", %{conn: conn} do

@@ -236,6 +236,22 @@ defmodule Ankole.AgentWorkers.Providers do
     end
   end
 
+  @doc false
+  # Runs the `console_assign_provider` action of the Worker.
+  def console_assign_in_tx(agent_uid, provider_id) do
+    case Errors.reason(assign_in_tx(Repo, agent_uid, provider_id)) do
+      {:error, reason} when reason in [:agent_not_found, :worker_provider_not_found] ->
+        {:error, Errors.Invalid.NotFound.exception(resource: AgentWorker, id: agent_uid)}
+
+      {:error, reason} when reason in [:worker_provider_immutable, :agent_uid_pending_deletion] ->
+        {:error,
+         Errors.Invalid.StatusTransition.exception(resource: AgentWorker, field: :provider_id)}
+
+      result ->
+        Errors.wrap(result, &Ankole.AgentWorkers.Providers.Errors.rejection/1)
+    end
+  end
+
   def provider_ids(agent_uids) do
     [query: [filter: [agent_uid: [in: agent_uids]]]]
     |> AgentWorkers.list_agent_workers!()

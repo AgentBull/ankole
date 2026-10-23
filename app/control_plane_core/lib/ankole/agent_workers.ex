@@ -97,7 +97,7 @@ defmodule Ankole.AgentWorkers do
       end
 
       base_route "/agents", AgentWorker do
-        route(:put, "/:agent_uid/worker-provider", :assign_provider_once,
+        route(:put, "/:agent_uid/worker-provider", :console_assign_provider,
           name: "assign_agent_worker_provider"
         )
       end

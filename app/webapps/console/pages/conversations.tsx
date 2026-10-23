@@ -43,14 +43,12 @@ import {
   resetCursorParams
 } from '../state/cursor-pagination'
 import {
-  ankoleWebAiGatewayConversationControllerIndexOptions as ankoleWebAIGatewayConversationControllerIndexOptions,
-  ankoleWebAiGatewayConversationControllerMessagesOptions as ankoleWebAIGatewayConversationControllerMessagesOptions,
-  ankoleWebAiGatewayConversationControllerShowOptions as ankoleWebAIGatewayConversationControllerShowOptions
-} from '../api/generated/@tanstack/react-query.gen'
-import type {
-  AiGatewayConversationItem as AIGatewayConversationItem,
-  AiGatewayMessageItem as AIGatewayMessageItem
-} from '../api/generated/types.gen'
+  aiGatewayConversationOptions,
+  aiGatewayConversationsOptions,
+  aiGatewayMessagesOptions,
+  type AIGatewayConversationItem,
+  type AIGatewayMessageItem
+} from '../api/ai-gateway-conversations'
 
 type ResponseItem = Record<string, unknown>
 
@@ -95,11 +93,11 @@ export function ConversationsListPage() {
     // across a subject-scope change: another Agent's conversations must not
     // show under the new scope.
     placeholderData: (previousData, previousQuery) =>
-      previousQuery?.queryKey[0].query?.subject === subject ? previousData : undefined
+      previousQuery?.queryKey[0].query?.subject_uid === subject ? previousData : undefined
   })
 
   const conversations = list.data?.conversations ?? []
-  const nextCursor = list.data?.next_cursor ?? undefined
+  const nextCursor = list.data?.nextAfter
 
   const setActiveFilter = (value: string) => {
     const next = new URLSearchParams(searchParams)
@@ -340,18 +338,13 @@ export function ConversationDetailPage() {
   const displayedCursor = useRef(cursor)
 
   const conversation = useQuery({
-    ...ankoleWebAIGatewayConversationControllerShowOptions({
-      path: { conversation_id: conversationID }
-    }),
+    ...aiGatewayConversationOptions(conversationID),
     enabled: Boolean(conversationID),
     retry: false
   })
 
   const messages = useQuery({
-    ...ankoleWebAIGatewayConversationControllerMessagesOptions({
-      path: { conversation_id: conversationID },
-      query: { cursor, limit: 200 }
-    }),
+    ...aiGatewayMessagesOptions(conversationID, { after: cursor, limit: 200 }),
     enabled: Boolean(conversationID),
     retry: false,
     // Paging keeps the previous page on screen; a conversation change must not.
@@ -359,9 +352,9 @@ export function ConversationDetailPage() {
       previousQuery?.queryKey[0].path.conversation_id === conversationID ? previousData : undefined
   })
 
-  const detail = conversation.data?.conversation
+  const detail = conversation.data
   const thread = messages.data?.messages ?? []
-  const nextCursor = messages.data?.next_cursor ?? undefined
+  const nextCursor = messages.data?.nextAfter
 
   useEffect(() => {
     if (displayedCursor.current === cursor || messages.isPending || messages.isPlaceholderData) return
@@ -760,14 +753,12 @@ export function conversationListOptions(params: {
   showAll: boolean
   cursor?: string | null
 }) {
-  return ankoleWebAIGatewayConversationControllerIndexOptions({
-    query: {
-      q: params.q?.trim() || undefined,
-      subject: params.subject?.trim() || undefined,
-      active: params.active === 'true' ? true : params.active === 'false' ? false : undefined,
-      min_messages: params.showAll ? undefined : 2,
-      cursor: params.cursor || undefined,
-      limit: 50
-    }
+  return aiGatewayConversationsOptions({
+    search: params.q?.trim() || undefined,
+    subject_uid: params.subject?.trim() || undefined,
+    active: params.active === 'true' ? true : params.active === 'false' ? false : undefined,
+    min_messages: params.showAll ? undefined : 2,
+    after: params.cursor || undefined,
+    limit: 50
   })
 }

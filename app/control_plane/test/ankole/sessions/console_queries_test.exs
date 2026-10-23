@@ -246,7 +246,7 @@ defmodule Ankole.Sessions.ConsoleQueriesTest do
       projection = reload(conversation)
 
       assert projection.message_count == 2
-      assert projection.kind == "job"
+      assert projection.kind == :job
       assert projection.display_name == nil
       assert projection.channel_kind == nil
       assert projection.signal_adapter == nil
@@ -273,7 +273,7 @@ defmodule Ankole.Sessions.ConsoleQueriesTest do
 
       projection = reload(conversation)
 
-      assert projection.kind == "conversation"
+      assert projection.kind == :conversation
       assert projection.display_name == "Ankole 用户群"
       assert projection.channel_kind == "im_group"
       assert projection.signal_adapter == "lark"
@@ -330,7 +330,7 @@ defmodule Ankole.Sessions.ConsoleQueriesTest do
 
       projection = reload(conversation)
 
-      assert projection.kind == "cron"
+      assert projection.kind == :cron
       assert projection.channel_kind == nil
       assert projection.signal_adapter == nil
     end

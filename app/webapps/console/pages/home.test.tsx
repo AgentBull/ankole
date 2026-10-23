@@ -7,9 +7,9 @@ import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
 import {
   ankoleWebConsoleReadinessControllerShowQueryKey,
   ankoleWebAiGatewayProviderControllerIndexQueryKey,
-  ankoleWebBackgroundAgentJobControllerHealthQueryKey,
-  ankoleWebBackgroundAgentJobControllerIndexQueryKey
+  ankoleWebBackgroundAgentJobControllerHealthQueryKey
 } from '../api/generated/@tanstack/react-query.gen'
+import { backgroundAgentJobsOptions } from '../api/background-agent-jobs'
 import type { ConsoleReadinessResponse } from '../api/generated/types.gen'
 import { HomePage } from './home'
 
@@ -18,7 +18,7 @@ beforeAll(() => loadLocale('en-US'))
 test('shows global job counts independently of the recent jobs page', async () => {
   const client = new QueryClient()
   client.setQueryData(ankoleWebBackgroundAgentJobControllerHealthQueryKey(), { running_count: 12, queued_count: 17 })
-  client.setQueryData(ankoleWebBackgroundAgentJobControllerIndexQueryKey({ query: { limit: 20 } }), { jobs: [] })
+  client.setQueryData(backgroundAgentJobsOptions({ limit: 20 }).queryKey, { data: [] })
 
   const html = await providerHTML(client)
   const jobMetric = html.match(/<a[^>]*href="\/background-agent-jobs"[^>]*>[\s\S]*?<\/a>/)?.[0]

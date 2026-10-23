@@ -4,7 +4,7 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Router
 import { renderToStaticMarkup } from 'react-dom/server'
 import { loadLocale } from '../../common/i18n'
 import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
-import type { BackgroundAgentJobListItem } from '../api/generated/types.gen'
+import type { ListBackgroundAgentJobsResponse } from '../api/v2/generated/types.gen'
 import {
   BackgroundAgentJobsPage,
   backgroundAgentJobListOptions,
@@ -68,21 +68,10 @@ describe('Background Agent Job scope changes', () => {
 
   test('announces the number of matching Jobs', async () => {
     const queryClient = new QueryClient()
-    const matchingJob: BackgroundAgentJobListItem = {
-      agent_uid: 'agent-a',
-      attempts: 0,
-      duration_seconds: 0,
-      execution_failures: 0,
-      id: 1000,
-      inserted_at: '2026-08-14T00:00:00Z',
-      status: 'queued',
-      title: 'Quarterly report',
-      workspace_template_id: null
-    }
-    queryClient.setQueryData(backgroundAgentJobListOptions('', 'quarterly report').queryKey, {
-      jobs: [matchingJob],
-      next_cursor: null
-    })
+    queryClient.setQueryData(
+      backgroundAgentJobListOptions('', 'quarterly report').queryKey,
+      jobsDocument('agent-a', 'Quarterly report')
+    )
 
     const html = await renderJobsPage(queryClient, '/background-agent-jobs?q=quarterly+report')
 
@@ -94,21 +83,10 @@ describe('Background Agent Job scope changes', () => {
     const queryClient = new QueryClient()
     const first = backgroundAgentJobListOptions('agent-a')
     const second = backgroundAgentJobListOptions('agent-b')
-    const previousJob: BackgroundAgentJobListItem = {
-      agent_uid: 'agent-a',
-      attempts: 0,
-      duration_seconds: 0,
-      execution_failures: 0,
-      id: 1000,
-      inserted_at: '2026-08-14T00:00:00Z',
-      status: 'queued',
-      title: 'Agent A job',
-      workspace_template_id: null
-    }
-    queryClient.setQueryData(first.queryKey, { jobs: [previousJob], next_cursor: null })
+    queryClient.setQueryData(first.queryKey, jobsDocument('agent-a', 'Agent A job'))
 
     const observer = new QueryObserver(queryClient, { ...first, enabled: false })
-    expect(observer.getCurrentResult().data).toEqual({ jobs: [previousJob], next_cursor: null })
+    expect(observer.getCurrentResult().data?.jobs.map(job => [job.id, job.title])).toEqual([[1000, 'Agent A job']])
 
     observer.setOptions({ ...second, enabled: false })
     expect(observer.getCurrentResult().data).toBeUndefined()
@@ -129,3 +107,18 @@ describe('Background Agent Job scope changes', () => {
     expect(paged.toString()).toBe('agent=agent-b')
   })
 })
+
+// One list page as the v2 API sends it: the board columns of one queued Job.
+function jobsDocument(agentUID: string, title: string): ListBackgroundAgentJobsResponse {
+  const attributes = {
+    agent_uid: agentUID,
+    attempts: 0,
+    duration_seconds: 0,
+    execution_failures: 0,
+    inserted_at: '2026-08-14T00:00:00Z',
+    status: 'queued',
+    title,
+    workspace_template_id: null
+  }
+  return { data: [{ id: '1000', type: 'background_agent_job', attributes }] } as ListBackgroundAgentJobsResponse
+}

@@ -1,15 +1,10 @@
 import type { QueryClient } from '@tanstack/react-query'
 import {
-  ankoleWebAgentWorkerControllerIndexOptions,
-  ankoleWebAgentControllerIndexOptions,
   ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions,
   ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions,
-  ankoleWebAgentSkillLessonControllerIndexOptions,
   ankoleWebAppConfigurationControllerIndexOptions,
   ankoleWebAuthZGroupControllerIndexOptions,
   ankoleWebAutomationJobControllerIndexOptions,
-  ankoleWebBackgroundAgentJobControllerIndexOptions,
-  ankoleWebBackgroundAgentJobControllerShowOptions,
   ankoleWebControlPlanePluginControllerIndexOptions,
   ankoleWebIdentityMappingRequestControllerIndexOptions,
   ankoleWebIdentityProviderControllerIndexOptions,
@@ -18,11 +13,16 @@ import {
   ankoleWebScheduleControllerIndexCheckbacksOptions,
   ankoleWebScheduleControllerIndexCronOptions,
   ankoleWebSignalBindingControllerIndexOptions,
-  ankoleWebAiGatewayConversationControllerIndexOptions as ankoleWebAIGatewayConversationControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
   ankoleWebWebhookEndpointControllerIndexOptions,
+  ankoleWebBackgroundAgentJobControllerTurnsOptions,
   ankoleWebWorkerEnvControllerIndexOptions
 } from './api/generated/@tanstack/react-query.gen'
+import { agentWorkerListOptions } from './api/agent-workers'
+import { agentListOptions } from './api/agents'
+import { aiGatewayConversationsOptions } from './api/ai-gateway-conversations'
+import { backgroundAgentJobOptions, backgroundAgentJobsOptions } from './api/background-agent-jobs'
+import { listAgentSkillLessonsOptions } from './api/v2/generated/@tanstack/react-query.gen'
 import { backgroundAgentJobListOptions } from './pages/background-agent-jobs'
 import { conversationListOptions } from './pages/conversations'
 import { resourceID } from './console-primitives'
@@ -47,17 +47,17 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
   return {
     home: () =>
       all(
-        ensure(ankoleWebAgentControllerIndexOptions()),
-        ensure(ankoleWebAgentWorkerControllerIndexOptions()),
+        ensure(agentListOptions()),
+        ensure(agentWorkerListOptions()),
         ensure(ankoleWebAIGatewayProviderControllerIndexOptions()),
         ensure(ankoleWebIdentityProviderControllerIndexOptions()),
-        ensure(ankoleWebBackgroundAgentJobControllerIndexOptions({ query: { limit: 20 } })),
-        ensure(ankoleWebAIGatewayConversationControllerIndexOptions({ query: { limit: 5, min_messages: 2 } }))
+        ensure(backgroundAgentJobsOptions({ limit: 20 })),
+        ensure(aiGatewayConversationsOptions({ limit: 5, min_messages: 2 }))
       ),
-    agents: () => ensure(ankoleWebAgentControllerIndexOptions()).then(() => null),
+    agents: () => ensure(agentListOptions()).then(() => null),
     agentLibrary: ({ location }: ConsoleRouteLoaderContext) => {
       const scope = new URLSearchParams(location.searchStr).get('scope') || GLOBAL_LIBRARY_SCOPE
-      const agents = ensure(ankoleWebAgentControllerIndexOptions())
+      const agents = ensure(agentListOptions())
 
       return scope === GLOBAL_LIBRARY_SCOPE
         ? all(
@@ -68,7 +68,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
         : all(
             agents,
             ensure(ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions({ path: { agent_uid: scope } })),
-            ensure(ankoleWebAgentSkillLessonControllerIndexOptions({ path: { agent_uid: scope } }))
+            ensure(listAgentSkillLessonsOptions({ path: { agent_uid: scope } }))
           )
     },
     providers: () => ensure(ankoleWebAIGatewayProviderControllerIndexOptions()).then(() => null),
@@ -84,27 +84,27 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
     principals: () => ensure(ankoleWebPrincipalControllerIndexOptions()).then(() => null),
     signals: ({ location }: ConsoleRouteLoaderContext) =>
       all(
-        ensure(ankoleWebAgentControllerIndexOptions()),
+        ensure(agentListOptions()),
         ensure(ankoleWebSignalBindingControllerIndexOptions({ query: { agent: agentFilter(location) } }))
       ),
     schedules: ({ location }: ConsoleRouteLoaderContext) =>
       all(
-        ensure(ankoleWebAgentControllerIndexOptions()),
+        ensure(agentListOptions()),
         ensure(ankoleWebScheduleControllerIndexCronOptions({ query: { agent: agentFilter(location) } }))
       ),
     scheduleCheckbacks: ({ location }: ConsoleRouteLoaderContext) =>
       all(
-        ensure(ankoleWebAgentControllerIndexOptions()),
+        ensure(agentListOptions()),
         ensure(ankoleWebScheduleControllerIndexCheckbacksOptions({ query: { agent: agentFilter(location) } }))
       ),
     webhooks: ({ location }: ConsoleRouteLoaderContext) =>
       all(
-        ensure(ankoleWebAgentControllerIndexOptions()),
+        ensure(agentListOptions()),
         ensure(ankoleWebWebhookEndpointControllerIndexOptions({ query: { agent: agentFilter(location) } }))
       ),
     automationJobs: ({ location }: ConsoleRouteLoaderContext) =>
       all(
-        ensure(ankoleWebAgentControllerIndexOptions()),
+        ensure(agentListOptions()),
         ensure(
           ankoleWebAutomationJobControllerIndexOptions({
             query: { agent: agentFilter(location), limit: 100 }
@@ -113,7 +113,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       ),
     settings: () => ensure(ankoleWebAppConfigurationControllerIndexOptions()).then(() => null),
     workerEnvs: () => ensure(ankoleWebWorkerEnvControllerIndexOptions()).then(() => null),
-    workers: () => ensure(ankoleWebAgentWorkerControllerIndexOptions()).then(() => null),
+    workers: () => ensure(agentWorkerListOptions()).then(() => null),
     backgroundAgentJobs: ({ location }: ConsoleRouteLoaderContext) => {
       const searchParams = new URLSearchParams(location.searchStr)
       const selectedID = resourceID(searchParams.get('job'), 1000)
@@ -124,8 +124,9 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       return selectedID
         ? all(
             list,
+            ensure(backgroundAgentJobOptions(selectedID)),
             ensure(
-              ankoleWebBackgroundAgentJobControllerShowOptions({
+              ankoleWebBackgroundAgentJobControllerTurnsOptions({
                 path: { job_id: selectedID },
                 query: { cursor: searchParams.get('cursor') ?? undefined }
               })

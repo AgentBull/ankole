@@ -21,19 +21,19 @@ import { useDeferredValue, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
-  ankoleWebAgentControllerCreateMutation,
-  ankoleWebAgentControllerDeleteMutation,
-  ankoleWebAgentControllerEnableMutation,
-  ankoleWebAgentControllerIndexOptions,
   ankoleWebAgentControllerIndexModelProfilesOptions,
-  ankoleWebAgentControllerShowOptions,
-  ankoleWebAgentControllerUpdateMutation,
   ankoleWebAiGatewayProviderControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
   ankoleWebPrincipalControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
-import type { AgentItem } from '../api/generated/types.gen'
+import { type AgentItem, agentListOptions, agentOptions } from '../api/agents'
+import {
+  createAgentMutation,
+  deleteAgentMutation,
+  enableAgentMutation,
+  updateAgentMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { blankToNull } from '../console-primitives'
 import { EditorNotFound, LabeledField, ResourceEditorPage, StatusIndicator } from '../console-form'
@@ -60,24 +60,24 @@ import { ankoleWebWorkerProviderControllerIndexOptions } from '../api/generated/
 
 export function AgentsListPage() {
   const { t } = useTranslation()
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
+  const agents = useQuery(agentListOptions())
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
-  const rows = (agents.data?.agents ?? []).filter(agent =>
+  const rows = (agents.data ?? []).filter(agent =>
     matchesResourceSearch(searchQuery, agent.handle, agent.uid, agent.display_name, agent.role, agent.status)
   )
   // The DELETE response reports status "disabled" for both steps, so the
   // toast keys on the row's status at click time: a disabled row's delete is
   // the permanent one.
   const deleteAgent = useMutation({
-    ...ankoleWebAgentControllerDeleteMutation(),
+    ...deleteAgentMutation(),
     onError: error => toast.error(requestErrorMessage(error))
   })
   const enableAgent = useMutation({
-    ...ankoleWebAgentControllerEnableMutation(),
+    ...enableAgentMutation(),
     onSuccess: data => {
-      toast.success(t('console.agents.enabled', { id: data.agent.handle }))
+      toast.success(t('console.agents.enabled', { id: data.handle }))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -141,7 +141,7 @@ export function AgentsListPage() {
                         icon: <RiPlayCircleLine />,
                         label: t('common.enable'),
                         pending: enableAgent.isPending,
-                        onAction: () => enableAgent.mutate({ path: { agent_uid: agent.uid } })
+                        onAction: () => enableAgent.mutate({ path: { uid: agent.uid } })
                       }
                     ]
                   : []
@@ -163,7 +163,7 @@ export function AgentsListPage() {
               }
               onDelete={() =>
                 deleteAgent.mutate(
-                  { path: { agent_uid: agent.uid } },
+                  { path: { uid: agent.uid } },
                   {
                     onSuccess: () =>
                       toast.success(
@@ -184,7 +184,7 @@ export function AgentsListPage() {
 
 export function agentEditorDetailOptions(uid: string) {
   return {
-    ...ankoleWebAgentControllerShowOptions({ path: { agent_uid: uid } }),
+    ...agentOptions(uid),
     enabled: Boolean(uid),
     refetchOnMount: 'always' as const
   }
@@ -221,7 +221,7 @@ function AgentEditor({ uid }: { uid?: string }) {
     ...ankoleWebAIGatewayControllerModelsOptions(),
     enabled: Boolean(uid)
   })
-  const selectedAgent = agentDetail.data?.agent
+  const selectedAgent = agentDetail.data
   const modelProfiles = useQuery({
     ...ankoleWebAgentControllerIndexModelProfilesOptions({ path: { agent_uid: selectedAgent?.uid ?? '' } }),
     enabled: Boolean(selectedAgent?.uid)
@@ -246,19 +246,19 @@ function AgentEditor({ uid }: { uid?: string }) {
   })
 
   const createAgent = useMutation({
-    ...ankoleWebAgentControllerCreateMutation(),
+    ...createAgentMutation(),
     onSuccess: response => {
-      toast.success(t('console.agents.saved', { id: response.agent.handle }))
+      toast.success(t('console.agents.saved', { id: response.handle }))
 
       // Land on the new agent's editor so model profiles can be configured next.
-      void navigate({ to: `/agents/${encodeURIComponent(response.agent.uid)}` })
+      if (response.uid) void navigate({ to: `/agents/${encodeURIComponent(response.uid)}` })
     }
   })
   const updateAgent = useMutation({
-    ...ankoleWebAgentControllerUpdateMutation(),
+    ...updateAgentMutation(),
     onSuccess: response => {
-      toast.success(t('console.agents.saved', { id: response.agent.handle }))
-      model.markSaved(formFromAgent(response.agent))
+      toast.success(t('console.agents.saved', { id: response.handle }))
+      model.markSaved(formFromAgent(response))
     }
   })
 
@@ -286,11 +286,11 @@ function AgentEditor({ uid }: { uid?: string }) {
     }
     if (mode === 'new') {
       createAgent.mutate({
-        body: { ...body, worker_provider_id: model.workerProviderID.value }
+        body: { data: { ...body, worker_provider_id: model.workerProviderID.value } }
       })
       return
     }
-    if (selectedAgent) updateAgent.mutate({ body, path: { agent_uid: selectedAgent.uid } })
+    if (selectedAgent) updateAgent.mutate({ body: { data: body }, path: { uid: selectedAgent.uid } })
   }
 
   // Blur-time required and pattern feedback comes from LabeledField; these
@@ -511,10 +511,21 @@ function emptyAgentForm(workerProviderID: string): AgentEditorDraft {
   }
 }
 
-function formFromAgent(agent: AgentItem): AgentEditorDraft {
+type AgentFormSource = Pick<
+  AgentItem,
+  | 'handle'
+  | 'display_name'
+  | 'avatar_url'
+  | 'role'
+  | 'owner_principal_uid'
+  | 'worker_provider_id'
+  | 'group_memory_disclosure_mode'
+>
+
+function formFromAgent(agent: AgentFormSource): AgentEditorDraft {
   return {
     handle: agent.handle,
-    displayName: agent.display_name,
+    displayName: agent.display_name ?? '',
     avatarURL: agent.avatar_url ?? '',
     role: agent.role,
     ownerPrincipalUID: agent.owner_principal_uid,

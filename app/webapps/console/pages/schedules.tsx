@@ -36,7 +36,6 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { linkTarget, useSearchParams } from '../../common/router'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import {
-  ankoleWebAgentControllerIndexOptions,
   ankoleWebAgentSessionControllerIndexOptions,
   ankoleWebScheduleControllerCancelCheckbackMutation,
   ankoleWebScheduleControllerCreateCronMutation,
@@ -51,6 +50,7 @@ import {
   ankoleWebScheduleControllerUpdateCronMutation,
   ankoleWebSignalBindingControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
+import { agentListOptions } from '../api/agents'
 import type { CronScheduleItem, ScheduledEventItem, ScheduleRecurrence } from '../api/generated/types.gen'
 import { activeAgents, AgentFilter, resolveAgentUID, useAgentScope, type AgentScope } from '../console-agent-scope'
 import { ErrorBlock } from '../../common/error-block'
@@ -396,8 +396,8 @@ export function ScheduleCronEditorPage() {
   const cronID = searchParams.get('cron') ?? undefined
   const editing = Boolean(cronID)
 
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const agentList = activeAgents(agents.data?.agents ?? [])
+  const agents = useQuery(agentListOptions())
+  const agentList = activeAgents(agents.data ?? [])
   // An existing schedule is pinned to its agent; a new one starts from the
   // resolved `?agent=` request.
   const agentUID = editing ? routeAgentUID : resolveAgentUID(agentList, routeAgentUID)

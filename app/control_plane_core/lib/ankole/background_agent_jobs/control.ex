@@ -138,6 +138,8 @@ defmodule Ankole.BackgroundAgentJobs.Control do
              "reason" => "Cancelled from the operator console"
            }) do
       {:ok, Ash.Resource.put_metadata(job, :turn, turn)}
+    else
+      error -> console_error(error, job_id)
     end
   end
 
@@ -161,6 +163,8 @@ defmodule Ankole.BackgroundAgentJobs.Control do
              "result_summary" => result_summary
            }) do
       {:ok, Ash.Resource.put_metadata(job, :turn, turn)}
+    else
+      error -> console_error(error, job_id)
     end
   end
 
@@ -169,18 +173,28 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   def stop_console_turn(%Job{} = job),
     do: Ankole.Sessions.stop_job_turn(job, job.__metadata__[:turn])
 
-  @doc "Gives the operator text of a rejected Console operation for `Ankole.Errors.wrap/2`."
-  def rejection(:background_agent_job_terminal),
-    do: {"background Agent Job already failed or stopped", []}
-
-  def rejection(_reason), do: nil
-
   defp console_job(job_id) do
     case Queries.get(job_id) do
       %Job{} = job -> {:ok, job}
-      nil -> {:error, Ankole.Errors.Invalid.NotFound.exception(resource: Job, id: job_id)}
+      nil -> console_error({:error, :job_not_found}, job_id)
     end
   end
+
+  # A missing Job is not found (404); a Job that already failed or stopped
+  # cannot complete (409), as in the v1 Console API.
+  defp console_error({:error, :job_not_found}, job_id),
+    do: {:error, Ankole.Errors.Invalid.NotFound.exception(resource: Job, id: job_id)}
+
+  defp console_error({:error, :background_agent_job_terminal}, _job_id),
+    do:
+      {:error,
+       Ankole.Errors.Invalid.StatusTransition.exception(
+         resource: Job,
+         field: :status,
+         to: :succeeded
+       )}
+
+  defp console_error(error, _job_id), do: error
 
   defp operator(principal), do: principal |> Ankole.ActorRef.from_principal() |> to_string()
 

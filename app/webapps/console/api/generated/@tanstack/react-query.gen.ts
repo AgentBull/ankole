@@ -10,20 +10,14 @@ import {
 
 import { client } from '../client.gen'
 import {
-  ankoleWebAgentControllerCreate,
-  ankoleWebAgentControllerDelete,
   ankoleWebAgentControllerDeleteModelProfile,
   ankoleWebAgentControllerDeleteTokenQuota,
-  ankoleWebAgentControllerEnable,
-  ankoleWebAgentControllerIndex,
   ankoleWebAgentControllerIndexModelProfiles,
   ankoleWebAgentControllerPutModelProfile,
   ankoleWebAgentControllerPutProviderHosted,
   ankoleWebAgentControllerPutTokenQuota,
   ankoleWebAgentControllerResetTokenQuota,
-  ankoleWebAgentControllerShow,
   ankoleWebAgentControllerShowTokenQuota,
-  ankoleWebAgentControllerUpdate,
   ankoleWebAgentFileControllerDelete,
   ankoleWebAgentFileControllerDownload,
   ankoleWebAgentFileControllerIndex,
@@ -38,10 +32,6 @@ import {
   ankoleWebAgentLibraryControllerIndex,
   ankoleWebAgentLibraryControllerUpdate,
   ankoleWebAgentSessionControllerIndex,
-  ankoleWebAgentSkillLessonControllerCreate,
-  ankoleWebAgentSkillLessonControllerIndex,
-  ankoleWebAgentSkillLessonControllerRetire,
-  ankoleWebAgentWorkerControllerIndex,
   ankoleWebAiGatewayControllerEmbeddings,
   ankoleWebAiGatewayControllerModels,
   ankoleWebAiGatewayControllerRerank,
@@ -49,9 +39,6 @@ import {
   ankoleWebAiGatewayControllerRetrieveResponse,
   ankoleWebAiGatewayControllerWebFetch,
   ankoleWebAiGatewayControllerWebSearch,
-  ankoleWebAiGatewayConversationControllerIndex,
-  ankoleWebAiGatewayConversationControllerMessages,
-  ankoleWebAiGatewayConversationControllerShow,
   ankoleWebAiGatewayFilesControllerContent,
   ankoleWebAiGatewayFilesControllerCreate,
   ankoleWebAiGatewayFilesControllerDelete,
@@ -95,11 +82,8 @@ import {
   ankoleWebAuthZGroupControllerUpdate,
   ankoleWebAutomationJobControllerIndex,
   ankoleWebAutomationJobControllerShow,
-  ankoleWebBackgroundAgentJobControllerCancel,
-  ankoleWebBackgroundAgentJobControllerComplete,
   ankoleWebBackgroundAgentJobControllerHealth,
-  ankoleWebBackgroundAgentJobControllerIndex,
-  ankoleWebBackgroundAgentJobControllerShow,
+  ankoleWebBackgroundAgentJobControllerTurns,
   ankoleWebBrainControllerArchiveSource,
   ankoleWebBrainControllerCreateObject,
   ankoleWebBrainControllerCreateSource,
@@ -213,7 +197,6 @@ import {
   ankoleWebWorkerEnvControllerUpdate,
   ankoleWebWorkerEnvControllerUpdateForAgent,
   ankoleWebWorkerEnvControllerUpdateTenant,
-  ankoleWebWorkerProviderControllerAssign,
   ankoleWebWorkerProviderControllerCheck,
   ankoleWebWorkerProviderControllerCreate,
   ankoleWebWorkerProviderControllerDelete,
@@ -227,27 +210,15 @@ import {
   type Options
 } from '../sdk.gen'
 import type {
-  AnkoleWebAgentControllerCreateData,
-  AnkoleWebAgentControllerCreateError,
-  AnkoleWebAgentControllerCreateResponse,
-  AnkoleWebAgentControllerDeleteData,
-  AnkoleWebAgentControllerDeleteError,
   AnkoleWebAgentControllerDeleteModelProfileData,
   AnkoleWebAgentControllerDeleteModelProfileError,
   AnkoleWebAgentControllerDeleteModelProfileResponse,
-  AnkoleWebAgentControllerDeleteResponse,
   AnkoleWebAgentControllerDeleteTokenQuotaData,
   AnkoleWebAgentControllerDeleteTokenQuotaError,
   AnkoleWebAgentControllerDeleteTokenQuotaResponse,
-  AnkoleWebAgentControllerEnableData,
-  AnkoleWebAgentControllerEnableError,
-  AnkoleWebAgentControllerEnableResponse,
-  AnkoleWebAgentControllerIndexData,
-  AnkoleWebAgentControllerIndexError,
   AnkoleWebAgentControllerIndexModelProfilesData,
   AnkoleWebAgentControllerIndexModelProfilesError,
   AnkoleWebAgentControllerIndexModelProfilesResponse,
-  AnkoleWebAgentControllerIndexResponse,
   AnkoleWebAgentControllerPutModelProfileData,
   AnkoleWebAgentControllerPutModelProfileError,
   AnkoleWebAgentControllerPutModelProfileResponse,
@@ -260,15 +231,9 @@ import type {
   AnkoleWebAgentControllerResetTokenQuotaData,
   AnkoleWebAgentControllerResetTokenQuotaError,
   AnkoleWebAgentControllerResetTokenQuotaResponse,
-  AnkoleWebAgentControllerShowData,
-  AnkoleWebAgentControllerShowError,
-  AnkoleWebAgentControllerShowResponse,
   AnkoleWebAgentControllerShowTokenQuotaData,
   AnkoleWebAgentControllerShowTokenQuotaError,
   AnkoleWebAgentControllerShowTokenQuotaResponse,
-  AnkoleWebAgentControllerUpdateData,
-  AnkoleWebAgentControllerUpdateError,
-  AnkoleWebAgentControllerUpdateResponse,
   AnkoleWebAgentFileControllerDeleteData,
   AnkoleWebAgentFileControllerDeleteError,
   AnkoleWebAgentFileControllerDeleteResponse,
@@ -311,18 +276,6 @@ import type {
   AnkoleWebAgentSessionControllerIndexData,
   AnkoleWebAgentSessionControllerIndexError,
   AnkoleWebAgentSessionControllerIndexResponse,
-  AnkoleWebAgentSkillLessonControllerCreateData,
-  AnkoleWebAgentSkillLessonControllerCreateError,
-  AnkoleWebAgentSkillLessonControllerCreateResponse,
-  AnkoleWebAgentSkillLessonControllerIndexData,
-  AnkoleWebAgentSkillLessonControllerIndexError,
-  AnkoleWebAgentSkillLessonControllerIndexResponse,
-  AnkoleWebAgentSkillLessonControllerRetireData,
-  AnkoleWebAgentSkillLessonControllerRetireError,
-  AnkoleWebAgentSkillLessonControllerRetireResponse,
-  AnkoleWebAgentWorkerControllerIndexData,
-  AnkoleWebAgentWorkerControllerIndexError,
-  AnkoleWebAgentWorkerControllerIndexResponse,
   AnkoleWebAiGatewayControllerEmbeddingsData,
   AnkoleWebAiGatewayControllerEmbeddingsError,
   AnkoleWebAiGatewayControllerEmbeddingsResponse,
@@ -344,15 +297,6 @@ import type {
   AnkoleWebAiGatewayControllerWebSearchData,
   AnkoleWebAiGatewayControllerWebSearchError,
   AnkoleWebAiGatewayControllerWebSearchResponse,
-  AnkoleWebAiGatewayConversationControllerIndexData,
-  AnkoleWebAiGatewayConversationControllerIndexError,
-  AnkoleWebAiGatewayConversationControllerIndexResponse,
-  AnkoleWebAiGatewayConversationControllerMessagesData,
-  AnkoleWebAiGatewayConversationControllerMessagesError,
-  AnkoleWebAiGatewayConversationControllerMessagesResponse,
-  AnkoleWebAiGatewayConversationControllerShowData,
-  AnkoleWebAiGatewayConversationControllerShowError,
-  AnkoleWebAiGatewayConversationControllerShowResponse,
   AnkoleWebAiGatewayFilesControllerContentData,
   AnkoleWebAiGatewayFilesControllerContentError,
   AnkoleWebAiGatewayFilesControllerContentResponse,
@@ -481,21 +425,12 @@ import type {
   AnkoleWebAutomationJobControllerShowData,
   AnkoleWebAutomationJobControllerShowError,
   AnkoleWebAutomationJobControllerShowResponse,
-  AnkoleWebBackgroundAgentJobControllerCancelData,
-  AnkoleWebBackgroundAgentJobControllerCancelError,
-  AnkoleWebBackgroundAgentJobControllerCancelResponse,
-  AnkoleWebBackgroundAgentJobControllerCompleteData,
-  AnkoleWebBackgroundAgentJobControllerCompleteError,
-  AnkoleWebBackgroundAgentJobControllerCompleteResponse,
   AnkoleWebBackgroundAgentJobControllerHealthData,
   AnkoleWebBackgroundAgentJobControllerHealthError,
   AnkoleWebBackgroundAgentJobControllerHealthResponse,
-  AnkoleWebBackgroundAgentJobControllerIndexData,
-  AnkoleWebBackgroundAgentJobControllerIndexError,
-  AnkoleWebBackgroundAgentJobControllerIndexResponse,
-  AnkoleWebBackgroundAgentJobControllerShowData,
-  AnkoleWebBackgroundAgentJobControllerShowError,
-  AnkoleWebBackgroundAgentJobControllerShowResponse,
+  AnkoleWebBackgroundAgentJobControllerTurnsData,
+  AnkoleWebBackgroundAgentJobControllerTurnsError,
+  AnkoleWebBackgroundAgentJobControllerTurnsResponse,
   AnkoleWebBrainControllerArchiveSourceData,
   AnkoleWebBrainControllerArchiveSourceResponse,
   AnkoleWebBrainControllerCreateObjectData,
@@ -793,9 +728,6 @@ import type {
   AnkoleWebWorkerEnvControllerUpdateTenantData,
   AnkoleWebWorkerEnvControllerUpdateTenantError,
   AnkoleWebWorkerEnvControllerUpdateTenantResponse,
-  AnkoleWebWorkerProviderControllerAssignData,
-  AnkoleWebWorkerProviderControllerAssignError,
-  AnkoleWebWorkerProviderControllerAssignResponse,
   AnkoleWebWorkerProviderControllerCheckData,
   AnkoleWebWorkerProviderControllerCheckError,
   AnkoleWebWorkerProviderControllerCheckResponse,
@@ -1109,34 +1041,6 @@ export const ankoleWebWorkerProviderControllerUpdateMutation = (
   }
   return mutationOptions
 }
-
-export const ankoleWebAgentWorkerControllerIndexQueryKey = (
-  options?: Options<AnkoleWebAgentWorkerControllerIndexData>
-) => createQueryKey('ankoleWebAgentWorkerControllerIndex', options)
-
-/**
- * List the Worker of each Agent
- */
-export const ankoleWebAgentWorkerControllerIndexOptions = (
-  options?: Options<AnkoleWebAgentWorkerControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebAgentWorkerControllerIndexResponse,
-    AnkoleWebAgentWorkerControllerIndexError,
-    AnkoleWebAgentWorkerControllerIndexResponse,
-    ReturnType<typeof ankoleWebAgentWorkerControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAgentWorkerControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAgentWorkerControllerIndexQueryKey(options)
-  })
 
 export const backgroundActivityWorkflowQueryKey = (options: Options<BackgroundActivityWorkflowData>) =>
   createQueryKey('backgroundActivityWorkflow', options)
@@ -2520,83 +2424,6 @@ export const ankoleWebBrainControllerSearchPreviewMutation = (
   return mutationOptions
 }
 
-export const ankoleWebBackgroundAgentJobControllerIndexQueryKey = (
-  options?: Options<AnkoleWebBackgroundAgentJobControllerIndexData>
-) => createQueryKey('ankoleWebBackgroundAgentJobControllerIndex', options)
-
-/**
- * List background Agent Jobs
- */
-export const ankoleWebBackgroundAgentJobControllerIndexOptions = (
-  options?: Options<AnkoleWebBackgroundAgentJobControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebBackgroundAgentJobControllerIndexResponse,
-    AnkoleWebBackgroundAgentJobControllerIndexError,
-    AnkoleWebBackgroundAgentJobControllerIndexResponse,
-    ReturnType<typeof ankoleWebBackgroundAgentJobControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebBackgroundAgentJobControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebBackgroundAgentJobControllerIndexQueryKey(options)
-  })
-
-export const ankoleWebBackgroundAgentJobControllerIndexInfiniteQueryKey = (
-  options?: Options<AnkoleWebBackgroundAgentJobControllerIndexData>
-): QueryKey<Options<AnkoleWebBackgroundAgentJobControllerIndexData>> =>
-  createQueryKey('ankoleWebBackgroundAgentJobControllerIndex', options, true)
-
-/**
- * List background Agent Jobs
- */
-export const ankoleWebBackgroundAgentJobControllerIndexInfiniteOptions = (
-  options?: Options<AnkoleWebBackgroundAgentJobControllerIndexData>
-) => {
-  const opts = infiniteQueryOptions<
-    AnkoleWebBackgroundAgentJobControllerIndexResponse,
-    AnkoleWebBackgroundAgentJobControllerIndexError,
-    InfiniteData<AnkoleWebBackgroundAgentJobControllerIndexResponse>,
-    QueryKey<Options<AnkoleWebBackgroundAgentJobControllerIndexData>>,
-    | string
-    | Pick<QueryKey<Options<AnkoleWebBackgroundAgentJobControllerIndexData>>[0], 'body' | 'headers' | 'path' | 'query'>
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<
-          QueryKey<Options<AnkoleWebBackgroundAgentJobControllerIndexData>>[0],
-          'body' | 'headers' | 'path' | 'query'
-        > =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  cursor: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await ankoleWebBackgroundAgentJobControllerIndex({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: ankoleWebBackgroundAgentJobControllerIndexInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
-}
-
 /**
  * Set one global Skill default
  */
@@ -2922,33 +2749,6 @@ export const ankoleWebAiGatewayProviderControllerPutCredentialMutation = (
 }
 
 /**
- * Assign a provider to an Agent migrated without one
- */
-export const ankoleWebWorkerProviderControllerAssignMutation = (
-  options?: Partial<Options<AnkoleWebWorkerProviderControllerAssignData>>
-): UseMutationOptions<
-  AnkoleWebWorkerProviderControllerAssignResponse,
-  AnkoleWebWorkerProviderControllerAssignError,
-  Options<AnkoleWebWorkerProviderControllerAssignData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebWorkerProviderControllerAssignResponse,
-    AnkoleWebWorkerProviderControllerAssignError,
-    Options<AnkoleWebWorkerProviderControllerAssignData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebWorkerProviderControllerAssign({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
  * Clear one optional model profile for an agent
  */
 export const ankoleWebAgentControllerDeleteModelProfileMutation = (
@@ -3192,162 +2992,6 @@ export const ankoleWebAiGatewayControllerRetrieveResponseOptions = (
     queryKey: ankoleWebAiGatewayControllerRetrieveResponseQueryKey(options)
   })
 
-export const ankoleWebBackgroundAgentJobControllerShowQueryKey = (
-  options: Options<AnkoleWebBackgroundAgentJobControllerShowData>
-) => createQueryKey('ankoleWebBackgroundAgentJobControllerShow', options)
-
-/**
- * Read one background Agent Job and one page of its runtime Turn trajectory
- */
-export const ankoleWebBackgroundAgentJobControllerShowOptions = (
-  options: Options<AnkoleWebBackgroundAgentJobControllerShowData>
-) =>
-  queryOptions<
-    AnkoleWebBackgroundAgentJobControllerShowResponse,
-    AnkoleWebBackgroundAgentJobControllerShowError,
-    AnkoleWebBackgroundAgentJobControllerShowResponse,
-    ReturnType<typeof ankoleWebBackgroundAgentJobControllerShowQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebBackgroundAgentJobControllerShow({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebBackgroundAgentJobControllerShowQueryKey(options)
-  })
-
-export const ankoleWebBackgroundAgentJobControllerShowInfiniteQueryKey = (
-  options: Options<AnkoleWebBackgroundAgentJobControllerShowData>
-): QueryKey<Options<AnkoleWebBackgroundAgentJobControllerShowData>> =>
-  createQueryKey('ankoleWebBackgroundAgentJobControllerShow', options, true)
-
-/**
- * Read one background Agent Job and one page of its runtime Turn trajectory
- */
-export const ankoleWebBackgroundAgentJobControllerShowInfiniteOptions = (
-  options: Options<AnkoleWebBackgroundAgentJobControllerShowData>
-) => {
-  const opts = infiniteQueryOptions<
-    AnkoleWebBackgroundAgentJobControllerShowResponse,
-    AnkoleWebBackgroundAgentJobControllerShowError,
-    InfiniteData<AnkoleWebBackgroundAgentJobControllerShowResponse>,
-    QueryKey<Options<AnkoleWebBackgroundAgentJobControllerShowData>>,
-    | string
-    | Pick<QueryKey<Options<AnkoleWebBackgroundAgentJobControllerShowData>>[0], 'body' | 'headers' | 'path' | 'query'>
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<
-          QueryKey<Options<AnkoleWebBackgroundAgentJobControllerShowData>>[0],
-          'body' | 'headers' | 'path' | 'query'
-        > =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  cursor: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await ankoleWebBackgroundAgentJobControllerShow({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: ankoleWebBackgroundAgentJobControllerShowInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
-}
-
-/**
- * Disable an active agent, or delete an agent that is already disabled
- */
-export const ankoleWebAgentControllerDeleteMutation = (
-  options?: Partial<Options<AnkoleWebAgentControllerDeleteData>>
-): UseMutationOptions<
-  AnkoleWebAgentControllerDeleteResponse,
-  AnkoleWebAgentControllerDeleteError,
-  Options<AnkoleWebAgentControllerDeleteData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentControllerDeleteResponse,
-    AnkoleWebAgentControllerDeleteError,
-    Options<AnkoleWebAgentControllerDeleteData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentControllerDelete({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebAgentControllerShowQueryKey = (options: Options<AnkoleWebAgentControllerShowData>) =>
-  createQueryKey('ankoleWebAgentControllerShow', options)
-
-/**
- * Read one agent
- */
-export const ankoleWebAgentControllerShowOptions = (options: Options<AnkoleWebAgentControllerShowData>) =>
-  queryOptions<
-    AnkoleWebAgentControllerShowResponse,
-    AnkoleWebAgentControllerShowError,
-    AnkoleWebAgentControllerShowResponse,
-    ReturnType<typeof ankoleWebAgentControllerShowQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAgentControllerShow({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAgentControllerShowQueryKey(options)
-  })
-
-/**
- * Update one agent
- */
-export const ankoleWebAgentControllerUpdateMutation = (
-  options?: Partial<Options<AnkoleWebAgentControllerUpdateData>>
-): UseMutationOptions<
-  AnkoleWebAgentControllerUpdateResponse,
-  AnkoleWebAgentControllerUpdateError,
-  Options<AnkoleWebAgentControllerUpdateData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentControllerUpdateResponse,
-    AnkoleWebAgentControllerUpdateError,
-    Options<AnkoleWebAgentControllerUpdateData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentControllerUpdate({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
 /**
  * Rotate a confidential OIDC Client secret
  */
@@ -3537,33 +3181,6 @@ export const ankoleWebWorkerEnvControllerIndexOptions = (options?: Options<Ankol
     queryKey: ankoleWebWorkerEnvControllerIndexQueryKey(options)
   })
 
-/**
- * Retire one skill lesson
- */
-export const ankoleWebAgentSkillLessonControllerRetireMutation = (
-  options?: Partial<Options<AnkoleWebAgentSkillLessonControllerRetireData>>
-): UseMutationOptions<
-  AnkoleWebAgentSkillLessonControllerRetireResponse,
-  AnkoleWebAgentSkillLessonControllerRetireError,
-  Options<AnkoleWebAgentSkillLessonControllerRetireData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentSkillLessonControllerRetireResponse,
-    AnkoleWebAgentSkillLessonControllerRetireError,
-    Options<AnkoleWebAgentSkillLessonControllerRetireData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentSkillLessonControllerRetire({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
 export const ankoleWebPrincipalControllerGrantsQueryKey = (options: Options<AnkoleWebPrincipalControllerGrantsData>) =>
   createQueryKey('ankoleWebPrincipalControllerGrants', options)
 
@@ -3588,86 +3205,6 @@ export const ankoleWebPrincipalControllerGrantsOptions = (options: Options<Ankol
     },
     queryKey: ankoleWebPrincipalControllerGrantsQueryKey(options)
   })
-
-export const ankoleWebAiGatewayConversationControllerShowQueryKey = (
-  options: Options<AnkoleWebAiGatewayConversationControllerShowData>
-) => createQueryKey('ankoleWebAiGatewayConversationControllerShow', options)
-
-/**
- * Read one AIGateway conversation
- */
-export const ankoleWebAiGatewayConversationControllerShowOptions = (
-  options: Options<AnkoleWebAiGatewayConversationControllerShowData>
-) =>
-  queryOptions<
-    AnkoleWebAiGatewayConversationControllerShowResponse,
-    AnkoleWebAiGatewayConversationControllerShowError,
-    AnkoleWebAiGatewayConversationControllerShowResponse,
-    ReturnType<typeof ankoleWebAiGatewayConversationControllerShowQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAiGatewayConversationControllerShow({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAiGatewayConversationControllerShowQueryKey(options)
-  })
-
-export const ankoleWebAgentControllerIndexQueryKey = (options?: Options<AnkoleWebAgentControllerIndexData>) =>
-  createQueryKey('ankoleWebAgentControllerIndex', options)
-
-/**
- * List agents, including disabled agents
- */
-export const ankoleWebAgentControllerIndexOptions = (options?: Options<AnkoleWebAgentControllerIndexData>) =>
-  queryOptions<
-    AnkoleWebAgentControllerIndexResponse,
-    AnkoleWebAgentControllerIndexError,
-    AnkoleWebAgentControllerIndexResponse,
-    ReturnType<typeof ankoleWebAgentControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAgentControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAgentControllerIndexQueryKey(options)
-  })
-
-/**
- * Create one agent
- */
-export const ankoleWebAgentControllerCreateMutation = (
-  options?: Partial<Options<AnkoleWebAgentControllerCreateData>>
-): UseMutationOptions<
-  AnkoleWebAgentControllerCreateResponse,
-  AnkoleWebAgentControllerCreateError,
-  Options<AnkoleWebAgentControllerCreateData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentControllerCreateResponse,
-    AnkoleWebAgentControllerCreateError,
-    Options<AnkoleWebAgentControllerCreateData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentControllerCreate({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
 
 /**
  * Restore one soft-deleted object inside its purge window
@@ -4893,86 +4430,6 @@ export const ankoleWebScheduleControllerUpdateCronMutation = (
   return mutationOptions
 }
 
-export const ankoleWebAiGatewayConversationControllerIndexQueryKey = (
-  options?: Options<AnkoleWebAiGatewayConversationControllerIndexData>
-) => createQueryKey('ankoleWebAiGatewayConversationControllerIndex', options)
-
-/**
- * List AIGateway conversations
- */
-export const ankoleWebAiGatewayConversationControllerIndexOptions = (
-  options?: Options<AnkoleWebAiGatewayConversationControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebAiGatewayConversationControllerIndexResponse,
-    AnkoleWebAiGatewayConversationControllerIndexError,
-    AnkoleWebAiGatewayConversationControllerIndexResponse,
-    ReturnType<typeof ankoleWebAiGatewayConversationControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAiGatewayConversationControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAiGatewayConversationControllerIndexQueryKey(options)
-  })
-
-export const ankoleWebAiGatewayConversationControllerIndexInfiniteQueryKey = (
-  options?: Options<AnkoleWebAiGatewayConversationControllerIndexData>
-): QueryKey<Options<AnkoleWebAiGatewayConversationControllerIndexData>> =>
-  createQueryKey('ankoleWebAiGatewayConversationControllerIndex', options, true)
-
-/**
- * List AIGateway conversations
- */
-export const ankoleWebAiGatewayConversationControllerIndexInfiniteOptions = (
-  options?: Options<AnkoleWebAiGatewayConversationControllerIndexData>
-) => {
-  const opts = infiniteQueryOptions<
-    AnkoleWebAiGatewayConversationControllerIndexResponse,
-    AnkoleWebAiGatewayConversationControllerIndexError,
-    InfiniteData<AnkoleWebAiGatewayConversationControllerIndexResponse>,
-    QueryKey<Options<AnkoleWebAiGatewayConversationControllerIndexData>>,
-    | string
-    | Pick<
-        QueryKey<Options<AnkoleWebAiGatewayConversationControllerIndexData>>[0],
-        'body' | 'headers' | 'path' | 'query'
-      >
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<
-          QueryKey<Options<AnkoleWebAiGatewayConversationControllerIndexData>>[0],
-          'body' | 'headers' | 'path' | 'query'
-        > =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  cursor: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await ankoleWebAiGatewayConversationControllerIndex({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: ankoleWebAiGatewayConversationControllerIndexInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
-}
-
 /**
  * Disable or delete one AIGateway provider
  */
@@ -5122,61 +4579,6 @@ export const ankoleWebPrincipalControllerUpdateMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebPrincipalControllerUpdate({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebAgentSkillLessonControllerIndexQueryKey = (
-  options: Options<AnkoleWebAgentSkillLessonControllerIndexData>
-) => createQueryKey('ankoleWebAgentSkillLessonControllerIndex', options)
-
-/**
- * Read the skill lessons of one agent
- */
-export const ankoleWebAgentSkillLessonControllerIndexOptions = (
-  options: Options<AnkoleWebAgentSkillLessonControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebAgentSkillLessonControllerIndexResponse,
-    AnkoleWebAgentSkillLessonControllerIndexError,
-    AnkoleWebAgentSkillLessonControllerIndexResponse,
-    ReturnType<typeof ankoleWebAgentSkillLessonControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAgentSkillLessonControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAgentSkillLessonControllerIndexQueryKey(options)
-  })
-
-/**
- * Add one human skill lesson
- */
-export const ankoleWebAgentSkillLessonControllerCreateMutation = (
-  options?: Partial<Options<AnkoleWebAgentSkillLessonControllerCreateData>>
-): UseMutationOptions<
-  AnkoleWebAgentSkillLessonControllerCreateResponse,
-  AnkoleWebAgentSkillLessonControllerCreateError,
-  Options<AnkoleWebAgentSkillLessonControllerCreateData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentSkillLessonControllerCreateResponse,
-    AnkoleWebAgentSkillLessonControllerCreateError,
-    Options<AnkoleWebAgentSkillLessonControllerCreateData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentSkillLessonControllerCreate({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -5375,33 +4777,6 @@ export const ankoleWebBrainControllerListContradictionsOptions = (
     },
     queryKey: ankoleWebBrainControllerListContradictionsQueryKey(options)
   })
-
-/**
- * Commit an externally verified completion for one background Agent Job
- */
-export const ankoleWebBackgroundAgentJobControllerCompleteMutation = (
-  options?: Partial<Options<AnkoleWebBackgroundAgentJobControllerCompleteData>>
-): UseMutationOptions<
-  AnkoleWebBackgroundAgentJobControllerCompleteResponse,
-  AnkoleWebBackgroundAgentJobControllerCompleteError,
-  Options<AnkoleWebBackgroundAgentJobControllerCompleteData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebBackgroundAgentJobControllerCompleteResponse,
-    AnkoleWebBackgroundAgentJobControllerCompleteError,
-    Options<AnkoleWebBackgroundAgentJobControllerCompleteData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebBackgroundAgentJobControllerComplete({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
 
 /**
  * Delete one tenant worker shell variable
@@ -5760,33 +5135,6 @@ export const ankoleWebAppConfigurationControllerUpdateMutation = (
 }
 
 /**
- * Cancel one queued or active background Agent Job
- */
-export const ankoleWebBackgroundAgentJobControllerCancelMutation = (
-  options?: Partial<Options<AnkoleWebBackgroundAgentJobControllerCancelData>>
-): UseMutationOptions<
-  AnkoleWebBackgroundAgentJobControllerCancelResponse,
-  AnkoleWebBackgroundAgentJobControllerCancelError,
-  Options<AnkoleWebBackgroundAgentJobControllerCancelData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebBackgroundAgentJobControllerCancelResponse,
-    AnkoleWebBackgroundAgentJobControllerCancelError,
-    Options<AnkoleWebBackgroundAgentJobControllerCancelData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebBackgroundAgentJobControllerCancel({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
  * Reveal one encrypted AppConfigure value on demand
  */
 export const ankoleWebAppConfigurationControllerDecryptTenantMutation = (
@@ -6114,86 +5462,6 @@ export const ankoleWebDirectoryAccessControllerReviewEventMutation = (
     }
   }
   return mutationOptions
-}
-
-export const ankoleWebAiGatewayConversationControllerMessagesQueryKey = (
-  options: Options<AnkoleWebAiGatewayConversationControllerMessagesData>
-) => createQueryKey('ankoleWebAiGatewayConversationControllerMessages', options)
-
-/**
- * List the messages of one AIGateway conversation
- */
-export const ankoleWebAiGatewayConversationControllerMessagesOptions = (
-  options: Options<AnkoleWebAiGatewayConversationControllerMessagesData>
-) =>
-  queryOptions<
-    AnkoleWebAiGatewayConversationControllerMessagesResponse,
-    AnkoleWebAiGatewayConversationControllerMessagesError,
-    AnkoleWebAiGatewayConversationControllerMessagesResponse,
-    ReturnType<typeof ankoleWebAiGatewayConversationControllerMessagesQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAiGatewayConversationControllerMessages({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAiGatewayConversationControllerMessagesQueryKey(options)
-  })
-
-export const ankoleWebAiGatewayConversationControllerMessagesInfiniteQueryKey = (
-  options: Options<AnkoleWebAiGatewayConversationControllerMessagesData>
-): QueryKey<Options<AnkoleWebAiGatewayConversationControllerMessagesData>> =>
-  createQueryKey('ankoleWebAiGatewayConversationControllerMessages', options, true)
-
-/**
- * List the messages of one AIGateway conversation
- */
-export const ankoleWebAiGatewayConversationControllerMessagesInfiniteOptions = (
-  options: Options<AnkoleWebAiGatewayConversationControllerMessagesData>
-) => {
-  const opts = infiniteQueryOptions<
-    AnkoleWebAiGatewayConversationControllerMessagesResponse,
-    AnkoleWebAiGatewayConversationControllerMessagesError,
-    InfiniteData<AnkoleWebAiGatewayConversationControllerMessagesResponse>,
-    QueryKey<Options<AnkoleWebAiGatewayConversationControllerMessagesData>>,
-    | string
-    | Pick<
-        QueryKey<Options<AnkoleWebAiGatewayConversationControllerMessagesData>>[0],
-        'body' | 'headers' | 'path' | 'query'
-      >
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<
-          QueryKey<Options<AnkoleWebAiGatewayConversationControllerMessagesData>>[0],
-          'body' | 'headers' | 'path' | 'query'
-        > =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  cursor: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await ankoleWebAiGatewayConversationControllerMessages({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: ankoleWebAiGatewayConversationControllerMessagesInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
 }
 
 export const ankoleWebDirectoryAccessControllerShowQueryKey = (
@@ -6575,31 +5843,81 @@ export const ankoleWebAppConfigurationControllerUpdateTenantMutation = (
   return mutationOptions
 }
 
+export const ankoleWebBackgroundAgentJobControllerTurnsQueryKey = (
+  options: Options<AnkoleWebBackgroundAgentJobControllerTurnsData>
+) => createQueryKey('ankoleWebBackgroundAgentJobControllerTurns', options)
+
 /**
- * Re-enable one disabled agent
+ * Read one page of the runtime Turn trajectory of one background Agent Job
  */
-export const ankoleWebAgentControllerEnableMutation = (
-  options?: Partial<Options<AnkoleWebAgentControllerEnableData>>
-): UseMutationOptions<
-  AnkoleWebAgentControllerEnableResponse,
-  AnkoleWebAgentControllerEnableError,
-  Options<AnkoleWebAgentControllerEnableData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentControllerEnableResponse,
-    AnkoleWebAgentControllerEnableError,
-    Options<AnkoleWebAgentControllerEnableData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentControllerEnable({
+export const ankoleWebBackgroundAgentJobControllerTurnsOptions = (
+  options: Options<AnkoleWebBackgroundAgentJobControllerTurnsData>
+) =>
+  queryOptions<
+    AnkoleWebBackgroundAgentJobControllerTurnsResponse,
+    AnkoleWebBackgroundAgentJobControllerTurnsError,
+    AnkoleWebBackgroundAgentJobControllerTurnsResponse,
+    ReturnType<typeof ankoleWebBackgroundAgentJobControllerTurnsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBackgroundAgentJobControllerTurns({
         ...options,
-        ...fnOptions,
+        ...queryKey[0],
+        signal,
         throwOnError: true
       })
       return data
+    },
+    queryKey: ankoleWebBackgroundAgentJobControllerTurnsQueryKey(options)
+  })
+
+export const ankoleWebBackgroundAgentJobControllerTurnsInfiniteQueryKey = (
+  options: Options<AnkoleWebBackgroundAgentJobControllerTurnsData>
+): QueryKey<Options<AnkoleWebBackgroundAgentJobControllerTurnsData>> =>
+  createQueryKey('ankoleWebBackgroundAgentJobControllerTurns', options, true)
+
+/**
+ * Read one page of the runtime Turn trajectory of one background Agent Job
+ */
+export const ankoleWebBackgroundAgentJobControllerTurnsInfiniteOptions = (
+  options: Options<AnkoleWebBackgroundAgentJobControllerTurnsData>
+) => {
+  const opts = infiniteQueryOptions<
+    AnkoleWebBackgroundAgentJobControllerTurnsResponse,
+    AnkoleWebBackgroundAgentJobControllerTurnsError,
+    InfiniteData<AnkoleWebBackgroundAgentJobControllerTurnsResponse>,
+    QueryKey<Options<AnkoleWebBackgroundAgentJobControllerTurnsData>>,
+    | string
+    | Pick<QueryKey<Options<AnkoleWebBackgroundAgentJobControllerTurnsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<
+          QueryKey<Options<AnkoleWebBackgroundAgentJobControllerTurnsData>>[0],
+          'body' | 'headers' | 'path' | 'query'
+        > =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  cursor: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await ankoleWebBackgroundAgentJobControllerTurns({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: ankoleWebBackgroundAgentJobControllerTurnsInfiniteQueryKey(options)
     }
-  }
-  return mutationOptions
+  )
+  return opts as Omit<typeof opts, 'initialData'>
 }
 
 export const ankoleWebScheduleControllerCronRunsQueryKey = (

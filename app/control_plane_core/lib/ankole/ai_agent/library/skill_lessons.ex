@@ -135,7 +135,6 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   @doc "Gives the operator text of a rejected lesson write for `Ankole.Errors.wrap/2`."
   def rejection(:skill_lesson_already_retired), do: {"skill lesson is already retired", []}
   def rejection(:skill_not_enabled), do: {"skill is not enabled for this agent", []}
-  def rejection(:skill_not_found), do: {"agent skill was not found", []}
   def rejection(:blank_content), do: {"lesson content is required", []}
   def rejection(:content_contains_url), do: {"lesson content must not contain a URL", []}
   def rejection(_reason), do: nil
