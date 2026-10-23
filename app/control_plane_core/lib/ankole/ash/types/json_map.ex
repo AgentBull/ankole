@@ -55,6 +55,12 @@ defmodule Ankole.Ash.Types.JSONMap do
     end
   end
 
+  # The OpenAPI document reads a schema struct; the request validation reads
+  # a JSON Schema map.
   @impl AshJsonApi.Type
-  def json_schema(_constraints), do: %{"type" => "object", "additionalProperties" => true}
+  def json_schema(_constraints),
+    do: %OpenApiSpex.Schema{type: :object, additionalProperties: true}
+
+  @impl AshJsonApi.Type
+  def json_write_schema(_constraints), do: %{"type" => "object", "additionalProperties" => true}
 end

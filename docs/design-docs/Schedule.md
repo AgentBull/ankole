@@ -330,7 +330,9 @@ conversation, and cancels pending manual runs.
 
 A manual run creates an immediate wake-up without changing the recurring rule.
 It works for an active or paused rule. The caller must provide a request key.
-Agent tools use the provider tool call ID, and REST uses `Idempotency-Key`.
+Agent tools use the provider tool call ID, and the Console API uses the
+`idempotency_key` of the request body
+(`POST /api/v2/agents/:agent_uid/cron-schedules/:id/runs`).
 Repeating the same request returns the same event.
 
 Cron delivery uses this form:

@@ -33,14 +33,14 @@ defmodule Ankole.Sessions.Queue do
 
   @doc "Locks every participating session before any workspace or Signal row."
   def lock_sessions_in_tx(repo, sessions) do
-    sessions
-    |> Enum.uniq()
-    |> Enum.sort()
-    |> Enum.each(fn {agent_uid, session_id} ->
-      lock_session_in_tx(repo, agent_uid, session_id)
-    end)
+    case sessions |> Enum.uniq() |> Enum.sort() do
+      [] ->
+        :ok
 
-    :ok
+      sorted ->
+        Ankole.AdvisoryLock.lock!(repo, sorted)
+        :ok
+    end
   end
 
   @doc """

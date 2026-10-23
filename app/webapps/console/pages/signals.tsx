@@ -42,7 +42,6 @@ import { requestErrorCode, requestErrorMessage } from '../../common/request-erro
 import { formatConsoleDate } from '../console-primitives'
 import {
   ankoleWebSignalBindingControllerAdaptersOptions,
-  ankoleWebSignalBindingControllerDeleteMutation,
   ankoleWebSignalBindingControllerIndexOptions,
   ankoleWebSignalBindingControllerPutBindingMutation,
   ankoleWebSignalBindingControllerRequeueDeliveryMutation,
@@ -51,6 +50,7 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import { agentListOptions } from '../api/agents'
 import type { SignalAdapterItem, SignalBindingItem, SignalDeliveryFailureItem } from '../api/generated/types.gen'
+import { disableSignalBindingMutation } from '../api/v2/generated/@tanstack/react-query.gen'
 import { activeAgents, AgentFilter, resolveAgentUID, useAgentScope } from '../console-agent-scope'
 import {
   EditorNotFound,
@@ -98,9 +98,9 @@ export function SignalsListPage() {
   const stoppedDeliveries = signals.data?.delivery_failures ?? []
   const hasAgents = activeAgents(scope.agents).length > 0
   const disableBinding = useMutation({
-    ...ankoleWebSignalBindingControllerDeleteMutation(),
+    ...disableSignalBindingMutation(),
     onSuccess: (_data, variables) => {
-      toast.success(t('console.signals.disabled', { name: variables.path.binding_name }))
+      toast.success(t('console.signals.disabled', { name: variables.path.name }))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -245,7 +245,7 @@ export function SignalsListPage() {
             }
             onDelete={
               binding.enabled
-                ? () => disableBinding.mutate({ path: { agent_uid: binding.agent_uid, binding_name: binding.name } })
+                ? () => disableBinding.mutate({ path: { agent_uid: binding.agent_uid, name: binding.name } })
                 : undefined
             }
             editTo={editTo(binding.agent_uid, binding.adapter, binding.name, scope.agentUID)}

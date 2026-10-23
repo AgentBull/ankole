@@ -243,7 +243,8 @@ column: the Job's `owner_session_id` is the task session.
 
 The task Session is `wf_task:<call_id>`. The dispatch Signal source ID
 is `workflow:call:<call_id>:dispatch`. These identities make task dispatch
-idempotent.
+idempotent. One replay commit accepts the dispatch Signals of all its new calls
+as one list (see [Signals](Signals.md)).
 
 The control plane updates `memo_bytes` in the same transaction that stores new
 call arguments or a terminal result envelope. It measures the exact Torque
@@ -364,7 +365,8 @@ A completed or failed run changes every remaining queued or running call to
 `cancelled` in the same transaction as the run terminal state. This releases
 every task-capacity slot before external cleanup. After the transaction commits,
 the control plane appends idempotent `command.stop` events for cancelled task
-sessions and stops live Jobs owned by any task session in the run. The run
+sessions in one transaction and stops live Jobs owned by any task session in
+the run. The run
 records one cleanup completion time only after all stop operations succeed.
 Startup recovery includes terminal runs without that time and repeats the
 idempotent cleanup before it marks them complete.

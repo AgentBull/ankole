@@ -18,6 +18,11 @@ defmodule Ankole.Ash.Types.PrincipalKey do
   @impl true
   def dump_to_native(value, _constraints), do: Ankole.Ecto.PrincipalKey.dump(value)
 
+  # The OpenAPI document reads a schema struct; the request validation reads
+  # a JSON Schema map.
   @impl AshJsonApi.Type
-  def json_schema(_constraints), do: %{"type" => "string"}
+  def json_schema(_constraints), do: %OpenApiSpex.Schema{type: :string}
+
+  @impl AshJsonApi.Type
+  def json_write_schema(_constraints), do: %{"type" => "string"}
 end

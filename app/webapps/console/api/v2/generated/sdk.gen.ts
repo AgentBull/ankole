@@ -9,6 +9,12 @@ import type {
   CancelBackgroundAgentJobData,
   CancelBackgroundAgentJobErrors,
   CancelBackgroundAgentJobResponses,
+  CancelCheckbackData,
+  CancelCheckbackErrors,
+  CancelCheckbackResponses,
+  CancelWebhookEndpointData,
+  CancelWebhookEndpointErrors,
+  CancelWebhookEndpointResponses,
   CompleteBackgroundAgentJobData,
   CompleteBackgroundAgentJobErrors,
   CompleteBackgroundAgentJobResponses,
@@ -18,9 +24,24 @@ import type {
   CreateAgentSkillLessonData,
   CreateAgentSkillLessonErrors,
   CreateAgentSkillLessonResponses,
+  CreateCronScheduleData,
+  CreateCronScheduleErrors,
+  CreateCronScheduleResponses,
+  CreateOidcClientData,
+  CreateOidcClientErrors,
+  CreateOidcClientResponses,
+  CreateWebhookEndpointData,
+  CreateWebhookEndpointErrors,
+  CreateWebhookEndpointResponses,
   DeleteAgentData,
   DeleteAgentErrors,
   DeleteAgentResponses,
+  DeleteOidcClientData,
+  DeleteOidcClientErrors,
+  DeleteOidcClientResponses,
+  DisableSignalBindingData,
+  DisableSignalBindingErrors,
+  DisableSignalBindingResponses,
   EnableAgentData,
   EnableAgentErrors,
   EnableAgentResponses,
@@ -30,9 +51,18 @@ import type {
   GetAiGatewayConversationData,
   GetAiGatewayConversationErrors,
   GetAiGatewayConversationResponses,
+  GetAutomationJobData,
+  GetAutomationJobErrors,
+  GetAutomationJobResponses,
   GetBackgroundAgentJobData,
   GetBackgroundAgentJobErrors,
   GetBackgroundAgentJobResponses,
+  GetCronScheduleData,
+  GetCronScheduleErrors,
+  GetCronScheduleResponses,
+  GetOidcClientData,
+  GetOidcClientErrors,
+  GetOidcClientResponses,
   ListAgentsData,
   ListAgentsErrors,
   ListAgentSkillLessonsData,
@@ -48,15 +78,60 @@ import type {
   ListAiGatewayMessagesData,
   ListAiGatewayMessagesErrors,
   ListAiGatewayMessagesResponses,
+  ListAutomationJobRunsData,
+  ListAutomationJobRunsErrors,
+  ListAutomationJobRunsResponses,
+  ListAutomationJobsData,
+  ListAutomationJobsErrors,
+  ListAutomationJobsResponses,
   ListBackgroundAgentJobsData,
   ListBackgroundAgentJobsErrors,
   ListBackgroundAgentJobsResponses,
+  ListCheckbacksData,
+  ListCheckbacksErrors,
+  ListCheckbacksResponses,
+  ListCronScheduleRunsData,
+  ListCronScheduleRunsErrors,
+  ListCronScheduleRunsResponses,
+  ListCronSchedulesData,
+  ListCronSchedulesErrors,
+  ListCronSchedulesResponses,
+  ListOidcClientsData,
+  ListOidcClientsErrors,
+  ListOidcClientsResponses,
+  ListOidcLogoutDeliveriesData,
+  ListOidcLogoutDeliveriesErrors,
+  ListOidcLogoutDeliveriesResponses,
+  ListWebhookEndpointsData,
+  ListWebhookEndpointsErrors,
+  ListWebhookEndpointsResponses,
+  PauseCronScheduleData,
+  PauseCronScheduleErrors,
+  PauseCronScheduleResponses,
+  RemoveCronScheduleData,
+  RemoveCronScheduleErrors,
+  RemoveCronScheduleResponses,
+  ResumeCronScheduleData,
+  ResumeCronScheduleErrors,
+  ResumeCronScheduleResponses,
   RetireAgentSkillLessonData,
   RetireAgentSkillLessonErrors,
   RetireAgentSkillLessonResponses,
+  RetryOidcLogoutDeliveryData,
+  RetryOidcLogoutDeliveryErrors,
+  RetryOidcLogoutDeliveryResponses,
+  RunCronScheduleData,
+  RunCronScheduleErrors,
+  RunCronScheduleResponses,
   UpdateAgentData,
   UpdateAgentErrors,
-  UpdateAgentResponses
+  UpdateAgentResponses,
+  UpdateCronScheduleData,
+  UpdateCronScheduleErrors,
+  UpdateCronScheduleResponses,
+  UpdateOidcClientData,
+  UpdateOidcClientErrors,
+  UpdateOidcClientResponses
 } from './types.gen'
 
 export type Options<
@@ -78,6 +153,290 @@ export type Options<
 }
 
 /**
+ * get_ai_gateway_conversation operation on ai_gateway_conversation resource
+ */
+export const getAiGatewayConversation = <ThrowOnError extends boolean = false>(
+  options: Options<GetAiGatewayConversationData, ThrowOnError>
+): RequestResult<GetAiGatewayConversationResponses, GetAiGatewayConversationErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetAiGatewayConversationResponses, GetAiGatewayConversationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/ai-gateway/conversations/{id}',
+    ...options
+  })
+
+/**
+ * list_oidc_logout_deliveries operation on oidc_logout_delivery resource
+ */
+export const listOidcLogoutDeliveries = <ThrowOnError extends boolean = false>(
+  options: Options<ListOidcLogoutDeliveriesData, ThrowOnError>
+): RequestResult<ListOidcLogoutDeliveriesResponses, ListOidcLogoutDeliveriesErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListOidcLogoutDeliveriesResponses, ListOidcLogoutDeliveriesErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients/{client_id}/logout-deliveries',
+    ...options
+  })
+
+/**
+ * list_background_agent_jobs operation on background_agent_job resource
+ */
+export const listBackgroundAgentJobs = <ThrowOnError extends boolean = false>(
+  options?: Options<ListBackgroundAgentJobsData, ThrowOnError>
+): RequestResult<ListBackgroundAgentJobsResponses, ListBackgroundAgentJobsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListBackgroundAgentJobsResponses, ListBackgroundAgentJobsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/background-agent-jobs',
+    ...options
+  })
+
+/**
+ * list_webhook_endpoints operation on webhook_endpoint resource
+ */
+export const listWebhookEndpoints = <ThrowOnError extends boolean = false>(
+  options?: Options<ListWebhookEndpointsData, ThrowOnError>
+): RequestResult<ListWebhookEndpointsResponses, ListWebhookEndpointsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListWebhookEndpointsResponses, ListWebhookEndpointsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/webhook-endpoints',
+    ...options
+  })
+
+/**
+ * create_webhook_endpoint operation on webhook_endpoint resource
+ */
+export const createWebhookEndpoint = <ThrowOnError extends boolean = false>(
+  options: Options<CreateWebhookEndpointData, ThrowOnError>
+): RequestResult<CreateWebhookEndpointResponses, CreateWebhookEndpointErrors, ThrowOnError> =>
+  (options.client ?? client).post<CreateWebhookEndpointResponses, CreateWebhookEndpointErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/webhook-endpoints',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * cancel_checkback operation on scheduled_event resource
+ */
+export const cancelCheckback = <ThrowOnError extends boolean = false>(
+  options: Options<CancelCheckbackData, ThrowOnError>
+): RequestResult<CancelCheckbackResponses, CancelCheckbackErrors, ThrowOnError> =>
+  (options.client ?? client).delete<CancelCheckbackResponses, CancelCheckbackErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/checkbacks/{id}',
+    ...options
+  })
+
+/**
+ * retry_oidc_logout_delivery operation on oidc_logout_delivery resource
+ */
+export const retryOidcLogoutDelivery = <ThrowOnError extends boolean = false>(
+  options: Options<RetryOidcLogoutDeliveryData, ThrowOnError>
+): RequestResult<RetryOidcLogoutDeliveryResponses, RetryOidcLogoutDeliveryErrors, ThrowOnError> =>
+  (options.client ?? client).post<RetryOidcLogoutDeliveryResponses, RetryOidcLogoutDeliveryErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients/{client_id}/logout-deliveries/{id}/retries',
+    ...options
+  })
+
+/**
+ * list_cron_schedules operation on cron_schedule resource
+ */
+export const listCronSchedules = <ThrowOnError extends boolean = false>(
+  options?: Options<ListCronSchedulesData, ThrowOnError>
+): RequestResult<ListCronSchedulesResponses, ListCronSchedulesErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListCronSchedulesResponses, ListCronSchedulesErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/cron-schedules',
+    ...options
+  })
+
+/**
+ * disable_signal_binding operation on signal_binding resource
+ */
+export const disableSignalBinding = <ThrowOnError extends boolean = false>(
+  options: Options<DisableSignalBindingData, ThrowOnError>
+): RequestResult<DisableSignalBindingResponses, DisableSignalBindingErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DisableSignalBindingResponses, DisableSignalBindingErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/signal-bindings/{name}',
+    ...options
+  })
+
+/**
+ * create_cron_schedule operation on cron_schedule resource
+ */
+export const createCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<CreateCronScheduleData, ThrowOnError>
+): RequestResult<CreateCronScheduleResponses, CreateCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).post<CreateCronScheduleResponses, CreateCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * assign_agent_worker_provider operation on agent_worker resource
+ */
+export const assignAgentWorkerProvider = <ThrowOnError extends boolean = false>(
+  options: Options<AssignAgentWorkerProviderData, ThrowOnError>
+): RequestResult<AssignAgentWorkerProviderResponses, AssignAgentWorkerProviderErrors, ThrowOnError> =>
+  (options.client ?? client).put<AssignAgentWorkerProviderResponses, AssignAgentWorkerProviderErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/worker-provider',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * list_cron_schedule_runs operation on scheduled_event resource
+ */
+export const listCronScheduleRuns = <ThrowOnError extends boolean = false>(
+  options: Options<ListCronScheduleRunsData, ThrowOnError>
+): RequestResult<ListCronScheduleRunsResponses, ListCronScheduleRunsErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListCronScheduleRunsResponses, ListCronScheduleRunsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs',
+    ...options
+  })
+
+/**
+ * get_automation_job operation on automation_job resource
+ */
+export const getAutomationJob = <ThrowOnError extends boolean = false>(
+  options: Options<GetAutomationJobData, ThrowOnError>
+): RequestResult<GetAutomationJobResponses, GetAutomationJobErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetAutomationJobResponses, GetAutomationJobErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/automation-jobs/{id}',
+    ...options
+  })
+
+/**
+ * cancel_background_agent_job operation on background_agent_job resource
+ */
+export const cancelBackgroundAgentJob = <ThrowOnError extends boolean = false>(
+  options: Options<CancelBackgroundAgentJobData, ThrowOnError>
+): RequestResult<CancelBackgroundAgentJobResponses, CancelBackgroundAgentJobErrors, ThrowOnError> =>
+  (options.client ?? client).post<CancelBackgroundAgentJobResponses, CancelBackgroundAgentJobErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/background-agent-jobs/{id}/cancel',
+    ...options
+  })
+
+/**
+ * list_automation_jobs operation on automation_job resource
+ */
+export const listAutomationJobs = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAutomationJobsData, ThrowOnError>
+): RequestResult<ListAutomationJobsResponses, ListAutomationJobsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListAutomationJobsResponses, ListAutomationJobsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/automation-jobs',
+    ...options
+  })
+
+/**
+ * list_checkbacks operation on scheduled_event resource
+ */
+export const listCheckbacks = <ThrowOnError extends boolean = false>(
+  options?: Options<ListCheckbacksData, ThrowOnError>
+): RequestResult<ListCheckbacksResponses, ListCheckbacksErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListCheckbacksResponses, ListCheckbacksErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/checkbacks',
+    ...options
+  })
+
+/**
+ * list_automation_job_runs operation on automation_job_run resource
+ */
+export const listAutomationJobRuns = <ThrowOnError extends boolean = false>(
+  options: Options<ListAutomationJobRunsData, ThrowOnError>
+): RequestResult<ListAutomationJobRunsResponses, ListAutomationJobRunsErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListAutomationJobRunsResponses, ListAutomationJobRunsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/automation-jobs/{automation_job_id}/runs',
+    ...options
+  })
+
+/**
+ * resume_cron_schedule operation on cron_schedule resource
+ */
+export const resumeCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<ResumeCronScheduleData, ThrowOnError>
+): RequestResult<ResumeCronScheduleResponses, ResumeCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).post<ResumeCronScheduleResponses, ResumeCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/resume',
+    ...options
+  })
+
+/**
+ * enable_agent operation on agent resource
+ */
+export const enableAgent = <ThrowOnError extends boolean = false>(
+  options: Options<EnableAgentData, ThrowOnError>
+): RequestResult<EnableAgentResponses, EnableAgentErrors, ThrowOnError> =>
+  (options.client ?? client).post<EnableAgentResponses, EnableAgentErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{uid}/enable',
+    ...options
+  })
+
+/**
+ * list_oidc_clients operation on oidc_client resource
+ */
+export const listOidcClients = <ThrowOnError extends boolean = false>(
+  options?: Options<ListOidcClientsData, ThrowOnError>
+): RequestResult<ListOidcClientsResponses, ListOidcClientsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListOidcClientsResponses, ListOidcClientsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients',
+    ...options
+  })
+
+/**
+ * create_oidc_client operation on oidc_client resource
+ */
+export const createOidcClient = <ThrowOnError extends boolean = false>(
+  options: Options<CreateOidcClientData, ThrowOnError>
+): RequestResult<CreateOidcClientResponses, CreateOidcClientErrors, ThrowOnError> =>
+  (options.client ?? client).post<CreateOidcClientResponses, CreateOidcClientErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * run_cron_schedule operation on cron_schedule resource
+ */
+export const runCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<RunCronScheduleData, ThrowOnError>
+): RequestResult<RunCronScheduleResponses, RunCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).post<RunCronScheduleResponses, RunCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/runs',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * list_agent_workers operation on agent_worker resource
  */
 export const listAgentWorkers = <ThrowOnError extends boolean = false>(
@@ -86,6 +445,202 @@ export const listAgentWorkers = <ThrowOnError extends boolean = false>(
   (options?.client ?? client).get<ListAgentWorkersResponses, ListAgentWorkersErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/agent-workers',
+    ...options
+  })
+
+/**
+ * pause_cron_schedule operation on cron_schedule resource
+ */
+export const pauseCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<PauseCronScheduleData, ThrowOnError>
+): RequestResult<PauseCronScheduleResponses, PauseCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).post<PauseCronScheduleResponses, PauseCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/pause',
+    ...options
+  })
+
+/**
+ * delete_oidc_client operation on oidc_client resource
+ */
+export const deleteOidcClient = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteOidcClientData, ThrowOnError>
+): RequestResult<DeleteOidcClientResponses, DeleteOidcClientErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteOidcClientResponses, DeleteOidcClientErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients/{id}',
+    ...options
+  })
+
+/**
+ * get_oidc_client operation on oidc_client resource
+ */
+export const getOidcClient = <ThrowOnError extends boolean = false>(
+  options: Options<GetOidcClientData, ThrowOnError>
+): RequestResult<GetOidcClientResponses, GetOidcClientErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetOidcClientResponses, GetOidcClientErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients/{id}',
+    ...options
+  })
+
+/**
+ * update_oidc_client operation on oidc_client resource
+ */
+export const updateOidcClient = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateOidcClientData, ThrowOnError>
+): RequestResult<UpdateOidcClientResponses, UpdateOidcClientErrors, ThrowOnError> =>
+  (options.client ?? client).patch<UpdateOidcClientResponses, UpdateOidcClientErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * remove_cron_schedule operation on cron_schedule resource
+ */
+export const removeCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<RemoveCronScheduleData, ThrowOnError>
+): RequestResult<RemoveCronScheduleResponses, RemoveCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).delete<RemoveCronScheduleResponses, RemoveCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}',
+    ...options
+  })
+
+/**
+ * get_cron_schedule operation on cron_schedule resource
+ */
+export const getCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<GetCronScheduleData, ThrowOnError>
+): RequestResult<GetCronScheduleResponses, GetCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetCronScheduleResponses, GetCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}',
+    ...options
+  })
+
+/**
+ * update_cron_schedule operation on cron_schedule resource
+ */
+export const updateCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateCronScheduleData, ThrowOnError>
+): RequestResult<UpdateCronScheduleResponses, UpdateCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).patch<UpdateCronScheduleResponses, UpdateCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * delete_agent operation on agent resource
+ */
+export const deleteAgent = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAgentData, ThrowOnError>
+): RequestResult<DeleteAgentResponses, DeleteAgentErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteAgentResponses, DeleteAgentErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{uid}',
+    ...options
+  })
+
+/**
+ * get_agent operation on agent resource
+ */
+export const getAgent = <ThrowOnError extends boolean = false>(
+  options: Options<GetAgentData, ThrowOnError>
+): RequestResult<GetAgentResponses, GetAgentErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetAgentResponses, GetAgentErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{uid}',
+    ...options
+  })
+
+/**
+ * update_agent operation on agent resource
+ */
+export const updateAgent = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateAgentData, ThrowOnError>
+): RequestResult<UpdateAgentResponses, UpdateAgentErrors, ThrowOnError> =>
+  (options.client ?? client).patch<UpdateAgentResponses, UpdateAgentErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{uid}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * list_ai_gateway_conversations operation on ai_gateway_conversation resource
+ */
+export const listAiGatewayConversations = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAiGatewayConversationsData, ThrowOnError>
+): RequestResult<ListAiGatewayConversationsResponses, ListAiGatewayConversationsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListAiGatewayConversationsResponses, ListAiGatewayConversationsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/ai-gateway/conversations',
+    ...options
+  })
+
+/**
+ * get_background_agent_job operation on background_agent_job resource
+ */
+export const getBackgroundAgentJob = <ThrowOnError extends boolean = false>(
+  options: Options<GetBackgroundAgentJobData, ThrowOnError>
+): RequestResult<GetBackgroundAgentJobResponses, GetBackgroundAgentJobErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetBackgroundAgentJobResponses, GetBackgroundAgentJobErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/background-agent-jobs/{id}',
+    ...options
+  })
+
+/**
+ * cancel_webhook_endpoint operation on webhook_endpoint resource
+ */
+export const cancelWebhookEndpoint = <ThrowOnError extends boolean = false>(
+  options: Options<CancelWebhookEndpointData, ThrowOnError>
+): RequestResult<CancelWebhookEndpointResponses, CancelWebhookEndpointErrors, ThrowOnError> =>
+  (options.client ?? client).delete<CancelWebhookEndpointResponses, CancelWebhookEndpointErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/webhook-endpoints/{id}',
+    ...options
+  })
+
+/**
+ * complete_background_agent_job operation on background_agent_job resource
+ */
+export const completeBackgroundAgentJob = <ThrowOnError extends boolean = false>(
+  options: Options<CompleteBackgroundAgentJobData, ThrowOnError>
+): RequestResult<CompleteBackgroundAgentJobResponses, CompleteBackgroundAgentJobErrors, ThrowOnError> =>
+  (options.client ?? client).post<CompleteBackgroundAgentJobResponses, CompleteBackgroundAgentJobErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/background-agent-jobs/{id}/complete',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * retire_agent_skill_lesson operation on agent_skill_lesson resource
+ */
+export const retireAgentSkillLesson = <ThrowOnError extends boolean = false>(
+  options: Options<RetireAgentSkillLessonData, ThrowOnError>
+): RequestResult<RetireAgentSkillLessonResponses, RetireAgentSkillLessonErrors, ThrowOnError> =>
+  (options.client ?? client).post<RetireAgentSkillLessonResponses, RetireAgentSkillLessonErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/skill-lessons/{lesson_id}/retire',
     ...options
   })
 
@@ -146,98 +701,6 @@ export const createAgentSkillLesson = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * retire_agent_skill_lesson operation on agent_skill_lesson resource
- */
-export const retireAgentSkillLesson = <ThrowOnError extends boolean = false>(
-  options: Options<RetireAgentSkillLessonData, ThrowOnError>
-): RequestResult<RetireAgentSkillLessonResponses, RetireAgentSkillLessonErrors, ThrowOnError> =>
-  (options.client ?? client).post<RetireAgentSkillLessonResponses, RetireAgentSkillLessonErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{agent_uid}/skill-lessons/{lesson_id}/retire',
-    ...options
-  })
-
-/**
- * assign_agent_worker_provider operation on agent_worker resource
- */
-export const assignAgentWorkerProvider = <ThrowOnError extends boolean = false>(
-  options: Options<AssignAgentWorkerProviderData, ThrowOnError>
-): RequestResult<AssignAgentWorkerProviderResponses, AssignAgentWorkerProviderErrors, ThrowOnError> =>
-  (options.client ?? client).put<AssignAgentWorkerProviderResponses, AssignAgentWorkerProviderErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{agent_uid}/worker-provider',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * delete_agent operation on agent resource
- */
-export const deleteAgent = <ThrowOnError extends boolean = false>(
-  options: Options<DeleteAgentData, ThrowOnError>
-): RequestResult<DeleteAgentResponses, DeleteAgentErrors, ThrowOnError> =>
-  (options.client ?? client).delete<DeleteAgentResponses, DeleteAgentErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{uid}',
-    ...options
-  })
-
-/**
- * get_agent operation on agent resource
- */
-export const getAgent = <ThrowOnError extends boolean = false>(
-  options: Options<GetAgentData, ThrowOnError>
-): RequestResult<GetAgentResponses, GetAgentErrors, ThrowOnError> =>
-  (options.client ?? client).get<GetAgentResponses, GetAgentErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{uid}',
-    ...options
-  })
-
-/**
- * update_agent operation on agent resource
- */
-export const updateAgent = <ThrowOnError extends boolean = false>(
-  options: Options<UpdateAgentData, ThrowOnError>
-): RequestResult<UpdateAgentResponses, UpdateAgentErrors, ThrowOnError> =>
-  (options.client ?? client).patch<UpdateAgentResponses, UpdateAgentErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{uid}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * enable_agent operation on agent resource
- */
-export const enableAgent = <ThrowOnError extends boolean = false>(
-  options: Options<EnableAgentData, ThrowOnError>
-): RequestResult<EnableAgentResponses, EnableAgentErrors, ThrowOnError> =>
-  (options.client ?? client).post<EnableAgentResponses, EnableAgentErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/agents/{uid}/enable',
-    ...options
-  })
-
-/**
- * list_ai_gateway_conversations operation on ai_gateway_conversation resource
- */
-export const listAiGatewayConversations = <ThrowOnError extends boolean = false>(
-  options?: Options<ListAiGatewayConversationsData, ThrowOnError>
-): RequestResult<ListAiGatewayConversationsResponses, ListAiGatewayConversationsErrors, ThrowOnError> =>
-  (options?.client ?? client).get<ListAiGatewayConversationsResponses, ListAiGatewayConversationsErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/ai-gateway/conversations',
-    ...options
-  })
-
-/**
  * list_ai_gateway_messages operation on ai_gateway_message resource
  */
 export const listAiGatewayMessages = <ThrowOnError extends boolean = false>(
@@ -247,68 +710,4 @@ export const listAiGatewayMessages = <ThrowOnError extends boolean = false>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/ai-gateway/conversations/{conversation_id}/messages',
     ...options
-  })
-
-/**
- * get_ai_gateway_conversation operation on ai_gateway_conversation resource
- */
-export const getAiGatewayConversation = <ThrowOnError extends boolean = false>(
-  options: Options<GetAiGatewayConversationData, ThrowOnError>
-): RequestResult<GetAiGatewayConversationResponses, GetAiGatewayConversationErrors, ThrowOnError> =>
-  (options.client ?? client).get<GetAiGatewayConversationResponses, GetAiGatewayConversationErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/ai-gateway/conversations/{id}',
-    ...options
-  })
-
-/**
- * list_background_agent_jobs operation on background_agent_job resource
- */
-export const listBackgroundAgentJobs = <ThrowOnError extends boolean = false>(
-  options?: Options<ListBackgroundAgentJobsData, ThrowOnError>
-): RequestResult<ListBackgroundAgentJobsResponses, ListBackgroundAgentJobsErrors, ThrowOnError> =>
-  (options?.client ?? client).get<ListBackgroundAgentJobsResponses, ListBackgroundAgentJobsErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/background-agent-jobs',
-    ...options
-  })
-
-/**
- * get_background_agent_job operation on background_agent_job resource
- */
-export const getBackgroundAgentJob = <ThrowOnError extends boolean = false>(
-  options: Options<GetBackgroundAgentJobData, ThrowOnError>
-): RequestResult<GetBackgroundAgentJobResponses, GetBackgroundAgentJobErrors, ThrowOnError> =>
-  (options.client ?? client).get<GetBackgroundAgentJobResponses, GetBackgroundAgentJobErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/background-agent-jobs/{id}',
-    ...options
-  })
-
-/**
- * cancel_background_agent_job operation on background_agent_job resource
- */
-export const cancelBackgroundAgentJob = <ThrowOnError extends boolean = false>(
-  options: Options<CancelBackgroundAgentJobData, ThrowOnError>
-): RequestResult<CancelBackgroundAgentJobResponses, CancelBackgroundAgentJobErrors, ThrowOnError> =>
-  (options.client ?? client).post<CancelBackgroundAgentJobResponses, CancelBackgroundAgentJobErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/background-agent-jobs/{id}/cancel',
-    ...options
-  })
-
-/**
- * complete_background_agent_job operation on background_agent_job resource
- */
-export const completeBackgroundAgentJob = <ThrowOnError extends boolean = false>(
-  options: Options<CompleteBackgroundAgentJobData, ThrowOnError>
-): RequestResult<CompleteBackgroundAgentJobResponses, CompleteBackgroundAgentJobErrors, ThrowOnError> =>
-  (options.client ?? client).post<CompleteBackgroundAgentJobResponses, CompleteBackgroundAgentJobErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/background-agent-jobs/{id}/complete',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
   })

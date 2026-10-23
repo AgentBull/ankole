@@ -106,6 +106,17 @@ defmodule Ankole.Errors do
   end
 
   @doc """
+  Makes a missing-target reason of a generic action `run` result an
+  `Ankole.Errors.Invalid.NotFound` for the resource. An API renders it as not
+  found, not as a rejection. Other results stay the same.
+  """
+  def not_found({:error, reason} = result, reasons, resource) when is_atom(reason) do
+    if reason in reasons, do: {:error, NotFound.exception(resource: resource)}, else: result
+  end
+
+  def not_found(result, _reasons, _resource), do: result
+
+  @doc """
   Gives the error class of an Ash changeset, query, or action input that
   rolled back a transaction.
 

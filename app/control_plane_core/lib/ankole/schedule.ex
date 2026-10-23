@@ -11,7 +11,7 @@ defmodule Ankole.Schedule do
   `Ankole.Schedule.Cron`.
   """
 
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   alias Ankole.Schedule.Checkbacks
   alias Ankole.Schedule.Cron
@@ -25,6 +25,40 @@ defmodule Ankole.Schedule do
   @type create_result ::
           {:ok, %{status: :scheduled | :already_scheduled, scheduled_event: ScheduledEvent.t()}}
           | {:error, term()}
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/cron-schedules", CronSchedule do
+        index(:console_list, name: "list_cron_schedules", derive_sort?: false)
+      end
+
+      base_route "/agents/:agent_uid/cron-schedules", CronSchedule do
+        route(:post, "/", :console_create, name: "create_cron_schedule")
+        get(:read, name: "get_cron_schedule")
+        route(:patch, "/:id", :console_update, name: "update_cron_schedule")
+        route(:post, "/:id/pause", :console_pause, name: "pause_cron_schedule")
+        route(:post, "/:id/resume", :console_resume, name: "resume_cron_schedule")
+        route(:delete, "/:id", :console_remove, name: "remove_cron_schedule")
+        route(:post, "/:id/runs", :console_run, name: "run_cron_schedule")
+      end
+
+      base_route "/agents/:agent_uid/cron-schedules/:cron_schedule_id/runs", ScheduledEvent do
+        index(:console_cron_runs, name: "list_cron_schedule_runs", derive_sort?: false)
+      end
+
+      base_route "/checkbacks", ScheduledEvent do
+        index(:console_checkbacks, name: "list_checkbacks", derive_sort?: false)
+      end
+
+      base_route "/agents/:agent_uid/checkbacks", ScheduledEvent do
+        route(:delete, "/:id", :console_cancel_checkback, name: "cancel_checkback")
+      end
+    end
+  end
 
   resources do
     resource ScheduledEvent do
@@ -210,12 +244,6 @@ defmodule Ankole.Schedule do
   defdelegate get_cron_schedule_by_name(agent_uid, owner_session_id, name), to: Queries
 
   @doc """
-  Fetches one concrete scheduled event.
-  """
-  @spec get_scheduled_event(pos_integer()) :: {:ok, ScheduledEvent.t()} | {:error, :not_found}
-  defdelegate get_scheduled_event(scheduled_event_id), to: Queries
-
-  @doc """
   Fetches one checkback.
   """
   @spec get_checkback(pos_integer()) :: {:ok, ScheduledEvent.t()} | {:error, term()}
@@ -229,34 +257,16 @@ defmodule Ankole.Schedule do
   defdelegate list_cron_runs(cron_schedule_id, limit \\ 25), to: Queries
 
   @doc """
-  Lists checkback events for an optional agent and optional session.
-  """
-  @spec list_checkbacks(String.t() | nil, String.t() | nil, keyword()) :: [ScheduledEvent.t()]
-  defdelegate list_checkbacks(agent_uid \\ nil, session_id \\ nil, opts \\ []), to: Queries
-
-  @doc """
   Lists a bounded set of pending checkbacks for model-visible management.
   """
   @spec list_pending_checkbacks(String.t(), String.t(), pos_integer()) :: [ScheduledEvent.t()]
   defdelegate list_pending_checkbacks(agent_uid, session_id, limit \\ 10), to: Queries
 
   @doc """
-  Returns a JSON-safe schedule projection for API and RPC responses.
-  """
-  @spec cron_projection(CronSchedule.t()) :: map()
-  defdelegate cron_projection(schedule), to: Projections
-
-  @doc """
   Returns the narrow model-visible recurring schedule projection.
   """
   @spec cron_model_projection(CronSchedule.t()) :: map()
   defdelegate cron_model_projection(schedule), to: Projections
-
-  @doc """
-  Returns a JSON-safe scheduled event projection for API and RPC responses.
-  """
-  @spec event_projection(ScheduledEvent.t()) :: map()
-  defdelegate event_projection(event), to: Projections
 
   @doc """
   Returns the model-visible scheduled event projection for schedule RPC responses.

@@ -35,23 +35,24 @@ defmodule Ankole.OIDC.Logout do
     end
   end
 
-  def deliveries(client_id \\ nil) do
-    query = LogoutDelivery |> Ash.Query.load(:session) |> Ash.Query.sort(inserted_at: :desc)
+  @doc false
+  def console_retry_in_tx(client_id, id) do
+    case LogoutDelivery
+         |> Ash.Query.filter(id == ^id and session.client_id == ^client_id)
+         |> Ankole.Ash.read_one!() do
+      %LogoutDelivery{} ->
+        case retry_in_tx(id) do
+          {:ok, delivery} ->
+            {:ok,
+             Ash.load!(delivery, [:principal_uid], tenant: Repo.tenant_id(), authorize?: false)}
 
-    query =
-      if client_id,
-        do: Ash.Query.filter(query, session.client_id == ^client_id),
-        else: query
+          error ->
+            Ankole.Errors.not_found(error, [:not_found], LogoutDelivery)
+        end
 
-    query
-    |> Ankole.Ash.read!()
-    |> Enum.map(fn delivery ->
-      %{
-        delivery: delivery,
-        client_id: delivery.session.client_id,
-        principal_uid: delivery.session.principal_uid
-      }
-    end)
+      nil ->
+        {:error, Ankole.Errors.Invalid.NotFound.exception(resource: LogoutDelivery, id: id)}
+    end
   end
 
   def retry(id), do: Ankole.Ash.run_action(LogoutDelivery, :retry, %{id: id})

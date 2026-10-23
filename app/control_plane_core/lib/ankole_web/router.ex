@@ -314,18 +314,8 @@ defmodule AnkoleWeb.Router do
          PrincipalController,
          :create_local_password_reset
 
-    get "/oidc-clients", OIDCClientController, :index
-    post "/oidc-clients", OIDCClientController, :create
     get "/oidc-clients/login-sources", OIDCClientController, :login_sources
-    get "/oidc-clients/:id", OIDCClientController, :show
-    patch "/oidc-clients/:id", OIDCClientController, :update
-    delete "/oidc-clients/:id", OIDCClientController, :delete
     post "/oidc-clients/:id/secret-rotations", OIDCClientController, :rotate_secret
-    get "/oidc-clients/:id/logout-deliveries", OIDCClientController, :logout_deliveries
-
-    post "/oidc-clients/:id/logout-deliveries/:delivery_id/retries",
-         OIDCClientController,
-         :retry_logout
 
     get "/principal-groups", AuthZGroupController, :index
     post "/principal-groups", AuthZGroupController, :create
@@ -485,10 +475,6 @@ defmodule AnkoleWeb.Router do
           SignalBindingController,
           :update_binding
 
-    delete "/agents/:agent_uid/signal-bindings/:binding_name",
-           SignalBindingController,
-           :delete
-
     post "/agents/:agent_uid/signal-deliveries/requeue",
          SignalBindingController,
          :requeue_delivery
@@ -502,42 +488,6 @@ defmodule AnkoleWeb.Router do
         :put_conversation_standing_orders
 
     get "/agents/:agent_uid/sessions", AgentSessionController, :index
-
-    get "/cron-schedules", ScheduleController, :index_cron
-    post "/agents/:agent_uid/cron-schedules", ScheduleController, :create_cron
-    get "/agents/:agent_uid/cron-schedules/:cron_schedule_id", ScheduleController, :show_cron
-    patch "/agents/:agent_uid/cron-schedules/:cron_schedule_id", ScheduleController, :update_cron
-
-    post "/agents/:agent_uid/cron-schedules/:cron_schedule_id/pause",
-         ScheduleController,
-         :pause_cron
-
-    post "/agents/:agent_uid/cron-schedules/:cron_schedule_id/resume",
-         ScheduleController,
-         :resume_cron
-
-    delete "/agents/:agent_uid/cron-schedules/:cron_schedule_id", ScheduleController, :remove_cron
-    post "/agents/:agent_uid/cron-schedules/:cron_schedule_id/runs", ScheduleController, :run_cron
-    get "/agents/:agent_uid/cron-schedules/:cron_schedule_id/runs", ScheduleController, :cron_runs
-    get "/checkbacks", ScheduleController, :index_checkbacks
-
-    delete "/agents/:agent_uid/checkbacks/:scheduled_event_id",
-           ScheduleController,
-           :cancel_checkback
-
-    get "/webhook-endpoints", WebhookEndpointController, :index
-    post "/webhook-endpoints", WebhookEndpointController, :create
-    delete "/webhook-endpoints/:webhook_endpoint_id", WebhookEndpointController, :cancel
-
-    delete "/agents/:agent_uid/webhook-endpoints/:webhook_endpoint_id",
-           WebhookEndpointController,
-           :delete
-
-    get "/automation-jobs", AutomationJobController, :index
-
-    get "/agents/:agent_uid/automation-jobs/:automation_job_id",
-        AutomationJobController,
-        :show
   end
 
   # The JSON:API routers serve the routes that the Ash domains declare. The site

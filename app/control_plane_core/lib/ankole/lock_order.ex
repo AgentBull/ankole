@@ -87,6 +87,8 @@ defmodule Ankole.LockOrder do
     def check_advisory({agent_uid, session_id}),
       do: check(6, {:session, agent_uid, session_id})
 
+    def check_advisory(keys) when is_list(keys), do: Enum.each(keys, &check_advisory/1)
+
     def check_advisory(key) when is_binary(key) do
       if String.contains?(key, ":running_slots:"), do: check(3, {:slots, key}), else: :ok
     end

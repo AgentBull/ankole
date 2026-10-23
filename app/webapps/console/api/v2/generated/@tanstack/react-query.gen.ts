@@ -6,23 +6,48 @@ import { client } from '../client.gen'
 import {
   assignAgentWorkerProvider,
   cancelBackgroundAgentJob,
+  cancelCheckback,
+  cancelWebhookEndpoint,
   completeBackgroundAgentJob,
   createAgent,
   createAgentSkillLesson,
+  createCronSchedule,
+  createOidcClient,
+  createWebhookEndpoint,
   deleteAgent,
+  deleteOidcClient,
+  disableSignalBinding,
   enableAgent,
   getAgent,
   getAiGatewayConversation,
+  getAutomationJob,
   getBackgroundAgentJob,
+  getCronSchedule,
+  getOidcClient,
   listAgents,
   listAgentSkillLessons,
   listAgentWorkers,
   listAiGatewayConversations,
   listAiGatewayMessages,
+  listAutomationJobRuns,
+  listAutomationJobs,
   listBackgroundAgentJobs,
+  listCheckbacks,
+  listCronScheduleRuns,
+  listCronSchedules,
+  listOidcClients,
+  listOidcLogoutDeliveries,
+  listWebhookEndpoints,
   type Options,
+  pauseCronSchedule,
+  removeCronSchedule,
+  resumeCronSchedule,
   retireAgentSkillLesson,
-  updateAgent
+  retryOidcLogoutDelivery,
+  runCronSchedule,
+  updateAgent,
+  updateCronSchedule,
+  updateOidcClient
 } from '../sdk.gen'
 import type {
   AssignAgentWorkerProviderData,
@@ -31,6 +56,12 @@ import type {
   CancelBackgroundAgentJobData,
   CancelBackgroundAgentJobError,
   CancelBackgroundAgentJobResponse,
+  CancelCheckbackData,
+  CancelCheckbackError,
+  CancelCheckbackResponse,
+  CancelWebhookEndpointData,
+  CancelWebhookEndpointError,
+  CancelWebhookEndpointResponse,
   CompleteBackgroundAgentJobData,
   CompleteBackgroundAgentJobError,
   CompleteBackgroundAgentJobResponse,
@@ -40,9 +71,24 @@ import type {
   CreateAgentSkillLessonData,
   CreateAgentSkillLessonError,
   CreateAgentSkillLessonResponse,
+  CreateCronScheduleData,
+  CreateCronScheduleError,
+  CreateCronScheduleResponse,
+  CreateOidcClientData,
+  CreateOidcClientError,
+  CreateOidcClientResponse,
+  CreateWebhookEndpointData,
+  CreateWebhookEndpointError,
+  CreateWebhookEndpointResponse,
   DeleteAgentData,
   DeleteAgentError,
   DeleteAgentResponse,
+  DeleteOidcClientData,
+  DeleteOidcClientError,
+  DeleteOidcClientResponse,
+  DisableSignalBindingData,
+  DisableSignalBindingError,
+  DisableSignalBindingResponse,
   EnableAgentData,
   EnableAgentError,
   EnableAgentResponse,
@@ -52,9 +98,18 @@ import type {
   GetAiGatewayConversationData,
   GetAiGatewayConversationError,
   GetAiGatewayConversationResponse,
+  GetAutomationJobData,
+  GetAutomationJobError,
+  GetAutomationJobResponse,
   GetBackgroundAgentJobData,
   GetBackgroundAgentJobError,
   GetBackgroundAgentJobResponse,
+  GetCronScheduleData,
+  GetCronScheduleError,
+  GetCronScheduleResponse,
+  GetOidcClientData,
+  GetOidcClientError,
+  GetOidcClientResponse,
   ListAgentsData,
   ListAgentsError,
   ListAgentSkillLessonsData,
@@ -70,15 +125,60 @@ import type {
   ListAiGatewayMessagesData,
   ListAiGatewayMessagesError,
   ListAiGatewayMessagesResponse,
+  ListAutomationJobRunsData,
+  ListAutomationJobRunsError,
+  ListAutomationJobRunsResponse,
+  ListAutomationJobsData,
+  ListAutomationJobsError,
+  ListAutomationJobsResponse,
   ListBackgroundAgentJobsData,
   ListBackgroundAgentJobsError,
   ListBackgroundAgentJobsResponse,
+  ListCheckbacksData,
+  ListCheckbacksError,
+  ListCheckbacksResponse,
+  ListCronScheduleRunsData,
+  ListCronScheduleRunsError,
+  ListCronScheduleRunsResponse,
+  ListCronSchedulesData,
+  ListCronSchedulesError,
+  ListCronSchedulesResponse,
+  ListOidcClientsData,
+  ListOidcClientsError,
+  ListOidcClientsResponse,
+  ListOidcLogoutDeliveriesData,
+  ListOidcLogoutDeliveriesError,
+  ListOidcLogoutDeliveriesResponse,
+  ListWebhookEndpointsData,
+  ListWebhookEndpointsError,
+  ListWebhookEndpointsResponse,
+  PauseCronScheduleData,
+  PauseCronScheduleError,
+  PauseCronScheduleResponse,
+  RemoveCronScheduleData,
+  RemoveCronScheduleError,
+  RemoveCronScheduleResponse,
+  ResumeCronScheduleData,
+  ResumeCronScheduleError,
+  ResumeCronScheduleResponse,
   RetireAgentSkillLessonData,
   RetireAgentSkillLessonError,
   RetireAgentSkillLessonResponse,
+  RetryOidcLogoutDeliveryData,
+  RetryOidcLogoutDeliveryError,
+  RetryOidcLogoutDeliveryResponse,
+  RunCronScheduleData,
+  RunCronScheduleError,
+  RunCronScheduleResponse,
   UpdateAgentData,
   UpdateAgentError,
-  UpdateAgentResponse
+  UpdateAgentResponse,
+  UpdateCronScheduleData,
+  UpdateCronScheduleError,
+  UpdateCronScheduleResponse,
+  UpdateOidcClientData,
+  UpdateOidcClientError,
+  UpdateOidcClientResponse
 } from '../types.gen'
 
 export type QueryKey<TOptions extends Options> = [
@@ -120,6 +220,861 @@ const createQueryKey = <TOptions extends Options>(
   return [params]
 }
 
+export const getAiGatewayConversationQueryKey = (options: Options<GetAiGatewayConversationData>) =>
+  createQueryKey('getAiGatewayConversation', options)
+
+/**
+ * get_ai_gateway_conversation operation on ai_gateway_conversation resource
+ */
+export const getAiGatewayConversationOptions = (options: Options<GetAiGatewayConversationData>) =>
+  queryOptions<
+    GetAiGatewayConversationResponse,
+    GetAiGatewayConversationError,
+    GetAiGatewayConversationResponse,
+    ReturnType<typeof getAiGatewayConversationQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getAiGatewayConversation({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getAiGatewayConversationQueryKey(options)
+  })
+
+export const listOidcLogoutDeliveriesQueryKey = (options: Options<ListOidcLogoutDeliveriesData>) =>
+  createQueryKey('listOidcLogoutDeliveries', options)
+
+/**
+ * list_oidc_logout_deliveries operation on oidc_logout_delivery resource
+ */
+export const listOidcLogoutDeliveriesOptions = (options: Options<ListOidcLogoutDeliveriesData>) =>
+  queryOptions<
+    ListOidcLogoutDeliveriesResponse,
+    ListOidcLogoutDeliveriesError,
+    ListOidcLogoutDeliveriesResponse,
+    ReturnType<typeof listOidcLogoutDeliveriesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listOidcLogoutDeliveries({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listOidcLogoutDeliveriesQueryKey(options)
+  })
+
+export const listBackgroundAgentJobsQueryKey = (options?: Options<ListBackgroundAgentJobsData>) =>
+  createQueryKey('listBackgroundAgentJobs', options)
+
+/**
+ * list_background_agent_jobs operation on background_agent_job resource
+ */
+export const listBackgroundAgentJobsOptions = (options?: Options<ListBackgroundAgentJobsData>) =>
+  queryOptions<
+    ListBackgroundAgentJobsResponse,
+    ListBackgroundAgentJobsError,
+    ListBackgroundAgentJobsResponse,
+    ReturnType<typeof listBackgroundAgentJobsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listBackgroundAgentJobs({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listBackgroundAgentJobsQueryKey(options)
+  })
+
+const createInfiniteParams = <K extends Pick<QueryKey<Options>[0], 'body' | 'headers' | 'path' | 'query'>>(
+  queryKey: QueryKey<Options>,
+  page: K
+) => {
+  const params = { ...queryKey[0] }
+  if (page.body) {
+    params.body = {
+      ...(queryKey[0].body as any),
+      ...(page.body as any)
+    }
+  }
+  if (page.headers) {
+    params.headers = {
+      ...queryKey[0].headers,
+      ...page.headers
+    }
+  }
+  if (page.path) {
+    params.path = {
+      ...(queryKey[0].path as any),
+      ...(page.path as any)
+    }
+  }
+  if (page.query) {
+    params.query = {
+      ...(queryKey[0].query as any),
+      ...(page.query as any)
+    }
+  }
+  return params as unknown as typeof page
+}
+
+export const listBackgroundAgentJobsInfiniteQueryKey = (
+  options?: Options<ListBackgroundAgentJobsData>
+): QueryKey<Options<ListBackgroundAgentJobsData>> => createQueryKey('listBackgroundAgentJobs', options, true)
+
+/**
+ * list_background_agent_jobs operation on background_agent_job resource
+ */
+export const listBackgroundAgentJobsInfiniteOptions = (options?: Options<ListBackgroundAgentJobsData>) => {
+  const opts = infiniteQueryOptions<
+    ListBackgroundAgentJobsResponse,
+    ListBackgroundAgentJobsError,
+    InfiniteData<ListBackgroundAgentJobsResponse>,
+    QueryKey<Options<ListBackgroundAgentJobsData>>,
+    | {
+        after?: string
+        before?: string
+        count?: boolean
+        limit?: number
+      }
+    | Pick<QueryKey<Options<ListBackgroundAgentJobsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListBackgroundAgentJobsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  page: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listBackgroundAgentJobs({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listBackgroundAgentJobsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
+export const listWebhookEndpointsQueryKey = (options?: Options<ListWebhookEndpointsData>) =>
+  createQueryKey('listWebhookEndpoints', options)
+
+/**
+ * list_webhook_endpoints operation on webhook_endpoint resource
+ */
+export const listWebhookEndpointsOptions = (options?: Options<ListWebhookEndpointsData>) =>
+  queryOptions<
+    ListWebhookEndpointsResponse,
+    ListWebhookEndpointsError,
+    ListWebhookEndpointsResponse,
+    ReturnType<typeof listWebhookEndpointsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listWebhookEndpoints({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listWebhookEndpointsQueryKey(options)
+  })
+
+export const listWebhookEndpointsInfiniteQueryKey = (
+  options?: Options<ListWebhookEndpointsData>
+): QueryKey<Options<ListWebhookEndpointsData>> => createQueryKey('listWebhookEndpoints', options, true)
+
+/**
+ * list_webhook_endpoints operation on webhook_endpoint resource
+ */
+export const listWebhookEndpointsInfiniteOptions = (options?: Options<ListWebhookEndpointsData>) => {
+  const opts = infiniteQueryOptions<
+    ListWebhookEndpointsResponse,
+    ListWebhookEndpointsError,
+    InfiniteData<ListWebhookEndpointsResponse>,
+    QueryKey<Options<ListWebhookEndpointsData>>,
+    | {
+        after?: string
+        before?: string
+        limit?: number
+      }
+    | Pick<QueryKey<Options<ListWebhookEndpointsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListWebhookEndpointsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  page: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listWebhookEndpoints({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listWebhookEndpointsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
+/**
+ * create_webhook_endpoint operation on webhook_endpoint resource
+ */
+export const createWebhookEndpointMutation = (
+  options?: Partial<Options<CreateWebhookEndpointData>>
+): UseMutationOptions<
+  CreateWebhookEndpointResponse,
+  CreateWebhookEndpointError,
+  Options<CreateWebhookEndpointData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreateWebhookEndpointResponse,
+    CreateWebhookEndpointError,
+    Options<CreateWebhookEndpointData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await createWebhookEndpoint({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * cancel_checkback operation on scheduled_event resource
+ */
+export const cancelCheckbackMutation = (
+  options?: Partial<Options<CancelCheckbackData>>
+): UseMutationOptions<CancelCheckbackResponse, CancelCheckbackError, Options<CancelCheckbackData>> => {
+  const mutationOptions: UseMutationOptions<
+    CancelCheckbackResponse,
+    CancelCheckbackError,
+    Options<CancelCheckbackData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await cancelCheckback({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * retry_oidc_logout_delivery operation on oidc_logout_delivery resource
+ */
+export const retryOidcLogoutDeliveryMutation = (
+  options?: Partial<Options<RetryOidcLogoutDeliveryData>>
+): UseMutationOptions<
+  RetryOidcLogoutDeliveryResponse,
+  RetryOidcLogoutDeliveryError,
+  Options<RetryOidcLogoutDeliveryData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RetryOidcLogoutDeliveryResponse,
+    RetryOidcLogoutDeliveryError,
+    Options<RetryOidcLogoutDeliveryData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await retryOidcLogoutDelivery({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listCronSchedulesQueryKey = (options?: Options<ListCronSchedulesData>) =>
+  createQueryKey('listCronSchedules', options)
+
+/**
+ * list_cron_schedules operation on cron_schedule resource
+ */
+export const listCronSchedulesOptions = (options?: Options<ListCronSchedulesData>) =>
+  queryOptions<
+    ListCronSchedulesResponse,
+    ListCronSchedulesError,
+    ListCronSchedulesResponse,
+    ReturnType<typeof listCronSchedulesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listCronSchedules({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listCronSchedulesQueryKey(options)
+  })
+
+/**
+ * disable_signal_binding operation on signal_binding resource
+ */
+export const disableSignalBindingMutation = (
+  options?: Partial<Options<DisableSignalBindingData>>
+): UseMutationOptions<DisableSignalBindingResponse, DisableSignalBindingError, Options<DisableSignalBindingData>> => {
+  const mutationOptions: UseMutationOptions<
+    DisableSignalBindingResponse,
+    DisableSignalBindingError,
+    Options<DisableSignalBindingData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await disableSignalBinding({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * create_cron_schedule operation on cron_schedule resource
+ */
+export const createCronScheduleMutation = (
+  options?: Partial<Options<CreateCronScheduleData>>
+): UseMutationOptions<CreateCronScheduleResponse, CreateCronScheduleError, Options<CreateCronScheduleData>> => {
+  const mutationOptions: UseMutationOptions<
+    CreateCronScheduleResponse,
+    CreateCronScheduleError,
+    Options<CreateCronScheduleData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await createCronSchedule({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * assign_agent_worker_provider operation on agent_worker resource
+ */
+export const assignAgentWorkerProviderMutation = (
+  options?: Partial<Options<AssignAgentWorkerProviderData>>
+): UseMutationOptions<
+  AssignAgentWorkerProviderResponse,
+  AssignAgentWorkerProviderError,
+  Options<AssignAgentWorkerProviderData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AssignAgentWorkerProviderResponse,
+    AssignAgentWorkerProviderError,
+    Options<AssignAgentWorkerProviderData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await assignAgentWorkerProvider({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listCronScheduleRunsQueryKey = (options: Options<ListCronScheduleRunsData>) =>
+  createQueryKey('listCronScheduleRuns', options)
+
+/**
+ * list_cron_schedule_runs operation on scheduled_event resource
+ */
+export const listCronScheduleRunsOptions = (options: Options<ListCronScheduleRunsData>) =>
+  queryOptions<
+    ListCronScheduleRunsResponse,
+    ListCronScheduleRunsError,
+    ListCronScheduleRunsResponse,
+    ReturnType<typeof listCronScheduleRunsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listCronScheduleRuns({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listCronScheduleRunsQueryKey(options)
+  })
+
+export const listCronScheduleRunsInfiniteQueryKey = (
+  options: Options<ListCronScheduleRunsData>
+): QueryKey<Options<ListCronScheduleRunsData>> => createQueryKey('listCronScheduleRuns', options, true)
+
+/**
+ * list_cron_schedule_runs operation on scheduled_event resource
+ */
+export const listCronScheduleRunsInfiniteOptions = (options: Options<ListCronScheduleRunsData>) => {
+  const opts = infiniteQueryOptions<
+    ListCronScheduleRunsResponse,
+    ListCronScheduleRunsError,
+    InfiniteData<ListCronScheduleRunsResponse>,
+    QueryKey<Options<ListCronScheduleRunsData>>,
+    | {
+        after?: string
+        before?: string
+        limit?: number
+      }
+    | Pick<QueryKey<Options<ListCronScheduleRunsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListCronScheduleRunsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  page: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listCronScheduleRuns({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listCronScheduleRunsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
+export const getAutomationJobQueryKey = (options: Options<GetAutomationJobData>) =>
+  createQueryKey('getAutomationJob', options)
+
+/**
+ * get_automation_job operation on automation_job resource
+ */
+export const getAutomationJobOptions = (options: Options<GetAutomationJobData>) =>
+  queryOptions<
+    GetAutomationJobResponse,
+    GetAutomationJobError,
+    GetAutomationJobResponse,
+    ReturnType<typeof getAutomationJobQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getAutomationJob({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getAutomationJobQueryKey(options)
+  })
+
+/**
+ * cancel_background_agent_job operation on background_agent_job resource
+ */
+export const cancelBackgroundAgentJobMutation = (
+  options?: Partial<Options<CancelBackgroundAgentJobData>>
+): UseMutationOptions<
+  CancelBackgroundAgentJobResponse,
+  CancelBackgroundAgentJobError,
+  Options<CancelBackgroundAgentJobData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CancelBackgroundAgentJobResponse,
+    CancelBackgroundAgentJobError,
+    Options<CancelBackgroundAgentJobData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await cancelBackgroundAgentJob({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listAutomationJobsQueryKey = (options?: Options<ListAutomationJobsData>) =>
+  createQueryKey('listAutomationJobs', options)
+
+/**
+ * list_automation_jobs operation on automation_job resource
+ */
+export const listAutomationJobsOptions = (options?: Options<ListAutomationJobsData>) =>
+  queryOptions<
+    ListAutomationJobsResponse,
+    ListAutomationJobsError,
+    ListAutomationJobsResponse,
+    ReturnType<typeof listAutomationJobsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAutomationJobs({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listAutomationJobsQueryKey(options)
+  })
+
+export const listAutomationJobsInfiniteQueryKey = (
+  options?: Options<ListAutomationJobsData>
+): QueryKey<Options<ListAutomationJobsData>> => createQueryKey('listAutomationJobs', options, true)
+
+/**
+ * list_automation_jobs operation on automation_job resource
+ */
+export const listAutomationJobsInfiniteOptions = (options?: Options<ListAutomationJobsData>) => {
+  const opts = infiniteQueryOptions<
+    ListAutomationJobsResponse,
+    ListAutomationJobsError,
+    InfiniteData<ListAutomationJobsResponse>,
+    QueryKey<Options<ListAutomationJobsData>>,
+    | {
+        after?: string
+        before?: string
+        limit?: number
+      }
+    | Pick<QueryKey<Options<ListAutomationJobsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListAutomationJobsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  page: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listAutomationJobs({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listAutomationJobsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
+export const listCheckbacksQueryKey = (options?: Options<ListCheckbacksData>) =>
+  createQueryKey('listCheckbacks', options)
+
+/**
+ * list_checkbacks operation on scheduled_event resource
+ */
+export const listCheckbacksOptions = (options?: Options<ListCheckbacksData>) =>
+  queryOptions<
+    ListCheckbacksResponse,
+    ListCheckbacksError,
+    ListCheckbacksResponse,
+    ReturnType<typeof listCheckbacksQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listCheckbacks({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listCheckbacksQueryKey(options)
+  })
+
+export const listCheckbacksInfiniteQueryKey = (
+  options?: Options<ListCheckbacksData>
+): QueryKey<Options<ListCheckbacksData>> => createQueryKey('listCheckbacks', options, true)
+
+/**
+ * list_checkbacks operation on scheduled_event resource
+ */
+export const listCheckbacksInfiniteOptions = (options?: Options<ListCheckbacksData>) => {
+  const opts = infiniteQueryOptions<
+    ListCheckbacksResponse,
+    ListCheckbacksError,
+    InfiniteData<ListCheckbacksResponse>,
+    QueryKey<Options<ListCheckbacksData>>,
+    | {
+        after?: string
+        before?: string
+        limit?: number
+      }
+    | Pick<QueryKey<Options<ListCheckbacksData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListCheckbacksData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  page: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listCheckbacks({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listCheckbacksInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
+export const listAutomationJobRunsQueryKey = (options: Options<ListAutomationJobRunsData>) =>
+  createQueryKey('listAutomationJobRuns', options)
+
+/**
+ * list_automation_job_runs operation on automation_job_run resource
+ */
+export const listAutomationJobRunsOptions = (options: Options<ListAutomationJobRunsData>) =>
+  queryOptions<
+    ListAutomationJobRunsResponse,
+    ListAutomationJobRunsError,
+    ListAutomationJobRunsResponse,
+    ReturnType<typeof listAutomationJobRunsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAutomationJobRuns({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listAutomationJobRunsQueryKey(options)
+  })
+
+export const listAutomationJobRunsInfiniteQueryKey = (
+  options: Options<ListAutomationJobRunsData>
+): QueryKey<Options<ListAutomationJobRunsData>> => createQueryKey('listAutomationJobRuns', options, true)
+
+/**
+ * list_automation_job_runs operation on automation_job_run resource
+ */
+export const listAutomationJobRunsInfiniteOptions = (options: Options<ListAutomationJobRunsData>) => {
+  const opts = infiniteQueryOptions<
+    ListAutomationJobRunsResponse,
+    ListAutomationJobRunsError,
+    InfiniteData<ListAutomationJobRunsResponse>,
+    QueryKey<Options<ListAutomationJobRunsData>>,
+    | {
+        after?: string
+        before?: string
+        limit?: number
+      }
+    | Pick<QueryKey<Options<ListAutomationJobRunsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListAutomationJobRunsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  page: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listAutomationJobRuns({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listAutomationJobRunsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
+/**
+ * resume_cron_schedule operation on cron_schedule resource
+ */
+export const resumeCronScheduleMutation = (
+  options?: Partial<Options<ResumeCronScheduleData>>
+): UseMutationOptions<ResumeCronScheduleResponse, ResumeCronScheduleError, Options<ResumeCronScheduleData>> => {
+  const mutationOptions: UseMutationOptions<
+    ResumeCronScheduleResponse,
+    ResumeCronScheduleError,
+    Options<ResumeCronScheduleData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await resumeCronSchedule({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * enable_agent operation on agent resource
+ */
+export const enableAgentMutation = (
+  options?: Partial<Options<EnableAgentData>>
+): UseMutationOptions<EnableAgentResponse, EnableAgentError, Options<EnableAgentData>> => {
+  const mutationOptions: UseMutationOptions<EnableAgentResponse, EnableAgentError, Options<EnableAgentData>> = {
+    mutationFn: async fnOptions => {
+      const { data } = await enableAgent({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listOidcClientsQueryKey = (options?: Options<ListOidcClientsData>) =>
+  createQueryKey('listOidcClients', options)
+
+/**
+ * list_oidc_clients operation on oidc_client resource
+ */
+export const listOidcClientsOptions = (options?: Options<ListOidcClientsData>) =>
+  queryOptions<
+    ListOidcClientsResponse,
+    ListOidcClientsError,
+    ListOidcClientsResponse,
+    ReturnType<typeof listOidcClientsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listOidcClients({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listOidcClientsQueryKey(options)
+  })
+
+/**
+ * create_oidc_client operation on oidc_client resource
+ */
+export const createOidcClientMutation = (
+  options?: Partial<Options<CreateOidcClientData>>
+): UseMutationOptions<CreateOidcClientResponse, CreateOidcClientError, Options<CreateOidcClientData>> => {
+  const mutationOptions: UseMutationOptions<
+    CreateOidcClientResponse,
+    CreateOidcClientError,
+    Options<CreateOidcClientData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await createOidcClient({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * run_cron_schedule operation on cron_schedule resource
+ */
+export const runCronScheduleMutation = (
+  options?: Partial<Options<RunCronScheduleData>>
+): UseMutationOptions<RunCronScheduleResponse, RunCronScheduleError, Options<RunCronScheduleData>> => {
+  const mutationOptions: UseMutationOptions<
+    RunCronScheduleResponse,
+    RunCronScheduleError,
+    Options<RunCronScheduleData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await runCronSchedule({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const listAgentWorkersQueryKey = (options?: Options<ListAgentWorkersData>) =>
   createQueryKey('listAgentWorkers', options)
 
@@ -144,6 +1099,406 @@ export const listAgentWorkersOptions = (options?: Options<ListAgentWorkersData>)
     },
     queryKey: listAgentWorkersQueryKey(options)
   })
+
+/**
+ * pause_cron_schedule operation on cron_schedule resource
+ */
+export const pauseCronScheduleMutation = (
+  options?: Partial<Options<PauseCronScheduleData>>
+): UseMutationOptions<PauseCronScheduleResponse, PauseCronScheduleError, Options<PauseCronScheduleData>> => {
+  const mutationOptions: UseMutationOptions<
+    PauseCronScheduleResponse,
+    PauseCronScheduleError,
+    Options<PauseCronScheduleData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await pauseCronSchedule({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * delete_oidc_client operation on oidc_client resource
+ */
+export const deleteOidcClientMutation = (
+  options?: Partial<Options<DeleteOidcClientData>>
+): UseMutationOptions<DeleteOidcClientResponse, DeleteOidcClientError, Options<DeleteOidcClientData>> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteOidcClientResponse,
+    DeleteOidcClientError,
+    Options<DeleteOidcClientData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteOidcClient({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getOidcClientQueryKey = (options: Options<GetOidcClientData>) => createQueryKey('getOidcClient', options)
+
+/**
+ * get_oidc_client operation on oidc_client resource
+ */
+export const getOidcClientOptions = (options: Options<GetOidcClientData>) =>
+  queryOptions<
+    GetOidcClientResponse,
+    GetOidcClientError,
+    GetOidcClientResponse,
+    ReturnType<typeof getOidcClientQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getOidcClient({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getOidcClientQueryKey(options)
+  })
+
+/**
+ * update_oidc_client operation on oidc_client resource
+ */
+export const updateOidcClientMutation = (
+  options?: Partial<Options<UpdateOidcClientData>>
+): UseMutationOptions<UpdateOidcClientResponse, UpdateOidcClientError, Options<UpdateOidcClientData>> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateOidcClientResponse,
+    UpdateOidcClientError,
+    Options<UpdateOidcClientData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateOidcClient({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * remove_cron_schedule operation on cron_schedule resource
+ */
+export const removeCronScheduleMutation = (
+  options?: Partial<Options<RemoveCronScheduleData>>
+): UseMutationOptions<RemoveCronScheduleResponse, RemoveCronScheduleError, Options<RemoveCronScheduleData>> => {
+  const mutationOptions: UseMutationOptions<
+    RemoveCronScheduleResponse,
+    RemoveCronScheduleError,
+    Options<RemoveCronScheduleData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await removeCronSchedule({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getCronScheduleQueryKey = (options: Options<GetCronScheduleData>) =>
+  createQueryKey('getCronSchedule', options)
+
+/**
+ * get_cron_schedule operation on cron_schedule resource
+ */
+export const getCronScheduleOptions = (options: Options<GetCronScheduleData>) =>
+  queryOptions<
+    GetCronScheduleResponse,
+    GetCronScheduleError,
+    GetCronScheduleResponse,
+    ReturnType<typeof getCronScheduleQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getCronSchedule({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getCronScheduleQueryKey(options)
+  })
+
+/**
+ * update_cron_schedule operation on cron_schedule resource
+ */
+export const updateCronScheduleMutation = (
+  options?: Partial<Options<UpdateCronScheduleData>>
+): UseMutationOptions<UpdateCronScheduleResponse, UpdateCronScheduleError, Options<UpdateCronScheduleData>> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateCronScheduleResponse,
+    UpdateCronScheduleError,
+    Options<UpdateCronScheduleData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateCronSchedule({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * delete_agent operation on agent resource
+ */
+export const deleteAgentMutation = (
+  options?: Partial<Options<DeleteAgentData>>
+): UseMutationOptions<DeleteAgentResponse, DeleteAgentError, Options<DeleteAgentData>> => {
+  const mutationOptions: UseMutationOptions<DeleteAgentResponse, DeleteAgentError, Options<DeleteAgentData>> = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteAgent({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getAgentQueryKey = (options: Options<GetAgentData>) => createQueryKey('getAgent', options)
+
+/**
+ * get_agent operation on agent resource
+ */
+export const getAgentOptions = (options: Options<GetAgentData>) =>
+  queryOptions<GetAgentResponse, GetAgentError, GetAgentResponse, ReturnType<typeof getAgentQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getAgent({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getAgentQueryKey(options)
+  })
+
+/**
+ * update_agent operation on agent resource
+ */
+export const updateAgentMutation = (
+  options?: Partial<Options<UpdateAgentData>>
+): UseMutationOptions<UpdateAgentResponse, UpdateAgentError, Options<UpdateAgentData>> => {
+  const mutationOptions: UseMutationOptions<UpdateAgentResponse, UpdateAgentError, Options<UpdateAgentData>> = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateAgent({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listAiGatewayConversationsQueryKey = (options?: Options<ListAiGatewayConversationsData>) =>
+  createQueryKey('listAiGatewayConversations', options)
+
+/**
+ * list_ai_gateway_conversations operation on ai_gateway_conversation resource
+ */
+export const listAiGatewayConversationsOptions = (options?: Options<ListAiGatewayConversationsData>) =>
+  queryOptions<
+    ListAiGatewayConversationsResponse,
+    ListAiGatewayConversationsError,
+    ListAiGatewayConversationsResponse,
+    ReturnType<typeof listAiGatewayConversationsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAiGatewayConversations({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listAiGatewayConversationsQueryKey(options)
+  })
+
+export const listAiGatewayConversationsInfiniteQueryKey = (
+  options?: Options<ListAiGatewayConversationsData>
+): QueryKey<Options<ListAiGatewayConversationsData>> => createQueryKey('listAiGatewayConversations', options, true)
+
+/**
+ * list_ai_gateway_conversations operation on ai_gateway_conversation resource
+ */
+export const listAiGatewayConversationsInfiniteOptions = (options?: Options<ListAiGatewayConversationsData>) => {
+  const opts = infiniteQueryOptions<
+    ListAiGatewayConversationsResponse,
+    ListAiGatewayConversationsError,
+    InfiniteData<ListAiGatewayConversationsResponse>,
+    QueryKey<Options<ListAiGatewayConversationsData>>,
+    | {
+        after?: string
+        before?: string
+        count?: boolean
+        limit?: number
+      }
+    | Pick<QueryKey<Options<ListAiGatewayConversationsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<ListAiGatewayConversationsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  page: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await listAiGatewayConversations({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: listAiGatewayConversationsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
+export const getBackgroundAgentJobQueryKey = (options: Options<GetBackgroundAgentJobData>) =>
+  createQueryKey('getBackgroundAgentJob', options)
+
+/**
+ * get_background_agent_job operation on background_agent_job resource
+ */
+export const getBackgroundAgentJobOptions = (options: Options<GetBackgroundAgentJobData>) =>
+  queryOptions<
+    GetBackgroundAgentJobResponse,
+    GetBackgroundAgentJobError,
+    GetBackgroundAgentJobResponse,
+    ReturnType<typeof getBackgroundAgentJobQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getBackgroundAgentJob({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getBackgroundAgentJobQueryKey(options)
+  })
+
+/**
+ * cancel_webhook_endpoint operation on webhook_endpoint resource
+ */
+export const cancelWebhookEndpointMutation = (
+  options?: Partial<Options<CancelWebhookEndpointData>>
+): UseMutationOptions<
+  CancelWebhookEndpointResponse,
+  CancelWebhookEndpointError,
+  Options<CancelWebhookEndpointData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CancelWebhookEndpointResponse,
+    CancelWebhookEndpointError,
+    Options<CancelWebhookEndpointData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await cancelWebhookEndpoint({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * complete_background_agent_job operation on background_agent_job resource
+ */
+export const completeBackgroundAgentJobMutation = (
+  options?: Partial<Options<CompleteBackgroundAgentJobData>>
+): UseMutationOptions<
+  CompleteBackgroundAgentJobResponse,
+  CompleteBackgroundAgentJobError,
+  Options<CompleteBackgroundAgentJobData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CompleteBackgroundAgentJobResponse,
+    CompleteBackgroundAgentJobError,
+    Options<CompleteBackgroundAgentJobData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await completeBackgroundAgentJob({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * retire_agent_skill_lesson operation on agent_skill_lesson resource
+ */
+export const retireAgentSkillLessonMutation = (
+  options?: Partial<Options<RetireAgentSkillLessonData>>
+): UseMutationOptions<
+  RetireAgentSkillLessonResponse,
+  RetireAgentSkillLessonError,
+  Options<RetireAgentSkillLessonData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RetireAgentSkillLessonResponse,
+    RetireAgentSkillLessonError,
+    Options<RetireAgentSkillLessonData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await retireAgentSkillLesson({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 export const listAgentsQueryKey = (options?: Options<ListAgentsData>) => createQueryKey('listAgents', options)
 
@@ -235,241 +1590,6 @@ export const createAgentSkillLessonMutation = (
   return mutationOptions
 }
 
-/**
- * retire_agent_skill_lesson operation on agent_skill_lesson resource
- */
-export const retireAgentSkillLessonMutation = (
-  options?: Partial<Options<RetireAgentSkillLessonData>>
-): UseMutationOptions<
-  RetireAgentSkillLessonResponse,
-  RetireAgentSkillLessonError,
-  Options<RetireAgentSkillLessonData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    RetireAgentSkillLessonResponse,
-    RetireAgentSkillLessonError,
-    Options<RetireAgentSkillLessonData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await retireAgentSkillLesson({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * assign_agent_worker_provider operation on agent_worker resource
- */
-export const assignAgentWorkerProviderMutation = (
-  options?: Partial<Options<AssignAgentWorkerProviderData>>
-): UseMutationOptions<
-  AssignAgentWorkerProviderResponse,
-  AssignAgentWorkerProviderError,
-  Options<AssignAgentWorkerProviderData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AssignAgentWorkerProviderResponse,
-    AssignAgentWorkerProviderError,
-    Options<AssignAgentWorkerProviderData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await assignAgentWorkerProvider({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * delete_agent operation on agent resource
- */
-export const deleteAgentMutation = (
-  options?: Partial<Options<DeleteAgentData>>
-): UseMutationOptions<DeleteAgentResponse, DeleteAgentError, Options<DeleteAgentData>> => {
-  const mutationOptions: UseMutationOptions<DeleteAgentResponse, DeleteAgentError, Options<DeleteAgentData>> = {
-    mutationFn: async fnOptions => {
-      const { data } = await deleteAgent({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const getAgentQueryKey = (options: Options<GetAgentData>) => createQueryKey('getAgent', options)
-
-/**
- * get_agent operation on agent resource
- */
-export const getAgentOptions = (options: Options<GetAgentData>) =>
-  queryOptions<GetAgentResponse, GetAgentError, GetAgentResponse, ReturnType<typeof getAgentQueryKey>>({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getAgent({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: getAgentQueryKey(options)
-  })
-
-/**
- * update_agent operation on agent resource
- */
-export const updateAgentMutation = (
-  options?: Partial<Options<UpdateAgentData>>
-): UseMutationOptions<UpdateAgentResponse, UpdateAgentError, Options<UpdateAgentData>> => {
-  const mutationOptions: UseMutationOptions<UpdateAgentResponse, UpdateAgentError, Options<UpdateAgentData>> = {
-    mutationFn: async fnOptions => {
-      const { data } = await updateAgent({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * enable_agent operation on agent resource
- */
-export const enableAgentMutation = (
-  options?: Partial<Options<EnableAgentData>>
-): UseMutationOptions<EnableAgentResponse, EnableAgentError, Options<EnableAgentData>> => {
-  const mutationOptions: UseMutationOptions<EnableAgentResponse, EnableAgentError, Options<EnableAgentData>> = {
-    mutationFn: async fnOptions => {
-      const { data } = await enableAgent({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const listAiGatewayConversationsQueryKey = (options?: Options<ListAiGatewayConversationsData>) =>
-  createQueryKey('listAiGatewayConversations', options)
-
-/**
- * list_ai_gateway_conversations operation on ai_gateway_conversation resource
- */
-export const listAiGatewayConversationsOptions = (options?: Options<ListAiGatewayConversationsData>) =>
-  queryOptions<
-    ListAiGatewayConversationsResponse,
-    ListAiGatewayConversationsError,
-    ListAiGatewayConversationsResponse,
-    ReturnType<typeof listAiGatewayConversationsQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await listAiGatewayConversations({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: listAiGatewayConversationsQueryKey(options)
-  })
-
-const createInfiniteParams = <K extends Pick<QueryKey<Options>[0], 'body' | 'headers' | 'path' | 'query'>>(
-  queryKey: QueryKey<Options>,
-  page: K
-) => {
-  const params = { ...queryKey[0] }
-  if (page.body) {
-    params.body = {
-      ...(queryKey[0].body as any),
-      ...(page.body as any)
-    }
-  }
-  if (page.headers) {
-    params.headers = {
-      ...queryKey[0].headers,
-      ...page.headers
-    }
-  }
-  if (page.path) {
-    params.path = {
-      ...(queryKey[0].path as any),
-      ...(page.path as any)
-    }
-  }
-  if (page.query) {
-    params.query = {
-      ...(queryKey[0].query as any),
-      ...(page.query as any)
-    }
-  }
-  return params as unknown as typeof page
-}
-
-export const listAiGatewayConversationsInfiniteQueryKey = (
-  options?: Options<ListAiGatewayConversationsData>
-): QueryKey<Options<ListAiGatewayConversationsData>> => createQueryKey('listAiGatewayConversations', options, true)
-
-/**
- * list_ai_gateway_conversations operation on ai_gateway_conversation resource
- */
-export const listAiGatewayConversationsInfiniteOptions = (options?: Options<ListAiGatewayConversationsData>) => {
-  const opts = infiniteQueryOptions<
-    ListAiGatewayConversationsResponse,
-    ListAiGatewayConversationsError,
-    InfiniteData<ListAiGatewayConversationsResponse>,
-    QueryKey<Options<ListAiGatewayConversationsData>>,
-    | {
-        after?: string
-        before?: string
-        count?: boolean
-        limit?: number
-      }
-    | Pick<QueryKey<Options<ListAiGatewayConversationsData>>[0], 'body' | 'headers' | 'path' | 'query'>
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<QueryKey<Options<ListAiGatewayConversationsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  page: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await listAiGatewayConversations({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: listAiGatewayConversationsInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
-}
-
 export const listAiGatewayMessagesQueryKey = (options: Options<ListAiGatewayMessagesData>) =>
   createQueryKey('listAiGatewayMessages', options)
 
@@ -541,181 +1661,4 @@ export const listAiGatewayMessagesInfiniteOptions = (options: Options<ListAiGate
     }
   )
   return opts as Omit<typeof opts, 'initialData'>
-}
-
-export const getAiGatewayConversationQueryKey = (options: Options<GetAiGatewayConversationData>) =>
-  createQueryKey('getAiGatewayConversation', options)
-
-/**
- * get_ai_gateway_conversation operation on ai_gateway_conversation resource
- */
-export const getAiGatewayConversationOptions = (options: Options<GetAiGatewayConversationData>) =>
-  queryOptions<
-    GetAiGatewayConversationResponse,
-    GetAiGatewayConversationError,
-    GetAiGatewayConversationResponse,
-    ReturnType<typeof getAiGatewayConversationQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getAiGatewayConversation({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: getAiGatewayConversationQueryKey(options)
-  })
-
-export const listBackgroundAgentJobsQueryKey = (options?: Options<ListBackgroundAgentJobsData>) =>
-  createQueryKey('listBackgroundAgentJobs', options)
-
-/**
- * list_background_agent_jobs operation on background_agent_job resource
- */
-export const listBackgroundAgentJobsOptions = (options?: Options<ListBackgroundAgentJobsData>) =>
-  queryOptions<
-    ListBackgroundAgentJobsResponse,
-    ListBackgroundAgentJobsError,
-    ListBackgroundAgentJobsResponse,
-    ReturnType<typeof listBackgroundAgentJobsQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await listBackgroundAgentJobs({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: listBackgroundAgentJobsQueryKey(options)
-  })
-
-export const listBackgroundAgentJobsInfiniteQueryKey = (
-  options?: Options<ListBackgroundAgentJobsData>
-): QueryKey<Options<ListBackgroundAgentJobsData>> => createQueryKey('listBackgroundAgentJobs', options, true)
-
-/**
- * list_background_agent_jobs operation on background_agent_job resource
- */
-export const listBackgroundAgentJobsInfiniteOptions = (options?: Options<ListBackgroundAgentJobsData>) => {
-  const opts = infiniteQueryOptions<
-    ListBackgroundAgentJobsResponse,
-    ListBackgroundAgentJobsError,
-    InfiniteData<ListBackgroundAgentJobsResponse>,
-    QueryKey<Options<ListBackgroundAgentJobsData>>,
-    | {
-        after?: string
-        before?: string
-        count?: boolean
-        limit?: number
-      }
-    | Pick<QueryKey<Options<ListBackgroundAgentJobsData>>[0], 'body' | 'headers' | 'path' | 'query'>
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<QueryKey<Options<ListBackgroundAgentJobsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  page: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await listBackgroundAgentJobs({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: listBackgroundAgentJobsInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
-}
-
-export const getBackgroundAgentJobQueryKey = (options: Options<GetBackgroundAgentJobData>) =>
-  createQueryKey('getBackgroundAgentJob', options)
-
-/**
- * get_background_agent_job operation on background_agent_job resource
- */
-export const getBackgroundAgentJobOptions = (options: Options<GetBackgroundAgentJobData>) =>
-  queryOptions<
-    GetBackgroundAgentJobResponse,
-    GetBackgroundAgentJobError,
-    GetBackgroundAgentJobResponse,
-    ReturnType<typeof getBackgroundAgentJobQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await getBackgroundAgentJob({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: getBackgroundAgentJobQueryKey(options)
-  })
-
-/**
- * cancel_background_agent_job operation on background_agent_job resource
- */
-export const cancelBackgroundAgentJobMutation = (
-  options?: Partial<Options<CancelBackgroundAgentJobData>>
-): UseMutationOptions<
-  CancelBackgroundAgentJobResponse,
-  CancelBackgroundAgentJobError,
-  Options<CancelBackgroundAgentJobData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    CancelBackgroundAgentJobResponse,
-    CancelBackgroundAgentJobError,
-    Options<CancelBackgroundAgentJobData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await cancelBackgroundAgentJob({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * complete_background_agent_job operation on background_agent_job resource
- */
-export const completeBackgroundAgentJobMutation = (
-  options?: Partial<Options<CompleteBackgroundAgentJobData>>
-): UseMutationOptions<
-  CompleteBackgroundAgentJobResponse,
-  CompleteBackgroundAgentJobError,
-  Options<CompleteBackgroundAgentJobData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    CompleteBackgroundAgentJobResponse,
-    CompleteBackgroundAgentJobError,
-    Options<CompleteBackgroundAgentJobData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await completeBackgroundAgentJob({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
 }

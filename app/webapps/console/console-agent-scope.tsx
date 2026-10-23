@@ -43,7 +43,7 @@ export function useAgentScope() {
 export type AgentScope = ReturnType<typeof useAgentScope>
 
 /** Agents that can run work; editors offer these, and list cues follow the same set. */
-export function activeAgents<T extends { status?: 'active' | 'disabled' }>(agents: readonly T[]): T[] {
+export function activeAgents<T extends { status?: 'active' | 'disabled' | null }>(agents: readonly T[]): T[] {
   return agents.filter(agent => agent.status === 'active')
 }
 

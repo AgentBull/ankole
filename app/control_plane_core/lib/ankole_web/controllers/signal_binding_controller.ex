@@ -80,18 +80,6 @@ defmodule AnkoleWeb.SignalBindingController do
     ]
   )
 
-  operation(:delete,
-    summary: "Disable one signal binding for an agent",
-    parameters: [
-      agent_uid: [in: :path, type: :string, required: true],
-      binding_name: [in: :path, type: :string, required: true]
-    ],
-    responses: [
-      ok: {"Signal binding", "application/json", SignalBindingResponse},
-      default: {"Error", "application/json", ErrorEnvelope}
-    ]
-  )
-
   operation(:update_binding,
     summary: "Edit or move one signal binding",
     parameters: [
@@ -217,16 +205,6 @@ defmodule AnkoleWeb.SignalBindingController do
              conn.body_params
            ) do
       json(conn, %{signal_binding: signal_binding_json(result)})
-    end
-  end
-
-  def delete(conn, params) do
-    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
-         {:ok, binding_name} <- ConsoleParams.text(params, :binding_name),
-         :ok <-
-           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_bindings", "delete"),
-         {:ok, binding} <- Ankole.Signals.Bindings.disable_binding(agent_uid, binding_name) do
-      json(conn, %{signal_binding: signal_binding_json(binding)})
     end
   end
 

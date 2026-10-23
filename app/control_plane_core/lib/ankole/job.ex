@@ -46,14 +46,15 @@ defmodule Ankole.Job do
   def schedule_in_tx(repo, worker, args, due_at, opts \\ []) do
     import Ecto.Query, only: [from: 2, where: 3]
 
-    with {:ok, job} <- Oban.insert(worker.new(args, scheduled_at: due_at)) do
-      state =
-        if DateTime.after?(due_at, DateTime.utc_now(:microsecond)),
-          do: "scheduled",
-          else: "available"
+    state =
+      if DateTime.after?(due_at, DateTime.utc_now(:microsecond)),
+        do: "scheduled",
+        else: "available"
 
-      # An inline test engine runs the job without a row.
-      if job.id do
+    with {:ok, job} <- Oban.insert(worker.new(args, scheduled_at: due_at, state: state)) do
+      # A new row already has its time and state, so only an existing pending
+      # wakeup moves. An inline test engine runs the job without a row.
+      if job.id && job.conflict? do
         query =
           from(job in Oban.Job,
             where: job.id == ^job.id and job.state in ["available", "scheduled", "retryable"]

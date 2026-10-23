@@ -179,6 +179,17 @@ defmodule Ankole.Ash do
     end
   end
 
+  @doc "Runs a create for each input in batches and gives the created rows."
+  def create_all(inputs, resource, action, opts \\ []) do
+    inputs
+    |> bulk_create(
+      resource,
+      action,
+      Keyword.merge([return_records?: true, return_errors?: true, stop_on_error?: true], opts)
+    )
+    |> bulk_records()
+  end
+
   @doc "Runs an update on every row that a query selects and gives the changed rows."
   def update_where(query, action, input \\ %{}, opts \\ []) do
     query
