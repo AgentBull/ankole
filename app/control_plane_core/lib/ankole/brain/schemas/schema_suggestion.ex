@@ -155,7 +155,8 @@ defmodule Ankole.Brain.Schemas.SchemaSuggestion do
 
         with {:ok, _outcome} <-
                Ankole.Brain.Console.result(
-                 Ankole.Brain.Promotion.approve_in_tx(args.suggestion_id, decided_by, attrs)
+                 Ankole.Brain.Promotion.approve_in_tx(args.suggestion_id, decided_by, attrs),
+                 __MODULE__
                ),
              do: :ok
       end)
@@ -168,7 +169,7 @@ defmodule Ankole.Brain.Schemas.SchemaSuggestion do
       run(fn %{arguments: args}, context ->
         args.suggestion_id
         |> Ankole.Brain.Promotion.reject_in_tx(Ankole.Brain.Console.actor_ref(context))
-        |> Ankole.Brain.Console.result()
+        |> Ankole.Brain.Console.result(__MODULE__)
       end)
     end
 

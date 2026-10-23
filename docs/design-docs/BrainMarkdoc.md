@@ -147,8 +147,9 @@ JSON:API v2（`Ankole.Brain` 的 `json_api` 路由，请求和响应使用
 创建和更新在 `brain:update` 权限下接受可选的 `tags` 数组。更新时省略该字段会保留当前标签；显式传入空数组会清空所有标签。编辑器为每个标签提供独立输入框，支持包含换行的标签。标签计入并发保存基线（compare-and-swap），更新前的标签集合随带作者归属的版本快照一同保存。版本回滚仅恢复 `body` 和 `meta`。
 
 创建和更新要求 `brain:update`；raw body 只在 `brain:read` 管理边界返回。
-领域拒绝返回 422，错误码是领域理由（语法错误为 `unclosed_audience_tag` 等，
-content hash 冲突为 `content_hash_conflict`）；编辑器用本地预览给出语法错误的行号。
+领域拒绝返回 422，错误码是领域理由（语法错误为 `unclosed_audience_tag` 等），
+编辑器用本地预览给出语法错误的行号；content hash 冲突（`content_hash_conflict`）、
+已删除（`object_deleted`）和 slug 已占用（`slug_taken`）返回 409。
 
 ### 编辑器行为
 

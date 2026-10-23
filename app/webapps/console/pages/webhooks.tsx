@@ -18,17 +18,38 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestErrorMessage } from '../../common/request-errors'
+import { fromDocument } from '../api/json-api'
 import {
-  ankoleWebWebhookEndpointControllerCancelMutation,
-  ankoleWebWebhookEndpointControllerCreateMutation,
-  ankoleWebWebhookEndpointControllerIndexOptions
-} from '../api/generated/@tanstack/react-query.gen'
-import type { WebhookEndpointItem } from '../api/generated/types.gen'
+  cancelWebhookEndpointMutation,
+  createWebhookEndpointMutation,
+  listWebhookEndpointsOptions
+} from '../api/v2/generated/@tanstack/react-query.gen'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
 import { ConfirmDeleteButton, StatusIndicator, type StatusTone } from '../console-form'
 import { formatConsoleDate } from '../console-primitives'
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch } from '../console-list-page'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
+
+type WebhookEndpointItem = {
+  id: string
+  agent_uid: string | null
+  binding_name: string | null
+  session_id: string | null
+  conversation_id: string | null
+  event_format: string
+  label: string
+  mode: string
+  status: 'armed' | 'fired' | 'active' | 'cancelled' | 'expired'
+  expires_at: string
+  source_provenance: Record<string, unknown>
+  inserted_at: string
+  updated_at: string
+}
+
+/** The list of webhook endpoints, also read by the route loader. */
+export function webhookEndpointListOptions(agentUID: string | undefined) {
+  return listWebhookEndpointsOptions({ query: { agent: agentUID || undefined, page: { limit: 100 } } })
+}
 
 /** A live endpoint can still receive a callback; the rest are history. */
 function live(endpoint: WebhookEndpointItem): boolean {
@@ -48,7 +69,7 @@ export function WebhooksPage() {
   const [label, setLabel] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
   const create = useMutation({
-    ...ankoleWebWebhookEndpointControllerCreateMutation(),
+    ...createWebhookEndpointMutation(),
     onSuccess: () => scope.selectAgent(''),
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -56,11 +77,12 @@ export function WebhooksPage() {
   const url = created ? `${window.location.origin}/signals/v1/cloudevents/${created.token}` : ''
 
   const endpoints = useQuery({
-    ...ankoleWebWebhookEndpointControllerIndexOptions({ query: { agent: scope.agentUID || undefined } }),
+    ...webhookEndpointListOptions(scope.agentUID),
+    select: document => fromDocument(document) as WebhookEndpointItem[],
     refetchInterval: LIST_REFRESH_MS
   })
 
-  const rows = (endpoints.data?.webhook_endpoints ?? [])
+  const rows = (endpoints.data ?? [])
     .filter(endpoint => includeFinished || live(endpoint))
     .filter(endpoint =>
       matchesResourceSearch(
@@ -76,7 +98,7 @@ export function WebhooksPage() {
     )
 
   const cancel = useMutation({
-    ...ankoleWebWebhookEndpointControllerCancelMutation(),
+    ...cancelWebhookEndpointMutation(),
     onSuccess: () => {
       toast.success(t('console.webhooks.cancelled'))
     },
@@ -144,7 +166,7 @@ export function WebhooksPage() {
             cancelling={cancel.isPending}
             onCancel={() =>
               cancel.mutate({
-                path: { webhook_endpoint_id: endpoint.id }
+                path: { id: endpoint.id }
               })
             }
           />
@@ -167,7 +189,7 @@ export function WebhooksPage() {
             <div className="grid gap-4">
               <label className="grid gap-2">
                 {t('console.webhooks.endpoint_id')}
-                <Input readOnly value={created.webhook_endpoint.id} />
+                <Input readOnly value={String(created.webhook_endpoint.id)} />
               </label>
               <label className="grid gap-2">
                 {t('console.webhooks.created_url')}
@@ -190,7 +212,7 @@ export function WebhooksPage() {
               className="grid gap-4"
               onSubmit={event => {
                 event.preventDefault()
-                create.mutate({ body: { label, expires_at: new Date(expiresAt).toISOString() } })
+                create.mutate({ body: { data: { label, expires_at: new Date(expiresAt).toISOString() } } })
               }}>
               <label className="grid gap-2">
                 {t('console.webhooks.label')}
@@ -235,7 +257,7 @@ function WebhookEndpointRow({
       <TableCell>
         <div className="grid gap-1">
           <span className="font-medium">{endpoint.label}</span>
-          <span className="font-mono text-xs text-muted-foreground">{formatConsoleDate(endpoint.created_at)}</span>
+          <span className="font-mono text-xs text-muted-foreground">{formatConsoleDate(endpoint.inserted_at)}</span>
         </div>
       </TableCell>
       {endpoint.agent_uid ? <AgentCell uid={endpoint.agent_uid} /> : <TableCell>—</TableCell>}

@@ -92,7 +92,7 @@ async function brain(page: Page) {
       const route = writes[index]!
       if (result !== 'success') {
         return route.fulfill({
-          status: result === 'conflict' ? 422 : 500,
+          status: result === 'conflict' ? 409 : 500,
           json: {
             errors: [{ code: result === 'conflict' ? 'content_hash_conflict' : 'late_failure', detail: 'Late failure' }]
           }

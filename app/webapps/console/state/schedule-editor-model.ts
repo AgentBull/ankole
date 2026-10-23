@@ -1,11 +1,45 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
-import type {
-  ScheduleCronUpdateRequest,
-  ScheduleCronWriteRequest,
-  ScheduleDelivery,
-  ScheduleDeliveryTarget,
-  ScheduleRecurrence
-} from '../api/generated/types.gen'
+
+/**
+ * The `/api/v2` cron schedule types give `schedule`, `delivery`, and `payload`
+ * as JSON objects. These types state their shape for the Console.
+ */
+export type ScheduleRecurrence = {
+  kind: 'cron' | 'every'
+  /** Crontab expression with five fields, or six fields with leading seconds. */
+  expression?: string
+  /** IANA timezone. A stored `cron` recurrence carries it. */
+  timezone?: string
+  every_ms?: number
+  /** ISO 8601 instant that the interval counts from. */
+  anchor_at?: string
+  /** Exactly one of `count` (due slots to run) or `until` (inclusive cutoff instant). */
+  occurrences?: { count?: number; until?: string }
+}
+
+/** A native conversation ID, or an external reply route of a binding. */
+export type ScheduleDeliveryTarget =
+  | { conversation_id: string }
+  | { binding_name: string; conversation_id: string; provider_thread_id?: string }
+
+/** Where the result of a fire goes; `quiet_success` sends no message for a fire with nothing to report. */
+export type ScheduleDelivery = { targets: ScheduleDeliveryTarget[]; quiet_success?: boolean }
+
+type CronScheduleWriteBody = {
+  owner_session_id: string
+  binding_name?: string
+  name: string
+  status?: CronStatus
+  schedule: ScheduleRecurrence
+  timezone?: string | null
+  payload?: Record<string, unknown>
+  delivery: ScheduleDelivery
+  idempotency_key: string
+}
+
+type CronScheduleUpdateBody = Partial<
+  Pick<CronScheduleWriteBody, 'name' | 'schedule' | 'timezone' | 'payload' | 'delivery'>
+>
 
 /**
  * Editor model for one cron schedule.
@@ -17,7 +51,7 @@ import type {
  * the stored payload passes through untouched.
  */
 
-export type CronStatus = NonNullable<ScheduleCronWriteRequest['status']>
+export type CronStatus = 'active' | 'paused'
 
 export type ScheduleKind = ScheduleRecurrence['kind']
 
@@ -257,7 +291,7 @@ export const ScheduleEditorModel = createModel(() => {
         name.value.trim() && taskSatisfied() && buildSchedule() && buildDelivery() && buildPayload() !== null
       )
     },
-    toCreateBody(): ScheduleCronWriteRequest | null {
+    toCreateBody(): CronScheduleWriteBody | null {
       const schedule = buildSchedule()
       const delivery = buildDelivery()
       const nextPayload = buildPayload()
@@ -276,7 +310,7 @@ export const ScheduleEditorModel = createModel(() => {
       ) {
         return null
       }
-      const body: ScheduleCronWriteRequest = {
+      const body: CronScheduleWriteBody = {
         owner_session_id: ownerSession,
         ...(binding ? { binding_name: binding } : {}),
         name: trimmedName,
@@ -289,13 +323,13 @@ export const ScheduleEditorModel = createModel(() => {
       body.payload = nextPayload
       return body
     },
-    toUpdateBody(): ScheduleCronUpdateRequest | null {
+    toUpdateBody(): CronScheduleUpdateBody | null {
       const schedule = buildSchedule()
       const delivery = buildDelivery()
       const original = initialDraft.value
       const nextPayload = buildPayload()
       if (!schedule || !delivery || !original || nextPayload === null || !taskSatisfied()) return null
-      const body: ScheduleCronUpdateRequest = {}
+      const body: CronScheduleUpdateBody = {}
       const trimmedName = name.value.trim()
       if (!trimmedName) return null
       if (trimmedName !== original.name.trim()) body.name = trimmedName

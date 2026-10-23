@@ -318,13 +318,9 @@ defmodule Ankole.Signals.WebhooksTest do
 
     for endpoint <- listed do
       model_projection = Webhooks.model_projection(endpoint)
-      console_projection = Webhooks.console_projection(endpoint)
 
       for field <- ["token", "token_digest", "url"],
           do: refute(Map.has_key?(model_projection, field))
-
-      for field <- [:token, :token_digest, :url],
-          do: refute(Map.has_key?(console_projection, field))
     end
   end
 

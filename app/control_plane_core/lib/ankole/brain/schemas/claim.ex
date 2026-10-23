@@ -485,7 +485,7 @@ defmodule Ankole.Brain.Schemas.Claim do
           author: Ankole.Brain.Console.actor_ref(context),
           embedding: args.embedding
         )
-        |> Ankole.Brain.Console.result()
+        |> Ankole.Brain.Console.result(__MODULE__)
       end)
     end
 
@@ -497,7 +497,7 @@ defmodule Ankole.Brain.Schemas.Claim do
       run(fn %{arguments: args}, _context ->
         args.claim_id
         |> Ankole.Brain.Forget.forget_claim_in_tx(args[:reason] || "", :admin)
-        |> Ankole.Brain.Console.result()
+        |> Ankole.Brain.Console.result(__MODULE__)
       end)
     end
 
@@ -524,7 +524,7 @@ defmodule Ankole.Brain.Schemas.Claim do
 
         args.claim_id
         |> Ankole.Brain.Claims.resolve_take_in_tx(resolution, resolved_by)
-        |> Ankole.Brain.Console.result()
+        |> Ankole.Brain.Console.result(__MODULE__)
       end)
     end
 

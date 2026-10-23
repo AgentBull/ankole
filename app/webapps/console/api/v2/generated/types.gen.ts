@@ -5,6 +5,147 @@ export type ClientOptions = {
 }
 
 /**
+ * A "Resource object" representing a automation_job
+ */
+export type AutomationJob = {
+  /**
+   * An attributes object for a automation_job
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    agent_uid: unknown
+    authorization_kind?: string | null
+    /**
+     * Field included by default.
+     */
+    cancelled_at?: string | null
+    /**
+     * Field included by default.
+     */
+    drive_prefix: string
+    human_access_version?: number | null
+    human_uid?: unknown
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    label: string
+    legacy_directory_path?: string | null
+    /**
+     * Field included by default.
+     */
+    owner_session_id: string
+    /**
+     * Field included by default.
+     */
+    provider_message_id?: string | null
+    /**
+     * Field included by default.
+     */
+    reply_route: unknown
+    /**
+     * Field included by default.
+     */
+    source_provenance: unknown
+    /**
+     * Field included by default.
+     */
+    source_signal_id?: string | null
+    /**
+     * Field included by default.
+     */
+    status: 'active' | 'cancelled'
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+    /**
+     * Field included by default.
+     */
+    wake_on_failure: boolean
+  }
+  id: string
+  /**
+   * A relationships object for a automation_job
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a automation_job_run
+ */
+export type AutomationJobRun = {
+  /**
+   * An attributes object for a automation_job_run
+   */
+  attributes?: {
+    attempt_id?: string | null
+    /**
+     * Field included by default.
+     */
+    attempts: number
+    /**
+     * Field included by default.
+     */
+    automation_job_id: number
+    /**
+     * Field included by default.
+     */
+    error?: string | null
+    event: unknown
+    /**
+     * Field included by default.
+     */
+    exit_code?: number | null
+    /**
+     * Field included by default.
+     */
+    finished_at?: string | null
+    /**
+     * Field included by default.
+     */
+    started_at?: string | null
+    /**
+     * Field included by default.
+     */
+    status: 'queued' | 'running' | 'failed' | 'succeeded' | 'cancelled'
+    /**
+     * Field included by default.
+     */
+    stderr?: string | null
+    /**
+     * Field included by default.
+     */
+    stderr_truncated: boolean
+    /**
+     * Field included by default.
+     */
+    stdout?: string | null
+    /**
+     * Field included by default.
+     */
+    stdout_truncated: boolean
+    worker_wait_started_at?: string | null
+  }
+  id: string
+  /**
+   * A relationships object for a automation_job_run
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a brain_claim
  */
 export type BrainClaim = {
@@ -504,9 +645,7 @@ export type BrainObjectVersion = {
     /**
      * Field included by default.
      */
-    meta: {
-      [key: string]: unknown
-    }
+    meta: unknown
     /**
      * Field included by default.
      */
@@ -682,6 +821,183 @@ export type BrainSourceType = {
   upstream_revision?: string | null
 }
 
+/**
+ * A "Resource object" representing a cron_schedule
+ */
+export type CronSchedule = {
+  /**
+   * An attributes object for a cron_schedule
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    agent_uid: unknown
+    authorization_kind?: string | null
+    /**
+     * Field included by default.
+     */
+    automation_job_id?: number | null
+    /**
+     * Field included by default.
+     */
+    binding_name?: string | null
+    /**
+     * Field included by default.
+     */
+    created_by: unknown
+    /**
+     * Field included by default.
+     */
+    delivery?: unknown
+    /**
+     * Field included by default.
+     */
+    execution_session_id?: string | null
+    human_access_version?: number | null
+    human_uid?: unknown
+    /**
+     * Field included by default.
+     */
+    idempotency_key: string
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    last_fire_at?: string | null
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    next_fire_at?: string | null
+    /**
+     * Field included by default.
+     */
+    owner_session_id: string
+    /**
+     * Field included by default.
+     */
+    payload: unknown
+    /**
+     * Field included by default.
+     */
+    schedule: unknown
+    /**
+     * Field included by default.
+     */
+    status: 'active' | 'paused' | 'completed' | 'deleted'
+    /**
+     * Field included by default.
+     */
+    timezone: string
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a cron_schedule
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type CronScheduleType = {
+  /**
+   * Field included by default.
+   */
+  agent_uid: unknown
+  /**
+   * Field included by default.
+   */
+  authorization_kind?: string | null
+  /**
+   * Field included by default.
+   */
+  automation_job_id?: number | null
+  /**
+   * Field included by default.
+   */
+  binding_name?: string | null
+  /**
+   * Field included by default.
+   */
+  created_by: unknown
+  /**
+   * Field included by default.
+   */
+  delivery?: unknown
+  /**
+   * Field included by default.
+   */
+  execution_session_id?: string | null
+  /**
+   * Field included by default.
+   */
+  human_access_version?: number | null
+  /**
+   * Field included by default.
+   */
+  human_uid?: unknown
+  /**
+   * Field included by default.
+   */
+  id?: string | null
+  /**
+   * Field included by default.
+   */
+  idempotency_key: string
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  last_fire_at?: string | null
+  /**
+   * Field included by default.
+   */
+  name: string
+  /**
+   * Field included by default.
+   */
+  next_fire_at?: string | null
+  /**
+   * Field included by default.
+   */
+  owner_session_id: string
+  /**
+   * Field included by default.
+   */
+  payload: unknown
+  /**
+   * Field included by default.
+   */
+  schedule: unknown
+  /**
+   * Field included by default.
+   */
+  status: 'active' | 'paused' | 'completed' | 'deleted'
+  /**
+   * Field included by default.
+   */
+  timezone: string
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+}
+
 export type Error = {
   /**
    * An application-specific error code, expressed as a string value.
@@ -726,6 +1042,1390 @@ export type Link = string
 export type Links = {
   [key: string]: Link
 }
+
+/**
+ * A "Resource object" representing a oidc_client
+ */
+export type OidcClient = {
+  /**
+   * An attributes object for a oidc_client
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    allow_insecure_local_logout: boolean
+    /**
+     * Field included by default.
+     */
+    allowed_group_ids?: Array<string> | null
+    /**
+     * Field included by default.
+     */
+    allowed_identity_provider_ids: Array<string>
+    /**
+     * Field included by default.
+     */
+    backchannel_logout_session_required: boolean
+    /**
+     * Field included by default.
+     */
+    backchannel_logout_uri?: string | null
+    /**
+     * Field included by default.
+     */
+    client_type: 'public' | 'confidential'
+    /**
+     * Field included by default.
+     */
+    enabled: boolean
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    model_aliases: unknown
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    post_logout_redirect_uris: Array<string>
+    /**
+     * Field included by default.
+     */
+    redirect_uris: Array<string>
+    /**
+     * Field included by default.
+     */
+    scopes: Array<string>
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a oidc_client
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type OidcClientType = {
+  /**
+   * Field included by default.
+   */
+  allow_insecure_local_logout: boolean
+  /**
+   * Field included by default.
+   */
+  allowed_group_ids?: Array<string> | null
+  /**
+   * Field included by default.
+   */
+  allowed_identity_provider_ids: Array<string>
+  /**
+   * Field included by default.
+   */
+  backchannel_logout_session_required: boolean
+  /**
+   * Field included by default.
+   */
+  backchannel_logout_uri?: string | null
+  /**
+   * Field included by default.
+   */
+  client_type: 'public' | 'confidential'
+  /**
+   * Field included by default.
+   */
+  enabled: boolean
+  /**
+   * Field included by default.
+   */
+  id?: string | null
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  model_aliases: unknown
+  /**
+   * Field included by default.
+   */
+  name: string
+  /**
+   * Field included by default.
+   */
+  post_logout_redirect_uris: Array<string>
+  /**
+   * Field included by default.
+   */
+  redirect_uris: Array<string>
+  /**
+   * Field included by default.
+   */
+  scopes: Array<string>
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+}
+
+/**
+ * A "Resource object" representing a oidc_logout_delivery
+ */
+export type OidcLogoutDelivery = {
+  /**
+   * An attributes object for a oidc_logout_delivery
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    attempt_count: number
+    /**
+     * Field included by default.
+     */
+    deadline: string
+    /**
+     * Field included by default.
+     */
+    delivered_at?: string | null
+    endpoint: string
+    /**
+     * Field included by default.
+     */
+    last_attempt_at?: string | null
+    /**
+     * Field included by default.
+     */
+    last_error?: string | null
+    /**
+     * Field included by default.
+     */
+    next_attempt_at?: string | null
+    /**
+     * Field included by default.
+     */
+    principal_uid?: string | null
+    /**
+     * Field included by default.
+     */
+    session_id: string
+    /**
+     * Field included by default.
+     */
+    status: 'pending' | 'delivering' | 'failed' | 'delivered'
+  }
+  id: string
+  /**
+   * A relationships object for a oidc_logout_delivery
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type OidcLogoutDeliveryType = {
+  /**
+   * Field included by default.
+   */
+  attempt_count: number
+  /**
+   * Field included by default.
+   */
+  deadline: string
+  /**
+   * Field included by default.
+   */
+  delivered_at?: string | null
+  /**
+   * Field included by default.
+   */
+  endpoint: string
+  /**
+   * Field included by default.
+   */
+  id?: string | null
+  /**
+   * Field included by default.
+   */
+  last_attempt_at?: string | null
+  /**
+   * Field included by default.
+   */
+  last_error?: string | null
+  /**
+   * Field included by default.
+   */
+  next_attempt_at?: string | null
+  /**
+   * Field included by default.
+   */
+  principal_uid?: string | null
+  /**
+   * Field included by default.
+   */
+  session_id: string
+  /**
+   * Field included by default.
+   */
+  status: 'pending' | 'delivering' | 'failed' | 'delivered'
+}
+
+/**
+ * A "Resource object" representing a scheduled_event
+ */
+export type ScheduledEvent = {
+  /**
+   * An attributes object for a scheduled_event
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    agent_uid: unknown
+    authorization_kind?: string | null
+    /**
+     * Field included by default.
+     */
+    automation_job_id?: number | null
+    /**
+     * Field included by default.
+     */
+    automation_job_run_id?: number | null
+    /**
+     * Field included by default.
+     */
+    binding_name?: string | null
+    /**
+     * Field included by default.
+     */
+    cancelled_at?: string | null
+    /**
+     * Field included by default.
+     */
+    conversation_id?: string | null
+    /**
+     * Field included by default.
+     */
+    cron_fire_slot_at?: string | null
+    /**
+     * Field included by default.
+     */
+    cron_schedule_id?: string | null
+    /**
+     * Field included by default.
+     */
+    due_at: string
+    /**
+     * Field included by default.
+     */
+    fired_at?: string | null
+    human_access_version?: number | null
+    human_uid?: unknown
+    /**
+     * Field included by default.
+     */
+    idempotency_key: string
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    kind: string
+    /**
+     * Field included by default.
+     */
+    last_fire_error: unknown
+    /**
+     * Field included by default.
+     */
+    origin_ai_message_id?: string | null
+    /**
+     * Field included by default.
+     */
+    provider_message_id?: string | null
+    /**
+     * Field included by default.
+     */
+    provider_thread_id?: string | null
+    /**
+     * Field included by default.
+     */
+    requested_at: string
+    /**
+     * Field included by default.
+     */
+    session_id: string
+    /**
+     * Field included by default.
+     */
+    signal_id?: string | null
+    /**
+     * Field included by default.
+     */
+    source_provenance: unknown
+    /**
+     * Field included by default.
+     */
+    source_signal_id?: string | null
+    /**
+     * Field included by default.
+     */
+    status: 'scheduled' | 'fired' | 'cancelled' | 'failed'
+    /**
+     * Field included by default.
+     */
+    timezone: string
+    /**
+     * Field included by default.
+     */
+    tool_call_id?: string | null
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+    /**
+     * Field included by default.
+     */
+    wake_payload: unknown
+  }
+  id: string
+  /**
+   * A relationships object for a scheduled_event
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type ScheduledEventType = {
+  /**
+   * Field included by default.
+   */
+  agent_uid: unknown
+  /**
+   * Field included by default.
+   */
+  authorization_kind?: string | null
+  /**
+   * Field included by default.
+   */
+  automation_job_id?: number | null
+  /**
+   * Field included by default.
+   */
+  automation_job_run_id?: number | null
+  /**
+   * Field included by default.
+   */
+  binding_name?: string | null
+  /**
+   * Field included by default.
+   */
+  cancelled_at?: string | null
+  /**
+   * Field included by default.
+   */
+  conversation_id?: string | null
+  /**
+   * Field included by default.
+   */
+  cron_fire_slot_at?: string | null
+  /**
+   * Field included by default.
+   */
+  cron_schedule_id?: string | null
+  /**
+   * Field included by default.
+   */
+  due_at: string
+  /**
+   * Field included by default.
+   */
+  fired_at?: string | null
+  /**
+   * Field included by default.
+   */
+  human_access_version?: number | null
+  /**
+   * Field included by default.
+   */
+  human_uid?: unknown
+  /**
+   * Field included by default.
+   */
+  id?: number | null
+  /**
+   * Field included by default.
+   */
+  idempotency_key: string
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  kind: string
+  /**
+   * Field included by default.
+   */
+  last_fire_error: unknown
+  /**
+   * Field included by default.
+   */
+  origin_ai_message_id?: string | null
+  /**
+   * Field included by default.
+   */
+  provider_message_id?: string | null
+  /**
+   * Field included by default.
+   */
+  provider_thread_id?: string | null
+  /**
+   * Field included by default.
+   */
+  requested_at: string
+  /**
+   * Field included by default.
+   */
+  session_id: string
+  /**
+   * Field included by default.
+   */
+  signal_id?: string | null
+  /**
+   * Field included by default.
+   */
+  source_provenance: unknown
+  /**
+   * Field included by default.
+   */
+  source_signal_id?: string | null
+  /**
+   * Field included by default.
+   */
+  status: 'scheduled' | 'fired' | 'cancelled' | 'failed'
+  /**
+   * Field included by default.
+   */
+  timezone: string
+  /**
+   * Field included by default.
+   */
+  tool_call_id?: string | null
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+  /**
+   * Field included by default.
+   */
+  wake_payload: unknown
+}
+
+/**
+ * A "Resource object" representing a signal_binding
+ */
+export type SignalBinding = {
+  /**
+   * An attributes object for a signal_binding
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    adapter: string
+    /**
+     * Field included by default.
+     */
+    agent_uid: unknown
+    /**
+     * Field included by default.
+     */
+    config_ref: string
+    /**
+     * Field included by default.
+     */
+    enabled: boolean
+    /**
+     * Field included by default.
+     */
+    filters: unknown
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    target: unknown
+    /**
+     * Field included by default.
+     */
+    unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+    /**
+     * Field included by default.
+     */
+    unavailable_reason?: string | null
+    /**
+     * Field included by default.
+     */
+    unmatched_sender_policy: 'manual_review' | 'create_standalone'
+  }
+  id: string
+  /**
+   * A relationships object for a signal_binding
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type SignalBindingType = {
+  /**
+   * Field included by default.
+   */
+  adapter: string
+  /**
+   * Field included by default.
+   */
+  agent_uid: unknown
+  /**
+   * Field included by default.
+   */
+  config_ref: string
+  /**
+   * Field included by default.
+   */
+  enabled: boolean
+  /**
+   * Field included by default.
+   */
+  filters: unknown
+  /**
+   * Field included by default.
+   */
+  name: string
+  /**
+   * Field included by default.
+   */
+  target: unknown
+  /**
+   * Field included by default.
+   */
+  unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+  /**
+   * Field included by default.
+   */
+  unavailable_reason?: string | null
+  /**
+   * Field included by default.
+   */
+  unmatched_sender_policy: 'manual_review' | 'create_standalone'
+}
+
+/**
+ * A "Resource object" representing a webhook_endpoint
+ */
+export type WebhookEndpoint = {
+  /**
+   * An attributes object for a webhook_endpoint
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    agent_uid?: unknown
+    /**
+     * Field included by default.
+     */
+    automation_job_id?: number | null
+    /**
+     * Field included by default.
+     */
+    binding_name?: string | null
+    /**
+     * Field included by default.
+     */
+    cancelled_at?: string | null
+    /**
+     * Field included by default.
+     */
+    conversation_id?: string | null
+    /**
+     * Field included by default.
+     */
+    event_format: string
+    /**
+     * Field included by default.
+     */
+    expires_at: string
+    /**
+     * Field included by default.
+     */
+    fired_at?: string | null
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    label: string
+    /**
+     * Field included by default.
+     */
+    mode: string
+    /**
+     * Field included by default.
+     */
+    provider_message_id?: string | null
+    /**
+     * Field included by default.
+     */
+    provider_thread_id?: string | null
+    /**
+     * Field included by default.
+     */
+    session_id?: string | null
+    /**
+     * Field included by default.
+     */
+    source_provenance: unknown
+    /**
+     * Field included by default.
+     */
+    source_signal_id?: string | null
+    /**
+     * Field included by default.
+     */
+    status: 'armed' | 'fired' | 'active' | 'cancelled' | 'expired'
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a webhook_endpoint
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type WebhookEndpointType = {
+  /**
+   * Field included by default.
+   */
+  agent_uid?: unknown
+  /**
+   * Field included by default.
+   */
+  automation_job_id?: number | null
+  /**
+   * Field included by default.
+   */
+  binding_name?: string | null
+  /**
+   * Field included by default.
+   */
+  cancelled_at?: string | null
+  /**
+   * Field included by default.
+   */
+  conversation_id?: string | null
+  /**
+   * Field included by default.
+   */
+  event_format: string
+  /**
+   * Field included by default.
+   */
+  expires_at: string
+  /**
+   * Field included by default.
+   */
+  fired_at?: string | null
+  /**
+   * Field included by default.
+   */
+  id?: string | null
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  label: string
+  /**
+   * Field included by default.
+   */
+  mode: string
+  /**
+   * Field included by default.
+   */
+  provider_message_id?: string | null
+  /**
+   * Field included by default.
+   */
+  provider_thread_id?: string | null
+  /**
+   * Field included by default.
+   */
+  session_id?: string | null
+  /**
+   * Field included by default.
+   */
+  source_provenance: unknown
+  /**
+   * Field included by default.
+   */
+  source_signal_id?: string | null
+  /**
+   * Field included by default.
+   */
+  status: 'armed' | 'fired' | 'active' | 'cancelled' | 'expired'
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+}
+
+export type ListOidcLogoutDeliveriesData = {
+  body?: never
+  path: {
+    client_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for oidc_logout_delivery
+       */
+      oidc_logout_delivery?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/oidc-clients/{client_id}/logout-deliveries'
+}
+
+export type ListOidcLogoutDeliveriesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListOidcLogoutDeliveriesError = ListOidcLogoutDeliveriesErrors[keyof ListOidcLogoutDeliveriesErrors]
+
+export type ListOidcLogoutDeliveriesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a oidc_logout_delivery
+     */
+    data?: Array<OidcLogoutDelivery>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListOidcLogoutDeliveriesResponse =
+  ListOidcLogoutDeliveriesResponses[keyof ListOidcLogoutDeliveriesResponses]
+
+export type ListWebhookEndpointsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for webhook_endpoint
+       */
+      webhook_endpoint?: string
+      [key: string]: unknown
+    }
+    agent?: unknown
+  }
+  url: '/api/v2/webhook-endpoints'
+}
+
+export type ListWebhookEndpointsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListWebhookEndpointsError = ListWebhookEndpointsErrors[keyof ListWebhookEndpointsErrors]
+
+export type ListWebhookEndpointsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a webhook_endpoint
+     */
+    data?: Array<WebhookEndpoint>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListWebhookEndpointsResponse = ListWebhookEndpointsResponses[keyof ListWebhookEndpointsResponses]
+
+export type CreateWebhookEndpointData = {
+  /**
+   * Request body for the create_webhook_endpoint operation on webhook_endpoint resource
+   */
+  body: {
+    data: {
+      expires_at: unknown
+      label: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/webhook-endpoints'
+}
+
+export type CreateWebhookEndpointErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateWebhookEndpointError = CreateWebhookEndpointErrors[keyof CreateWebhookEndpointErrors]
+
+export type CreateWebhookEndpointResponses = {
+  /**
+   * Success
+   */
+  201: {
+    token: string
+    webhook_endpoint: WebhookEndpointType
+  }
+}
+
+export type CreateWebhookEndpointResponse = CreateWebhookEndpointResponses[keyof CreateWebhookEndpointResponses]
+
+export type CancelCheckbackData = {
+  body?: never
+  path: {
+    id: number
+    agent_uid: unknown
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/checkbacks/{id}'
+}
+
+export type CancelCheckbackErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CancelCheckbackError = CancelCheckbackErrors[keyof CancelCheckbackErrors]
+
+export type CancelCheckbackResponses = {
+  /**
+   * Success
+   */
+  200: ScheduledEventType
+}
+
+export type CancelCheckbackResponse = CancelCheckbackResponses[keyof CancelCheckbackResponses]
+
+export type ListBrainObjectVersionsData = {
+  body?: never
+  path?: never
+  query: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_object_version
+       */
+      brain_object_version?: string
+      [key: string]: unknown
+    }
+    slug: string
+  }
+  url: '/api/v2/brain/object-versions'
+}
+
+export type ListBrainObjectVersionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainObjectVersionsError = ListBrainObjectVersionsErrors[keyof ListBrainObjectVersionsErrors]
+
+export type ListBrainObjectVersionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_object_version
+     */
+    data?: Array<BrainObjectVersion>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainObjectVersionsResponse = ListBrainObjectVersionsResponses[keyof ListBrainObjectVersionsResponses]
+
+export type RetryOidcLogoutDeliveryData = {
+  body?: never
+  path: {
+    id: string
+    client_id: string
+  }
+  query?: never
+  url: '/api/v2/oidc-clients/{client_id}/logout-deliveries/{id}/retries'
+}
+
+export type RetryOidcLogoutDeliveryErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RetryOidcLogoutDeliveryError = RetryOidcLogoutDeliveryErrors[keyof RetryOidcLogoutDeliveryErrors]
+
+export type RetryOidcLogoutDeliveryResponses = {
+  /**
+   * Success
+   */
+  201: OidcLogoutDeliveryType
+}
+
+export type RetryOidcLogoutDeliveryResponse = RetryOidcLogoutDeliveryResponses[keyof RetryOidcLogoutDeliveryResponses]
+
+export type ListCronSchedulesData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for cron_schedule
+       */
+      cron_schedule?: string
+      [key: string]: unknown
+    }
+    agent?: unknown
+  }
+  url: '/api/v2/cron-schedules'
+}
+
+export type ListCronSchedulesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListCronSchedulesError = ListCronSchedulesErrors[keyof ListCronSchedulesErrors]
+
+export type ListCronSchedulesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a cron_schedule
+     */
+    data?: Array<CronSchedule>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListCronSchedulesResponse = ListCronSchedulesResponses[keyof ListCronSchedulesResponses]
+
+export type DecideBrainContradictionData = {
+  /**
+   * Request body for the decide_brain_contradiction operation on brain_contradiction resource
+   */
+  body: {
+    data: {
+      resolution_note?: string | null
+      status: 'resolved' | 'dismissed'
+    }
+  }
+  path: {
+    contradiction_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/contradictions/{contradiction_id}/decide'
+}
+
+export type DecideBrainContradictionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DecideBrainContradictionError = DecideBrainContradictionErrors[keyof DecideBrainContradictionErrors]
+
+export type DecideBrainContradictionResponses = {
+  /**
+   * Success
+   */
+  201: BrainContradictionType
+}
+
+export type DecideBrainContradictionResponse =
+  DecideBrainContradictionResponses[keyof DecideBrainContradictionResponses]
+
+export type SupersedeBrainClaimData = {
+  /**
+   * Request body for the supersede_brain_claim operation on brain_claim resource
+   */
+  body: {
+    data: {
+      audience_scope?: string | null
+      claim: string
+      confidence?: number | null
+      kind?: string | null
+      notability?: string | null
+      provenance?: string | null
+      weight?: number | null
+    }
+  }
+  path: {
+    claim_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/claims/{claim_id}/supersede'
+}
+
+export type SupersedeBrainClaimErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SupersedeBrainClaimError = SupersedeBrainClaimErrors[keyof SupersedeBrainClaimErrors]
+
+export type SupersedeBrainClaimResponses = {
+  /**
+   * Success
+   */
+  201: BrainClaimType
+}
+
+export type SupersedeBrainClaimResponse = SupersedeBrainClaimResponses[keyof SupersedeBrainClaimResponses]
+
+export type DisableSignalBindingData = {
+  body?: never
+  path: {
+    name: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/signal-bindings/{name}'
+}
+
+export type DisableSignalBindingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DisableSignalBindingError = DisableSignalBindingErrors[keyof DisableSignalBindingErrors]
+
+export type DisableSignalBindingResponses = {
+  /**
+   * Success
+   */
+  200: SignalBindingType
+}
+
+export type DisableSignalBindingResponse = DisableSignalBindingResponses[keyof DisableSignalBindingResponses]
+
+export type ApproveBrainMergeSuggestionData = {
+  /**
+   * Request body for the approve_brain_merge_suggestion operation on brain_merge_suggestion resource
+   */
+  body?: {
+    data: {
+      canonical_slug?: string | null
+    }
+  }
+  path: {
+    suggestion_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/merge-suggestions/{suggestion_id}/approve'
+}
+
+export type ApproveBrainMergeSuggestionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ApproveBrainMergeSuggestionError =
+  ApproveBrainMergeSuggestionErrors[keyof ApproveBrainMergeSuggestionErrors]
+
+export type ApproveBrainMergeSuggestionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    success: true
+  }
+}
+
+export type ApproveBrainMergeSuggestionResponse =
+  ApproveBrainMergeSuggestionResponses[keyof ApproveBrainMergeSuggestionResponses]
+
+export type CreateCronScheduleData = {
+  /**
+   * Request body for the create_cron_schedule operation on cron_schedule resource
+   */
+  body: {
+    data: {
+      binding_name?: string | null
+      delivery: {
+        [key: string]: unknown
+      }
+      idempotency_key: string
+      name: string
+      owner_session_id: string
+      payload?: {
+        [key: string]: unknown
+      } | null
+      schedule: {
+        [key: string]: unknown
+      }
+      status?: string | null
+      timezone?: string | null
+    }
+  }
+  path: {
+    agent_uid: unknown
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/cron-schedules'
+}
+
+export type CreateCronScheduleErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateCronScheduleError = CreateCronScheduleErrors[keyof CreateCronScheduleErrors]
+
+export type CreateCronScheduleResponses = {
+  /**
+   * Success
+   */
+  201: CronScheduleType
+}
+
+export type CreateCronScheduleResponse = CreateCronScheduleResponses[keyof CreateCronScheduleResponses]
+
+export type LearnBrainSourceData = {
+  body?: never
+  path: {
+    source_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/sources/{source_id}/learn'
+}
+
+export type LearnBrainSourceErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type LearnBrainSourceError = LearnBrainSourceErrors[keyof LearnBrainSourceErrors]
+
+export type LearnBrainSourceResponses = {
+  /**
+   * Success
+   */
+  201: {
+    success: true
+  }
+}
+
+export type LearnBrainSourceResponse = LearnBrainSourceResponses[keyof LearnBrainSourceResponses]
+
+export type ForgetBrainObjectData = {
+  /**
+   * Request body for the forget_brain_object operation on brain_object resource
+   */
+  body: {
+    data: {
+      reason?: string | null
+      slug: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/objects/forget'
+}
+
+export type ForgetBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ForgetBrainObjectError = ForgetBrainObjectErrors[keyof ForgetBrainObjectErrors]
+
+export type ForgetBrainObjectResponses = {
+  /**
+   * Success
+   */
+  201: BrainObjectType
+}
+
+export type ForgetBrainObjectResponse = ForgetBrainObjectResponses[keyof ForgetBrainObjectResponses]
+
+export type ListCronScheduleRunsData = {
+  body?: never
+  path: {
+    agent_uid: unknown
+    cron_schedule_id: string
+  }
+  query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for scheduled_event
+       */
+      scheduled_event?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs'
+}
+
+export type ListCronScheduleRunsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListCronScheduleRunsError = ListCronScheduleRunsErrors[keyof ListCronScheduleRunsErrors]
+
+export type ListCronScheduleRunsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a scheduled_event
+     */
+    data?: Array<ScheduledEvent>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListCronScheduleRunsResponse = ListCronScheduleRunsResponses[keyof ListCronScheduleRunsResponses]
 
 export type ListBrainClaimsData = {
   body?: never
@@ -780,39 +2480,202 @@ export type ListBrainClaimsResponses = {
 
 export type ListBrainClaimsResponse = ListBrainClaimsResponses[keyof ListBrainClaimsResponses]
 
-export type ForgetBrainClaimData = {
-  /**
-   * Request body for the forget_brain_claim operation on brain_claim resource
-   */
-  body?: {
-    data: {
-      reason?: string | null
+export type GetAutomationJobData = {
+  body?: never
+  path: {
+    id: string
+    agent_uid: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for automation_job
+       */
+      automation_job?: string
+      [key: string]: unknown
     }
   }
-  path: {
-    claim_id: string
-  }
-  query?: never
-  url: '/api/v2/brain/claims/{claim_id}/forget'
+  url: '/api/v2/agents/{agent_uid}/automation-jobs/{id}'
 }
 
-export type ForgetBrainClaimErrors = {
+export type GetAutomationJobErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type ForgetBrainClaimError = ForgetBrainClaimErrors[keyof ForgetBrainClaimErrors]
+export type GetAutomationJobError = GetAutomationJobErrors[keyof GetAutomationJobErrors]
 
-export type ForgetBrainClaimResponses = {
+export type GetAutomationJobResponses = {
   /**
    * Success
    */
-  201: BrainClaimType
+  200: {
+    data?: AutomationJob
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
 }
 
-export type ForgetBrainClaimResponse = ForgetBrainClaimResponses[keyof ForgetBrainClaimResponses]
+export type GetAutomationJobResponse = GetAutomationJobResponses[keyof GetAutomationJobResponses]
+
+export type RestoreBrainObjectData = {
+  /**
+   * Request body for the restore_brain_object operation on brain_object resource
+   */
+  body: {
+    data: {
+      slug: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/objects/restore'
+}
+
+export type RestoreBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RestoreBrainObjectError = RestoreBrainObjectErrors[keyof RestoreBrainObjectErrors]
+
+export type RestoreBrainObjectResponses = {
+  /**
+   * Success
+   */
+  201: BrainObjectType
+}
+
+export type RestoreBrainObjectResponse = RestoreBrainObjectResponses[keyof RestoreBrainObjectResponses]
+
+export type ListAutomationJobsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for automation_job
+       */
+      automation_job?: string
+      [key: string]: unknown
+    }
+    agent?: unknown
+  }
+  url: '/api/v2/automation-jobs'
+}
+
+export type ListAutomationJobsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAutomationJobsError = ListAutomationJobsErrors[keyof ListAutomationJobsErrors]
+
+export type ListAutomationJobsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a automation_job
+     */
+    data?: Array<AutomationJob>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListAutomationJobsResponse = ListAutomationJobsResponses[keyof ListAutomationJobsResponses]
+
+export type ListCheckbacksData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for scheduled_event
+       */
+      scheduled_event?: string
+      [key: string]: unknown
+    }
+    agent?: unknown
+  }
+  url: '/api/v2/checkbacks'
+}
+
+export type ListCheckbacksErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListCheckbacksError = ListCheckbacksErrors[keyof ListCheckbacksErrors]
+
+export type ListCheckbacksResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a scheduled_event
+     */
+    data?: Array<ScheduledEvent>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListCheckbacksResponse = ListCheckbacksResponses[keyof ListCheckbacksResponses]
 
 export type ResolveBrainTakeData = {
   /**
@@ -852,47 +2715,95 @@ export type ResolveBrainTakeResponses = {
 
 export type ResolveBrainTakeResponse = ResolveBrainTakeResponses[keyof ResolveBrainTakeResponses]
 
-export type SupersedeBrainClaimData = {
-  /**
-   * Request body for the supersede_brain_claim operation on brain_claim resource
-   */
-  body: {
-    data: {
-      audience_scope?: string | null
-      claim: string
-      confidence?: number | null
-      kind?: string | null
-      notability?: string | null
-      provenance?: string | null
-      weight?: number | null
+export type ListAutomationJobRunsData = {
+  body?: never
+  path: {
+    agent_uid: unknown
+    automation_job_id: number
+  }
+  query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for automation_job_run
+       */
+      automation_job_run?: string
+      [key: string]: unknown
     }
   }
-  path: {
-    claim_id: string
-  }
-  query?: never
-  url: '/api/v2/brain/claims/{claim_id}/supersede'
+  url: '/api/v2/agents/{agent_uid}/automation-jobs/{automation_job_id}/runs'
 }
 
-export type SupersedeBrainClaimErrors = {
+export type ListAutomationJobRunsErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type SupersedeBrainClaimError = SupersedeBrainClaimErrors[keyof SupersedeBrainClaimErrors]
+export type ListAutomationJobRunsError = ListAutomationJobRunsErrors[keyof ListAutomationJobRunsErrors]
 
-export type SupersedeBrainClaimResponses = {
+export type ListAutomationJobRunsResponses = {
   /**
    * Success
    */
-  201: BrainClaimType
+  200: {
+    /**
+     * An array of resource objects representing a automation_job_run
+     */
+    data?: Array<AutomationJobRun>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
 }
 
-export type SupersedeBrainClaimResponse = SupersedeBrainClaimResponses[keyof SupersedeBrainClaimResponses]
+export type ListAutomationJobRunsResponse = ListAutomationJobRunsResponses[keyof ListAutomationJobRunsResponses]
 
-export type ListBrainContradictionsData = {
+export type ResumeCronScheduleData = {
+  body?: never
+  path: {
+    id: string
+    agent_uid: unknown
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/resume'
+}
+
+export type ResumeCronScheduleErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResumeCronScheduleError = ResumeCronScheduleErrors[keyof ResumeCronScheduleErrors]
+
+export type ResumeCronScheduleResponses = {
+  /**
+   * Success
+   */
+  201: CronScheduleType
+}
+
+export type ResumeCronScheduleResponse = ResumeCronScheduleResponses[keyof ResumeCronScheduleResponses]
+
+export type ListOidcClientsData = {
   body?: never
   path?: never
   query?: {
@@ -905,34 +2816,33 @@ export type ListBrainContradictionsData = {
      */
     fields?: {
       /**
-       * Comma separated field names for brain_contradiction
+       * Comma separated field names for oidc_client
        */
-      brain_contradiction?: string
+      oidc_client?: string
       [key: string]: unknown
     }
-    status?: 'open' | 'resolved' | 'dismissed'
   }
-  url: '/api/v2/brain/contradictions'
+  url: '/api/v2/oidc-clients'
 }
 
-export type ListBrainContradictionsErrors = {
+export type ListOidcClientsErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type ListBrainContradictionsError = ListBrainContradictionsErrors[keyof ListBrainContradictionsErrors]
+export type ListOidcClientsError = ListOidcClientsErrors[keyof ListOidcClientsErrors]
 
-export type ListBrainContradictionsResponses = {
+export type ListOidcClientsResponses = {
   /**
    * Success
    */
   200: {
     /**
-     * An array of resource objects representing a brain_contradiction
+     * An array of resource objects representing a oidc_client
      */
-    data?: Array<BrainContradiction>
+    data?: Array<OidcClient>
     included?: Array<unknown>
     meta?: {
       [key: string]: unknown
@@ -940,210 +2850,82 @@ export type ListBrainContradictionsResponses = {
   }
 }
 
-export type ListBrainContradictionsResponse = ListBrainContradictionsResponses[keyof ListBrainContradictionsResponses]
+export type ListOidcClientsResponse = ListOidcClientsResponses[keyof ListOidcClientsResponses]
 
-export type DecideBrainContradictionData = {
+export type CreateOidcClientData = {
   /**
-   * Request body for the decide_brain_contradiction operation on brain_contradiction resource
+   * Request body for the create_oidc_client operation on oidc_client resource
    */
   body: {
     data: {
-      resolution_note?: string | null
-      status: 'resolved' | 'dismissed'
+      allow_insecure_local_logout?: boolean | null
+      allowed_group_ids?: Array<string> | null
+      allowed_identity_provider_ids?: Array<string> | null
+      backchannel_logout_session_required?: boolean | null
+      backchannel_logout_uri?: string | null
+      client_type: 'public' | 'confidential'
+      enabled?: boolean | null
+      model_aliases?: {
+        [key: string]: unknown
+      } | null
+      name: string
+      post_logout_redirect_uris?: Array<string> | null
+      redirect_uris?: Array<string> | null
+      scopes?: Array<string> | null
     }
   }
-  path: {
-    contradiction_id: string
-  }
-  query?: never
-  url: '/api/v2/brain/contradictions/{contradiction_id}/decide'
-}
-
-export type DecideBrainContradictionErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type DecideBrainContradictionError = DecideBrainContradictionErrors[keyof DecideBrainContradictionErrors]
-
-export type DecideBrainContradictionResponses = {
-  /**
-   * Success
-   */
-  201: BrainContradictionType
-}
-
-export type DecideBrainContradictionResponse =
-  DecideBrainContradictionResponses[keyof DecideBrainContradictionResponses]
-
-export type ListBrainMergeSuggestionsData = {
-  body?: never
   path?: never
-  query?: {
-    /**
-     * Relationship paths to include in the response
-     */
-    include?: string
-    /**
-     * Limits the response fields to only those listed for each type
-     */
-    fields?: {
-      /**
-       * Comma separated field names for brain_merge_suggestion
-       */
-      brain_merge_suggestion?: string
-      [key: string]: unknown
-    }
-    status?: 'pending' | 'approved' | 'rejected'
-  }
-  url: '/api/v2/brain/merge-suggestions'
-}
-
-export type ListBrainMergeSuggestionsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ListBrainMergeSuggestionsError = ListBrainMergeSuggestionsErrors[keyof ListBrainMergeSuggestionsErrors]
-
-export type ListBrainMergeSuggestionsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    /**
-     * An array of resource objects representing a brain_merge_suggestion
-     */
-    data?: Array<BrainMergeSuggestion>
-    included?: Array<unknown>
-    meta?: {
-      [key: string]: unknown
-    }
-  }
-}
-
-export type ListBrainMergeSuggestionsResponse =
-  ListBrainMergeSuggestionsResponses[keyof ListBrainMergeSuggestionsResponses]
-
-export type ApproveBrainMergeSuggestionData = {
-  /**
-   * Request body for the approve_brain_merge_suggestion operation on brain_merge_suggestion resource
-   */
-  body?: {
-    data: {
-      canonical_slug?: string | null
-    }
-  }
-  path: {
-    suggestion_id: string
-  }
   query?: never
-  url: '/api/v2/brain/merge-suggestions/{suggestion_id}/approve'
+  url: '/api/v2/oidc-clients'
 }
 
-export type ApproveBrainMergeSuggestionErrors = {
+export type CreateOidcClientErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type ApproveBrainMergeSuggestionError =
-  ApproveBrainMergeSuggestionErrors[keyof ApproveBrainMergeSuggestionErrors]
+export type CreateOidcClientError = CreateOidcClientErrors[keyof CreateOidcClientErrors]
 
-export type ApproveBrainMergeSuggestionResponses = {
+export type CreateOidcClientResponses = {
   /**
    * Success
    */
   201: {
-    success: true
+    client_secret?: string | null
+    oidc_client: OidcClientType
   }
 }
 
-export type ApproveBrainMergeSuggestionResponse =
-  ApproveBrainMergeSuggestionResponses[keyof ApproveBrainMergeSuggestionResponses]
+export type CreateOidcClientResponse = CreateOidcClientResponses[keyof CreateOidcClientResponses]
 
-export type RejectBrainMergeSuggestionData = {
+export type RejectBrainSuggestionData = {
   body?: never
   path: {
     suggestion_id: string
   }
   query?: never
-  url: '/api/v2/brain/merge-suggestions/{suggestion_id}/reject'
+  url: '/api/v2/brain/suggestions/{suggestion_id}/reject'
 }
 
-export type RejectBrainMergeSuggestionErrors = {
+export type RejectBrainSuggestionErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type RejectBrainMergeSuggestionError = RejectBrainMergeSuggestionErrors[keyof RejectBrainMergeSuggestionErrors]
+export type RejectBrainSuggestionError = RejectBrainSuggestionErrors[keyof RejectBrainSuggestionErrors]
 
-export type RejectBrainMergeSuggestionResponses = {
+export type RejectBrainSuggestionResponses = {
   /**
    * Success
    */
-  201: BrainMergeSuggestionType
+  201: BrainSchemaSuggestionType
 }
 
-export type RejectBrainMergeSuggestionResponse =
-  RejectBrainMergeSuggestionResponses[keyof RejectBrainMergeSuggestionResponses]
-
-export type ListBrainObjectVersionsData = {
-  body?: never
-  path?: never
-  query: {
-    /**
-     * Relationship paths to include in the response
-     */
-    include?: string
-    /**
-     * Limits the response fields to only those listed for each type
-     */
-    fields?: {
-      /**
-       * Comma separated field names for brain_object_version
-       */
-      brain_object_version?: string
-      [key: string]: unknown
-    }
-    slug: string
-  }
-  url: '/api/v2/brain/object-versions'
-}
-
-export type ListBrainObjectVersionsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ListBrainObjectVersionsError = ListBrainObjectVersionsErrors[keyof ListBrainObjectVersionsErrors]
-
-export type ListBrainObjectVersionsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    /**
-     * An array of resource objects representing a brain_object_version
-     */
-    data?: Array<BrainObjectVersion>
-    included?: Array<unknown>
-    meta?: {
-      [key: string]: unknown
-    }
-  }
-}
-
-export type ListBrainObjectVersionsResponse = ListBrainObjectVersionsResponses[keyof ListBrainObjectVersionsResponses]
+export type RejectBrainSuggestionResponse = RejectBrainSuggestionResponses[keyof RejectBrainSuggestionResponses]
 
 export type ListBrainObjectsData = {
   body?: never
@@ -1206,9 +2988,7 @@ export type UpdateBrainObjectData = {
       body: string
       effective_date?: string | null
       expected_content_hash: string
-      meta: {
-        [key: string]: unknown
-      }
+      meta: unknown
       slug: string
       subtype?: string | null
       tags?: Array<string> | null
@@ -1246,9 +3026,7 @@ export type CreateBrainObjectData = {
     data: {
       body: string
       effective_date?: string | null
-      meta: {
-        [key: string]: unknown
-      }
+      meta: unknown
       slug: string
       subtype?: string | null
       tags?: Array<string> | null
@@ -1278,39 +3056,6 @@ export type CreateBrainObjectResponses = {
 }
 
 export type CreateBrainObjectResponse = CreateBrainObjectResponses[keyof CreateBrainObjectResponses]
-
-export type ForgetBrainObjectData = {
-  /**
-   * Request body for the forget_brain_object operation on brain_object resource
-   */
-  body: {
-    data: {
-      reason?: string | null
-      slug: string
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/brain/objects/forget'
-}
-
-export type ForgetBrainObjectErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ForgetBrainObjectError = ForgetBrainObjectErrors[keyof ForgetBrainObjectErrors]
-
-export type ForgetBrainObjectResponses = {
-  /**
-   * Success
-   */
-  201: BrainObjectType
-}
-
-export type ForgetBrainObjectResponse = ForgetBrainObjectResponses[keyof ForgetBrainObjectResponses]
 
 export type ForkBrainObjectData = {
   /**
@@ -1344,37 +3089,250 @@ export type ForkBrainObjectResponses = {
 
 export type ForkBrainObjectResponse = ForkBrainObjectResponses[keyof ForkBrainObjectResponses]
 
-export type RestoreBrainObjectData = {
+export type RunCronScheduleData = {
   /**
-   * Request body for the restore_brain_object operation on brain_object resource
+   * Request body for the run_cron_schedule operation on cron_schedule resource
    */
   body: {
     data: {
-      slug: string
+      idempotency_key: string
     }
   }
-  path?: never
+  path: {
+    id: string
+    agent_uid: unknown
+  }
   query?: never
-  url: '/api/v2/brain/objects/restore'
+  url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/runs'
 }
 
-export type RestoreBrainObjectErrors = {
+export type RunCronScheduleErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type RestoreBrainObjectError = RestoreBrainObjectErrors[keyof RestoreBrainObjectErrors]
+export type RunCronScheduleError = RunCronScheduleErrors[keyof RunCronScheduleErrors]
 
-export type RestoreBrainObjectResponses = {
+export type RunCronScheduleResponses = {
   /**
    * Success
    */
-  201: BrainObjectType
+  201: ScheduledEventType
 }
 
-export type RestoreBrainObjectResponse = RestoreBrainObjectResponses[keyof RestoreBrainObjectResponses]
+export type RunCronScheduleResponse = RunCronScheduleResponses[keyof RunCronScheduleResponses]
+
+export type ArchiveBrainSourceData = {
+  body?: never
+  path: {
+    source_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/sources/{source_id}/archive'
+}
+
+export type ArchiveBrainSourceErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ArchiveBrainSourceError = ArchiveBrainSourceErrors[keyof ArchiveBrainSourceErrors]
+
+export type ArchiveBrainSourceResponses = {
+  /**
+   * Success
+   */
+  201: BrainSourceType
+}
+
+export type ArchiveBrainSourceResponse = ArchiveBrainSourceResponses[keyof ArchiveBrainSourceResponses]
+
+export type PauseCronScheduleData = {
+  body?: never
+  path: {
+    id: string
+    agent_uid: unknown
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/pause'
+}
+
+export type PauseCronScheduleErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PauseCronScheduleError = PauseCronScheduleErrors[keyof PauseCronScheduleErrors]
+
+export type PauseCronScheduleResponses = {
+  /**
+   * Success
+   */
+  201: CronScheduleType
+}
+
+export type PauseCronScheduleResponse = PauseCronScheduleResponses[keyof PauseCronScheduleResponses]
+
+export type DeleteOidcClientData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/oidc-clients/{id}'
+}
+
+export type DeleteOidcClientErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteOidcClientError = DeleteOidcClientErrors[keyof DeleteOidcClientErrors]
+
+export type DeleteOidcClientResponses = {
+  /**
+   * Success
+   */
+  200: OidcClientType
+}
+
+export type DeleteOidcClientResponse = DeleteOidcClientResponses[keyof DeleteOidcClientResponses]
+
+export type GetOidcClientData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for oidc_client
+       */
+      oidc_client?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/oidc-clients/{id}'
+}
+
+export type GetOidcClientErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetOidcClientError = GetOidcClientErrors[keyof GetOidcClientErrors]
+
+export type GetOidcClientResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: OidcClient
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetOidcClientResponse = GetOidcClientResponses[keyof GetOidcClientResponses]
+
+export type UpdateOidcClientData = {
+  /**
+   * Request body for the update_oidc_client operation on oidc_client resource
+   */
+  body?: {
+    data: {
+      allow_insecure_local_logout?: boolean | null
+      allowed_group_ids?: Array<string> | null
+      allowed_identity_provider_ids?: Array<string> | null
+      backchannel_logout_session_required?: boolean | null
+      backchannel_logout_uri?: string | null
+      enabled?: boolean | null
+      model_aliases?: {
+        [key: string]: unknown
+      } | null
+      name?: string | null
+      post_logout_redirect_uris?: Array<string> | null
+      redirect_uris?: Array<string> | null
+      scopes?: Array<string> | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/oidc-clients/{id}'
+}
+
+export type UpdateOidcClientErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateOidcClientError = UpdateOidcClientErrors[keyof UpdateOidcClientErrors]
+
+export type UpdateOidcClientResponses = {
+  /**
+   * Success
+   */
+  200: OidcClientType
+}
+
+export type UpdateOidcClientResponse = UpdateOidcClientResponses[keyof UpdateOidcClientResponses]
+
+export type UpdateBrainSourceData = {
+  /**
+   * Request body for the update_brain_source operation on brain_source resource
+   */
+  body?: {
+    data: {
+      scope?: string | null
+    }
+  }
+  path: {
+    source_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/sources/{source_id}'
+}
+
+export type UpdateBrainSourceErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateBrainSourceError = UpdateBrainSourceErrors[keyof UpdateBrainSourceErrors]
+
+export type UpdateBrainSourceResponses = {
+  /**
+   * Success
+   */
+  200: BrainSourceType
+}
+
+export type UpdateBrainSourceResponse = UpdateBrainSourceResponses[keyof UpdateBrainSourceResponses]
 
 export type RollbackBrainObjectData = {
   /**
@@ -1408,6 +3366,407 @@ export type RollbackBrainObjectResponses = {
 }
 
 export type RollbackBrainObjectResponse = RollbackBrainObjectResponses[keyof RollbackBrainObjectResponses]
+
+export type RemoveCronScheduleData = {
+  body?: never
+  path: {
+    id: string
+    agent_uid: unknown
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}'
+}
+
+export type RemoveCronScheduleErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RemoveCronScheduleError = RemoveCronScheduleErrors[keyof RemoveCronScheduleErrors]
+
+export type RemoveCronScheduleResponses = {
+  /**
+   * Success
+   */
+  200: CronScheduleType
+}
+
+export type RemoveCronScheduleResponse = RemoveCronScheduleResponses[keyof RemoveCronScheduleResponses]
+
+export type GetCronScheduleData = {
+  body?: never
+  path: {
+    id: string
+    agent_uid: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for cron_schedule
+       */
+      cron_schedule?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}'
+}
+
+export type GetCronScheduleErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetCronScheduleError = GetCronScheduleErrors[keyof GetCronScheduleErrors]
+
+export type GetCronScheduleResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: CronSchedule
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetCronScheduleResponse = GetCronScheduleResponses[keyof GetCronScheduleResponses]
+
+export type UpdateCronScheduleData = {
+  /**
+   * Request body for the update_cron_schedule operation on cron_schedule resource
+   */
+  body?: {
+    data: {
+      delivery?: {
+        [key: string]: unknown
+      } | null
+      name?: string | null
+      payload?: {
+        [key: string]: unknown
+      } | null
+      schedule?: {
+        [key: string]: unknown
+      } | null
+      timezone?: string | null
+    }
+  }
+  path: {
+    id: string
+    agent_uid: unknown
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}'
+}
+
+export type UpdateCronScheduleErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateCronScheduleError = UpdateCronScheduleErrors[keyof UpdateCronScheduleErrors]
+
+export type UpdateCronScheduleResponses = {
+  /**
+   * Success
+   */
+  200: CronScheduleType
+}
+
+export type UpdateCronScheduleResponse = UpdateCronScheduleResponses[keyof UpdateCronScheduleResponses]
+
+export type ListBrainSuggestionsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_schema_suggestion
+       */
+      brain_schema_suggestion?: string
+      [key: string]: unknown
+    }
+    status?: 'pending' | 'approved' | 'rejected'
+  }
+  url: '/api/v2/brain/suggestions'
+}
+
+export type ListBrainSuggestionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainSuggestionsError = ListBrainSuggestionsErrors[keyof ListBrainSuggestionsErrors]
+
+export type ListBrainSuggestionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_schema_suggestion
+     */
+    data?: Array<BrainSchemaSuggestion>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainSuggestionsResponse = ListBrainSuggestionsResponses[keyof ListBrainSuggestionsResponses]
+
+export type ListBrainContradictionsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_contradiction
+       */
+      brain_contradiction?: string
+      [key: string]: unknown
+    }
+    status?: 'open' | 'resolved' | 'dismissed'
+  }
+  url: '/api/v2/brain/contradictions'
+}
+
+export type ListBrainContradictionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainContradictionsError = ListBrainContradictionsErrors[keyof ListBrainContradictionsErrors]
+
+export type ListBrainContradictionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_contradiction
+     */
+    data?: Array<BrainContradiction>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainContradictionsResponse = ListBrainContradictionsResponses[keyof ListBrainContradictionsResponses]
+
+export type CancelWebhookEndpointData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/webhook-endpoints/{id}'
+}
+
+export type CancelWebhookEndpointErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CancelWebhookEndpointError = CancelWebhookEndpointErrors[keyof CancelWebhookEndpointErrors]
+
+export type CancelWebhookEndpointResponses = {
+  /**
+   * Success
+   */
+  200: WebhookEndpointType
+}
+
+export type CancelWebhookEndpointResponse = CancelWebhookEndpointResponses[keyof CancelWebhookEndpointResponses]
+
+export type RejectBrainMergeSuggestionData = {
+  body?: never
+  path: {
+    suggestion_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/merge-suggestions/{suggestion_id}/reject'
+}
+
+export type RejectBrainMergeSuggestionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RejectBrainMergeSuggestionError = RejectBrainMergeSuggestionErrors[keyof RejectBrainMergeSuggestionErrors]
+
+export type RejectBrainMergeSuggestionResponses = {
+  /**
+   * Success
+   */
+  201: BrainMergeSuggestionType
+}
+
+export type RejectBrainMergeSuggestionResponse =
+  RejectBrainMergeSuggestionResponses[keyof RejectBrainMergeSuggestionResponses]
+
+export type ListBrainMergeSuggestionsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_merge_suggestion
+       */
+      brain_merge_suggestion?: string
+      [key: string]: unknown
+    }
+    status?: 'pending' | 'approved' | 'rejected'
+  }
+  url: '/api/v2/brain/merge-suggestions'
+}
+
+export type ListBrainMergeSuggestionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainMergeSuggestionsError = ListBrainMergeSuggestionsErrors[keyof ListBrainMergeSuggestionsErrors]
+
+export type ListBrainMergeSuggestionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_merge_suggestion
+     */
+    data?: Array<BrainMergeSuggestion>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainMergeSuggestionsResponse =
+  ListBrainMergeSuggestionsResponses[keyof ListBrainMergeSuggestionsResponses]
+
+export type ApproveBrainSuggestionData = {
+  /**
+   * Request body for the approve_brain_suggestion operation on brain_schema_suggestion resource
+   */
+  body?: {
+    data: {
+      extractable?: boolean | null
+      primitive?: string | null
+      slug_prefix?: string | null
+      target_type?: string | null
+    }
+  }
+  path: {
+    suggestion_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/suggestions/{suggestion_id}/approve'
+}
+
+export type ApproveBrainSuggestionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ApproveBrainSuggestionError = ApproveBrainSuggestionErrors[keyof ApproveBrainSuggestionErrors]
+
+export type ApproveBrainSuggestionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    success: true
+  }
+}
+
+export type ApproveBrainSuggestionResponse = ApproveBrainSuggestionResponses[keyof ApproveBrainSuggestionResponses]
+
+export type ForgetBrainClaimData = {
+  /**
+   * Request body for the forget_brain_claim operation on brain_claim resource
+   */
+  body?: {
+    data: {
+      reason?: string | null
+    }
+  }
+  path: {
+    claim_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/claims/{claim_id}/forget'
+}
+
+export type ForgetBrainClaimErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ForgetBrainClaimError = ForgetBrainClaimErrors[keyof ForgetBrainClaimErrors]
+
+export type ForgetBrainClaimResponses = {
+  /**
+   * Success
+   */
+  201: BrainClaimType
+}
+
+export type ForgetBrainClaimResponse = ForgetBrainClaimResponses[keyof ForgetBrainClaimResponses]
 
 export type ListBrainSourcesData = {
   body?: never
@@ -1464,9 +3823,7 @@ export type CreateBrainSourceData = {
    */
   body: {
     data: {
-      config?: {
-        [key: string]: unknown
-      } | null
+      config?: unknown
       default_audience_scope?: string | null
       kind: string
       name: string
@@ -1495,209 +3852,3 @@ export type CreateBrainSourceResponses = {
 }
 
 export type CreateBrainSourceResponse = CreateBrainSourceResponses[keyof CreateBrainSourceResponses]
-
-export type UpdateBrainSourceData = {
-  /**
-   * Request body for the update_brain_source operation on brain_source resource
-   */
-  body?: {
-    data: {
-      scope?: string | null
-    }
-  }
-  path: {
-    source_id: string
-  }
-  query?: never
-  url: '/api/v2/brain/sources/{source_id}'
-}
-
-export type UpdateBrainSourceErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type UpdateBrainSourceError = UpdateBrainSourceErrors[keyof UpdateBrainSourceErrors]
-
-export type UpdateBrainSourceResponses = {
-  /**
-   * Success
-   */
-  200: BrainSourceType
-}
-
-export type UpdateBrainSourceResponse = UpdateBrainSourceResponses[keyof UpdateBrainSourceResponses]
-
-export type ArchiveBrainSourceData = {
-  body?: never
-  path: {
-    source_id: string
-  }
-  query?: never
-  url: '/api/v2/brain/sources/{source_id}/archive'
-}
-
-export type ArchiveBrainSourceErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ArchiveBrainSourceError = ArchiveBrainSourceErrors[keyof ArchiveBrainSourceErrors]
-
-export type ArchiveBrainSourceResponses = {
-  /**
-   * Success
-   */
-  201: BrainSourceType
-}
-
-export type ArchiveBrainSourceResponse = ArchiveBrainSourceResponses[keyof ArchiveBrainSourceResponses]
-
-export type LearnBrainSourceData = {
-  body?: never
-  path: {
-    source_id: string
-  }
-  query?: never
-  url: '/api/v2/brain/sources/{source_id}/learn'
-}
-
-export type LearnBrainSourceErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type LearnBrainSourceError = LearnBrainSourceErrors[keyof LearnBrainSourceErrors]
-
-export type LearnBrainSourceResponses = {
-  /**
-   * Success
-   */
-  201: {
-    success: true
-  }
-}
-
-export type LearnBrainSourceResponse = LearnBrainSourceResponses[keyof LearnBrainSourceResponses]
-
-export type ListBrainSuggestionsData = {
-  body?: never
-  path?: never
-  query?: {
-    /**
-     * Relationship paths to include in the response
-     */
-    include?: string
-    /**
-     * Limits the response fields to only those listed for each type
-     */
-    fields?: {
-      /**
-       * Comma separated field names for brain_schema_suggestion
-       */
-      brain_schema_suggestion?: string
-      [key: string]: unknown
-    }
-    status?: 'pending' | 'approved' | 'rejected'
-  }
-  url: '/api/v2/brain/suggestions'
-}
-
-export type ListBrainSuggestionsErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ListBrainSuggestionsError = ListBrainSuggestionsErrors[keyof ListBrainSuggestionsErrors]
-
-export type ListBrainSuggestionsResponses = {
-  /**
-   * Success
-   */
-  200: {
-    /**
-     * An array of resource objects representing a brain_schema_suggestion
-     */
-    data?: Array<BrainSchemaSuggestion>
-    included?: Array<unknown>
-    meta?: {
-      [key: string]: unknown
-    }
-  }
-}
-
-export type ListBrainSuggestionsResponse = ListBrainSuggestionsResponses[keyof ListBrainSuggestionsResponses]
-
-export type ApproveBrainSuggestionData = {
-  /**
-   * Request body for the approve_brain_suggestion operation on brain_schema_suggestion resource
-   */
-  body?: {
-    data: {
-      extractable?: boolean | null
-      primitive?: string | null
-      slug_prefix?: string | null
-      target_type?: string | null
-    }
-  }
-  path: {
-    suggestion_id: string
-  }
-  query?: never
-  url: '/api/v2/brain/suggestions/{suggestion_id}/approve'
-}
-
-export type ApproveBrainSuggestionErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ApproveBrainSuggestionError = ApproveBrainSuggestionErrors[keyof ApproveBrainSuggestionErrors]
-
-export type ApproveBrainSuggestionResponses = {
-  /**
-   * Success
-   */
-  201: {
-    success: true
-  }
-}
-
-export type ApproveBrainSuggestionResponse = ApproveBrainSuggestionResponses[keyof ApproveBrainSuggestionResponses]
-
-export type RejectBrainSuggestionData = {
-  body?: never
-  path: {
-    suggestion_id: string
-  }
-  query?: never
-  url: '/api/v2/brain/suggestions/{suggestion_id}/reject'
-}
-
-export type RejectBrainSuggestionErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type RejectBrainSuggestionError = RejectBrainSuggestionErrors[keyof RejectBrainSuggestionErrors]
-
-export type RejectBrainSuggestionResponses = {
-  /**
-   * Success
-   */
-  201: BrainSchemaSuggestionType
-}
-
-export type RejectBrainSuggestionResponse = RejectBrainSuggestionResponses[keyof RejectBrainSuggestionResponses]

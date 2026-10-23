@@ -197,22 +197,10 @@ defmodule Ankole.Workflow.Replay do
   end
 
   defp insert_and_dispatch_calls(repo, run, call_inputs, inserted_at) do
-    with {:ok, calls} <- create_calls(call_inputs) do
-      sessions =
-        Enum.map(calls, &{&1.agent_uid, Ankole.Workflow.Queries.task_session_id(&1.id)})
-
-      :ok = Ankole.Sessions.Queue.lock_sessions_in_tx(repo, sessions)
-
-      Enum.reduce_while(calls, {:ok, []}, fn call, {:ok, events} ->
-        case Ankole.Workflow.Mail.append_dispatch_event(repo, run, call, inserted_at) do
-          {:ok, event} -> {:cont, {:ok, [event | events]}}
-          error -> {:halt, error}
-        end
-      end)
-      |> case do
-        {:ok, events} -> {:ok, calls, Enum.reverse(events)}
-        error -> error
-      end
+    with {:ok, calls} <- create_calls(call_inputs),
+         {:ok, events} <-
+           Ankole.Workflow.Mail.append_dispatch_events(repo, run, calls, inserted_at) do
+      {:ok, calls, events}
     end
   end
 

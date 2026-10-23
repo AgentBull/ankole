@@ -8,11 +8,8 @@ defmodule Ankole.Brain.Console do
   write. The actor does not authorize: Principal/AuthZ checks the route first.
   """
 
-  alias Ankole.Errors.Invalid.NotFound
-  alias Ankole.Errors.Invalid.Stale
-
-  # The domain reasons that tell that the target changed or that its state
-  # does not permit the write. The Console gives them as conflicts (409).
+  # The domain reasons that conflict with the current state of the target.
+  # The v1 Console answered them with 409; the v2 API gives a Conflict.
   @conflicts [:conflict, :content_hash_conflict, :object_deleted, :slug_taken]
 
   @doc "Gives the attribution of the operator."
@@ -31,17 +28,18 @@ defmodule Ankole.Brain.Console do
   end
 
   @doc """
-  Makes the result of a generic action use the declared errors: a missing
-  target is `NotFound`, a conflict is `Stale` with its reason, and another
-  domain reason is a rejection (`Ankole.Errors.wrap/1`).
+  Makes the result of a generic action of `resource` use the declared errors:
+  a missing target is `Ankole.Errors.Invalid.NotFound`, a conflict with the
+  current state is `Ankole.Errors.Invalid.Conflict`, and another domain reason
+  is a rejection.
   """
-  def result({:error, :not_found}), do: {:error, NotFound.exception([])}
+  def result(result, resource) do
+    result
+    |> Ankole.Errors.not_found([:not_found], resource)
+    |> Ankole.Errors.wrap(&describe/1)
+  end
 
-  def result({:error, reason}) when is_atom(reason) and reason in @conflicts,
-    do: {:error, Stale.exception(reason: reason)}
-
-  def result({:error, {reason, _value}}) when reason in @conflicts,
-    do: {:error, Stale.exception(reason: reason)}
-
-  def result(result), do: Ankole.Errors.wrap(result)
+  defp describe(reason) when reason in @conflicts, do: {:conflict, nil, []}
+  defp describe({reason, _value}) when reason in @conflicts, do: {:conflict, nil, []}
+  defp describe(_reason), do: nil
 end

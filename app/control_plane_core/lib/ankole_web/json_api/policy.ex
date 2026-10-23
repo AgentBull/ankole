@@ -11,11 +11,10 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   a rule and that each rule has a route.
 
   The policy also gives the tenant of `Ankole.Repo` to the Ash action of a
-  Console route. `Ankole.Repo` stays the owner of the tenant: the action gets
-  the same value that `AnkoleWeb.Plugs.PutDataContext` selected. A site route
-  gets no tenant. The Principal of the session is the Ash actor, so that an
-  action can record its operator. Ash policies stay disabled: no Ash
-  authorization uses the actor.
+  Console route, and the Console Principal as the actor of the action. Ash
+  policies stay disabled, so the actor only tells the action who operates.
+  `Ankole.Repo` stays the owner of the tenant: the action gets the same value
+  that `AnkoleWeb.Plugs.PutDataContext` selected. A site route gets no tenant.
 
   `AshJsonApi.Router` calls the controller of a route also after a halted
   `before_dispatch`. Thus a refusal throws the refused connection, and the
@@ -34,6 +33,52 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   @rules %{
     site: %{},
     console: %{
+      # J3 automation jobs (v1: automation_job_controller.ex)
+      {Ankole.AutomationJobs.Schemas.Job, :index, :console_list} => {"automation_jobs", "read"},
+      {Ankole.AutomationJobs.Schemas.Job, :get, :read} =>
+        {"agent:{agent_uid}:automation_jobs", "read"},
+      {Ankole.AutomationJobs.Schemas.Run, :index, :console_list} =>
+        {"agent:{agent_uid}:automation_jobs", "read"},
+      # J3 OIDC clients (v1: oidc_client_controller.ex)
+      {Ankole.OIDC.Client, :index, :console_list} => {"oidc_clients", "read"},
+      {Ankole.OIDC.Client, :route, :console_create} => {"oidc_clients", "update"},
+      {Ankole.OIDC.Client, :get, :read} => {"oidc_client:{id}", "read"},
+      {Ankole.OIDC.Client, :route, :console_update} => {"oidc_client:{id}", "update"},
+      {Ankole.OIDC.Client, :route, :console_delete} => {"oidc_client:{id}", "delete"},
+      {Ankole.OIDC.LogoutDelivery, :index, :console_list} => {"oidc_client:{client_id}", "read"},
+      {Ankole.OIDC.LogoutDelivery, :route, :console_retry} =>
+        {"oidc_client:{client_id}", "update"},
+      # J3 webhook endpoints (v1: webhook_endpoint_controller.ex)
+      {Ankole.Signals.WebhookEndpoint, :index, :console_list} => {"webhooks", "read"},
+      {Ankole.Signals.WebhookEndpoint, :route, :create_operator_endpoint} =>
+        {"webhooks", "update"},
+      {Ankole.Signals.WebhookEndpoint, :route, :cancel_operator_endpoint} =>
+        {"webhooks", "delete"},
+      # J3 cron schedules and checkbacks (v1: schedule_controller.ex)
+      {Ankole.Schedule.Schemas.CronSchedule, :index, :console_list} => {"schedules", "read"},
+      {Ankole.Schedule.Schemas.CronSchedule, :route, :console_create} =>
+        {"agent:{agent_uid}:schedules", "update"},
+      {Ankole.Schedule.Schemas.CronSchedule, :get, :read} =>
+        {"agent:{agent_uid}:schedules", "read"},
+      {Ankole.Schedule.Schemas.CronSchedule, :route, :console_update} =>
+        {"agent:{agent_uid}:schedules", "update"},
+      {Ankole.Schedule.Schemas.CronSchedule, :route, :console_pause} =>
+        {"agent:{agent_uid}:schedules", "update"},
+      {Ankole.Schedule.Schemas.CronSchedule, :route, :console_resume} =>
+        {"agent:{agent_uid}:schedules", "update"},
+      {Ankole.Schedule.Schemas.CronSchedule, :route, :console_remove} =>
+        {"agent:{agent_uid}:schedules", "delete"},
+      {Ankole.Schedule.Schemas.CronSchedule, :route, :console_run} =>
+        {"agent:{agent_uid}:schedules", "update"},
+      {Ankole.Schedule.Schemas.ScheduledEvent, :index, :console_cron_runs} =>
+        {"agent:{agent_uid}:schedules", "read"},
+      {Ankole.Schedule.Schemas.ScheduledEvent, :index, :console_checkbacks} =>
+        {"schedules", "read"},
+      {Ankole.Schedule.Schemas.ScheduledEvent, :route, :console_cancel_checkback} =>
+        {"agent:{agent_uid}:schedules", "delete"},
+      # J3 signal bindings (v1: signal_binding_controller.ex)
+      {Ankole.Signals.Binding, :route, :console_disable} =>
+        {"agent:{agent_uid}:signal_bindings", "delete"},
       # J5 brain (v1: brain_controller.ex)
       {Ankole.Brain.Schemas.Object, :index, :console_list} => {"brain", "read"},
       {Ankole.Brain.Schemas.Object, :route, :console_create} => {"brain", "update"},

@@ -323,7 +323,7 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
 
       run(fn %{arguments: args}, _context ->
-        Ankole.Brain.Console.result(Ankole.Brain.Objects.fork_library_page_in_tx(args.slug))
+        Ankole.Brain.Console.result(Ankole.Brain.Objects.fork_library_page_in_tx(args.slug), __MODULE__)
       end)
     end
 
@@ -332,7 +332,7 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
 
       run(fn %{arguments: args}, _context ->
-        Ankole.Brain.Console.result(Ankole.Brain.Objects.restore_in_tx(args.slug))
+        Ankole.Brain.Console.result(Ankole.Brain.Objects.restore_in_tx(args.slug), __MODULE__)
       end)
     end
 
@@ -374,7 +374,7 @@ defmodule Ankole.Brain.Schemas.Object do
         args
         |> Map.take([:slug, :type, :subtype, :title, :body, :meta, :effective_date, :tags])
         |> Ankole.Brain.Objects.create_object_in_tx(Ankole.Brain.Console.writer(context))
-        |> Ankole.Brain.Console.result()
+        |> Ankole.Brain.Console.result(__MODULE__)
       end)
     end
 
@@ -403,7 +403,7 @@ defmodule Ankole.Brain.Schemas.Object do
           Ankole.Brain.Console.writer(context),
           author: Ankole.Brain.Console.actor_ref(context)
         )
-        |> Ankole.Brain.Console.result()
+        |> Ankole.Brain.Console.result(__MODULE__)
       end)
     end
 
@@ -419,7 +419,7 @@ defmodule Ankole.Brain.Schemas.Object do
           Ankole.Brain.Console.writer(context),
           author: Ankole.Brain.Console.actor_ref(context)
         )
-        |> Ankole.Brain.Console.result()
+        |> Ankole.Brain.Console.result(__MODULE__)
       end)
     end
 
@@ -431,7 +431,7 @@ defmodule Ankole.Brain.Schemas.Object do
       run(fn %{arguments: args}, _context ->
         args.slug
         |> Ankole.Brain.Forget.forget_object_in_tx(args[:reason] || "", :admin)
-        |> Ankole.Brain.Console.result()
+        |> Ankole.Brain.Console.result(__MODULE__)
       end)
     end
 

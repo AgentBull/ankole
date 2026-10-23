@@ -29,9 +29,6 @@ defmodule Ankole.Ash.Types.JSONMap do
   def dump_to_native(nil, _constraints), do: {:ok, nil}
   def dump_to_native(value, constraints), do: normalize(value, constraints)
 
-  @doc "Gives the OpenAPI schema of the JSON:API value: a JSON object."
-  def json_schema(_constraints), do: %{"type" => "object", "additionalProperties" => true}
-
   defp normalize(value, constraints) do
     case Ankole.Ecto.JSONPayload.normalize_map(value,
            allow_datetime: Keyword.get(constraints, :allow_datetime?, false)

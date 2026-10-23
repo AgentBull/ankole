@@ -12,15 +12,36 @@ import type {
   ArchiveBrainSourceData,
   ArchiveBrainSourceErrors,
   ArchiveBrainSourceResponses,
+  CancelCheckbackData,
+  CancelCheckbackErrors,
+  CancelCheckbackResponses,
+  CancelWebhookEndpointData,
+  CancelWebhookEndpointErrors,
+  CancelWebhookEndpointResponses,
   CreateBrainObjectData,
   CreateBrainObjectErrors,
   CreateBrainObjectResponses,
   CreateBrainSourceData,
   CreateBrainSourceErrors,
   CreateBrainSourceResponses,
+  CreateCronScheduleData,
+  CreateCronScheduleErrors,
+  CreateCronScheduleResponses,
+  CreateOidcClientData,
+  CreateOidcClientErrors,
+  CreateOidcClientResponses,
+  CreateWebhookEndpointData,
+  CreateWebhookEndpointErrors,
+  CreateWebhookEndpointResponses,
   DecideBrainContradictionData,
   DecideBrainContradictionErrors,
   DecideBrainContradictionResponses,
+  DeleteOidcClientData,
+  DeleteOidcClientErrors,
+  DeleteOidcClientResponses,
+  DisableSignalBindingData,
+  DisableSignalBindingErrors,
+  DisableSignalBindingResponses,
   ForgetBrainClaimData,
   ForgetBrainClaimErrors,
   ForgetBrainClaimResponses,
@@ -30,9 +51,24 @@ import type {
   ForkBrainObjectData,
   ForkBrainObjectErrors,
   ForkBrainObjectResponses,
+  GetAutomationJobData,
+  GetAutomationJobErrors,
+  GetAutomationJobResponses,
+  GetCronScheduleData,
+  GetCronScheduleErrors,
+  GetCronScheduleResponses,
+  GetOidcClientData,
+  GetOidcClientErrors,
+  GetOidcClientResponses,
   LearnBrainSourceData,
   LearnBrainSourceErrors,
   LearnBrainSourceResponses,
+  ListAutomationJobRunsData,
+  ListAutomationJobRunsErrors,
+  ListAutomationJobRunsResponses,
+  ListAutomationJobsData,
+  ListAutomationJobsErrors,
+  ListAutomationJobsResponses,
   ListBrainClaimsData,
   ListBrainClaimsErrors,
   ListBrainClaimsResponses,
@@ -54,21 +90,54 @@ import type {
   ListBrainSuggestionsData,
   ListBrainSuggestionsErrors,
   ListBrainSuggestionsResponses,
+  ListCheckbacksData,
+  ListCheckbacksErrors,
+  ListCheckbacksResponses,
+  ListCronScheduleRunsData,
+  ListCronScheduleRunsErrors,
+  ListCronScheduleRunsResponses,
+  ListCronSchedulesData,
+  ListCronSchedulesErrors,
+  ListCronSchedulesResponses,
+  ListOidcClientsData,
+  ListOidcClientsErrors,
+  ListOidcClientsResponses,
+  ListOidcLogoutDeliveriesData,
+  ListOidcLogoutDeliveriesErrors,
+  ListOidcLogoutDeliveriesResponses,
+  ListWebhookEndpointsData,
+  ListWebhookEndpointsErrors,
+  ListWebhookEndpointsResponses,
+  PauseCronScheduleData,
+  PauseCronScheduleErrors,
+  PauseCronScheduleResponses,
   RejectBrainMergeSuggestionData,
   RejectBrainMergeSuggestionErrors,
   RejectBrainMergeSuggestionResponses,
   RejectBrainSuggestionData,
   RejectBrainSuggestionErrors,
   RejectBrainSuggestionResponses,
+  RemoveCronScheduleData,
+  RemoveCronScheduleErrors,
+  RemoveCronScheduleResponses,
   ResolveBrainTakeData,
   ResolveBrainTakeErrors,
   ResolveBrainTakeResponses,
   RestoreBrainObjectData,
   RestoreBrainObjectErrors,
   RestoreBrainObjectResponses,
+  ResumeCronScheduleData,
+  ResumeCronScheduleErrors,
+  ResumeCronScheduleResponses,
+  RetryOidcLogoutDeliveryData,
+  RetryOidcLogoutDeliveryErrors,
+  RetryOidcLogoutDeliveryResponses,
   RollbackBrainObjectData,
   RollbackBrainObjectErrors,
   RollbackBrainObjectResponses,
+  RunCronScheduleData,
+  RunCronScheduleErrors,
+  RunCronScheduleResponses,
   SupersedeBrainClaimData,
   SupersedeBrainClaimErrors,
   SupersedeBrainClaimResponses,
@@ -77,7 +146,13 @@ import type {
   UpdateBrainObjectResponses,
   UpdateBrainSourceData,
   UpdateBrainSourceErrors,
-  UpdateBrainSourceResponses
+  UpdateBrainSourceResponses,
+  UpdateCronScheduleData,
+  UpdateCronScheduleErrors,
+  UpdateCronScheduleResponses,
+  UpdateOidcClientData,
+  UpdateOidcClientErrors,
+  UpdateOidcClientResponses
 } from './types.gen'
 
 export type Options<
@@ -99,26 +174,38 @@ export type Options<
 }
 
 /**
- * list_brain_claims operation on brain_claim resource
+ * list_oidc_logout_deliveries operation on oidc_logout_delivery resource
  */
-export const listBrainClaims = <ThrowOnError extends boolean = false>(
-  options?: Options<ListBrainClaimsData, ThrowOnError>
-): RequestResult<ListBrainClaimsResponses, ListBrainClaimsErrors, ThrowOnError> =>
-  (options?.client ?? client).get<ListBrainClaimsResponses, ListBrainClaimsErrors, ThrowOnError>({
+export const listOidcLogoutDeliveries = <ThrowOnError extends boolean = false>(
+  options: Options<ListOidcLogoutDeliveriesData, ThrowOnError>
+): RequestResult<ListOidcLogoutDeliveriesResponses, ListOidcLogoutDeliveriesErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListOidcLogoutDeliveriesResponses, ListOidcLogoutDeliveriesErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/claims',
+    url: '/api/v2/oidc-clients/{client_id}/logout-deliveries',
     ...options
   })
 
 /**
- * forget_brain_claim operation on brain_claim resource
+ * list_webhook_endpoints operation on webhook_endpoint resource
  */
-export const forgetBrainClaim = <ThrowOnError extends boolean = false>(
-  options: Options<ForgetBrainClaimData, ThrowOnError>
-): RequestResult<ForgetBrainClaimResponses, ForgetBrainClaimErrors, ThrowOnError> =>
-  (options.client ?? client).post<ForgetBrainClaimResponses, ForgetBrainClaimErrors, ThrowOnError>({
+export const listWebhookEndpoints = <ThrowOnError extends boolean = false>(
+  options?: Options<ListWebhookEndpointsData, ThrowOnError>
+): RequestResult<ListWebhookEndpointsResponses, ListWebhookEndpointsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListWebhookEndpointsResponses, ListWebhookEndpointsErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/claims/{claim_id}/forget',
+    url: '/api/v2/webhook-endpoints',
+    ...options
+  })
+
+/**
+ * create_webhook_endpoint operation on webhook_endpoint resource
+ */
+export const createWebhookEndpoint = <ThrowOnError extends boolean = false>(
+  options: Options<CreateWebhookEndpointData, ThrowOnError>
+): RequestResult<CreateWebhookEndpointResponses, CreateWebhookEndpointErrors, ThrowOnError> =>
+  (options.client ?? client).post<CreateWebhookEndpointResponses, CreateWebhookEndpointErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/webhook-endpoints',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -127,14 +214,62 @@ export const forgetBrainClaim = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * resolve_brain_take operation on brain_claim resource
+ * cancel_checkback operation on scheduled_event resource
  */
-export const resolveBrainTake = <ThrowOnError extends boolean = false>(
-  options: Options<ResolveBrainTakeData, ThrowOnError>
-): RequestResult<ResolveBrainTakeResponses, ResolveBrainTakeErrors, ThrowOnError> =>
-  (options.client ?? client).post<ResolveBrainTakeResponses, ResolveBrainTakeErrors, ThrowOnError>({
+export const cancelCheckback = <ThrowOnError extends boolean = false>(
+  options: Options<CancelCheckbackData, ThrowOnError>
+): RequestResult<CancelCheckbackResponses, CancelCheckbackErrors, ThrowOnError> =>
+  (options.client ?? client).delete<CancelCheckbackResponses, CancelCheckbackErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/claims/{claim_id}/resolve',
+    url: '/api/v2/agents/{agent_uid}/checkbacks/{id}',
+    ...options
+  })
+
+/**
+ * list_brain_object_versions operation on brain_object_version resource
+ */
+export const listBrainObjectVersions = <ThrowOnError extends boolean = false>(
+  options: Options<ListBrainObjectVersionsData, ThrowOnError>
+): RequestResult<ListBrainObjectVersionsResponses, ListBrainObjectVersionsErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListBrainObjectVersionsResponses, ListBrainObjectVersionsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/object-versions',
+    ...options
+  })
+
+/**
+ * retry_oidc_logout_delivery operation on oidc_logout_delivery resource
+ */
+export const retryOidcLogoutDelivery = <ThrowOnError extends boolean = false>(
+  options: Options<RetryOidcLogoutDeliveryData, ThrowOnError>
+): RequestResult<RetryOidcLogoutDeliveryResponses, RetryOidcLogoutDeliveryErrors, ThrowOnError> =>
+  (options.client ?? client).post<RetryOidcLogoutDeliveryResponses, RetryOidcLogoutDeliveryErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients/{client_id}/logout-deliveries/{id}/retries',
+    ...options
+  })
+
+/**
+ * list_cron_schedules operation on cron_schedule resource
+ */
+export const listCronSchedules = <ThrowOnError extends boolean = false>(
+  options?: Options<ListCronSchedulesData, ThrowOnError>
+): RequestResult<ListCronSchedulesResponses, ListCronSchedulesErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListCronSchedulesResponses, ListCronSchedulesErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/cron-schedules',
+    ...options
+  })
+
+/**
+ * decide_brain_contradiction operation on brain_contradiction resource
+ */
+export const decideBrainContradiction = <ThrowOnError extends boolean = false>(
+  options: Options<DecideBrainContradictionData, ThrowOnError>
+): RequestResult<DecideBrainContradictionResponses, DecideBrainContradictionErrors, ThrowOnError> =>
+  (options.client ?? client).post<DecideBrainContradictionResponses, DecideBrainContradictionErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/contradictions/{contradiction_id}/decide',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -159,42 +294,14 @@ export const supersedeBrainClaim = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * list_brain_contradictions operation on brain_contradiction resource
+ * disable_signal_binding operation on signal_binding resource
  */
-export const listBrainContradictions = <ThrowOnError extends boolean = false>(
-  options?: Options<ListBrainContradictionsData, ThrowOnError>
-): RequestResult<ListBrainContradictionsResponses, ListBrainContradictionsErrors, ThrowOnError> =>
-  (options?.client ?? client).get<ListBrainContradictionsResponses, ListBrainContradictionsErrors, ThrowOnError>({
+export const disableSignalBinding = <ThrowOnError extends boolean = false>(
+  options: Options<DisableSignalBindingData, ThrowOnError>
+): RequestResult<DisableSignalBindingResponses, DisableSignalBindingErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DisableSignalBindingResponses, DisableSignalBindingErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/contradictions',
-    ...options
-  })
-
-/**
- * decide_brain_contradiction operation on brain_contradiction resource
- */
-export const decideBrainContradiction = <ThrowOnError extends boolean = false>(
-  options: Options<DecideBrainContradictionData, ThrowOnError>
-): RequestResult<DecideBrainContradictionResponses, DecideBrainContradictionErrors, ThrowOnError> =>
-  (options.client ?? client).post<DecideBrainContradictionResponses, DecideBrainContradictionErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/contradictions/{contradiction_id}/decide',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * list_brain_merge_suggestions operation on brain_merge_suggestion resource
- */
-export const listBrainMergeSuggestions = <ThrowOnError extends boolean = false>(
-  options?: Options<ListBrainMergeSuggestionsData, ThrowOnError>
-): RequestResult<ListBrainMergeSuggestionsResponses, ListBrainMergeSuggestionsErrors, ThrowOnError> =>
-  (options?.client ?? client).get<ListBrainMergeSuggestionsResponses, ListBrainMergeSuggestionsErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/merge-suggestions',
+    url: '/api/v2/agents/{agent_uid}/signal-bindings/{name}',
     ...options
   })
 
@@ -219,26 +326,202 @@ export const approveBrainMergeSuggestion = <ThrowOnError extends boolean = false
   })
 
 /**
- * reject_brain_merge_suggestion operation on brain_merge_suggestion resource
+ * create_cron_schedule operation on cron_schedule resource
  */
-export const rejectBrainMergeSuggestion = <ThrowOnError extends boolean = false>(
-  options: Options<RejectBrainMergeSuggestionData, ThrowOnError>
-): RequestResult<RejectBrainMergeSuggestionResponses, RejectBrainMergeSuggestionErrors, ThrowOnError> =>
-  (options.client ?? client).post<RejectBrainMergeSuggestionResponses, RejectBrainMergeSuggestionErrors, ThrowOnError>({
+export const createCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<CreateCronScheduleData, ThrowOnError>
+): RequestResult<CreateCronScheduleResponses, CreateCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).post<CreateCronScheduleResponses, CreateCronScheduleErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/merge-suggestions/{suggestion_id}/reject',
+    url: '/api/v2/agents/{agent_uid}/cron-schedules',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * learn_brain_source operation on brain_source resource
+ */
+export const learnBrainSource = <ThrowOnError extends boolean = false>(
+  options: Options<LearnBrainSourceData, ThrowOnError>
+): RequestResult<LearnBrainSourceResponses, LearnBrainSourceErrors, ThrowOnError> =>
+  (options.client ?? client).post<LearnBrainSourceResponses, LearnBrainSourceErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/sources/{source_id}/learn',
     ...options
   })
 
 /**
- * list_brain_object_versions operation on brain_object_version resource
+ * forget_brain_object operation on brain_object resource
  */
-export const listBrainObjectVersions = <ThrowOnError extends boolean = false>(
-  options: Options<ListBrainObjectVersionsData, ThrowOnError>
-): RequestResult<ListBrainObjectVersionsResponses, ListBrainObjectVersionsErrors, ThrowOnError> =>
-  (options.client ?? client).get<ListBrainObjectVersionsResponses, ListBrainObjectVersionsErrors, ThrowOnError>({
+export const forgetBrainObject = <ThrowOnError extends boolean = false>(
+  options: Options<ForgetBrainObjectData, ThrowOnError>
+): RequestResult<ForgetBrainObjectResponses, ForgetBrainObjectErrors, ThrowOnError> =>
+  (options.client ?? client).post<ForgetBrainObjectResponses, ForgetBrainObjectErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/object-versions',
+    url: '/api/v2/brain/objects/forget',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * list_cron_schedule_runs operation on scheduled_event resource
+ */
+export const listCronScheduleRuns = <ThrowOnError extends boolean = false>(
+  options: Options<ListCronScheduleRunsData, ThrowOnError>
+): RequestResult<ListCronScheduleRunsResponses, ListCronScheduleRunsErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListCronScheduleRunsResponses, ListCronScheduleRunsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs',
+    ...options
+  })
+
+/**
+ * list_brain_claims operation on brain_claim resource
+ */
+export const listBrainClaims = <ThrowOnError extends boolean = false>(
+  options?: Options<ListBrainClaimsData, ThrowOnError>
+): RequestResult<ListBrainClaimsResponses, ListBrainClaimsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListBrainClaimsResponses, ListBrainClaimsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/claims',
+    ...options
+  })
+
+/**
+ * get_automation_job operation on automation_job resource
+ */
+export const getAutomationJob = <ThrowOnError extends boolean = false>(
+  options: Options<GetAutomationJobData, ThrowOnError>
+): RequestResult<GetAutomationJobResponses, GetAutomationJobErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetAutomationJobResponses, GetAutomationJobErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/automation-jobs/{id}',
+    ...options
+  })
+
+/**
+ * restore_brain_object operation on brain_object resource
+ */
+export const restoreBrainObject = <ThrowOnError extends boolean = false>(
+  options: Options<RestoreBrainObjectData, ThrowOnError>
+): RequestResult<RestoreBrainObjectResponses, RestoreBrainObjectErrors, ThrowOnError> =>
+  (options.client ?? client).post<RestoreBrainObjectResponses, RestoreBrainObjectErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/objects/restore',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * list_automation_jobs operation on automation_job resource
+ */
+export const listAutomationJobs = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAutomationJobsData, ThrowOnError>
+): RequestResult<ListAutomationJobsResponses, ListAutomationJobsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListAutomationJobsResponses, ListAutomationJobsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/automation-jobs',
+    ...options
+  })
+
+/**
+ * list_checkbacks operation on scheduled_event resource
+ */
+export const listCheckbacks = <ThrowOnError extends boolean = false>(
+  options?: Options<ListCheckbacksData, ThrowOnError>
+): RequestResult<ListCheckbacksResponses, ListCheckbacksErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListCheckbacksResponses, ListCheckbacksErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/checkbacks',
+    ...options
+  })
+
+/**
+ * resolve_brain_take operation on brain_claim resource
+ */
+export const resolveBrainTake = <ThrowOnError extends boolean = false>(
+  options: Options<ResolveBrainTakeData, ThrowOnError>
+): RequestResult<ResolveBrainTakeResponses, ResolveBrainTakeErrors, ThrowOnError> =>
+  (options.client ?? client).post<ResolveBrainTakeResponses, ResolveBrainTakeErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/claims/{claim_id}/resolve',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * list_automation_job_runs operation on automation_job_run resource
+ */
+export const listAutomationJobRuns = <ThrowOnError extends boolean = false>(
+  options: Options<ListAutomationJobRunsData, ThrowOnError>
+): RequestResult<ListAutomationJobRunsResponses, ListAutomationJobRunsErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListAutomationJobRunsResponses, ListAutomationJobRunsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/automation-jobs/{automation_job_id}/runs',
+    ...options
+  })
+
+/**
+ * resume_cron_schedule operation on cron_schedule resource
+ */
+export const resumeCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<ResumeCronScheduleData, ThrowOnError>
+): RequestResult<ResumeCronScheduleResponses, ResumeCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).post<ResumeCronScheduleResponses, ResumeCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/resume',
+    ...options
+  })
+
+/**
+ * list_oidc_clients operation on oidc_client resource
+ */
+export const listOidcClients = <ThrowOnError extends boolean = false>(
+  options?: Options<ListOidcClientsData, ThrowOnError>
+): RequestResult<ListOidcClientsResponses, ListOidcClientsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListOidcClientsResponses, ListOidcClientsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients',
+    ...options
+  })
+
+/**
+ * create_oidc_client operation on oidc_client resource
+ */
+export const createOidcClient = <ThrowOnError extends boolean = false>(
+  options: Options<CreateOidcClientData, ThrowOnError>
+): RequestResult<CreateOidcClientResponses, CreateOidcClientErrors, ThrowOnError> =>
+  (options.client ?? client).post<CreateOidcClientResponses, CreateOidcClientErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * reject_brain_suggestion operation on brain_schema_suggestion resource
+ */
+export const rejectBrainSuggestion = <ThrowOnError extends boolean = false>(
+  options: Options<RejectBrainSuggestionData, ThrowOnError>
+): RequestResult<RejectBrainSuggestionResponses, RejectBrainSuggestionErrors, ThrowOnError> =>
+  (options.client ?? client).post<RejectBrainSuggestionResponses, RejectBrainSuggestionErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/suggestions/{suggestion_id}/reject',
     ...options
   })
 
@@ -287,22 +570,6 @@ export const createBrainObject = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * forget_brain_object operation on brain_object resource
- */
-export const forgetBrainObject = <ThrowOnError extends boolean = false>(
-  options: Options<ForgetBrainObjectData, ThrowOnError>
-): RequestResult<ForgetBrainObjectResponses, ForgetBrainObjectErrors, ThrowOnError> =>
-  (options.client ?? client).post<ForgetBrainObjectResponses, ForgetBrainObjectErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/objects/forget',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
  * fork_brain_object operation on brain_object resource
  */
 export const forkBrainObject = <ThrowOnError extends boolean = false>(
@@ -319,14 +586,94 @@ export const forkBrainObject = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * restore_brain_object operation on brain_object resource
+ * run_cron_schedule operation on cron_schedule resource
  */
-export const restoreBrainObject = <ThrowOnError extends boolean = false>(
-  options: Options<RestoreBrainObjectData, ThrowOnError>
-): RequestResult<RestoreBrainObjectResponses, RestoreBrainObjectErrors, ThrowOnError> =>
-  (options.client ?? client).post<RestoreBrainObjectResponses, RestoreBrainObjectErrors, ThrowOnError>({
+export const runCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<RunCronScheduleData, ThrowOnError>
+): RequestResult<RunCronScheduleResponses, RunCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).post<RunCronScheduleResponses, RunCronScheduleErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/objects/restore',
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/runs',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * archive_brain_source operation on brain_source resource
+ */
+export const archiveBrainSource = <ThrowOnError extends boolean = false>(
+  options: Options<ArchiveBrainSourceData, ThrowOnError>
+): RequestResult<ArchiveBrainSourceResponses, ArchiveBrainSourceErrors, ThrowOnError> =>
+  (options.client ?? client).post<ArchiveBrainSourceResponses, ArchiveBrainSourceErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/sources/{source_id}/archive',
+    ...options
+  })
+
+/**
+ * pause_cron_schedule operation on cron_schedule resource
+ */
+export const pauseCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<PauseCronScheduleData, ThrowOnError>
+): RequestResult<PauseCronScheduleResponses, PauseCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).post<PauseCronScheduleResponses, PauseCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/pause',
+    ...options
+  })
+
+/**
+ * delete_oidc_client operation on oidc_client resource
+ */
+export const deleteOidcClient = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteOidcClientData, ThrowOnError>
+): RequestResult<DeleteOidcClientResponses, DeleteOidcClientErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteOidcClientResponses, DeleteOidcClientErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients/{id}',
+    ...options
+  })
+
+/**
+ * get_oidc_client operation on oidc_client resource
+ */
+export const getOidcClient = <ThrowOnError extends boolean = false>(
+  options: Options<GetOidcClientData, ThrowOnError>
+): RequestResult<GetOidcClientResponses, GetOidcClientErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetOidcClientResponses, GetOidcClientErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients/{id}',
+    ...options
+  })
+
+/**
+ * update_oidc_client operation on oidc_client resource
+ */
+export const updateOidcClient = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateOidcClientData, ThrowOnError>
+): RequestResult<UpdateOidcClientResponses, UpdateOidcClientErrors, ThrowOnError> =>
+  (options.client ?? client).patch<UpdateOidcClientResponses, UpdateOidcClientErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * update_brain_source operation on brain_source resource
+ */
+export const updateBrainSource = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateBrainSourceData, ThrowOnError>
+): RequestResult<UpdateBrainSourceResponses, UpdateBrainSourceErrors, ThrowOnError> =>
+  (options.client ?? client).patch<UpdateBrainSourceResponses, UpdateBrainSourceErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/sources/{source_id}',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -343,6 +690,138 @@ export const rollbackBrainObject = <ThrowOnError extends boolean = false>(
   (options.client ?? client).post<RollbackBrainObjectResponses, RollbackBrainObjectErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/brain/objects/rollback',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * remove_cron_schedule operation on cron_schedule resource
+ */
+export const removeCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<RemoveCronScheduleData, ThrowOnError>
+): RequestResult<RemoveCronScheduleResponses, RemoveCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).delete<RemoveCronScheduleResponses, RemoveCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}',
+    ...options
+  })
+
+/**
+ * get_cron_schedule operation on cron_schedule resource
+ */
+export const getCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<GetCronScheduleData, ThrowOnError>
+): RequestResult<GetCronScheduleResponses, GetCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetCronScheduleResponses, GetCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}',
+    ...options
+  })
+
+/**
+ * update_cron_schedule operation on cron_schedule resource
+ */
+export const updateCronSchedule = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateCronScheduleData, ThrowOnError>
+): RequestResult<UpdateCronScheduleResponses, UpdateCronScheduleErrors, ThrowOnError> =>
+  (options.client ?? client).patch<UpdateCronScheduleResponses, UpdateCronScheduleErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * list_brain_suggestions operation on brain_schema_suggestion resource
+ */
+export const listBrainSuggestions = <ThrowOnError extends boolean = false>(
+  options?: Options<ListBrainSuggestionsData, ThrowOnError>
+): RequestResult<ListBrainSuggestionsResponses, ListBrainSuggestionsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListBrainSuggestionsResponses, ListBrainSuggestionsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/suggestions',
+    ...options
+  })
+
+/**
+ * list_brain_contradictions operation on brain_contradiction resource
+ */
+export const listBrainContradictions = <ThrowOnError extends boolean = false>(
+  options?: Options<ListBrainContradictionsData, ThrowOnError>
+): RequestResult<ListBrainContradictionsResponses, ListBrainContradictionsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListBrainContradictionsResponses, ListBrainContradictionsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/contradictions',
+    ...options
+  })
+
+/**
+ * cancel_webhook_endpoint operation on webhook_endpoint resource
+ */
+export const cancelWebhookEndpoint = <ThrowOnError extends boolean = false>(
+  options: Options<CancelWebhookEndpointData, ThrowOnError>
+): RequestResult<CancelWebhookEndpointResponses, CancelWebhookEndpointErrors, ThrowOnError> =>
+  (options.client ?? client).delete<CancelWebhookEndpointResponses, CancelWebhookEndpointErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/webhook-endpoints/{id}',
+    ...options
+  })
+
+/**
+ * reject_brain_merge_suggestion operation on brain_merge_suggestion resource
+ */
+export const rejectBrainMergeSuggestion = <ThrowOnError extends boolean = false>(
+  options: Options<RejectBrainMergeSuggestionData, ThrowOnError>
+): RequestResult<RejectBrainMergeSuggestionResponses, RejectBrainMergeSuggestionErrors, ThrowOnError> =>
+  (options.client ?? client).post<RejectBrainMergeSuggestionResponses, RejectBrainMergeSuggestionErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/merge-suggestions/{suggestion_id}/reject',
+    ...options
+  })
+
+/**
+ * list_brain_merge_suggestions operation on brain_merge_suggestion resource
+ */
+export const listBrainMergeSuggestions = <ThrowOnError extends boolean = false>(
+  options?: Options<ListBrainMergeSuggestionsData, ThrowOnError>
+): RequestResult<ListBrainMergeSuggestionsResponses, ListBrainMergeSuggestionsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListBrainMergeSuggestionsResponses, ListBrainMergeSuggestionsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/merge-suggestions',
+    ...options
+  })
+
+/**
+ * approve_brain_suggestion operation on brain_schema_suggestion resource
+ */
+export const approveBrainSuggestion = <ThrowOnError extends boolean = false>(
+  options: Options<ApproveBrainSuggestionData, ThrowOnError>
+): RequestResult<ApproveBrainSuggestionResponses, ApproveBrainSuggestionErrors, ThrowOnError> =>
+  (options.client ?? client).post<ApproveBrainSuggestionResponses, ApproveBrainSuggestionErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/suggestions/{suggestion_id}/approve',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * forget_brain_claim operation on brain_claim resource
+ */
+export const forgetBrainClaim = <ThrowOnError extends boolean = false>(
+  options: Options<ForgetBrainClaimData, ThrowOnError>
+): RequestResult<ForgetBrainClaimResponses, ForgetBrainClaimErrors, ThrowOnError> =>
+  (options.client ?? client).post<ForgetBrainClaimResponses, ForgetBrainClaimErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/claims/{claim_id}/forget',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -376,84 +855,4 @@ export const createBrainSource = <ThrowOnError extends boolean = false>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
-  })
-
-/**
- * update_brain_source operation on brain_source resource
- */
-export const updateBrainSource = <ThrowOnError extends boolean = false>(
-  options: Options<UpdateBrainSourceData, ThrowOnError>
-): RequestResult<UpdateBrainSourceResponses, UpdateBrainSourceErrors, ThrowOnError> =>
-  (options.client ?? client).patch<UpdateBrainSourceResponses, UpdateBrainSourceErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/sources/{source_id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * archive_brain_source operation on brain_source resource
- */
-export const archiveBrainSource = <ThrowOnError extends boolean = false>(
-  options: Options<ArchiveBrainSourceData, ThrowOnError>
-): RequestResult<ArchiveBrainSourceResponses, ArchiveBrainSourceErrors, ThrowOnError> =>
-  (options.client ?? client).post<ArchiveBrainSourceResponses, ArchiveBrainSourceErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/sources/{source_id}/archive',
-    ...options
-  })
-
-/**
- * learn_brain_source operation on brain_source resource
- */
-export const learnBrainSource = <ThrowOnError extends boolean = false>(
-  options: Options<LearnBrainSourceData, ThrowOnError>
-): RequestResult<LearnBrainSourceResponses, LearnBrainSourceErrors, ThrowOnError> =>
-  (options.client ?? client).post<LearnBrainSourceResponses, LearnBrainSourceErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/sources/{source_id}/learn',
-    ...options
-  })
-
-/**
- * list_brain_suggestions operation on brain_schema_suggestion resource
- */
-export const listBrainSuggestions = <ThrowOnError extends boolean = false>(
-  options?: Options<ListBrainSuggestionsData, ThrowOnError>
-): RequestResult<ListBrainSuggestionsResponses, ListBrainSuggestionsErrors, ThrowOnError> =>
-  (options?.client ?? client).get<ListBrainSuggestionsResponses, ListBrainSuggestionsErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/suggestions',
-    ...options
-  })
-
-/**
- * approve_brain_suggestion operation on brain_schema_suggestion resource
- */
-export const approveBrainSuggestion = <ThrowOnError extends boolean = false>(
-  options: Options<ApproveBrainSuggestionData, ThrowOnError>
-): RequestResult<ApproveBrainSuggestionResponses, ApproveBrainSuggestionErrors, ThrowOnError> =>
-  (options.client ?? client).post<ApproveBrainSuggestionResponses, ApproveBrainSuggestionErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/suggestions/{suggestion_id}/approve',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * reject_brain_suggestion operation on brain_schema_suggestion resource
- */
-export const rejectBrainSuggestion = <ThrowOnError extends boolean = false>(
-  options: Options<RejectBrainSuggestionData, ThrowOnError>
-): RequestResult<RejectBrainSuggestionResponses, RejectBrainSuggestionErrors, ThrowOnError> =>
-  (options.client ?? client).post<RejectBrainSuggestionResponses, RejectBrainSuggestionErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/brain/suggestions/{suggestion_id}/reject',
-    ...options
   })

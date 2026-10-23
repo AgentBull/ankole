@@ -160,7 +160,8 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
 
         with {:ok, _outcome} <-
                Ankole.Brain.Console.result(
-                 Ankole.Brain.Merge.approve_in_tx(args.suggestion_id, decided_by, attrs)
+                 Ankole.Brain.Merge.approve_in_tx(args.suggestion_id, decided_by, attrs),
+                 __MODULE__
                ),
              do: :ok
       end)
@@ -173,7 +174,7 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
       run(fn %{arguments: args}, context ->
         args.suggestion_id
         |> Ankole.Brain.Merge.reject_in_tx(Ankole.Brain.Console.actor_ref(context))
-        |> Ankole.Brain.Console.result()
+        |> Ankole.Brain.Console.result(__MODULE__)
       end)
     end
 

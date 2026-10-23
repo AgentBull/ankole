@@ -147,51 +147,54 @@ defmodule Ankole.Workflow.Lifecycle do
     end
   end
 
+  # One transaction stops every task. A failure gives the same reason for each
+  # Session, and the next cleanup tries all of them again.
+  defp stop_running_task_turns(_run, []), do: []
+
   defp stop_running_task_turns(run, session_ids) do
     now = DateTime.utc_now(:microsecond)
 
-    Enum.flat_map(session_ids, fn session_id ->
-      case append_stop_event(run, session_id, now) do
-        {:ok, _event} -> []
-        {:error, reason} -> [%{session_id: session_id, reason: reason}]
-      end
-    end)
+    with true <-
+           Ankole.Workflow.Replay.valid_reply_route?(run.reply_route || %{}) ||
+             {:error, :workflow_reply_route_binding_missing},
+         {:ok, _events} <-
+           Ankole.Signals.accept_all(Enum.map(session_ids, &stop_event(run, &1, now))) do
+      []
+    else
+      {:error, reason} -> Enum.map(session_ids, &%{session_id: &1, reason: reason})
+    end
   end
 
-  defp append_stop_event(run, session_id, now) do
+  defp stop_event(run, session_id, now) do
     reply_route = run.reply_route || %{}
     call_id = String.replace_prefix(session_id, Ankole.Workflow.Queries.task_session_prefix(), "")
     source_event_id = "workflow:call:#{call_id}:stop"
     binding_name = Map.get(reply_route, "binding_name")
 
-    with true <-
-           Ankole.Workflow.Replay.valid_reply_route?(reply_route) ||
-             {:error, :workflow_reply_route_binding_missing} do
-      Ankole.Signals.accept(%{
-        producer: :kernel,
-        source: "control-plane://workflow",
-        id: source_event_id,
-        type: "command.stop",
-        subject: "workflow-call:#{call_id}",
-        time: DateTime.to_iso8601(now),
-        available_at: now,
-        target: %{agent_uid: run.agent_uid, session_id: session_id},
-        sender: nil,
-        authorization: Ankole.Principals.WorkAccess.fields(run),
-        reply_route: %{
-          binding_name: binding_name,
-          conversation_id: nil,
-          provider_thread_id: nil,
-          provider_message_id: nil
-        },
-        data: %{
-          "command" => %{
-            "argsText" => task_stop_reason(run.status),
-            "cancel_requested_by" => "workflow"
-          }
+    %{
+      producer: :kernel,
+      source: "control-plane://workflow",
+      id: source_event_id,
+      type: "command.stop",
+      subject: "workflow-call:#{call_id}",
+      time: DateTime.to_iso8601(now),
+      available_at: now,
+      target: %{agent_uid: run.agent_uid, session_id: session_id},
+      sender: nil,
+      authorization: Ankole.Principals.WorkAccess.fields(run),
+      reply_route: %{
+        binding_name: binding_name,
+        conversation_id: nil,
+        provider_thread_id: nil,
+        provider_message_id: nil
+      },
+      data: %{
+        "command" => %{
+          "argsText" => task_stop_reason(run.status),
+          "cancel_requested_by" => "workflow"
         }
-      })
-    end
+      }
+    }
   end
 
   defp task_stop_reason(:cancelled) do

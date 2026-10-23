@@ -83,6 +83,17 @@ defmodule Ankole.Errors do
   def wrap(result), do: result
 
   @doc """
+  Makes a missing-target reason of a generic action `run` result an
+  `Ankole.Errors.Invalid.NotFound` for the resource. An API renders it as not
+  found, not as a rejection. Other results stay the same.
+  """
+  def not_found({:error, reason} = result, reasons, resource) when is_atom(reason) do
+    if reason in reasons, do: {:error, NotFound.exception(resource: resource)}, else: result
+  end
+
+  def not_found(result, _reasons, _resource), do: result
+
+  @doc """
   Gives the error class of an Ash changeset, query, or action input that
   rolled back a transaction.
 
@@ -122,10 +133,9 @@ defmodule Ankole.Errors do
   @doc """
   Gives back the domain reason of a failed action.
 
-  A declared rejection gives its reason. A stale write gives its reason or
-  `:stale`, a refused state transition gives
-  `{:invalid_status_transition, from, to}`, and a missing target gives
-  `:not_found`. Other results stay the same.
+  A declared rejection gives its reason. A stale write gives `:stale`, a
+  refused state transition gives `{:invalid_status_transition, from, to}`, and
+  a missing target gives `:not_found`. Other results stay the same.
   """
   @spec reason(term()) :: {:error, reason()} | term()
   def reason({:error, error}), do: {:error, to_reason(error)}
@@ -146,8 +156,7 @@ defmodule Ankole.Errors do
   end
 
   defp known_reason(%Rejected{reason: reason}), do: {:ok, reason}
-  defp known_reason(%Stale{reason: nil}), do: {:ok, :stale}
-  defp known_reason(%Stale{reason: reason}), do: {:ok, reason}
+  defp known_reason(%Stale{}), do: {:ok, :stale}
   defp known_reason(%Ash.Error.Changes.StaleRecord{}), do: {:ok, :stale}
   defp known_reason(%NotFound{}), do: {:ok, :not_found}
 

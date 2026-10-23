@@ -562,9 +562,12 @@ The action locks its rows, runs its write steps, and commits them together:
 The Console API at `/api/v2/brain` (`AnkoleWeb.JSONAPI.ConsoleRouter`) gives
 the `json_api` routes of `Ankole.Brain`. Each list is a `:console_list` read
 action that gives the first 100 rows. A Console write that records its
-operator is a `console_*` generic action: it reads the Principal of the
-session from the action context (`Ankole.Brain.ConsoleOperator`) and runs the
-same `_in_tx` steps as the operation define. The routes for
+operator is a `console_*` generic action: the Principal of the session is the
+Ash actor of the action (`Ankole.Brain.Console`), and the action runs the same
+`_in_tx` steps as the operation define. A missing target gives 404, and a
+reason that conflicts with the current state (`content_hash_conflict`,
+`object_deleted`, `slug_taken`, `conflict`) gives 409; another domain reason
+gives 422 with the reason as the code. The routes for
 `fork_library_page`, `restore_object`, `decide`, `archive_source`, and
 `update_default_scope` give the operation actions directly. The health
 snapshot, the object page, the object types, the search preview, the

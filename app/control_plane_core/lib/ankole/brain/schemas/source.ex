@@ -162,7 +162,7 @@ defmodule Ankole.Brain.Schemas.Source do
       argument(:config, Ankole.Ash.Types.JSONMap, default: %{})
 
       run(fn %{arguments: args}, _context ->
-        Ankole.Brain.Console.result(Ankole.Brain.SourceLearning.register_source(args))
+        Ankole.Brain.Console.result(Ankole.Brain.SourceLearning.register_source(args), __MODULE__)
       end)
     end
 
@@ -172,7 +172,8 @@ defmodule Ankole.Brain.Schemas.Source do
       run(fn %{arguments: args}, _context ->
         with {:ok, _result} <-
                Ankole.Brain.Console.result(
-                 Ankole.Brain.SourceLearning.enqueue_learn(args.source_id)
+                 Ankole.Brain.SourceLearning.enqueue_learn(args.source_id),
+                 __MODULE__
                ),
              do: :ok
       end)
@@ -184,7 +185,7 @@ defmodule Ankole.Brain.Schemas.Source do
       argument(:source_id, :uuid, allow_nil?: false)
 
       run(fn %{arguments: args}, _context ->
-        Ankole.Brain.Console.result(Ankole.Brain.Sources.archive_in_tx(args.source_id))
+        Ankole.Brain.Console.result(Ankole.Brain.Sources.archive_in_tx(args.source_id), __MODULE__)
       end)
     end
 
@@ -196,7 +197,7 @@ defmodule Ankole.Brain.Schemas.Source do
       run(fn %{arguments: args}, _context ->
         args.source_id
         |> Ankole.Brain.Sources.update_default_scope_in_tx(args[:scope])
-        |> Ankole.Brain.Console.result()
+        |> Ankole.Brain.Console.result(__MODULE__)
       end)
     end
 

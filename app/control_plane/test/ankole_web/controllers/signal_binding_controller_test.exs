@@ -96,13 +96,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert listed["name"] == "lark-main"
     assert listed["enabled"] == true
 
-    conn =
-      conn
-      |> recycle_api()
-      |> delete(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main")
+    conn = disable_binding(conn, agent.uid, "lark-main")
 
-    assert %{"signal_binding" => %{"name" => "lark-main", "enabled" => false}} =
-             json_response(conn, 200)
+    assert %{"name" => "lark-main", "enabled" => false} = json_response(conn, 200)
 
     assert {:error, :binding_disabled} =
              Ankole.Signals.Bindings.get_binding(agent.uid, "lark-main")
@@ -291,12 +287,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     assert response(conn, 200)
 
-    conn =
-      conn
-      |> recycle_api()
-      |> delete(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main")
+    conn = disable_binding(conn, agent.uid, "lark-main")
 
-    assert %{"signal_binding" => %{"enabled" => false}} = json_response(conn, 200)
+    assert %{"enabled" => false} = json_response(conn, 200)
 
     conn =
       conn
@@ -620,10 +613,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     assert response(conn, 200)
 
-    conn =
-      conn
-      |> recycle_api()
-      |> delete(~p"/api/v1/agents/#{target_agent.uid}/signal-bindings/lark-main")
+    conn = disable_binding(conn, target_agent.uid, "lark-main")
 
     assert response(conn, 200)
 
@@ -1092,10 +1082,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
       save_lark_provider("feishu-2")
 
-      conn =
-        conn |> recycle_api() |> delete(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main")
+      conn = disable_binding(conn, agent.uid, "lark-main")
 
-      assert %{"signal_binding" => %{"enabled" => false}} = json_response(conn, 200)
+      assert %{"enabled" => false} = json_response(conn, 200)
 
       # The Console enable action sends an empty config; the binding keeps its reference.
       conn =
@@ -1261,5 +1250,13 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       )
 
     row
+  end
+
+  defp disable_binding(conn, agent_uid, name) do
+    conn
+    |> recycle_api()
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
+    |> delete("/api/v2/agents/#{agent_uid}/signal-bindings/#{name}")
   end
 end
