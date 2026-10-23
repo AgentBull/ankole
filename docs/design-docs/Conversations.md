@@ -47,7 +47,7 @@ transaction it raises `Ankole.Errors.Framework.NestedOperation`. A caller that
 already owns a transaction uses the `_in_tx` function of the same operation,
 for example `create_in_tx/3`, `post_in_tx/4`, `detail_in_tx/4`, or
 `Attachments.link_payload_in_tx/4`. The public functions such as
-`Conversations.create/2` and `PreviewState.put_checkpoint/3` call the generic
+`Conversations.create/2` and `PreviewStates.put_checkpoint/3` call the generic
 action and give the domain reason through `Ankole.Errors.reason/1`.
 
 The domain reads the rows of other domains through their code interface
@@ -563,9 +563,9 @@ Provider-native previews are transient renderers. Their versioned checkpoint,
 sequence high water, first recorded provider message identity, and terminal
 presentation live in the Delivery-owned `delivery_previews` row, keyed by
 `(tenant_id, signal_id)`. Writers lock the source Signal before the preview row.
-`Delivery.PreviewState` owns these writes. Its checkpoint update action locks
-and loads the Signal, applies the requested change, and persists the fenced
-checkpoint in one transaction. Recovery, cleanup, and fallback use this same
+`Delivery.PreviewStates` owns these writes to the `Delivery.PreviewState`
+resource. Its checkpoint update action locks and loads the Signal, applies the
+requested change, and persists the fenced checkpoint in one transaction. Recovery, cleanup, and fallback use this same
 action. The preview process claims, hands off, and checkpoints its surface
 through the generic actions of `PreviewState`; the process itself opens no
 transaction. Signal deletion cascades to its preview. Its resource attributes validate the JSON checkpoint and nonnegative

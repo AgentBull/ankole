@@ -52,7 +52,7 @@ defmodule Ankole.Conversations.Delivery.ReplyPreviewRouteTest do
 
     assert %Ankole.Conversations.Delivery.PreviewState{
              checkpoint: %{"streaming_state" => "closed"}
-           } = Ankole.Conversations.Delivery.PreviewState.get(event.id)
+           } = Ankole.Conversations.Delivery.PreviewStates.get(event.id)
   end
 
   test "an unknown finalize result parks the row as unknown_after_send" do

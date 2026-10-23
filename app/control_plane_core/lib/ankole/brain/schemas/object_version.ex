@@ -61,7 +61,7 @@ defmodule Ankole.Brain.Schemas.ObjectVersion do
     # The Console version history of one Object; the slug can be an alias.
     read :console_list do
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false])
-      prepare(&Ankole.Brain.Objects.console_versions/2)
+      prepare(__MODULE__.Preparations)
     end
 
     create :snapshot do

@@ -92,11 +92,7 @@ defmodule Ankole.Pod.DbField do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Database, :committed_schema})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Database.Schema.create_field_in_tx(a.uid, a.id, a.attrs)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_field, :term do
@@ -106,11 +102,7 @@ defmodule Ankole.Pod.DbField do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Database, :committed_schema})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Database.Schema.update_field_in_tx(a.uid, a.id, a.attrs)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :delete_field, :term do
@@ -120,11 +112,7 @@ defmodule Ankole.Pod.DbField do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Database, :committed_schema})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Database.Schema.delete_field_in_tx(a.uid, a.id, a.version)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

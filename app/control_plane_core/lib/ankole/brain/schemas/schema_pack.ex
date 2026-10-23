@@ -51,9 +51,7 @@ defmodule Ankole.Brain.Schemas.SchemaPack do
     action :install_packs, :map do
       argument(:names, {:array, :string}, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.Brain.SchemaPacks.install_packs_in_tx(Ankole.Repo, args.names))
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

@@ -158,21 +158,13 @@ defmodule Ankole.Workflow.Schemas.Run do
     action :create_with_dispatch, :term do
       argument(:attrs, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.Workflow.Lifecycle.create_with_dispatch_in_tx(input.arguments.attrs)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :replay_input, :term do
       argument(:run_id, :integer, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.Workflow.Replay.replay_input_in_tx(input.arguments.run_id)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :commit_replay_pending, :term do
@@ -180,15 +172,7 @@ defmodule Ankole.Workflow.Schemas.Run do
       argument(:pending_calls, :term, allow_nil?: false)
       argument(:expected_memo_length, :integer, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Workflow.Replay.commit_replay_pending_in_tx(
-          args.run_id,
-          args.pending_calls,
-          args.expected_memo_length
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :complete_replay, :term do
@@ -196,15 +180,7 @@ defmodule Ankole.Workflow.Schemas.Run do
       argument(:result_text, :term, allow_nil?: false)
       argument(:expected_memo_length, :integer, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Workflow.Replay.complete_replay_in_tx(
-          args.run_id,
-          args.result_text,
-          args.expected_memo_length
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :fail_replay, :term do
@@ -213,16 +189,7 @@ defmodule Ankole.Workflow.Schemas.Run do
       argument(:summary, :term, allow_nil?: false)
       argument(:expected_memo_length, :integer, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Workflow.Replay.fail_replay_in_tx(
-          args.run_id,
-          args.code,
-          args.summary,
-          args.expected_memo_length
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :reconcile_stale_tasks, :term do
@@ -231,26 +198,14 @@ defmodule Ankole.Workflow.Schemas.Run do
       argument(:reconciled_at, :utc_datetime_usec, allow_nil?: false)
       after_commit({Ankole.Workflow.Mail, :release_committed_capacity})
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Workflow.Recovery.reconcile_stale_tasks_in_tx(
-          args.run_id,
-          args.cutoff,
-          args.reconciled_at
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :complete_cleanup, :term do
       argument(:run_id, :integer, allow_nil?: false)
       argument(:completed_at, :utc_datetime_usec, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Workflow.Lifecycle.complete_cleanup_in_tx(args.run_id, args.completed_at)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     update :reauthorize do

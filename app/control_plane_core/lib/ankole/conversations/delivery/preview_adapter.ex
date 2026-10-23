@@ -25,7 +25,7 @@ defmodule Ankole.Conversations.Delivery.PreviewAdapter do
   not retry the call.
   """
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Signals.Signal
   alias Ankole.Signals.Adapters
   alias Ankole.Signals.Binding
@@ -305,11 +305,11 @@ defmodule Ankole.Conversations.Delivery.PreviewAdapter do
 
   defp complete_request(%Request{signal: %Signal{id: signal_id}} = request)
        when is_binary(signal_id) do
-    with %Signal{} = event <- PreviewState.load_signal(signal_id) || :signal_not_found,
+    with %Signal{} = event <- PreviewStates.load_signal(signal_id) || :signal_not_found,
          {:ok, binding} <- Bindings.get_binding(event.agent_uid, event.reply_binding_name),
          {:ok, config} <- stored_config(binding) do
       checkpoint =
-        adapter_checkpoint(PreviewState.get(event).checkpoint)
+        adapter_checkpoint(PreviewStates.get(event).checkpoint)
 
       {:ok,
        %{

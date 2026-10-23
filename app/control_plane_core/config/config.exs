@@ -1,9 +1,12 @@
 import Config
 
 # A resource action uses the transaction of its calling generic action. It is
-# atomic only when it declares require_atomic? true.
+# atomic only when it declares require_atomic? true. A generic action runs an
+# Ash.Resource.Actions.Implementation module; with reactor inference off, the
+# `run` module is not a compile-time dependency of its resource.
 config :ash,
   disable_async?: true,
+  infer_generic_action_reactors?: false,
   default_string_length_count: :codepoints,
   require_atomic_by_default?: false
 

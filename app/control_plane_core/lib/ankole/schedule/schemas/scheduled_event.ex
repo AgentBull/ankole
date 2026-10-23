@@ -230,22 +230,14 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
         constraints: [min: Ankole.ModelIntegerID.minimum(), max: Ankole.ModelIntegerID.maximum()]
       )
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Checkbacks.console_cancel_in_tx(input.arguments)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :create_check_back_later, :term do
       argument(:attrs, :term, allow_nil?: false)
       argument(:opts, :term, default: [])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Checkbacks.create_check_back_later_in_tx(args.attrs, args.opts)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_checkback, :term do
@@ -253,37 +245,21 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
       argument(:attrs, :term, allow_nil?: false)
       argument(:opts, :term, default: [])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Checkbacks.update_checkback_in_tx(
-          args.scheduled_event_id,
-          args.attrs,
-          args.opts
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :cancel_checkback, :term do
       argument(:scheduled_event_id, :integer, allow_nil?: false)
       argument(:opts, :term, default: [])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Checkbacks.cancel_checkback_in_tx(args.scheduled_event_id, args.opts)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :fire_due_event, :term do
       argument(:scheduled_event_id, :integer, allow_nil?: false)
       argument(:opts, :term, default: [])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Fire.fire_due_event_in_tx(args.scheduled_event_id, args.opts)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :record_fire_error, :term do
@@ -292,15 +268,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
       argument(:reason, :term)
       argument(:terminal, :boolean, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Fire.record_fire_error_in_tx(
-          args.scheduled_event_id,
-          args.reason,
-          args.terminal
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     update :reauthorize do

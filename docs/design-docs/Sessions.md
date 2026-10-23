@@ -47,7 +47,7 @@ lock; the `advance_epoch` action advances the locked workspace once.
 | `Conversations.Delivery` | External send intent, attempt fence, provider confirmation, and recovery result |
 | `AgentWorkers` | Worker provisioning and incarnation; its in-memory route can be rebuilt |
 
-`RoundState`, `Receipts`, and `AmbientJudgment` are Ash resources in the Sessions
+`RoundState`, `Receipt`, and `AmbientJudgment` are Ash resources in the Sessions
 domain. Their write actions run in the transaction of a Session operation (see
 [Persistence and Operations](#persistence-and-operations)). `record_once`
 keeps the first round snapshot when recovery records the same model message
@@ -87,14 +87,15 @@ are repaired by EnsureDriver and the Reconciler.
 ## Persistence and Operations
 
 `Ankole.Sessions` is the Sessions Ash domain. Its resources are
-`SessionWorkspace`, `RoundState`, `Receipts`, and `AmbientJudgment`.
+`SessionWorkspace`, `RoundState`, `Receipt`, and `AmbientJudgment`.
 
 A Session operation is a generic action of `SessionWorkspace` (the Session).
 `Ankole.Sessions.Operations` declares these actions, and `Ankole.Sessions`
 defines one function for each of them: for example `admit_input`,
 `finalize_run`, `record_run_round`, `defer_run_retry`, `apply_command`,
 `execute_receipt`, and `reset_session`. Each operation owns its transaction.
-Its `run` calls the `*_in_tx` function of the owning module (`Admission`,
+`Ankole.Sessions.Operations.Actions` runs the operations. Each one calls the
+`*_in_tx` function of the owning module (`Admission`,
 `Run`, `Commands`, `Notices`, `CodexJob`, `Receipts`, and others), so the lock
 order and the compensation writes stay in one readable function. A domain
 reason (an atom or a tuple) leaves the action as

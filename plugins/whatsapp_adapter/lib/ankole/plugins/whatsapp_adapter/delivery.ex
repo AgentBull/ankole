@@ -3,7 +3,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Delivery do
 
   @behaviour Ankole.Conversations.Delivery.Adapter
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Signals.Bindings
   alias Ankole.Logging
   alias Ankole.Plugins.MapHelpers
@@ -403,7 +403,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Delivery do
          provider_message_id
        )
        when is_binary(signal_id) and is_binary(provider_message_id) do
-    case PreviewState.record_provider_message(
+    case PreviewStates.record_provider_message(
            signal_id,
            provider_message_id
          ) do

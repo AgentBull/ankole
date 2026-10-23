@@ -65,11 +65,7 @@ defmodule Ankole.Pod.DbTable do
       argument(:attrs, :term)
       argument(:authority, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Database.create_table_in_tx(a.uid, a.page_id, a.attrs)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     # Reads under a shared table lock with the query time and timezone limits.
@@ -77,9 +73,7 @@ defmodule Ankole.Pod.DbTable do
       argument(:uid, :term)
       argument(:id, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Errors.wrap(Ankole.Pod.Database.get_table_in_tx(a.uid, a.id))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :query_records, :term do
@@ -87,9 +81,7 @@ defmodule Ankole.Pod.DbTable do
       argument(:id, :term)
       argument(:attrs, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Errors.wrap(Ankole.Pod.Database.query_in_tx(a.uid, a.id, a.attrs))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :aggregate_records, :term do
@@ -97,9 +89,7 @@ defmodule Ankole.Pod.DbTable do
       argument(:id, :term)
       argument(:attrs, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Errors.wrap(Ankole.Pod.Database.aggregate_in_tx(a.uid, a.id, a.attrs))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :write_records, :term do
@@ -109,11 +99,7 @@ defmodule Ankole.Pod.DbTable do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Database, :committed_records})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Database.write_records_in_tx(a.uid, a.id, a.attrs)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :copy_table, :term do
@@ -123,11 +109,7 @@ defmodule Ankole.Pod.DbTable do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Copy, :committed})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Copy.table_in_tx(a.uid, a.id, a.attrs)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

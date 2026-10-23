@@ -76,10 +76,7 @@ defmodule Ankole.AppConfigure.SiteConfig do
       argument(:definition, :term, allow_nil?: false)
       after_commit({Ankole.AppConfigure, :refresh_committed})
 
-      run(fn input, _context ->
-        Ankole.AppConfigure.ensure_generated_global_in_tx(Ankole.Repo, input.arguments.definition)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_global, :term do
@@ -87,14 +84,7 @@ defmodule Ankole.AppConfigure.SiteConfig do
       argument(:updater, :function, allow_nil?: false, constraints: [arity: 1])
       after_commit({Ankole.AppConfigure, :refresh_committed})
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.AppConfigure.update_global_in_tx(
-          input.arguments.definition,
-          input.arguments.updater
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

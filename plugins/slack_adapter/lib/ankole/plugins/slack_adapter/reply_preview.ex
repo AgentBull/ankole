@@ -16,7 +16,6 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
   alias Ankole.Plugins.SlackAdapter.Config
   alias Ankole.Plugins.SlackAdapter.ErrorPolicy
   alias Ankole.Plugins.SlackAdapter.Mrkdwn
-  alias Ankole.Signals.Signal
   alias Ankole.Conversations.Delivery.ReplyPresentation
   alias Ankole.Conversations.Delivery.PreviewAdapter.Request
   alias SlackOpenAPI.Error
@@ -116,7 +115,7 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
     }
 
     body =
-      case Signal.reply_anchor_provider_message_id(event) do
+      case Ankole.Signals.reply_anchor_provider_message_id(event) do
         provider_message_id when is_binary(provider_message_id) ->
           Map.put(body, "thread_ts", provider_message_id)
 

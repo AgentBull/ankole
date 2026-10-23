@@ -32,7 +32,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
 
   @behaviour Ankole.Conversations.Delivery.PreviewAdapter
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Plugins.WeComAdapter.Config
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
   alias Ankole.Plugins.WeComAdapter.Markdown
@@ -153,7 +153,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
     checkpoint
     |> Map.merge(%{"degraded" => true, "degraded_reason" => to_string(reason)})
     |> merge_common(presentation, request, true)
-    |> then(&PreviewState.put_checkpoint(event.id, &1))
+    |> then(&PreviewStates.put_checkpoint(event.id, &1))
   end
 
   defp reconcile_stream(
@@ -185,7 +185,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
         build_stream_checkpoint(checkpoint, page_records, presentation, request, final?, wrote?)
 
       with {:ok, _event} <-
-             PreviewState.put_checkpoint(event.id, checkpoint) do
+             PreviewStates.put_checkpoint(event.id, checkpoint) do
         {:ok, delivery_result(event, page_records, checkpoint)}
       end
     end
@@ -516,7 +516,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
 
     %{
       created_provider_message_id:
-        PreviewState.get(event).provider_message_id ||
+        PreviewStates.get(event).provider_message_id ||
           first_stream_id,
       messages:
         Enum.map(page_records, fn record ->
@@ -565,7 +565,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
         |> merge_common(presentation, request, true)
 
       with {:ok, _event} <-
-             PreviewState.put_checkpoint(event.id, checkpoint) do
+             PreviewStates.put_checkpoint(event.id, checkpoint) do
         case failure do
           nil ->
             {:ok,

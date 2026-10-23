@@ -160,15 +160,7 @@ defmodule Ankole.IdentityProviders.DirectoryState do
       argument(:application, :term)
       after_commit({Ankole.IdentityProviders.Config, :publish_saved_configuration})
 
-      run(fn input, _context ->
-        Ankole.IdentityProviders.Config.save_provider_in_tx(
-          Ankole.Repo,
-          input.arguments.activation,
-          input.arguments.config,
-          input.arguments.application
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :upsert_user, :map do
@@ -176,15 +168,7 @@ defmodule Ankole.IdentityProviders.DirectoryState do
       argument(:attrs, :map, allow_nil?: false)
       argument(:opts, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.IdentityProviders.Directory.upsert_user_in_tx(
-          Ankole.Repo,
-          input.arguments.provider_id,
-          input.arguments.attrs,
-          input.arguments.opts
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :begin_sync, :struct do
@@ -192,14 +176,7 @@ defmodule Ankole.IdentityProviders.DirectoryState do
       argument(:provider_id, :term, allow_nil?: false)
       argument(:expected_config, :term)
 
-      run(fn input, _context ->
-        Ankole.IdentityProviders.DirectoryAccess.begin_sync_in_tx(
-          Ankole.Repo,
-          input.arguments.provider_id,
-          input.arguments.expected_config
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :finish_sync, :term do
@@ -208,16 +185,7 @@ defmodule Ankole.IdentityProviders.DirectoryState do
       argument(:observations, :term, allow_nil?: false)
       argument(:opts, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.IdentityProviders.DirectoryAccess.finish_sync_in_tx(
-          Ankole.Repo,
-          input.arguments.ticket,
-          input.arguments.scope,
-          input.arguments.observations,
-          input.arguments.opts
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :approve_snapshot, :struct do
@@ -228,17 +196,7 @@ defmodule Ankole.IdentityProviders.DirectoryState do
       argument(:reason, :term)
       argument(:confirm_removals, :boolean, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.IdentityProviders.DirectoryAccess.approve_snapshot_in_tx(
-          Ankole.Repo,
-          input.arguments.provider_id,
-          input.arguments.fingerprint,
-          input.arguments.actor,
-          input.arguments.reason,
-          input.arguments.confirm_removals
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

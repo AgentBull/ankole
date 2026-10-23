@@ -172,11 +172,7 @@ defmodule Ankole.Brain.Schemas.Contradiction do
 
       argument(:resolution_note, :string, constraints: [trim?: false, allow_empty?: true])
 
-      run(fn %{arguments: args}, _context ->
-        args.contradiction_id
-        |> Ankole.Brain.Dreaming.decide_contradiction_in_tx(args.status, args[:resolution_note])
-        |> Ankole.Brain.Console.result(__MODULE__)
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

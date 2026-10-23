@@ -8,6 +8,8 @@ defmodule Ankole.Plugins.LineAdapterTest do
   import Ankole.Eventually, only: [eventually: 1]
 
   alias Ankole.Conversations.Delivery.PreviewState
+
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Plugins.LineAdapter
 
   alias Ankole.Plugins.LineAdapter.Config
@@ -881,7 +883,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
       checkpoint = InteractionState.initialize(%{}, presentation, base_time())
 
       assert {:ok, _event} =
-               PreviewState.put_checkpoint(event.id, checkpoint)
+               PreviewStates.put_checkpoint(event.id, checkpoint)
 
       assert [template] = Presentation.action_messages(presentation, event.id)
       assert template["template"]["text"] == "Deploy to production?"
@@ -926,7 +928,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert_received {:push, %{"messages" => [%{"type" => "text"}, %{"type" => "template"}]}}
 
       assert %Ankole.Conversations.Delivery.PreviewState{provider_message_id: "sent-1"} =
-               Ankole.Conversations.Delivery.PreviewState.get(event.id)
+               Ankole.Conversations.Delivery.PreviewStates.get(event.id)
 
       %{principal: operator} = human_fixture()
 

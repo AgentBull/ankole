@@ -700,6 +700,28 @@ application.
   a row lock), `read_across_tenants!/2` for an `allow_global` read action,
   `update_atomic/4`, `update_where/4`, `destroy_where/4`, `insert_if_absent/4`,
   and `run_action/4`. These functions use the tenant of `Ankole.Repo`.
+- A domain module compiles its code interface from its resources. Thus a
+  resource must not call code that reaches a domain module: that call makes a
+  compile-connected cycle (`mix ankole.compile_cycles`). The resource refers to
+  that code through a module in its DSL. Spark does not record a module in the
+  DSL as a dependency of the resource. For `run`, this is true because the
+  configuration sets `infer_generic_action_reactors?: false` for `:ash`. Put
+  the module in the directory of the resource, under the resource name:
+  - `run(__MODULE__.Actions)`: `<Resource>.Actions`
+    (`use Ash.Resource.Actions.Implementation`) runs all the generic actions of
+    the resource. Its `run/3` selects a function clause by the action name, for
+    example `Ankole.Signals.Binding.Actions` in `signals/binding/actions.ex`.
+  - `prepare(__MODULE__.Preparations)`: `<Resource>.Preparations` does the
+    same for the preparations that call domain code.
+  - A calculation, a validation, or a change that calls domain code is one
+    module, for example `Ankole.Brain.Schemas.MergeSuggestion.PageSummary`.
+  - Functions that read or write a resource and call other domain code are in
+    a different module, for example `Ankole.Conversations.Delivery.PreviewStates`
+    for the `PreviewState` resource.
+
+  An anonymous function in the DSL and a function of the resource module can
+  call only modules that do not reach a domain module, for example
+  `Ankole.Errors`, `Ankole.Repo`, or `Ankole.Files.Path`.
 - `Ankole.Errors` declares the errors. A resource action gives
   `Invalid.Stale`, `Invalid.StatusTransition`, or `Invalid.NotFound`. A generic
   action gives its domain reason as `Invalid.Rejected` through

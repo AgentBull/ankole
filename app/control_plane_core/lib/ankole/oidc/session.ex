@@ -122,11 +122,7 @@ defmodule Ankole.OIDC.Session do
       argument(:auth, :term)
       argument(:scope, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.OIDC.Sessions.ensure_in_tx(args.client_id, args.auth, args.scope)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

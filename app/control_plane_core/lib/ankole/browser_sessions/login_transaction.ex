@@ -168,16 +168,7 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
       argument(:request, :term)
       argument(:opts, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BrowserSessions.begin_login_in_tx(
-            args.browser_ref,
-            args.purpose,
-            args.request,
-            args.opts
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :bind_provider, :term do
@@ -187,17 +178,7 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
       argument(:state, :term)
       argument(:redirect_uri, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BrowserSessions.bind_provider_in_tx(
-            args.browser_ref,
-            args.id,
-            args.provider_id,
-            args.state,
-            args.redirect_uri
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :put_password_ticket, :term do
@@ -205,15 +186,7 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
       argument(:id, :term)
       argument(:ticket, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BrowserSessions.put_password_ticket_in_tx(
-            args.browser_ref,
-            args.id,
-            args.ticket
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :complete_login, :term do
@@ -222,16 +195,7 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
       argument(:auth, :term)
       argument(:before_commit, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BrowserSessions.complete_login_in_tx(
-            args.browser_ref,
-            args.id,
-            args.auth,
-            args.before_commit
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :complete_site_login, :term do
@@ -240,16 +204,7 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
       argument(:provider_id, :term)
       argument(:proof, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BrowserSessions.complete_site_login_in_tx(
-            args.browser_ref,
-            args.id,
-            args.provider_id,
-            args.proof
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :select_authorization, :term do
@@ -257,15 +212,7 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
       argument(:id, :term)
       argument(:authentication_ref, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BrowserSessions.select_authorization_in_tx(
-            args.browser_ref,
-            args.id,
-            args.authentication_ref
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :consume_authorization, :term do
@@ -274,16 +221,7 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
       argument(:authentication_ref, :term)
       argument(:issue, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BrowserSessions.consume_authorization_in_tx(
-            args.browser_ref,
-            args.id,
-            args.authentication_ref,
-            args.issue
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :consume_login, :term do
@@ -292,16 +230,7 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
       argument(:purpose, :term)
       argument(:complete, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BrowserSessions.consume_login_in_tx(
-            args.browser_ref,
-            args.id,
-            args.purpose,
-            args.complete
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

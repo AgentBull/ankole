@@ -162,26 +162,20 @@ defmodule Ankole.Signals.Binding do
       argument(:assignment, :map, allow_nil?: false)
       after_commit({Bindings, :cache_committed_assignment})
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(Bindings.assign_in_tx(Ankole.Repo, input.arguments.assignment))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :reassign, :term do
       argument(:assignment, :map, allow_nil?: false)
       after_commit({Bindings, :cache_committed_assignment})
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(Bindings.reassign_in_tx(Ankole.Repo, input.arguments.assignment))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :put_cloud, :term do
       argument(:binding, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(Bindings.put_cloud_binding_in_tx(Ankole.Repo, input.arguments.binding))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :move_cloud, :term do
@@ -189,18 +183,7 @@ defmodule Ankole.Signals.Binding do
       argument(:current_config, :map, allow_nil?: false)
       argument(:binding, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        args = input.arguments
-
-        Ankole.Errors.wrap(
-          Bindings.move_cloud_binding_in_tx(
-            Ankole.Repo,
-            args.source,
-            args.current_config,
-            args.binding
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     # The Console disables a binding of one Agent. An unknown Agent or binding
@@ -210,24 +193,14 @@ defmodule Ankole.Signals.Binding do
       argument(:agent_uid, :string, allow_nil?: false)
       argument(:name, :string, allow_nil?: false)
 
-      run(fn input, _context ->
-        args = input.arguments
-
-        Ankole.Repo
-        |> Bindings.disable_binding_in_tx(args.agent_uid, args.name)
-        |> Ankole.Errors.not_found([:agent_not_found, :binding_not_found], __MODULE__)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :disable_by_name, :term do
       argument(:agent_uid, :term, allow_nil?: false)
       argument(:name, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        args = input.arguments
-        Ankole.Errors.wrap(Bindings.disable_binding_in_tx(Ankole.Repo, args.agent_uid, args.name))
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

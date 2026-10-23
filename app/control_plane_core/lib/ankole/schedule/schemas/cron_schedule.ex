@@ -89,9 +89,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     calculate(
       :execution_session_id,
       :string,
-      fn records, _context ->
-        Enum.map(records, &Ankole.Schedule.Cron.execution_session_id(&1.id))
-      end,
+      __MODULE__.ExecutionSessionId,
       public?: true
     )
   end
@@ -163,11 +161,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       argument(:delivery, :map, allow_nil?: false)
       argument(:idempotency_key, :string, allow_nil?: false)
 
-      run(fn input, context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Cron.console_create_in_tx(input.arguments, context.actor)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_update, :struct do
@@ -180,11 +174,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       argument(:payload, :map)
       argument(:delivery, :map)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Cron.console_update_in_tx(input.arguments)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_pause, :struct do
@@ -192,11 +182,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Cron.console_pause_in_tx(input.arguments)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_resume, :struct do
@@ -204,11 +190,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Cron.console_resume_in_tx(input.arguments)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_remove, :struct do
@@ -216,11 +198,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Cron.console_remove_in_tx(input.arguments)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     # A manual fire. The idempotency key makes a repeated request one fire.
@@ -230,22 +208,14 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
       argument(:idempotency_key, :string, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Cron.console_run_in_tx(input.arguments)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :create_cron_schedule, :term do
       argument(:attrs, :term, allow_nil?: false)
       argument(:opts, :term, default: [])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Cron.create_cron_schedule_in_tx(args.attrs, args.opts)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_cron_schedule, :term do
@@ -253,70 +223,42 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       argument(:attrs, :term, allow_nil?: false)
       argument(:opts, :term, default: [])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Cron.update_cron_schedule_in_tx(
-          args.cron_schedule_id,
-          args.attrs,
-          args.opts
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :pause_cron_schedule, :term do
       argument(:cron_schedule_id, :term, allow_nil?: false)
       argument(:opts, :term, default: [])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Cron.pause_cron_schedule_in_tx(args.cron_schedule_id, args.opts)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :resume_cron_schedule, :term do
       argument(:cron_schedule_id, :term, allow_nil?: false)
       argument(:opts, :term, default: [])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Cron.resume_cron_schedule_in_tx(args.cron_schedule_id, args.opts)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :remove_cron_schedule, :term do
       argument(:cron_schedule_id, :term, allow_nil?: false)
       argument(:opts, :term, default: [])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Cron.remove_cron_schedule_in_tx(args.cron_schedule_id, args.opts)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :run_cron_schedule, :term do
       argument(:cron_schedule_id, :term, allow_nil?: false)
       argument(:opts, :term, default: [])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Cron.run_cron_schedule_in_tx(args.cron_schedule_id, args.opts)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :fire_cron, :term do
       argument(:cron_schedule_id, :term, allow_nil?: false)
       argument(:now, :term, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Fire.fire_cron_in_tx(args.cron_schedule_id, args.now)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :record_fire_failure, :term do
@@ -326,16 +268,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       argument(:reason, :term)
       argument(:now, :term, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Schedule.Fire.record_fire_failure_in_tx(
-          args.cron_schedule_id,
-          args.slot,
-          args.reason,
-          args.now
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     create :create do

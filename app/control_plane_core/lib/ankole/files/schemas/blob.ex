@@ -120,9 +120,7 @@ defmodule Ankole.Files.Schemas.Blob do
     # One batch of collection: it removes each marked row and its object while
     # it holds the row lock, so a failed object delete keeps the row marked.
     action :collect_marked, :term do
-      run(fn _input, _context ->
-        Ankole.Errors.wrap(Ankole.Files.Jobs.CollectUnreferenced.remove_batch_in_tx())
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

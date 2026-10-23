@@ -1370,7 +1370,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
         |> InteractionState.initialize(presentation, base_time())
 
       assert {:ok, _event} =
-               Ankole.Conversations.Delivery.PreviewState.put_checkpoint(event.id, checkpoint)
+               Ankole.Conversations.Delivery.PreviewStates.put_checkpoint(event.id, checkpoint)
 
       assert {:ok, token} =
                ActionToken.encode(event.id, 0, hd(presentation["actions"]),
@@ -1407,13 +1407,13 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
         )
 
       assert {:ok, _event} =
-               Ankole.Conversations.Delivery.PreviewState.put_checkpoint(event.id, changed)
+               Ankole.Conversations.Delivery.PreviewStates.put_checkpoint(event.id, changed)
 
       assert {:error, :invalid_callback_action} =
                ActionToken.resolve(token, agent.uid, "discord-action", "900", prefix: "dc1")
 
       assert {:ok, _event} =
-               Ankole.Conversations.Delivery.PreviewState.put_checkpoint(event.id, checkpoint)
+               Ankole.Conversations.Delivery.PreviewStates.put_checkpoint(event.id, checkpoint)
 
       assert {:ok, [%{"components" => components}]} =
                Presentation.render(presentation, event.id)

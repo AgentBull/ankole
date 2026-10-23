@@ -137,17 +137,7 @@ defmodule Ankole.Workflow.Schemas.AgentCall do
       argument(:message, :term, allow_nil?: false)
       argument(:source_tool_call_id, :term, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Workflow.Mail.send_task_message_in_tx(
-          args.run_id,
-          args.call_seq,
-          args.agent_uid,
-          args.message,
-          args.source_tool_call_id
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :defer_task_event, :term do
@@ -155,25 +145,13 @@ defmodule Ankole.Workflow.Schemas.AgentCall do
       argument(:available_at, :utc_datetime_usec, allow_nil?: false)
       argument(:reason, :atom, allow_nil?: false, constraints: [one_of: [:agent_capacity]])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Workflow.Mail.defer_task_event_in_tx(
-          args.signal,
-          args.available_at,
-          args.reason
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :release_capacity, :term do
       argument(:agent_uid, :term, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Workflow.Mail.release_capacity_in_tx(args.agent_uid)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     create :create_call do

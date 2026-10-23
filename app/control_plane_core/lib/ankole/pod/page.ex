@@ -148,11 +148,7 @@ defmodule Ankole.Pod.Page do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Pages, :committed})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Pages.create_in_tx(a.uid, a.attrs)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_page, :term do
@@ -162,11 +158,7 @@ defmodule Ankole.Pod.Page do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Pages, :committed_page})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Pages.update_in_tx(a.uid, a.id, a.attrs)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :move_page, :term do
@@ -176,11 +168,7 @@ defmodule Ankole.Pod.Page do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Pages, :committed})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Pages.move_in_tx(a.uid, a.id, a.attrs)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :delete_page, :term do
@@ -189,9 +177,7 @@ defmodule Ankole.Pod.Page do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Pages, :committed})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn -> Ankole.Pod.Pages.delete_in_tx(a.uid, a.id) end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :delete_embedded_page, :term do
@@ -202,11 +188,7 @@ defmodule Ankole.Pod.Page do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Pages, :committed})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Pages.delete_embed_in_tx(a.uid, a.parent_id, a.child_id)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :restore_page, :term do
@@ -215,9 +197,7 @@ defmodule Ankole.Pod.Page do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Pages, :committed})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn -> Ankole.Pod.Pages.restore_in_tx(a.uid, a.id) end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :set_page_sharing, :term do
@@ -227,11 +207,7 @@ defmodule Ankole.Pod.Page do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Pages, :committed})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Pages.set_sharing_in_tx(a.uid, a.id, a.attrs)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :set_space_role, :term do
@@ -240,11 +216,7 @@ defmodule Ankole.Pod.Page do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Pages, :committed})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Pages.set_space_in_tx(a.uid, a.role)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :set_space_agent, :term do
@@ -254,11 +226,7 @@ defmodule Ankole.Pod.Page do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Pages, :committed})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Pages.space_agent_in_tx(a.uid, a.agent_uid, a.role)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :remove_space_agent, :term do
@@ -267,11 +235,7 @@ defmodule Ankole.Pod.Page do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Pages, :committed})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Pages.remove_space_agent_in_tx(a.uid, a.agent_uid)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     # Reads under a shared page lock, so the page and its content or files
@@ -280,9 +244,7 @@ defmodule Ankole.Pod.Page do
       argument(:uid, :term)
       argument(:id, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Errors.wrap(Ankole.Pod.Pages.get_in_tx(a.uid, a.id))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :read_page_changes, :term do
@@ -290,18 +252,14 @@ defmodule Ankole.Pod.Page do
       argument(:id, :term)
       argument(:revision, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Errors.wrap(Ankole.Pod.Documents.since_in_tx(a.uid, a.id, a.revision))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :read_page_files, :term do
       argument(:uid, :term)
       argument(:id, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Errors.wrap(Ankole.Pod.Files.manifest_in_tx(a.uid, a.id))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :read_applet, :term do
@@ -309,9 +267,7 @@ defmodule Ankole.Pod.Page do
       argument(:id, :term)
       argument(:revision, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Errors.wrap(Ankole.Pod.Applets.published_in_tx(a.uid, a.id, a.revision))
-      end)
+      run(__MODULE__.Actions)
     end
 
     # Content writes under the page row lock.
@@ -323,11 +279,7 @@ defmodule Ankole.Pod.Page do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Documents, :committed})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Documents.write_in_tx(a.uid, a.id, a.base_revision, a.validation)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :apply_document_changes, :term do
@@ -337,11 +289,7 @@ defmodule Ankole.Pod.Page do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Documents, :committed})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Documents.apply_in_tx(a.uid, a.id, a.batch)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :commit_page_file, :term do
@@ -351,11 +299,7 @@ defmodule Ankole.Pod.Page do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Files, :committed})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Files.commit_upload_in_tx(a.uid, a.id, a.upload)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :publish_applet, :term do
@@ -366,11 +310,7 @@ defmodule Ankole.Pod.Page do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Files, :committed})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Files.publish_in_tx(a.uid, a.id, a.base_revision, a.upserts)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     # Purge steps of a deleted subtree. Each step commits alone, so an
@@ -379,25 +319,19 @@ defmodule Ankole.Pod.Page do
       allow_nil?(true)
       argument(:id, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Errors.wrap(Ankole.Pod.Jobs.PurgePage.start_in_tx(a.id))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :purge_page_references, :term do
       argument(:id, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Errors.wrap(Ankole.Pod.Jobs.PurgePage.remove_references_in_tx(a.id))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :purge_pages, :term do
       argument(:ids, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Errors.wrap(Ankole.Pod.Jobs.PurgePage.remove_pages_in_tx(a.ids))
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

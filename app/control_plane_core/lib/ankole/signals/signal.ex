@@ -18,8 +18,6 @@ defmodule Ankole.Signals.Signal do
     reauthorizable_states: [:queued, :running],
     revoke_action: {Ankole.Signals, :stop_human_work_in_tx}
 
-  alias Ankole.Conversations.ExternalMessageRef
-
   @turn_outcomes ~w(loop_finished iteration_exhausted silent)
   @type t :: %__MODULE__{}
 
@@ -286,20 +284,14 @@ defmodule Ankole.Signals.Signal do
       argument(:attrs, :map, allow_nil?: false)
       after_commit({Ankole.Signals, :publish_committed})
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(Ankole.Signals.Intake.accept(Ankole.Repo, input.arguments.attrs))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :intake_all, :term do
       argument(:attrs_list, {:array, :map}, allow_nil?: false)
       after_commit({Ankole.Signals, :publish_committed})
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.Signals.Intake.accept_all(input.arguments.attrs_list)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     update :revoke_unstarted do
@@ -332,22 +324,6 @@ defmodule Ankole.Signals.Signal do
     reserved = ~w(specversion id source type subject time data data_base64)
     Map.merge(Map.drop(signal.extensions || %{}, reserved), envelope)
   end
-
-  @doc "Returns the provider entry that a reply anchors to."
-  def reply_anchor_provider_message_id(
-        %__MODULE__{ambient_asked_message_id: id, conversation_id: conversation_id} = event
-      )
-      when is_binary(id) and is_binary(conversation_id) do
-    case Ankole.Conversations.get_external_message_ref!(id) do
-      %ExternalMessageRef{conversation_id: ^conversation_id, provider_message_id: provider_id} ->
-        provider_id
-
-      _other ->
-        event.provider_message_id
-    end
-  end
-
-  def reply_anchor_provider_message_id(%__MODULE__{} = event), do: event.provider_message_id
 
   def scheduled_delivery_snapshot(%__MODULE__{producer: :kernel, type: "cron.fire", data: data})
       when is_map(data),

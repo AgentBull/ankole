@@ -322,9 +322,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       argument(:live_only, :boolean, default: false)
       pagination(keyset?: true, default_limit: 50, max_page_size: 100, required?: false)
 
-      prepare(fn query, _context ->
-        Ankole.BackgroundAgentJobs.Queries.prepare_console_list(query)
-      end)
+      prepare(__MODULE__.Preparations)
     end
 
     read :list_for_agent do
@@ -332,9 +330,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       argument(:status_group, :atom, allow_nil?: false, constraints: [one_of: [:live, :stop]])
       pagination(keyset?: true, default_limit: 32, max_page_size: 32, required?: false)
 
-      prepare(fn query, _context ->
-        Ankole.BackgroundAgentJobs.Queries.prepare_agent_list(query)
-      end)
+      prepare(__MODULE__.Preparations)
     end
 
     read :ambient_candidates do
@@ -529,44 +525,21 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     action :start, :term do
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(
-            Ankole.Repo,
-            input.arguments.attrs
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :respawn, :term do
       argument(:source_job_id, :integer, allow_nil?: false)
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BackgroundAgentJobs.Dispatch.respawn_with_dispatch_in_tx(
-            Ankole.Repo,
-            input.arguments.source_job_id,
-            input.arguments.attrs
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :request_stop, :term do
       argument(:job_id, :integer, allow_nil?: false)
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BackgroundAgentJobs.Control.request_stop_in_tx(
-            Ankole.Repo,
-            input.arguments.job_id,
-            input.arguments.attrs
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_cancel, :struct do
@@ -574,16 +547,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       argument(:id, :integer, allow_nil?: false, constraints: @model_id)
       after_commit({Ankole.BackgroundAgentJobs.Control, :stop_console_turn})
 
-      run(fn input, context ->
-        Ankole.Errors.wrap(
-          Ankole.BackgroundAgentJobs.Control.console_cancel_in_tx(
-            Ankole.Repo,
-            input.arguments.id,
-            context.actor
-          ),
-          &Ankole.BackgroundAgentJobs.Control.console_rejection/1
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_complete, :struct do
@@ -597,47 +561,21 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
 
       after_commit({Ankole.BackgroundAgentJobs.Control, :stop_console_turn})
 
-      run(fn input, context ->
-        Ankole.Errors.wrap(
-          Ankole.BackgroundAgentJobs.Control.console_complete_in_tx(
-            Ankole.Repo,
-            input.arguments.id,
-            input.arguments.result_summary,
-            context.actor
-          ),
-          &Ankole.BackgroundAgentJobs.Control.console_rejection/1
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :request_complete, :term do
       argument(:job_id, :integer, allow_nil?: false)
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BackgroundAgentJobs.Control.request_complete_in_tx(
-            Ankole.Repo,
-            input.arguments.job_id,
-            input.arguments.attrs
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :send_message, :term do
       argument(:job_id, :integer, allow_nil?: false)
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BackgroundAgentJobs.Control.send_message_in_tx(
-            Ankole.Repo,
-            input.arguments.job_id,
-            input.arguments.attrs
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :commit_status, :term do
@@ -647,30 +585,13 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       argument(:options, :term, allow_nil?: false, default: [])
       after_commit({Ankole.BackgroundAgentJobs.Lifecycle, :publish_status_commit})
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BackgroundAgentJobs.Lifecycle.commit_status_in_tx(
-            Ankole.Repo,
-            input.arguments.job_id,
-            input.arguments.agent_uid,
-            input.arguments.attrs,
-            input.arguments.options
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :complete_signal, :term do
       argument(:signal, :struct, allow_nil?: false, constraints: [instance_of: Signal])
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BackgroundAgentJobs.Dispatch.complete_signal_in_tx(
-            Ankole.Repo,
-            input.arguments.signal
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :resolve_worker_timeout, :term do
@@ -678,31 +599,14 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       argument(:job, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
       argument(:now, :utc_datetime_usec, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BackgroundAgentJobs.WorkerWait.resolve_timeout_in_tx(
-            Ankole.Repo,
-            input.arguments.signal,
-            input.arguments.job,
-            input.arguments.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :inspect_stall, :term do
       argument(:job_id, :integer, allow_nil?: false)
       argument(:now, :utc_datetime_usec, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BackgroundAgentJobs.TurnWatchdog.inspect_stall_in_tx(
-            Ankole.Repo,
-            input.arguments.job_id,
-            input.arguments.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

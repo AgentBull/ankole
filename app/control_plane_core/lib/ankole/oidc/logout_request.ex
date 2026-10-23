@@ -77,9 +77,7 @@ defmodule Ankole.OIDC.LogoutRequest do
       argument(:browser_ref, :term)
       argument(:id, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.OIDC.RPLogout.confirm_in_tx(args.browser_ref, args.id))
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

@@ -114,7 +114,7 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:prefix, :string, constraints: [trim?: false])
       argument(:search, :string)
       argument(:deleted, :boolean, default: false)
-      prepare(&Ankole.Brain.Objects.console_list/2)
+      prepare(__MODULE__.Preparations)
     end
 
     create :create do
@@ -236,9 +236,7 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:attrs, :map, allow_nil?: false)
       argument(:writer, :term, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.Brain.Objects.create_object_in_tx(args.attrs, args.writer))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_object, :struct do
@@ -248,13 +246,7 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:writer, :term, allow_nil?: false)
       argument(:author, Ankole.Ash.Types.ActorRef)
 
-      run(fn %{arguments: args}, _context ->
-        args.slug
-        |> Ankole.Brain.Objects.update_object_in_tx(args.attrs, args.writer,
-          author: args[:author]
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :upsert_source_projection, :struct do
@@ -267,11 +259,7 @@ defmodule Ankole.Brain.Schemas.Object do
 
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        args.source
-        |> Ankole.Brain.Objects.upsert_source_projection_in_tx(args.attrs)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :upsert_library_projection, :atom do
@@ -282,11 +270,7 @@ defmodule Ankole.Brain.Schemas.Object do
 
       argument(:page, :map, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        args.source
-        |> Ankole.Brain.Objects.upsert_library_projection_in_tx(args.page)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :soft_delete_object, :struct do
@@ -295,11 +279,7 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:reason, :string, constraints: [trim?: false, allow_empty?: true])
       argument(:by, :term)
 
-      run(fn %{arguments: args}, _context ->
-        args.slug
-        |> Ankole.Brain.Objects.soft_delete_in_tx(reason: args[:reason], by: args[:by])
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :rollback_object, :struct do
@@ -309,34 +289,21 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:writer, :term, allow_nil?: false)
       argument(:author, Ankole.Ash.Types.ActorRef)
 
-      run(fn %{arguments: args}, _context ->
-        args.slug
-        |> Ankole.Brain.Objects.rollback_in_tx(args.version_id, args.writer,
-          author: args[:author]
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :fork_library_page, :struct do
       constraints(instance_of: __MODULE__)
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Brain.Console.result(
-          Ankole.Brain.Objects.fork_library_page_in_tx(args.slug),
-          __MODULE__
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :restore_object, :struct do
       constraints(instance_of: __MODULE__)
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Brain.Console.result(Ankole.Brain.Objects.restore_in_tx(args.slug), __MODULE__)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :reconcile_chunks, :struct do
@@ -344,20 +311,14 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:object, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
       argument(:chunking, :map)
 
-      run(fn %{arguments: args}, _context ->
-        args.object
-        |> Ankole.Brain.Chunks.reconcile_in_tx(chunking: args[:chunking])
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :reconcile_object_links, :struct do
       constraints(instance_of: __MODULE__)
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.Brain.Links.reconcile_object_links_in_tx(args.slug))
-      end)
+      run(__MODULE__.Actions)
     end
 
     # The Console operations. The operator is the actor of the action
@@ -373,12 +334,7 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:effective_date, :date)
       argument(:tags, {:array, :string}, default: [])
 
-      run(fn %{arguments: args}, context ->
-        args
-        |> Map.take([:slug, :type, :subtype, :title, :body, :meta, :effective_date, :tags])
-        |> Ankole.Brain.Objects.create_object_in_tx(Ankole.Brain.Console.writer(context))
-        |> Ankole.Brain.Console.result(__MODULE__)
-      end)
+      run(__MODULE__.Actions)
     end
 
     # The content hash is a compare-and-swap token: the edit fails when the
@@ -394,20 +350,7 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:effective_date, :date)
       argument(:tags, {:array, :string})
 
-      run(fn %{arguments: args}, context ->
-        attrs =
-          Map.take(args, [:expected_content_hash, :subtype, :title, :body, :meta, :effective_date])
-
-        attrs = if args[:tags], do: Map.put(attrs, :tags, args.tags), else: attrs
-
-        args.slug
-        |> Ankole.Brain.Objects.update_object_in_tx(
-          attrs,
-          Ankole.Brain.Console.writer(context),
-          author: Ankole.Brain.Console.actor_ref(context)
-        )
-        |> Ankole.Brain.Console.result(__MODULE__)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_rollback, :struct do
@@ -415,15 +358,7 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:version_id, :uuid, allow_nil?: false)
 
-      run(fn %{arguments: args}, context ->
-        args.slug
-        |> Ankole.Brain.Objects.rollback_in_tx(
-          args.version_id,
-          Ankole.Brain.Console.writer(context),
-          author: Ankole.Brain.Console.actor_ref(context)
-        )
-        |> Ankole.Brain.Console.result(__MODULE__)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_forget, :struct do
@@ -431,11 +366,7 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:reason, :string, constraints: [trim?: false, allow_empty?: true])
 
-      run(fn %{arguments: args}, _context ->
-        args.slug
-        |> Ankole.Brain.Forget.forget_object_in_tx(args[:reason] || "", :admin)
-        |> Ankole.Brain.Console.result(__MODULE__)
-      end)
+      run(__MODULE__.Actions)
     end
 
     # The pattern pages of one audience and their evidence links commit
@@ -444,11 +375,7 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:patterns, {:array, :map}, allow_nil?: false)
       argument(:existing, :map, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        args.patterns
-        |> Ankole.Brain.Patterns.write_patterns_in_tx(args.existing)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

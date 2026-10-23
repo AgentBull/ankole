@@ -13,7 +13,7 @@ defmodule Ankole.Conversations.Delivery.Deletion do
 
   require Ash.Query
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.ExternalMessageRef
   alias Ankole.Conversations.Delivery.Intent
@@ -108,7 +108,7 @@ defmodule Ankole.Conversations.Delivery.Deletion do
   defp intent_reply_target(_intent), do: nil
 
   defp preview_surface_targets(signal_id) do
-    case PreviewState.load_signal(signal_id) do
+    case PreviewStates.load_signal(signal_id) do
       %Signal{conversation_id: conversation_id} = event
       when is_binary(conversation_id) ->
         event
@@ -130,10 +130,10 @@ defmodule Ankole.Conversations.Delivery.Deletion do
   # The adapter that owns the checkpoint names the provider entries it holds.
   defp preview_surface_provider_message_ids(%Signal{} = event) do
     adapter = PreviewAdapter.for_event(event)
-    checkpoint = PreviewState.get(event).checkpoint || %{}
+    checkpoint = PreviewStates.get(event).checkpoint || %{}
 
     [
-      PreviewState.get(event).provider_message_id
+      PreviewStates.get(event).provider_message_id
       | PreviewAdapter.surface_entry_ids(adapter, checkpoint)
     ]
     |> Enum.filter(&(is_binary(&1) and &1 != ""))

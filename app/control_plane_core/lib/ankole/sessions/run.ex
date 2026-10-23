@@ -15,6 +15,7 @@ defmodule Ankole.Sessions.Run do
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.Sessions.RoundState
   alias Ankole.Sessions.Fence
+  alias Ankole.Sessions.Receipt
   alias Ankole.Sessions.Receipts
   alias Ankole.Sessions.Notices
   alias Ankole.Sessions.Outcome
@@ -224,7 +225,7 @@ defmodule Ankole.Sessions.Run do
         if state == :executing_tools do
           response_id = response_id(run.model_response)
 
-          Receipts
+          Receipt
           |> Ash.Query.filter(response_id == ^response_id)
           |> Ankole.Ash.read!()
           |> Map.new(fn receipt ->
@@ -717,7 +718,7 @@ defmodule Ankole.Sessions.Run do
 
   defp committed_tool_result(run, call) do
     case Receipts.fetch(response_id(run.model_response), call_id(call)) do
-      {:ok, %Receipts{agent_uid: uid, session_id: session} = receipt}
+      {:ok, %Receipt{agent_uid: uid, session_id: session} = receipt}
       when uid == run.agent_uid and session == run.session_id ->
         ToolResult.decode(receipt.result, receipt.inserted_at)
 

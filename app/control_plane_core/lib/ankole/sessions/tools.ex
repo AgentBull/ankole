@@ -2,6 +2,7 @@ defmodule Ankole.Sessions.Tools do
   @moduledoc "Dispatches declared calls. Durable effects and receipts share one transaction."
 
   alias Ankole.Sessions.PendingCall
+  alias Ankole.Sessions.Receipt
   alias Ankole.Sessions.Receipts
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Tool
@@ -47,7 +48,7 @@ defmodule Ankole.Sessions.Tools do
       owner.execute(run, call, args)
     end
     |> case do
-      {:ok, %Receipts{result: result, inserted_at: inserted_at}} ->
+      {:ok, %Receipt{result: result, inserted_at: inserted_at}} ->
         ToolResult.decode(result, inserted_at)
 
       {:ok, result} ->
@@ -159,8 +160,11 @@ defmodule Ankole.Sessions.Tools do
       DateTime.diff(DateTime.utc_now(:microsecond), wait.started_at, :millisecond) >=
         wait.timeout_ms
 
-    Wait.owner(wait).observe(run, wait, steered?, expired?)
+    wait_owner(wait).observe(run, wait, steered?, expired?)
   end
+
+  defp wait_owner(%Wait{kind: :job}), do: Ankole.Sessions.Tools.Jobs
+  defp wait_owner(%Wait{kind: :outbox}), do: Ankole.Sessions.Tools.Message
 
   def cursor(_run, _subject, nil), do: {:ok, nil}
 

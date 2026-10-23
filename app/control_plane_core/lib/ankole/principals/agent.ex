@@ -161,11 +161,7 @@ defmodule Ankole.Principals.Agent do
 
       argument(:worker_provider_id, :string)
 
-      run(fn input, context ->
-        input.arguments
-        |> AgentConsole.create_in_tx(context.actor)
-        |> Ankole.Errors.wrap(&AgentConsole.rejection/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_update, :struct do
@@ -180,11 +176,7 @@ defmodule Ankole.Principals.Agent do
 
       argument(:group_memory_disclosure_mode, :atom, constraints: [one_of: [:strict, :relaxed]])
 
-      run(fn input, _context ->
-        input.arguments
-        |> AgentConsole.update_in_tx()
-        |> Ankole.Errors.wrap(&AgentConsole.rejection/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_enable, :struct do
@@ -192,11 +184,7 @@ defmodule Ankole.Principals.Agent do
       argument(:uid, :string, allow_nil?: false)
       after_commit({AgentConsole, :publish_enable})
 
-      run(fn input, _context ->
-        input.arguments.uid
-        |> AgentConsole.enable_in_tx()
-        |> Ankole.Errors.wrap(&AgentConsole.rejection/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_delete, :struct do
@@ -204,11 +192,7 @@ defmodule Ankole.Principals.Agent do
       argument(:uid, :string, allow_nil?: false)
       after_commit({AgentConsole, :publish_delete})
 
-      run(fn input, _context ->
-        input.arguments.uid
-        |> AgentConsole.delete_in_tx()
-        |> Ankole.Errors.wrap(&AgentConsole.rejection/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     create :create_in_tx do

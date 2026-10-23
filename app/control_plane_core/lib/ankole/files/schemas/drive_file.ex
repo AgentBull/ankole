@@ -72,7 +72,7 @@ defmodule Ankole.Files.Schemas.DriveFile do
     validate(byte_size(:sha256, exact: 32))
 
     validate(fn changeset, _context ->
-      case Ankole.Files.normalize_path(Ash.Changeset.get_attribute(changeset, :path)) do
+      case Ankole.Files.Path.normalize(Ash.Changeset.get_attribute(changeset, :path)) do
         {:ok, _path} -> :ok
         {:error, reason} -> {:error, Ankole.Errors.Invalid.Rejected.exception(reason: reason)}
       end
@@ -134,9 +134,7 @@ defmodule Ankole.Files.Schemas.DriveFile do
       argument(:upserts, :term)
       argument(:deletes, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Errors.wrap(Ankole.Files.commit(Ankole.Repo, a.drive, a.upserts, a.deletes))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :move_paths, :term do
@@ -144,18 +142,14 @@ defmodule Ankole.Files.Schemas.DriveFile do
       argument(:from, :term)
       argument(:to, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Errors.wrap(Ankole.Files.move_in_tx(a.drive, a.from, a.to))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :delete_paths, :term do
       argument(:drive, :term)
       argument(:path, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Errors.wrap(Ankole.Files.delete_in_tx(a.drive, a.path))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :list_snapshot, :term do
@@ -163,9 +157,7 @@ defmodule Ankole.Files.Schemas.DriveFile do
       argument(:prefix, :term)
       argument(:opts, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Errors.wrap(Ankole.Files.list_snapshot_in_tx(a.drive, a.prefix, a.opts))
-      end)
+      run(__MODULE__.Actions)
     end
   end
 
@@ -183,7 +175,7 @@ defmodule Ankole.Files.Schemas.DriveFile do
           operation: {__MODULE__, :remove_paths_in_tx}
         )
 
-    with {:ok, path} <- Ankole.Files.normalize_path(path) do
+    with {:ok, path} <- Ankole.Files.Path.normalize(path) do
       prefix = Ankole.Repo.escape_like(path) <> "/%"
 
       {drive, params} =

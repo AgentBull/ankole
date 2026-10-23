@@ -11,6 +11,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   @behaviour Ankole.Conversations.Delivery.PreviewAdapter
 
   alias Ankole.Conversations.Delivery.PreviewState
+
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Plugins.LarkAdapter.CardKit.CardChain
   alias Ankole.Plugins.LarkAdapter.CardKit.ErrorPolicy
   alias Ankole.Plugins.LarkAdapter.CardKit.ImageResolver
@@ -69,10 +71,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              request_fun
            ),
          {:ok, event} <-
-           PreviewState.put_checkpoint(event.id, checkpoint) do
+           PreviewStates.put_checkpoint(event.id, checkpoint) do
       {:ok,
        delivery_result(
-         PreviewState.get(event).provider_message_id ||
+         PreviewStates.get(event).provider_message_id ||
            first_message_id(checkpoint),
          checkpoint
        )
@@ -397,7 +399,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              active_page
            ),
          {:ok, _event} <-
-           PreviewState.put_checkpoint(event.id, checkpoint) do
+           PreviewStates.put_checkpoint(event.id, checkpoint) do
       {:ok,
        delivery_result(first_message_id(checkpoint), checkpoint)
        |> Map.merge(result_fields)}
@@ -485,7 +487,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       checkpoint = Map.put(checkpoint, "markdown_images", image_state)
 
       with {:ok, _event} <-
-             PreviewState.put_checkpoint(event.id, checkpoint) do
+             PreviewStates.put_checkpoint(event.id, checkpoint) do
         {:ok, checkpoint}
       end
     end
@@ -680,10 +682,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   # checkpoint past the request's copy.
   defp rebuild_latest_active_message(%Signal{id: signal_id}, request) do
     with %Signal{} = event <-
-           PreviewState.load_signal(signal_id) ||
+           PreviewStates.load_signal(signal_id) ||
              {:error, :signal_not_found},
          checkpoint when is_map(checkpoint) <-
-           PreviewAdapter.adapter_checkpoint(PreviewState.get(event).checkpoint) do
+           PreviewAdapter.adapter_checkpoint(PreviewStates.get(event).checkpoint) do
       rebuild_active_message(event, checkpoint, %{
         request
         | signal: event,
@@ -708,7 +710,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
     previous =
       request.checkpoint ||
-        PreviewAdapter.adapter_checkpoint(PreviewState.get(event).checkpoint)
+        PreviewAdapter.adapter_checkpoint(PreviewStates.get(event).checkpoint)
 
     element_ids = Renderer.card_element_ids(rendered_card)
 
@@ -741,7 +743,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       |> put_cleanup_at(element_ids, stream_deadline_at)
 
     with {:ok, _event} <-
-           PreviewState.put_checkpoint(event.id, checkpoint) do
+           PreviewStates.put_checkpoint(event.id, checkpoint) do
       {:ok, checkpoint}
     end
   end
@@ -770,7 +772,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
         |> Map.put("cleanup_at", deadline)
 
       with {:ok, _event} <-
-             PreviewState.put_checkpoint(
+             PreviewStates.put_checkpoint(
                event.id,
                staged_checkpoint
              ) do
@@ -806,7 +808,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       checkpoint = Map.delete(checkpoint, "pending_rollover")
 
       with {:ok, _event} <-
-             PreviewState.put_checkpoint(event.id, checkpoint) do
+             PreviewStates.put_checkpoint(event.id, checkpoint) do
         {:ok, checkpoint}
       end
     else
@@ -838,7 +840,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
            update_active_card(checkpoint, fn card -> Map.put(card, "message_id", message_id) end),
          source <- if(active_index == 0, do: {message_id, nil}),
          {:ok, _event} <-
-           PreviewState.put_checkpoint(event.id, checkpoint, source) do
+           PreviewStates.put_checkpoint(event.id, checkpoint, source) do
       {:ok, checkpoint, result}
     else
       nil -> {:error, :cardkit_message_id_missing}
@@ -926,7 +928,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       with {:ok, current_card} <-
              Renderer.render(request.presentation, Keyword.put(page_opts, :mode, :working)),
            {:ok, _event} <-
-             PreviewState.put_checkpoint(event.id, staged),
+             PreviewStates.put_checkpoint(event.id, staged),
            :ok <-
              write_sealed_page(
                event,
@@ -954,7 +956,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              |> Map.delete("cleanup_at")
              |> Map.put("stream_deadline_at", nil),
            {:ok, _event} <-
-             PreviewState.put_checkpoint(event.id, checkpoint) do
+             PreviewStates.put_checkpoint(event.id, checkpoint) do
         {:ok, checkpoint}
       end
     end
@@ -1031,7 +1033,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     with {:ok, card_json} <-
            Renderer.render(request.presentation, Keyword.put(render_opts, :mode, request.mode)),
          {:ok, _event} <-
-           PreviewState.put_checkpoint(event.id, staged),
+           PreviewStates.put_checkpoint(event.id, staged),
          {:ok, card_id} <- create_card(client, card_json, request_fun),
          element_ids <- Renderer.card_element_ids(card_json),
          card <-
@@ -1062,12 +1064,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              end
            end),
          {:ok, _event} <-
-           PreviewState.put_checkpoint(event.id, checkpoint),
+           PreviewStates.put_checkpoint(event.id, checkpoint),
          {:ok, checkpoint, _result} <-
            ensure_card_sent(event, checkpoint, client, request_fun),
          checkpoint <- Map.delete(checkpoint, "pending_rollover"),
          {:ok, _event} <-
-           PreviewState.put_checkpoint(event.id, checkpoint) do
+           PreviewStates.put_checkpoint(event.id, checkpoint) do
       {:ok, checkpoint}
     end
   end
@@ -1271,7 +1273,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     checkpoint = clear_refresh(checkpoint)
 
     with {:ok, event} <-
-           PreviewState.put_checkpoint(event.id, checkpoint) do
+           PreviewStates.put_checkpoint(event.id, checkpoint) do
       request = %{request | signal: event, checkpoint: checkpoint}
 
       case request.mode do
@@ -1344,7 +1346,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              active_page
            ),
          {:ok, _event} <-
-           PreviewState.put_checkpoint(event.id, checkpoint) do
+           PreviewStates.put_checkpoint(event.id, checkpoint) do
       {:ok, delivery_result(first_message_id(checkpoint), checkpoint)}
     else
       nil -> {:error, :cardkit_message_id_missing}
@@ -1370,7 +1372,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     checkpoint = update_active_card(checkpoint, &Map.put(&1, "transport", "inline_message"))
 
     with {:ok, _event} <-
-           PreviewState.put_checkpoint(event.id, checkpoint),
+           PreviewStates.put_checkpoint(event.id, checkpoint),
          {:ok, checkpoint, chain_result} <-
            ensure_page_chain(
              event,
@@ -1398,7 +1400,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
           checkpoint = clear_refresh(checkpoint)
 
           with {:ok, _event} <-
-                 PreviewState.put_checkpoint(event.id, checkpoint) do
+                 PreviewStates.put_checkpoint(event.id, checkpoint) do
             {:ok,
              delivery_result(first_message_id(checkpoint), checkpoint)
              |> Map.merge(chain_result)}
@@ -1508,7 +1510,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     actions_digest = :crypto.hash(:sha256, actions_json) |> Base.encode16(case: :lower)
 
     with {:ok, %{"sequence" => sequence, "uuid" => uuid} = mutation} <-
-           PreviewState.prepare_mutation(
+           PreviewStates.prepare_mutation(
              event.id,
              purpose,
              actions_digest,
@@ -1524,7 +1526,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     content_digest = :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
 
     with {:ok, %{"sequence" => sequence, "uuid" => uuid} = mutation} <-
-           PreviewState.prepare_mutation(
+           PreviewStates.prepare_mutation(
              event.id,
              "answer_content",
              content_digest,
@@ -1646,7 +1648,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       |> put_stream_deadline(streaming_state, element_ids)
 
     with {:ok, _event} <-
-           PreviewState.put_checkpoint(event.id, checkpoint) do
+           PreviewStates.put_checkpoint(event.id, checkpoint) do
       {:ok, checkpoint}
     end
   end
@@ -1688,7 +1690,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       |> Map.delete("pending_mutation")
 
     with {:ok, _event} <-
-           PreviewState.put_checkpoint(event.id, checkpoint) do
+           PreviewStates.put_checkpoint(event.id, checkpoint) do
       {:ok, checkpoint}
     end
   end
@@ -1816,7 +1818,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
   defp undelivered_plain_text(%Signal{id: signal_id}, operation, text) do
     checkpoint =
-      case PreviewState.load_signal(signal_id) do
+      case PreviewStates.load_signal(signal_id) do
         %Signal{preview: %PreviewState{checkpoint: checkpoint}}
         when is_map(checkpoint) ->
           PreviewAdapter.adapter_checkpoint(checkpoint)

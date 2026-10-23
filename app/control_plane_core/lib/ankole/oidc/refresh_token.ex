@@ -117,26 +117,14 @@ defmodule Ankole.OIDC.RefreshToken do
       argument(:ciphertext, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.OIDC.RefreshStore.rotate_in_tx(
-            args.digest,
-            args.child,
-            args.successor,
-            args.ciphertext,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :refresh, :term do
       argument(:client, :term)
       argument(:rotated, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.OIDC.Grants.refresh_in_tx(args.client, args.rotated))
-      end)
+      run(__MODULE__.Actions)
     end
   end
 end

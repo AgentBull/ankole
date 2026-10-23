@@ -75,16 +75,7 @@ defmodule Ankole.AuthZ.Membership do
       argument(:external_ids, {:array, :term}, allow_nil?: false)
       argument(:opts, :term, default: [])
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.AuthZ.Store.sync_external_directory_group_memberships(
-          input.arguments.provider,
-          input.arguments.principal_uid,
-          input.arguments.external_ids,
-          input.arguments.opts
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

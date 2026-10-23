@@ -161,15 +161,7 @@ defmodule Ankole.Conversations.InboundBatch do
       argument(:batch_id, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.InboundBatches.finalize_due_in_tx(
-            Ankole.Repo,
-            args.batch_id,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
   end
 end

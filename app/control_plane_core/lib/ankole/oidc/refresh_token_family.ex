@@ -47,9 +47,7 @@ defmodule Ankole.OIDC.RefreshTokenFamily do
     action :revoke_family, :term do
       argument(:id, :term)
 
-      run(fn %{arguments: args}, _context ->
-        {:ok, Ankole.OIDC.RefreshStore.revoke_family_in_tx(args.id)}
-      end)
+      run(__MODULE__.Actions)
     end
   end
 end

@@ -95,11 +95,7 @@ defmodule Ankole.Principals.MappingRequest do
     action :record_observation, :term do
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.Principals.MappingRequests.record_observation_in_tx(input.arguments.attrs)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :bind_request, :struct do
@@ -108,15 +104,7 @@ defmodule Ankole.Principals.MappingRequest do
       argument(:id, :string, allow_nil?: false)
       argument(:principal_uid, :string, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Principals.MappingRequests.bind_request_in_tx(
-          Ankole.Repo,
-          input.arguments.id,
-          input.arguments.principal_uid
-        )
-        |> Ankole.Errors.not_found([:not_found, :principal_not_found], __MODULE__)
-        |> Ankole.Errors.wrap(&Ankole.Principals.describe_refusal/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :bind_subject, :struct do
@@ -126,15 +114,7 @@ defmodule Ankole.Principals.MappingRequest do
       argument(:provider, :string, allow_nil?: false)
       argument(:external_id, :string, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Principals.MappingRequests.bind_subject_in_tx(
-          Ankole.Repo,
-          input.arguments.principal_uid,
-          Map.take(input.arguments, [:provider, :external_id])
-        )
-        |> Ankole.Errors.not_found([:not_found, :principal_not_found], __MODULE__)
-        |> Ankole.Errors.wrap(&Ankole.Principals.describe_refusal/1)
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

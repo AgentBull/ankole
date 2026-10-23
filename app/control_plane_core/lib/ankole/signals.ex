@@ -329,6 +329,25 @@ defmodule Ankole.Signals do
     :ok
   end
 
+  @doc "Returns the provider entry that a reply to the Signal anchors to."
+  def reply_anchor_provider_message_id(
+        %Signal{ambient_asked_message_id: id, conversation_id: conversation_id} = event
+      )
+      when is_binary(id) and is_binary(conversation_id) do
+    case Ankole.Conversations.get_external_message_ref!(id) do
+      %Ankole.Conversations.ExternalMessageRef{
+        conversation_id: ^conversation_id,
+        provider_message_id: provider_id
+      } ->
+        provider_id
+
+      _other ->
+        event.provider_message_id
+    end
+  end
+
+  def reply_anchor_provider_message_id(%Signal{} = event), do: event.provider_message_id
+
   @doc "Accepts a stimulus with a durable EnsureDriver job in the caller's transaction."
   def accept_in_tx(repo, attrs) when is_map(attrs) do
     with :ok <- Ankole.Repo.require_transaction(repo), do: Intake.accept(repo, attrs)

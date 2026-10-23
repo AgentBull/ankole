@@ -4,14 +4,14 @@ defmodule Ankole.Sessions.JobTurnRef do
   defstruct @enforce_keys
   @type t :: %__MODULE__{}
   alias Ankole.RuntimeFabric.V1, as: Proto
-  alias Ankole.BackgroundAgentJobs
+  require Ankole.ModelIntegerID
 
   def from_proto(%Proto.JobTurnRef{signal_id: id, job_id: job, attempt: attempt}, uid)
       when id != "" and job > 0 and attempt > 0 do
     {:ok,
      %__MODULE__{
        agent_uid: uid,
-       session_id: BackgroundAgentJobs.job_session_id(job),
+       session_id: session_id(job),
        signal_id: id,
        job_id: job,
        attempt: attempt
@@ -19,6 +19,10 @@ defmodule Ankole.Sessions.JobTurnRef do
   end
 
   def from_proto(_, _uid), do: {:error, :invalid_job_turn_ref}
+
+  # The same key as `Ankole.BackgroundAgentJobs.job_session_id/1`. A Job
+  # resource argument holds this struct, so this module calls no domain module.
+  defp session_id(job) when Ankole.ModelIntegerID.valid?(job), do: Ankole.Sessions.Key.job(job)
 
   def to_proto(ref),
     do: %Proto.JobTurnRef{

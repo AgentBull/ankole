@@ -161,22 +161,13 @@ defmodule Ankole.Brain.Schemas.Source do
       argument(:default_audience_scope, :string)
       argument(:config, Ankole.Ash.Types.JSONMap, default: %{})
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Brain.Console.result(Ankole.Brain.SourceLearning.register_source(args), __MODULE__)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_learn do
       argument(:source_id, :uuid, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        with {:ok, _result} <-
-               Ankole.Brain.Console.result(
-                 Ankole.Brain.SourceLearning.enqueue_learn(args.source_id),
-                 __MODULE__
-               ),
-             do: :ok
-      end)
+      run(__MODULE__.Actions)
     end
 
     # Each operation owns its transaction; Ankole.Brain.Sources gives the steps.
@@ -184,12 +175,7 @@ defmodule Ankole.Brain.Schemas.Source do
       constraints(instance_of: __MODULE__)
       argument(:source_id, :uuid, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Brain.Console.result(
-          Ankole.Brain.Sources.archive_in_tx(args.source_id),
-          __MODULE__
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_default_scope, :struct do
@@ -197,11 +183,7 @@ defmodule Ankole.Brain.Schemas.Source do
       argument(:source_id, :uuid, allow_nil?: false)
       argument(:scope, :string, constraints: [trim?: false, allow_empty?: true])
 
-      run(fn %{arguments: args}, _context ->
-        args.source_id
-        |> Ankole.Brain.Sources.update_default_scope_in_tx(args[:scope])
-        |> Ankole.Brain.Console.result(__MODULE__)
-      end)
+      run(__MODULE__.Actions)
     end
 
     # One learning run commits its page, its Claims, and the Source revision
@@ -209,9 +191,7 @@ defmodule Ankole.Brain.Schemas.Source do
     action :commit_learning_run, :map do
       argument(:run, :map, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.Brain.SourceLearning.commit_run_in_tx(args.run))
-      end)
+      run(__MODULE__.Actions)
     end
 
     # One OIDC Client conversation replaces its page and its Claims together;
@@ -219,9 +199,7 @@ defmodule Ankole.Brain.Schemas.Source do
     action :learn_oidc_conversation, :map do
       argument(:run, :map, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.Brain.OIDCClientLearning.learn_conversation_in_tx(args.run))
-      end)
+      run(__MODULE__.Actions)
     end
 
     # One conversation slice commits its memory writes and the extraction
@@ -229,9 +207,7 @@ defmodule Ankole.Brain.Schemas.Source do
     action :finalize_conversation_slice, :map do
       argument(:slice, :map, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.Brain.ConversationsLearning.finalize_in_tx(args.slice))
-      end)
+      run(__MODULE__.Actions)
     end
 
     # The end of one Library projection withdraws the pages that left the set
@@ -241,14 +217,7 @@ defmodule Ankole.Brain.Schemas.Source do
       argument(:live_slugs, {:array, :string}, allow_nil?: false)
       argument(:fingerprint, :string, allow_nil?: false, constraints: [trim?: false])
 
-      run(fn %{arguments: args}, _context ->
-        args.source
-        |> Ankole.Brain.LibraryKnowledge.finish_projection_in_tx(
-          args.live_slugs,
-          args.fingerprint
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

@@ -1,5 +1,6 @@
 defmodule Ankole.Sessions.Commands do
   alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.AIGateway.CompactionRequests
 
   @moduledoc """
@@ -140,7 +141,7 @@ defmodule Ankole.Sessions.Commands do
     with :ok <- Queue.lock_session_in_tx(repo, key.agent_uid, key.session_id),
          %Signal{status: live_status} = current
          when live_status in [:queued, :running] <-
-           PreviewState.load(Ankole.Signals.lock_signal_in_tx(repo, event.id)) do
+           PreviewStates.load(Ankole.Signals.lock_signal_in_tx(repo, event.id)) do
       apply_command(repo, key, current, now)
     else
       _ -> {:ok, :already_consumed}
@@ -178,7 +179,7 @@ defmodule Ankole.Sessions.Commands do
          :ok <- Fence.check_in_tx(repo, run),
          %Signal{status: live_status} = current
          when live_status in [:queued, :running] <-
-           PreviewState.load(Ankole.Signals.lock_signal_in_tx(repo, event.id)) do
+           PreviewStates.load(Ankole.Signals.lock_signal_in_tx(repo, event.id)) do
       retry_target_action_in_tx(repo, run, current)
     else
       nil -> {:ok, :continue}
@@ -272,7 +273,7 @@ defmodule Ankole.Sessions.Commands do
     with %Signal{preview: %PreviewState{provider_message_id: id}} =
            event
          when is_binary(id) <-
-           PreviewState.load_signal(reply_event.id),
+           PreviewStates.load_signal(reply_event.id),
          {:error, reason} <-
            event
            |> Ankole.Sessions.post_stopped_notice(command.type)
@@ -425,7 +426,7 @@ defmodule Ankole.Sessions.Commands do
         now
       ) do
     with %Signal{} = input <-
-           PreviewState.load(Ankole.Signals.lock_signal_in_tx(repo, input.id)),
+           PreviewStates.load(Ankole.Signals.lock_signal_in_tx(repo, input.id)),
          {:ok, intents} <- command_feedback_intents(input, "Conversation compressed."),
          intents = Enum.map(intents, &Map.put(&1, :ai_message_id, compaction_id)),
          {:ok, _} <- commit_feedback_in_tx(repo, input, intents),
@@ -468,7 +469,7 @@ defmodule Ankole.Sessions.Commands do
 
   @doc false
   def command_feedback_in_tx(repo, %Signal{} = input, text, now) do
-    case PreviewState.load(Ankole.Signals.lock_signal_in_tx(repo, input.id)) do
+    case PreviewStates.load(Ankole.Signals.lock_signal_in_tx(repo, input.id)) do
       %Signal{} = input -> consume_command_feedback(repo, input, text, now)
       nil -> {:ok, %{status: :idle}}
     end
