@@ -1,7 +1,7 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import type { TFunction } from 'i18next'
 import { requestErrorMessage } from '../../common/request-errors'
-import type { AppConfigurationItem, JsonValue } from '../api/generated/types.gen'
+import type { AppConfigurationItem, JsonValue } from '../api/configuration-types'
 import { formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK } from '../encrypted-value-input'
 import {

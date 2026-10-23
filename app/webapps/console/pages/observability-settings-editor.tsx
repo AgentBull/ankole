@@ -11,7 +11,7 @@ import {
 } from '@ankole/uikit'
 import { RiAddLine, RiDeleteBin6Line, RiEyeLine } from '@remixicon/react'
 import { useTranslation } from 'react-i18next'
-import type { AppConfigurationItem } from '../api/generated/types.gen'
+import type { AppConfigurationItem } from '../api/configuration-types'
 import { EncryptedValueInput } from '../encrypted-value-input'
 import {
   OBSERVABILITY_TRACE_KEYS,

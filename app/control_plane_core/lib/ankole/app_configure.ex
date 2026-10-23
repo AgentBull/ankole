@@ -7,7 +7,7 @@ defmodule Ankole.AppConfigure do
   `_in_tx` functions let another domain's action do the same steps in its own
   transaction and refresh the cache after its commit (`cache_committed_write/1`).
   """
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   require Ash.Query
 
@@ -27,6 +27,8 @@ defmodule Ankole.AppConfigure do
   @agent_scope_prefix "agent:"
 
   resources do
+    resource(Ankole.AppConfigure.ConsoleOperations)
+
     resource AppConfig do
       define(:get_app_config, action: :read, get_by: [:scope, :key], not_found_error?: false)
       define(:list_app_configs, action: :read)
@@ -37,6 +39,22 @@ defmodule Ankole.AppConfigure do
       define(:get_site_config, action: :read, get_by: [:scope, :key], not_found_error?: false)
       define(:list_site_configs, action: :read)
       define(:record_platform_application_site_config, action: :record_platform_application)
+    end
+  end
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/app-configurations", Ankole.AppConfigure.ConsoleOperations do
+        route(:get, "/", :console_list, name: "list_app_configurations")
+        route(:get, "/:key", :console_show, name: "get_app_configuration")
+        route(:put, "/:key", :console_update, name: "update_app_configuration")
+        route(:delete, "/:key", :console_delete, name: "reset_app_configuration")
+        route(:post, "/:key/decryptions", :console_decrypt, name: "decrypt_app_configuration")
+      end
     end
   end
 

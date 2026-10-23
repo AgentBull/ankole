@@ -29,22 +29,35 @@ import {
   createPrincipalGroup,
   createWebhookEndpoint,
   decideBrainContradiction,
+  decryptAgentWorkerEnv,
+  decryptAppConfiguration,
+  decryptWorkerEnv,
   deleteAgent,
+  deleteAgentModelProfile,
+  deleteAgentTokenQuota,
+  deleteAgentWorkerEnv,
   deleteIdentityMappingRequest,
   deleteOidcClient,
   deletePermissionGrant,
   deletePrincipalGroup,
+  deleteWorkerEnv,
   disableHumanAccess,
   disableSignalBinding,
   enableAgent,
+  enqueueBrainDream,
   forgetBrainClaim,
   forgetBrainObject,
   forkBrainObject,
   getAgent,
+  getAgentLibraryCapabilities,
+  getAgentTokenQuota,
   getAiGatewayConversation,
+  getAppConfiguration,
   getAutomationJob,
   getBackgroundAgentJob,
+  getBrainHealth,
   getCronSchedule,
+  getGlobalLibraryCapabilities,
   getHumanAccess,
   getIdentityDirectory,
   getOidcClient,
@@ -52,11 +65,15 @@ import {
   getPrincipal,
   getPrincipalGroup,
   learnBrainSource,
+  listAgentLibraryDocuments,
+  listAgentModelProfiles,
   listAgents,
   listAgentSkillLessons,
+  listAgentWorkerEnvs,
   listAgentWorkers,
   listAiGatewayConversations,
   listAiGatewayMessages,
+  listAppConfigurations,
   listAutomationJobRuns,
   listAutomationJobs,
   listBackgroundAgentJobs,
@@ -64,7 +81,9 @@ import {
   listBrainContradictions,
   listBrainMergeSuggestions,
   listBrainObjects,
+  listBrainObjectTypes,
   listBrainObjectVersions,
+  listBrainPrincipalKnowledge,
   listBrainSources,
   listBrainSuggestions,
   listCheckbacks,
@@ -84,13 +103,21 @@ import {
   listPrincipals,
   listWebhookEndpoints,
   listWorkAccessReviews,
+  listWorkerEnvs,
   type Options,
   pauseCronSchedule,
+  previewBrainSearch,
   previewComputedPrincipalGroupMembers,
+  putAgentModelProfile,
+  putAgentProviderHosted,
+  putAgentTokenQuota,
   rejectBrainMergeSuggestion,
   rejectBrainSuggestion,
   removeCronSchedule,
   removePrincipalGroupMember,
+  replaceAgentLibraryDocument,
+  resetAgentTokenQuota,
+  resetAppConfiguration,
   resetLocalPassword,
   resolveBrainTake,
   restoreBrainObject,
@@ -105,15 +132,23 @@ import {
   runCronSchedule,
   runIdentityProviderSync,
   saveIdentityProvider,
+  setAgentLibraryPlugin,
+  setAgentLibrarySkill,
+  setGlobalLibraryPlugin,
+  setGlobalLibrarySkill,
+  showBrainObject,
   supersedeBrainClaim,
   updateAgent,
+  updateAgentWorkerEnv,
+  updateAppConfiguration,
   updateBrainObject,
   updateBrainSource,
   updateCronSchedule,
   updateHuman,
   updateOidcClient,
   updatePermissionGrant,
-  updatePrincipalGroup
+  updatePrincipalGroup,
+  updateWorkerEnv
 } from '../sdk.gen'
 import type {
   AddPrincipalGroupMemberData,
@@ -191,9 +226,27 @@ import type {
   DecideBrainContradictionData,
   DecideBrainContradictionError,
   DecideBrainContradictionResponse,
+  DecryptAgentWorkerEnvData,
+  DecryptAgentWorkerEnvError,
+  DecryptAgentWorkerEnvResponse,
+  DecryptAppConfigurationData,
+  DecryptAppConfigurationError,
+  DecryptAppConfigurationResponse,
+  DecryptWorkerEnvData,
+  DecryptWorkerEnvError,
+  DecryptWorkerEnvResponse,
   DeleteAgentData,
   DeleteAgentError,
+  DeleteAgentModelProfileData,
+  DeleteAgentModelProfileError,
+  DeleteAgentModelProfileResponse,
   DeleteAgentResponse,
+  DeleteAgentTokenQuotaData,
+  DeleteAgentTokenQuotaError,
+  DeleteAgentTokenQuotaResponse,
+  DeleteAgentWorkerEnvData,
+  DeleteAgentWorkerEnvError,
+  DeleteAgentWorkerEnvResponse,
   DeleteIdentityMappingRequestData,
   DeleteIdentityMappingRequestError,
   DeleteOidcClientData,
@@ -203,6 +256,9 @@ import type {
   DeletePermissionGrantError,
   DeletePrincipalGroupData,
   DeletePrincipalGroupError,
+  DeleteWorkerEnvData,
+  DeleteWorkerEnvError,
+  DeleteWorkerEnvResponse,
   DisableHumanAccessData,
   DisableHumanAccessError,
   DisableHumanAccessResponse,
@@ -212,6 +268,9 @@ import type {
   EnableAgentData,
   EnableAgentError,
   EnableAgentResponse,
+  EnqueueBrainDreamData,
+  EnqueueBrainDreamError,
+  EnqueueBrainDreamResponse,
   ForgetBrainClaimData,
   ForgetBrainClaimError,
   ForgetBrainClaimResponse,
@@ -223,19 +282,34 @@ import type {
   ForkBrainObjectResponse,
   GetAgentData,
   GetAgentError,
+  GetAgentLibraryCapabilitiesData,
+  GetAgentLibraryCapabilitiesError,
+  GetAgentLibraryCapabilitiesResponse,
   GetAgentResponse,
+  GetAgentTokenQuotaData,
+  GetAgentTokenQuotaError,
+  GetAgentTokenQuotaResponse,
   GetAiGatewayConversationData,
   GetAiGatewayConversationError,
   GetAiGatewayConversationResponse,
+  GetAppConfigurationData,
+  GetAppConfigurationError,
+  GetAppConfigurationResponse,
   GetAutomationJobData,
   GetAutomationJobError,
   GetAutomationJobResponse,
   GetBackgroundAgentJobData,
   GetBackgroundAgentJobError,
   GetBackgroundAgentJobResponse,
+  GetBrainHealthData,
+  GetBrainHealthError,
+  GetBrainHealthResponse,
   GetCronScheduleData,
   GetCronScheduleError,
   GetCronScheduleResponse,
+  GetGlobalLibraryCapabilitiesData,
+  GetGlobalLibraryCapabilitiesError,
+  GetGlobalLibraryCapabilitiesResponse,
   GetHumanAccessData,
   GetHumanAccessError,
   GetHumanAccessResponse,
@@ -257,12 +331,21 @@ import type {
   LearnBrainSourceData,
   LearnBrainSourceError,
   LearnBrainSourceResponse,
+  ListAgentLibraryDocumentsData,
+  ListAgentLibraryDocumentsError,
+  ListAgentLibraryDocumentsResponse,
+  ListAgentModelProfilesData,
+  ListAgentModelProfilesError,
+  ListAgentModelProfilesResponse,
   ListAgentsData,
   ListAgentsError,
   ListAgentSkillLessonsData,
   ListAgentSkillLessonsError,
   ListAgentSkillLessonsResponse,
   ListAgentsResponse,
+  ListAgentWorkerEnvsData,
+  ListAgentWorkerEnvsError,
+  ListAgentWorkerEnvsResponse,
   ListAgentWorkersData,
   ListAgentWorkersError,
   ListAgentWorkersResponse,
@@ -272,6 +355,9 @@ import type {
   ListAiGatewayMessagesData,
   ListAiGatewayMessagesError,
   ListAiGatewayMessagesResponse,
+  ListAppConfigurationsData,
+  ListAppConfigurationsError,
+  ListAppConfigurationsResponse,
   ListAutomationJobRunsData,
   ListAutomationJobRunsError,
   ListAutomationJobRunsResponse,
@@ -293,9 +379,15 @@ import type {
   ListBrainObjectsData,
   ListBrainObjectsError,
   ListBrainObjectsResponse,
+  ListBrainObjectTypesData,
+  ListBrainObjectTypesError,
+  ListBrainObjectTypesResponse,
   ListBrainObjectVersionsData,
   ListBrainObjectVersionsError,
   ListBrainObjectVersionsResponse,
+  ListBrainPrincipalKnowledgeData,
+  ListBrainPrincipalKnowledgeError,
+  ListBrainPrincipalKnowledgeResponse,
   ListBrainSourcesData,
   ListBrainSourcesError,
   ListBrainSourcesResponse,
@@ -353,12 +445,27 @@ import type {
   ListWorkAccessReviewsData,
   ListWorkAccessReviewsError,
   ListWorkAccessReviewsResponse,
+  ListWorkerEnvsData,
+  ListWorkerEnvsError,
+  ListWorkerEnvsResponse,
   PauseCronScheduleData,
   PauseCronScheduleError,
   PauseCronScheduleResponse,
+  PreviewBrainSearchData,
+  PreviewBrainSearchError,
+  PreviewBrainSearchResponse,
   PreviewComputedPrincipalGroupMembersData,
   PreviewComputedPrincipalGroupMembersError,
   PreviewComputedPrincipalGroupMembersResponse,
+  PutAgentModelProfileData,
+  PutAgentModelProfileError,
+  PutAgentModelProfileResponse,
+  PutAgentProviderHostedData,
+  PutAgentProviderHostedError,
+  PutAgentProviderHostedResponse,
+  PutAgentTokenQuotaData,
+  PutAgentTokenQuotaError,
+  PutAgentTokenQuotaResponse,
   RejectBrainMergeSuggestionData,
   RejectBrainMergeSuggestionError,
   RejectBrainMergeSuggestionResponse,
@@ -371,6 +478,15 @@ import type {
   RemovePrincipalGroupMemberData,
   RemovePrincipalGroupMemberError,
   RemovePrincipalGroupMemberResponse,
+  ReplaceAgentLibraryDocumentData,
+  ReplaceAgentLibraryDocumentError,
+  ReplaceAgentLibraryDocumentResponse,
+  ResetAgentTokenQuotaData,
+  ResetAgentTokenQuotaError,
+  ResetAgentTokenQuotaResponse,
+  ResetAppConfigurationData,
+  ResetAppConfigurationError,
+  ResetAppConfigurationResponse,
   ResetLocalPasswordData,
   ResetLocalPasswordError,
   ResetLocalPasswordResponse,
@@ -413,12 +529,33 @@ import type {
   SaveIdentityProviderData,
   SaveIdentityProviderError,
   SaveIdentityProviderResponse,
+  SetAgentLibraryPluginData,
+  SetAgentLibraryPluginError,
+  SetAgentLibraryPluginResponse,
+  SetAgentLibrarySkillData,
+  SetAgentLibrarySkillError,
+  SetAgentLibrarySkillResponse,
+  SetGlobalLibraryPluginData,
+  SetGlobalLibraryPluginError,
+  SetGlobalLibraryPluginResponse,
+  SetGlobalLibrarySkillData,
+  SetGlobalLibrarySkillError,
+  SetGlobalLibrarySkillResponse,
+  ShowBrainObjectData,
+  ShowBrainObjectError,
+  ShowBrainObjectResponse,
   SupersedeBrainClaimData,
   SupersedeBrainClaimError,
   SupersedeBrainClaimResponse,
   UpdateAgentData,
   UpdateAgentError,
   UpdateAgentResponse,
+  UpdateAgentWorkerEnvData,
+  UpdateAgentWorkerEnvError,
+  UpdateAgentWorkerEnvResponse,
+  UpdateAppConfigurationData,
+  UpdateAppConfigurationError,
+  UpdateAppConfigurationResponse,
   UpdateBrainObjectData,
   UpdateBrainObjectError,
   UpdateBrainObjectResponse,
@@ -439,7 +576,10 @@ import type {
   UpdatePermissionGrantResponse,
   UpdatePrincipalGroupData,
   UpdatePrincipalGroupError,
-  UpdatePrincipalGroupResponse
+  UpdatePrincipalGroupResponse,
+  UpdateWorkerEnvData,
+  UpdateWorkerEnvError,
+  UpdateWorkerEnvResponse
 } from '../types.gen'
 
 /**
@@ -553,6 +693,33 @@ export const listOidcLogoutDeliveriesOptions = (options: Options<ListOidcLogoutD
     },
     queryKey: listOidcLogoutDeliveriesQueryKey(options)
   })
+
+/**
+ * set_global_library_plugin operation on agent_library_console resource
+ */
+export const setGlobalLibraryPluginMutation = (
+  options?: Partial<Options<SetGlobalLibraryPluginData>>
+): UseMutationOptions<
+  SetGlobalLibraryPluginResponse,
+  SetGlobalLibraryPluginError,
+  Options<SetGlobalLibraryPluginData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    SetGlobalLibraryPluginResponse,
+    SetGlobalLibraryPluginError,
+    Options<SetGlobalLibraryPluginData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await setGlobalLibraryPlugin({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 export const listBackgroundAgentJobsQueryKey = (options?: Options<ListBackgroundAgentJobsData>) =>
   createQueryKey('listBackgroundAgentJobs', options)
@@ -902,6 +1069,33 @@ export const updatePermissionGrantMutation = (
   return mutationOptions
 }
 
+/**
+ * replace_agent_library_document operation on agent_library_console resource
+ */
+export const replaceAgentLibraryDocumentMutation = (
+  options?: Partial<Options<ReplaceAgentLibraryDocumentData>>
+): UseMutationOptions<
+  ReplaceAgentLibraryDocumentResponse,
+  ReplaceAgentLibraryDocumentError,
+  Options<ReplaceAgentLibraryDocumentData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    ReplaceAgentLibraryDocumentResponse,
+    ReplaceAgentLibraryDocumentError,
+    Options<ReplaceAgentLibraryDocumentData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await replaceAgentLibraryDocument({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const listBrainObjectVersionsQueryKey = (options: Options<ListBrainObjectVersionsData>) =>
   createQueryKey('listBrainObjectVersions', options)
 
@@ -1031,6 +1225,33 @@ export const decideBrainContradictionMutation = (
   return mutationOptions
 }
 
+/**
+ * decrypt_agent_worker_env operation on worker_env_operation resource
+ */
+export const decryptAgentWorkerEnvMutation = (
+  options?: Partial<Options<DecryptAgentWorkerEnvData>>
+): UseMutationOptions<
+  DecryptAgentWorkerEnvResponse,
+  DecryptAgentWorkerEnvError,
+  Options<DecryptAgentWorkerEnvData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DecryptAgentWorkerEnvResponse,
+    DecryptAgentWorkerEnvError,
+    Options<DecryptAgentWorkerEnvData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await decryptAgentWorkerEnv({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const getIdentityDirectoryQueryKey = (options: Options<GetIdentityDirectoryData>) =>
   createQueryKey('getIdentityDirectory', options)
 
@@ -1054,6 +1275,31 @@ export const getIdentityDirectoryOptions = (options: Options<GetIdentityDirector
       return data
     },
     queryKey: getIdentityDirectoryQueryKey(options)
+  })
+
+export const listBrainPrincipalKnowledgeQueryKey = (options: Options<ListBrainPrincipalKnowledgeData>) =>
+  createQueryKey('listBrainPrincipalKnowledge', options)
+
+/**
+ * list_brain_principal_knowledge operation on brain_console_view resource
+ */
+export const listBrainPrincipalKnowledgeOptions = (options: Options<ListBrainPrincipalKnowledgeData>) =>
+  queryOptions<
+    ListBrainPrincipalKnowledgeResponse,
+    ListBrainPrincipalKnowledgeError,
+    ListBrainPrincipalKnowledgeResponse,
+    ReturnType<typeof listBrainPrincipalKnowledgeQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listBrainPrincipalKnowledge({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listBrainPrincipalKnowledgeQueryKey(options)
   })
 
 /**
@@ -1142,6 +1388,29 @@ export const createCronScheduleMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await createCronSchedule({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * preview_brain_search operation on brain_console_view resource
+ */
+export const previewBrainSearchMutation = (
+  options?: Partial<Options<PreviewBrainSearchData>>
+): UseMutationOptions<PreviewBrainSearchResponse, PreviewBrainSearchError, Options<PreviewBrainSearchData>> => {
+  const mutationOptions: UseMutationOptions<
+    PreviewBrainSearchResponse,
+    PreviewBrainSearchError,
+    Options<PreviewBrainSearchData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await previewBrainSearch({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1266,6 +1535,29 @@ export const learnBrainSourceMutation = (
 }
 
 /**
+ * set_agent_library_skill operation on agent_library_console resource
+ */
+export const setAgentLibrarySkillMutation = (
+  options?: Partial<Options<SetAgentLibrarySkillData>>
+): UseMutationOptions<SetAgentLibrarySkillResponse, SetAgentLibrarySkillError, Options<SetAgentLibrarySkillData>> => {
+  const mutationOptions: UseMutationOptions<
+    SetAgentLibrarySkillResponse,
+    SetAgentLibrarySkillError,
+    Options<SetAgentLibrarySkillData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await setAgentLibrarySkill({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * Lists the active Principals that a computed group condition matches.
  */
 export const previewComputedPrincipalGroupMembersMutation = (
@@ -1319,6 +1611,77 @@ export const assignAgentWorkerProviderMutation = (
   return mutationOptions
 }
 
+export const showBrainObjectQueryKey = (options: Options<ShowBrainObjectData>) =>
+  createQueryKey('showBrainObject', options)
+
+/**
+ * show_brain_object operation on brain_console_view resource
+ */
+export const showBrainObjectOptions = (options: Options<ShowBrainObjectData>) =>
+  queryOptions<
+    ShowBrainObjectResponse,
+    ShowBrainObjectError,
+    ShowBrainObjectResponse,
+    ReturnType<typeof showBrainObjectQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await showBrainObject({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: showBrainObjectQueryKey(options)
+  })
+
+/**
+ * delete_agent_worker_env operation on worker_env_operation resource
+ */
+export const deleteAgentWorkerEnvMutation = (
+  options?: Partial<Options<DeleteAgentWorkerEnvData>>
+): UseMutationOptions<DeleteAgentWorkerEnvResponse, DeleteAgentWorkerEnvError, Options<DeleteAgentWorkerEnvData>> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteAgentWorkerEnvResponse,
+    DeleteAgentWorkerEnvError,
+    Options<DeleteAgentWorkerEnvData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteAgentWorkerEnv({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * update_agent_worker_env operation on worker_env_operation resource
+ */
+export const updateAgentWorkerEnvMutation = (
+  options?: Partial<Options<UpdateAgentWorkerEnvData>>
+): UseMutationOptions<UpdateAgentWorkerEnvResponse, UpdateAgentWorkerEnvError, Options<UpdateAgentWorkerEnvData>> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateAgentWorkerEnvResponse,
+    UpdateAgentWorkerEnvError,
+    Options<UpdateAgentWorkerEnvData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateAgentWorkerEnv({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const getHumanAccessQueryKey = (options: Options<GetHumanAccessData>) =>
   createQueryKey('getHumanAccess', options)
 
@@ -1343,6 +1706,33 @@ export const getHumanAccessOptions = (options: Options<GetHumanAccessData>) =>
     },
     queryKey: getHumanAccessQueryKey(options)
   })
+
+/**
+ * set_global_library_skill operation on agent_library_console resource
+ */
+export const setGlobalLibrarySkillMutation = (
+  options?: Partial<Options<SetGlobalLibrarySkillData>>
+): UseMutationOptions<
+  SetGlobalLibrarySkillResponse,
+  SetGlobalLibrarySkillError,
+  Options<SetGlobalLibrarySkillData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    SetGlobalLibrarySkillResponse,
+    SetGlobalLibrarySkillError,
+    Options<SetGlobalLibrarySkillData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await setGlobalLibrarySkill({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 /**
  * forget_brain_object operation on brain_object resource
@@ -1464,6 +1854,56 @@ export const listBrainClaimsOptions = (options?: Options<ListBrainClaimsData>) =
     queryKey: listBrainClaimsQueryKey(options)
   })
 
+/**
+ * delete_agent_model_profile operation on agent_model_configuration resource
+ */
+export const deleteAgentModelProfileMutation = (
+  options?: Partial<Options<DeleteAgentModelProfileData>>
+): UseMutationOptions<
+  DeleteAgentModelProfileResponse,
+  DeleteAgentModelProfileError,
+  Options<DeleteAgentModelProfileData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteAgentModelProfileResponse,
+    DeleteAgentModelProfileError,
+    Options<DeleteAgentModelProfileData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteAgentModelProfile({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * put_agent_model_profile operation on agent_model_configuration resource
+ */
+export const putAgentModelProfileMutation = (
+  options?: Partial<Options<PutAgentModelProfileData>>
+): UseMutationOptions<PutAgentModelProfileResponse, PutAgentModelProfileError, Options<PutAgentModelProfileData>> => {
+  const mutationOptions: UseMutationOptions<
+    PutAgentModelProfileResponse,
+    PutAgentModelProfileError,
+    Options<PutAgentModelProfileData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await putAgentModelProfile({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const getAutomationJobQueryKey = (options: Options<GetAutomationJobData>) =>
   createQueryKey('getAutomationJob', options)
 
@@ -1487,6 +1927,31 @@ export const getAutomationJobOptions = (options: Options<GetAutomationJobData>) 
       return data
     },
     queryKey: getAutomationJobQueryKey(options)
+  })
+
+export const listBrainObjectTypesQueryKey = (options?: Options<ListBrainObjectTypesData>) =>
+  createQueryKey('listBrainObjectTypes', options)
+
+/**
+ * list_brain_object_types operation on brain_console_view resource
+ */
+export const listBrainObjectTypesOptions = (options?: Options<ListBrainObjectTypesData>) =>
+  queryOptions<
+    ListBrainObjectTypesResponse,
+    ListBrainObjectTypesError,
+    ListBrainObjectTypesResponse,
+    ReturnType<typeof listBrainObjectTypesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listBrainObjectTypes({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listBrainObjectTypesQueryKey(options)
   })
 
 /**
@@ -1778,6 +2243,31 @@ export const listAutomationJobsInfiniteOptions = (options?: Options<ListAutomati
   return opts as Omit<typeof opts, 'initialData'>
 }
 
+export const listAgentModelProfilesQueryKey = (options: Options<ListAgentModelProfilesData>) =>
+  createQueryKey('listAgentModelProfiles', options)
+
+/**
+ * list_agent_model_profiles operation on agent_model_configuration resource
+ */
+export const listAgentModelProfilesOptions = (options: Options<ListAgentModelProfilesData>) =>
+  queryOptions<
+    ListAgentModelProfilesResponse,
+    ListAgentModelProfilesError,
+    ListAgentModelProfilesResponse,
+    ReturnType<typeof listAgentModelProfilesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAgentModelProfiles({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listAgentModelProfilesQueryKey(options)
+  })
+
 export const listPrincipalGroupGrantsQueryKey = (options: Options<ListPrincipalGroupGrantsData>) =>
   createQueryKey('listPrincipalGroupGrants', options)
 
@@ -1950,6 +2440,29 @@ export const listIdentityProvidersOptions = (options?: Options<ListIdentityProvi
     queryKey: listIdentityProvidersQueryKey(options)
   })
 
+/**
+ * reset_agent_token_quota operation on agent_model_configuration resource
+ */
+export const resetAgentTokenQuotaMutation = (
+  options?: Partial<Options<ResetAgentTokenQuotaData>>
+): UseMutationOptions<ResetAgentTokenQuotaResponse, ResetAgentTokenQuotaError, Options<ResetAgentTokenQuotaData>> => {
+  const mutationOptions: UseMutationOptions<
+    ResetAgentTokenQuotaResponse,
+    ResetAgentTokenQuotaError,
+    Options<ResetAgentTokenQuotaData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await resetAgentTokenQuota({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const listAutomationJobRunsQueryKey = (options: Options<ListAutomationJobRunsData>) =>
   createQueryKey('listAutomationJobRuns', options)
 
@@ -2020,6 +2533,179 @@ export const listAutomationJobRunsInfiniteOptions = (options: Options<ListAutoma
     }
   )
   return opts as Omit<typeof opts, 'initialData'>
+}
+
+/**
+ * delete_agent_token_quota operation on agent_model_configuration resource
+ */
+export const deleteAgentTokenQuotaMutation = (
+  options?: Partial<Options<DeleteAgentTokenQuotaData>>
+): UseMutationOptions<
+  DeleteAgentTokenQuotaResponse,
+  DeleteAgentTokenQuotaError,
+  Options<DeleteAgentTokenQuotaData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteAgentTokenQuotaResponse,
+    DeleteAgentTokenQuotaError,
+    Options<DeleteAgentTokenQuotaData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteAgentTokenQuota({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getAgentTokenQuotaQueryKey = (options: Options<GetAgentTokenQuotaData>) =>
+  createQueryKey('getAgentTokenQuota', options)
+
+/**
+ * get_agent_token_quota operation on agent_model_configuration resource
+ */
+export const getAgentTokenQuotaOptions = (options: Options<GetAgentTokenQuotaData>) =>
+  queryOptions<
+    GetAgentTokenQuotaResponse,
+    GetAgentTokenQuotaError,
+    GetAgentTokenQuotaResponse,
+    ReturnType<typeof getAgentTokenQuotaQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getAgentTokenQuota({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getAgentTokenQuotaQueryKey(options)
+  })
+
+/**
+ * put_agent_token_quota operation on agent_model_configuration resource
+ */
+export const putAgentTokenQuotaMutation = (
+  options?: Partial<Options<PutAgentTokenQuotaData>>
+): UseMutationOptions<PutAgentTokenQuotaResponse, PutAgentTokenQuotaError, Options<PutAgentTokenQuotaData>> => {
+  const mutationOptions: UseMutationOptions<
+    PutAgentTokenQuotaResponse,
+    PutAgentTokenQuotaError,
+    Options<PutAgentTokenQuotaData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await putAgentTokenQuota({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listAgentLibraryDocumentsQueryKey = (options: Options<ListAgentLibraryDocumentsData>) =>
+  createQueryKey('listAgentLibraryDocuments', options)
+
+/**
+ * list_agent_library_documents operation on agent_library_console resource
+ */
+export const listAgentLibraryDocumentsOptions = (options: Options<ListAgentLibraryDocumentsData>) =>
+  queryOptions<
+    ListAgentLibraryDocumentsResponse,
+    ListAgentLibraryDocumentsError,
+    ListAgentLibraryDocumentsResponse,
+    ReturnType<typeof listAgentLibraryDocumentsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAgentLibraryDocuments({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listAgentLibraryDocumentsQueryKey(options)
+  })
+
+/**
+ * delete_worker_env operation on worker_env_operation resource
+ */
+export const deleteWorkerEnvMutation = (
+  options?: Partial<Options<DeleteWorkerEnvData>>
+): UseMutationOptions<DeleteWorkerEnvResponse, DeleteWorkerEnvError, Options<DeleteWorkerEnvData>> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteWorkerEnvResponse,
+    DeleteWorkerEnvError,
+    Options<DeleteWorkerEnvData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteWorkerEnv({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * update_worker_env operation on worker_env_operation resource
+ */
+export const updateWorkerEnvMutation = (
+  options?: Partial<Options<UpdateWorkerEnvData>>
+): UseMutationOptions<UpdateWorkerEnvResponse, UpdateWorkerEnvError, Options<UpdateWorkerEnvData>> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateWorkerEnvResponse,
+    UpdateWorkerEnvError,
+    Options<UpdateWorkerEnvData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateWorkerEnv({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * decrypt_app_configuration operation on app_configuration_operation resource
+ */
+export const decryptAppConfigurationMutation = (
+  options?: Partial<Options<DecryptAppConfigurationData>>
+): UseMutationOptions<
+  DecryptAppConfigurationResponse,
+  DecryptAppConfigurationError,
+  Options<DecryptAppConfigurationData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DecryptAppConfigurationResponse,
+    DecryptAppConfigurationError,
+    Options<DecryptAppConfigurationData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await decryptAppConfiguration({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
 }
 
 /**
@@ -2164,6 +2850,33 @@ export const createOidcClientMutation = (
   return mutationOptions
 }
 
+/**
+ * put_agent_provider_hosted operation on agent_model_configuration resource
+ */
+export const putAgentProviderHostedMutation = (
+  options?: Partial<Options<PutAgentProviderHostedData>>
+): UseMutationOptions<
+  PutAgentProviderHostedResponse,
+  PutAgentProviderHostedError,
+  Options<PutAgentProviderHostedData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    PutAgentProviderHostedResponse,
+    PutAgentProviderHostedError,
+    Options<PutAgentProviderHostedData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await putAgentProviderHosted({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const listPrincipalsQueryKey = (options?: Options<ListPrincipalsData>) =>
   createQueryKey('listPrincipals', options)
 
@@ -2212,6 +2925,31 @@ export const createLocalUserMutation = (
   return mutationOptions
 }
 
+export const getAgentLibraryCapabilitiesQueryKey = (options: Options<GetAgentLibraryCapabilitiesData>) =>
+  createQueryKey('getAgentLibraryCapabilities', options)
+
+/**
+ * get_agent_library_capabilities operation on agent_library_console resource
+ */
+export const getAgentLibraryCapabilitiesOptions = (options: Options<GetAgentLibraryCapabilitiesData>) =>
+  queryOptions<
+    GetAgentLibraryCapabilitiesResponse,
+    GetAgentLibraryCapabilitiesError,
+    GetAgentLibraryCapabilitiesResponse,
+    ReturnType<typeof getAgentLibraryCapabilitiesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getAgentLibraryCapabilities({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getAgentLibraryCapabilitiesQueryKey(options)
+  })
+
 export const listIdentityMappingRequestsQueryKey = (options?: Options<ListIdentityMappingRequestsData>) =>
   createQueryKey('listIdentityMappingRequests', options)
 
@@ -2235,6 +2973,56 @@ export const listIdentityMappingRequestsOptions = (options?: Options<ListIdentit
       return data
     },
     queryKey: listIdentityMappingRequestsQueryKey(options)
+  })
+
+export const getBrainHealthQueryKey = (options?: Options<GetBrainHealthData>) =>
+  createQueryKey('getBrainHealth', options)
+
+/**
+ * get_brain_health operation on brain_console_view resource
+ */
+export const getBrainHealthOptions = (options?: Options<GetBrainHealthData>) =>
+  queryOptions<
+    GetBrainHealthResponse,
+    GetBrainHealthError,
+    GetBrainHealthResponse,
+    ReturnType<typeof getBrainHealthQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getBrainHealth({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getBrainHealthQueryKey(options)
+  })
+
+export const listAppConfigurationsQueryKey = (options?: Options<ListAppConfigurationsData>) =>
+  createQueryKey('listAppConfigurations', options)
+
+/**
+ * list_app_configurations operation on app_configuration_operation resource
+ */
+export const listAppConfigurationsOptions = (options?: Options<ListAppConfigurationsData>) =>
+  queryOptions<
+    ListAppConfigurationsResponse,
+    ListAppConfigurationsError,
+    ListAppConfigurationsResponse,
+    ReturnType<typeof listAppConfigurationsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAppConfigurations({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listAppConfigurationsQueryKey(options)
   })
 
 /**
@@ -2430,6 +3218,56 @@ export const classifyWorkAccessMutation = (
 }
 
 /**
+ * decrypt_worker_env operation on worker_env_operation resource
+ */
+export const decryptWorkerEnvMutation = (
+  options?: Partial<Options<DecryptWorkerEnvData>>
+): UseMutationOptions<DecryptWorkerEnvResponse, DecryptWorkerEnvError, Options<DecryptWorkerEnvData>> => {
+  const mutationOptions: UseMutationOptions<
+    DecryptWorkerEnvResponse,
+    DecryptWorkerEnvError,
+    Options<DecryptWorkerEnvData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await decryptWorkerEnv({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * set_agent_library_plugin operation on agent_library_console resource
+ */
+export const setAgentLibraryPluginMutation = (
+  options?: Partial<Options<SetAgentLibraryPluginData>>
+): UseMutationOptions<
+  SetAgentLibraryPluginResponse,
+  SetAgentLibraryPluginError,
+  Options<SetAgentLibraryPluginData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    SetAgentLibraryPluginResponse,
+    SetAgentLibraryPluginError,
+    Options<SetAgentLibraryPluginData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await setAgentLibraryPlugin({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * archive_brain_source operation on brain_source resource
  */
 export const archiveBrainSourceMutation = (
@@ -2500,6 +3338,31 @@ export const listAgentWorkersOptions = (options?: Options<ListAgentWorkersData>)
     queryKey: listAgentWorkersQueryKey(options)
   })
 
+export const listAgentWorkerEnvsQueryKey = (options: Options<ListAgentWorkerEnvsData>) =>
+  createQueryKey('listAgentWorkerEnvs', options)
+
+/**
+ * list_agent_worker_envs operation on worker_env_operation resource
+ */
+export const listAgentWorkerEnvsOptions = (options: Options<ListAgentWorkerEnvsData>) =>
+  queryOptions<
+    ListAgentWorkerEnvsResponse,
+    ListAgentWorkerEnvsError,
+    ListAgentWorkerEnvsResponse,
+    ReturnType<typeof listAgentWorkerEnvsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAgentWorkerEnvs({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listAgentWorkerEnvsQueryKey(options)
+  })
+
 /**
  * pause_cron_schedule operation on cron_schedule resource
  */
@@ -2513,6 +3376,85 @@ export const pauseCronScheduleMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await pauseCronSchedule({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * reset_app_configuration operation on app_configuration_operation resource
+ */
+export const resetAppConfigurationMutation = (
+  options?: Partial<Options<ResetAppConfigurationData>>
+): UseMutationOptions<
+  ResetAppConfigurationResponse,
+  ResetAppConfigurationError,
+  Options<ResetAppConfigurationData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    ResetAppConfigurationResponse,
+    ResetAppConfigurationError,
+    Options<ResetAppConfigurationData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await resetAppConfiguration({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getAppConfigurationQueryKey = (options: Options<GetAppConfigurationData>) =>
+  createQueryKey('getAppConfiguration', options)
+
+/**
+ * get_app_configuration operation on app_configuration_operation resource
+ */
+export const getAppConfigurationOptions = (options: Options<GetAppConfigurationData>) =>
+  queryOptions<
+    GetAppConfigurationResponse,
+    GetAppConfigurationError,
+    GetAppConfigurationResponse,
+    ReturnType<typeof getAppConfigurationQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getAppConfiguration({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getAppConfigurationQueryKey(options)
+  })
+
+/**
+ * update_app_configuration operation on app_configuration_operation resource
+ */
+export const updateAppConfigurationMutation = (
+  options?: Partial<Options<UpdateAppConfigurationData>>
+): UseMutationOptions<
+  UpdateAppConfigurationResponse,
+  UpdateAppConfigurationError,
+  Options<UpdateAppConfigurationData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateAppConfigurationResponse,
+    UpdateAppConfigurationError,
+    Options<UpdateAppConfigurationData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateAppConfiguration({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -2864,6 +3806,31 @@ export const addPrincipalGroupMemberMutation = (
   return mutationOptions
 }
 
+export const listWorkerEnvsQueryKey = (options?: Options<ListWorkerEnvsData>) =>
+  createQueryKey('listWorkerEnvs', options)
+
+/**
+ * list_worker_envs operation on worker_env_operation resource
+ */
+export const listWorkerEnvsOptions = (options?: Options<ListWorkerEnvsData>) =>
+  queryOptions<
+    ListWorkerEnvsResponse,
+    ListWorkerEnvsError,
+    ListWorkerEnvsResponse,
+    ReturnType<typeof listWorkerEnvsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listWorkerEnvs({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listWorkerEnvsQueryKey(options)
+  })
+
 /**
  * delete_agent operation on agent resource
  */
@@ -2993,6 +3960,31 @@ export const listAiGatewayConversationsInfiniteOptions = (options?: Options<List
   )
   return opts as Omit<typeof opts, 'initialData'>
 }
+
+export const getGlobalLibraryCapabilitiesQueryKey = (options?: Options<GetGlobalLibraryCapabilitiesData>) =>
+  createQueryKey('getGlobalLibraryCapabilities', options)
+
+/**
+ * get_global_library_capabilities operation on agent_library_console resource
+ */
+export const getGlobalLibraryCapabilitiesOptions = (options?: Options<GetGlobalLibraryCapabilitiesData>) =>
+  queryOptions<
+    GetGlobalLibraryCapabilitiesResponse,
+    GetGlobalLibraryCapabilitiesError,
+    GetGlobalLibraryCapabilitiesResponse,
+    ReturnType<typeof getGlobalLibraryCapabilitiesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getGlobalLibraryCapabilities({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getGlobalLibraryCapabilitiesQueryKey(options)
+  })
 
 export const listGroupsOfPrincipalQueryKey = (options: Options<ListGroupsOfPrincipalData>) =>
   createQueryKey('listGroupsOfPrincipal', options)
@@ -3217,6 +4209,29 @@ export const approveBrainSuggestionMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await approveBrainSuggestion({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * enqueue_brain_dream operation on brain_console_view resource
+ */
+export const enqueueBrainDreamMutation = (
+  options?: Partial<Options<EnqueueBrainDreamData>>
+): UseMutationOptions<EnqueueBrainDreamResponse, EnqueueBrainDreamError, Options<EnqueueBrainDreamData>> => {
+  const mutationOptions: UseMutationOptions<
+    EnqueueBrainDreamResponse,
+    EnqueueBrainDreamError,
+    Options<EnqueueBrainDreamData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await enqueueBrainDream({
         ...options,
         ...fnOptions,
         throwOnError: true

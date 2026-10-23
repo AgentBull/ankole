@@ -78,6 +78,13 @@ only the Console refuses.
 
 ## How the Console Presents Keys
 
+Settings operations use `/api/v2/site/app-configurations` for site values and
+`/api/v2/app-configurations` for tenant values. Typed Ash actions call the
+AppConfigure owner. The owner validates and stores each value, then publishes
+its committed cache value. List and detail responses mask encrypted values;
+only an authorized `POST /:key/decryptions` reveals a value. Generic action
+write bodies put their arguments in `data`.
+
 The Console settings list reads this policy and does not keep its own list of key
 names.
 
@@ -278,7 +285,11 @@ secret-state changes, and encryption. A metadata-only write keeps the stored
 ciphertext. An inherited secret is sealed for the new scope before storage.
 The `remove` action owns individual and Agent-cleanup deletion. All list and
 execution reads use the same resources. WorkerEnv owns tier inheritance and
-response masking; ConsolePolicy owns reveal authorization.
+response masking. The JSON:API policy checks reveal authorization separately
+from reads and writes. Site, tenant, and Agent operations use
+`/api/v2/site/worker-envs`, `/api/v2/worker-envs`, and
+`/api/v2/agents/:agent_uid/worker-envs`. Typed transport actions call WorkerEnv;
+the storage resources keep validation and encrypted value ownership.
 
 AppConfigure declarations do not export environment variables. RuntimeFabric
 carries per-turn runtime facts separately. Runtime names use the

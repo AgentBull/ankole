@@ -62,7 +62,7 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
   defp object_page(conn, slug) do
     conn
     |> recycle_api()
-    |> get(~p"/api/v1/brain/objects/show?slug=#{slug}")
+    |> api(:get, ~p"/api/v2/brain/objects/show?slug=#{slug}")
     |> json_response(200)
     |> Map.fetch!("object")
   end
@@ -886,9 +886,7 @@ defmodule AnkoleWeb.JSONAPI.BrainTest do
 
     page =
       conn
-      |> recycle_api()
-      |> put_req_header("x-ankole-tenant", other.id)
-      |> get(~p"/api/v1/brain/objects/show?slug=notes%2Fadmin-edit")
+      |> api(:get, ~p"/api/v2/brain/objects/show?slug=notes%2Fadmin-edit", nil, headers)
       |> json_response(200)
       |> Map.fetch!("object")
 

@@ -1,8 +1,5 @@
 import type { CreatableComboboxOption } from '@ankole/uikit'
-import type {
-  AiGatewayModelCatalogEntry as AIGatewayModelCatalogEntry,
-  AiGatewayProviderKindItem as AIGatewayProviderKindItem
-} from '../api/generated/types.gen'
+import type { AIGatewayModelCatalogEntry, AIGatewayProviderKindItem } from '../state/provider-settings'
 import type { ProfileDraft } from '../state/model-profiles-model'
 import type { AIGatewayProviderItem, SettingValidationError } from '../state/provider-settings'
 

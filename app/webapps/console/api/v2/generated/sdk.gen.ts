@@ -78,9 +78,27 @@ import type {
   DecideBrainContradictionData,
   DecideBrainContradictionErrors,
   DecideBrainContradictionResponses,
+  DecryptAgentWorkerEnvData,
+  DecryptAgentWorkerEnvErrors,
+  DecryptAgentWorkerEnvResponses,
+  DecryptAppConfigurationData,
+  DecryptAppConfigurationErrors,
+  DecryptAppConfigurationResponses,
+  DecryptWorkerEnvData,
+  DecryptWorkerEnvErrors,
+  DecryptWorkerEnvResponses,
   DeleteAgentData,
   DeleteAgentErrors,
+  DeleteAgentModelProfileData,
+  DeleteAgentModelProfileErrors,
+  DeleteAgentModelProfileResponses,
   DeleteAgentResponses,
+  DeleteAgentTokenQuotaData,
+  DeleteAgentTokenQuotaErrors,
+  DeleteAgentTokenQuotaResponses,
+  DeleteAgentWorkerEnvData,
+  DeleteAgentWorkerEnvErrors,
+  DeleteAgentWorkerEnvResponses,
   DeleteIdentityMappingRequestData,
   DeleteIdentityMappingRequestErrors,
   DeleteIdentityMappingRequestResponses,
@@ -93,6 +111,9 @@ import type {
   DeletePrincipalGroupData,
   DeletePrincipalGroupErrors,
   DeletePrincipalGroupResponses,
+  DeleteWorkerEnvData,
+  DeleteWorkerEnvErrors,
+  DeleteWorkerEnvResponses,
   DisableHumanAccessData,
   DisableHumanAccessErrors,
   DisableHumanAccessResponses,
@@ -102,6 +123,9 @@ import type {
   EnableAgentData,
   EnableAgentErrors,
   EnableAgentResponses,
+  EnqueueBrainDreamData,
+  EnqueueBrainDreamErrors,
+  EnqueueBrainDreamResponses,
   ForgetBrainClaimData,
   ForgetBrainClaimErrors,
   ForgetBrainClaimResponses,
@@ -113,19 +137,34 @@ import type {
   ForkBrainObjectResponses,
   GetAgentData,
   GetAgentErrors,
+  GetAgentLibraryCapabilitiesData,
+  GetAgentLibraryCapabilitiesErrors,
+  GetAgentLibraryCapabilitiesResponses,
   GetAgentResponses,
+  GetAgentTokenQuotaData,
+  GetAgentTokenQuotaErrors,
+  GetAgentTokenQuotaResponses,
   GetAiGatewayConversationData,
   GetAiGatewayConversationErrors,
   GetAiGatewayConversationResponses,
+  GetAppConfigurationData,
+  GetAppConfigurationErrors,
+  GetAppConfigurationResponses,
   GetAutomationJobData,
   GetAutomationJobErrors,
   GetAutomationJobResponses,
   GetBackgroundAgentJobData,
   GetBackgroundAgentJobErrors,
   GetBackgroundAgentJobResponses,
+  GetBrainHealthData,
+  GetBrainHealthErrors,
+  GetBrainHealthResponses,
   GetCronScheduleData,
   GetCronScheduleErrors,
   GetCronScheduleResponses,
+  GetGlobalLibraryCapabilitiesData,
+  GetGlobalLibraryCapabilitiesErrors,
+  GetGlobalLibraryCapabilitiesResponses,
   GetHumanAccessData,
   GetHumanAccessErrors,
   GetHumanAccessResponses,
@@ -147,12 +186,21 @@ import type {
   LearnBrainSourceData,
   LearnBrainSourceErrors,
   LearnBrainSourceResponses,
+  ListAgentLibraryDocumentsData,
+  ListAgentLibraryDocumentsErrors,
+  ListAgentLibraryDocumentsResponses,
+  ListAgentModelProfilesData,
+  ListAgentModelProfilesErrors,
+  ListAgentModelProfilesResponses,
   ListAgentsData,
   ListAgentsErrors,
   ListAgentSkillLessonsData,
   ListAgentSkillLessonsErrors,
   ListAgentSkillLessonsResponses,
   ListAgentsResponses,
+  ListAgentWorkerEnvsData,
+  ListAgentWorkerEnvsErrors,
+  ListAgentWorkerEnvsResponses,
   ListAgentWorkersData,
   ListAgentWorkersErrors,
   ListAgentWorkersResponses,
@@ -162,6 +210,9 @@ import type {
   ListAiGatewayMessagesData,
   ListAiGatewayMessagesErrors,
   ListAiGatewayMessagesResponses,
+  ListAppConfigurationsData,
+  ListAppConfigurationsErrors,
+  ListAppConfigurationsResponses,
   ListAutomationJobRunsData,
   ListAutomationJobRunsErrors,
   ListAutomationJobRunsResponses,
@@ -183,9 +234,15 @@ import type {
   ListBrainObjectsData,
   ListBrainObjectsErrors,
   ListBrainObjectsResponses,
+  ListBrainObjectTypesData,
+  ListBrainObjectTypesErrors,
+  ListBrainObjectTypesResponses,
   ListBrainObjectVersionsData,
   ListBrainObjectVersionsErrors,
   ListBrainObjectVersionsResponses,
+  ListBrainPrincipalKnowledgeData,
+  ListBrainPrincipalKnowledgeErrors,
+  ListBrainPrincipalKnowledgeResponses,
   ListBrainSourcesData,
   ListBrainSourcesErrors,
   ListBrainSourcesResponses,
@@ -243,12 +300,27 @@ import type {
   ListWorkAccessReviewsData,
   ListWorkAccessReviewsErrors,
   ListWorkAccessReviewsResponses,
+  ListWorkerEnvsData,
+  ListWorkerEnvsErrors,
+  ListWorkerEnvsResponses,
   PauseCronScheduleData,
   PauseCronScheduleErrors,
   PauseCronScheduleResponses,
+  PreviewBrainSearchData,
+  PreviewBrainSearchErrors,
+  PreviewBrainSearchResponses,
   PreviewComputedPrincipalGroupMembersData,
   PreviewComputedPrincipalGroupMembersErrors,
   PreviewComputedPrincipalGroupMembersResponses,
+  PutAgentModelProfileData,
+  PutAgentModelProfileErrors,
+  PutAgentModelProfileResponses,
+  PutAgentProviderHostedData,
+  PutAgentProviderHostedErrors,
+  PutAgentProviderHostedResponses,
+  PutAgentTokenQuotaData,
+  PutAgentTokenQuotaErrors,
+  PutAgentTokenQuotaResponses,
   RejectBrainMergeSuggestionData,
   RejectBrainMergeSuggestionErrors,
   RejectBrainMergeSuggestionResponses,
@@ -261,6 +333,15 @@ import type {
   RemovePrincipalGroupMemberData,
   RemovePrincipalGroupMemberErrors,
   RemovePrincipalGroupMemberResponses,
+  ReplaceAgentLibraryDocumentData,
+  ReplaceAgentLibraryDocumentErrors,
+  ReplaceAgentLibraryDocumentResponses,
+  ResetAgentTokenQuotaData,
+  ResetAgentTokenQuotaErrors,
+  ResetAgentTokenQuotaResponses,
+  ResetAppConfigurationData,
+  ResetAppConfigurationErrors,
+  ResetAppConfigurationResponses,
   ResetLocalPasswordData,
   ResetLocalPasswordErrors,
   ResetLocalPasswordResponses,
@@ -303,12 +384,33 @@ import type {
   SaveIdentityProviderData,
   SaveIdentityProviderErrors,
   SaveIdentityProviderResponses,
+  SetAgentLibraryPluginData,
+  SetAgentLibraryPluginErrors,
+  SetAgentLibraryPluginResponses,
+  SetAgentLibrarySkillData,
+  SetAgentLibrarySkillErrors,
+  SetAgentLibrarySkillResponses,
+  SetGlobalLibraryPluginData,
+  SetGlobalLibraryPluginErrors,
+  SetGlobalLibraryPluginResponses,
+  SetGlobalLibrarySkillData,
+  SetGlobalLibrarySkillErrors,
+  SetGlobalLibrarySkillResponses,
+  ShowBrainObjectData,
+  ShowBrainObjectErrors,
+  ShowBrainObjectResponses,
   SupersedeBrainClaimData,
   SupersedeBrainClaimErrors,
   SupersedeBrainClaimResponses,
   UpdateAgentData,
   UpdateAgentErrors,
   UpdateAgentResponses,
+  UpdateAgentWorkerEnvData,
+  UpdateAgentWorkerEnvErrors,
+  UpdateAgentWorkerEnvResponses,
+  UpdateAppConfigurationData,
+  UpdateAppConfigurationErrors,
+  UpdateAppConfigurationResponses,
   UpdateBrainObjectData,
   UpdateBrainObjectErrors,
   UpdateBrainObjectResponses,
@@ -329,7 +431,10 @@ import type {
   UpdatePermissionGrantResponses,
   UpdatePrincipalGroupData,
   UpdatePrincipalGroupErrors,
-  UpdatePrincipalGroupResponses
+  UpdatePrincipalGroupResponses,
+  UpdateWorkerEnvData,
+  UpdateWorkerEnvErrors,
+  UpdateWorkerEnvResponses
 } from './types.gen'
 
 export type Options<
@@ -388,6 +493,22 @@ export const listOidcLogoutDeliveries = <ThrowOnError extends boolean = false>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/oidc-clients/{client_id}/logout-deliveries',
     ...options
+  })
+
+/**
+ * set_global_library_plugin operation on agent_library_console resource
+ */
+export const setGlobalLibraryPlugin = <ThrowOnError extends boolean = false>(
+  options: Options<SetGlobalLibraryPluginData, ThrowOnError>
+): RequestResult<SetGlobalLibraryPluginResponses, SetGlobalLibraryPluginErrors, ThrowOnError> =>
+  (options.client ?? client).put<SetGlobalLibraryPluginResponses, SetGlobalLibraryPluginErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agent-library/agent-plugins/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -515,6 +636,24 @@ export const updatePermissionGrant = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * replace_agent_library_document operation on agent_library_console resource
+ */
+export const replaceAgentLibraryDocument = <ThrowOnError extends boolean = false>(
+  options: Options<ReplaceAgentLibraryDocumentData, ThrowOnError>
+): RequestResult<ReplaceAgentLibraryDocumentResponses, ReplaceAgentLibraryDocumentErrors, ThrowOnError> =>
+  (options.client ?? client).put<ReplaceAgentLibraryDocumentResponses, ReplaceAgentLibraryDocumentErrors, ThrowOnError>(
+    {
+      security: [{ name: 'Cookie', type: 'apiKey' }],
+      url: '/api/v2/agents/{agent_uid}/library-documents/{document_kind}',
+      ...options,
+      headers: {
+        'Content-Type': 'application/vnd.api+json',
+        ...options.headers
+      }
+    }
+  )
+
+/**
  * list_brain_object_versions operation on brain_object_version resource
  */
 export const listBrainObjectVersions = <ThrowOnError extends boolean = false>(
@@ -579,6 +718,18 @@ export const decideBrainContradiction = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * decrypt_agent_worker_env operation on worker_env_operation resource
+ */
+export const decryptAgentWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<DecryptAgentWorkerEnvData, ThrowOnError>
+): RequestResult<DecryptAgentWorkerEnvResponses, DecryptAgentWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).post<DecryptAgentWorkerEnvResponses, DecryptAgentWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/worker-envs/{name}/decryptions',
+    ...options
+  })
+
+/**
  * get_identity_directory operation on identity_provider_operation resource
  */
 export const getIdentityDirectory = <ThrowOnError extends boolean = false>(
@@ -589,6 +740,20 @@ export const getIdentityDirectory = <ThrowOnError extends boolean = false>(
     url: '/api/v2/identity-providers/{provider_id}/directory',
     ...options
   })
+
+/**
+ * list_brain_principal_knowledge operation on brain_console_view resource
+ */
+export const listBrainPrincipalKnowledge = <ThrowOnError extends boolean = false>(
+  options: Options<ListBrainPrincipalKnowledgeData, ThrowOnError>
+): RequestResult<ListBrainPrincipalKnowledgeResponses, ListBrainPrincipalKnowledgeErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListBrainPrincipalKnowledgeResponses, ListBrainPrincipalKnowledgeErrors, ThrowOnError>(
+    {
+      security: [{ name: 'Cookie', type: 'apiKey' }],
+      url: '/api/v2/brain/principals/{principal_uid}/knowledge',
+      ...options
+    }
+  )
 
 /**
  * supersede_brain_claim operation on brain_claim resource
@@ -647,6 +812,22 @@ export const createCronSchedule = <ThrowOnError extends boolean = false>(
   (options.client ?? client).post<CreateCronScheduleResponses, CreateCronScheduleErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/agents/{agent_uid}/cron-schedules',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * preview_brain_search operation on brain_console_view resource
+ */
+export const previewBrainSearch = <ThrowOnError extends boolean = false>(
+  options: Options<PreviewBrainSearchData, ThrowOnError>
+): RequestResult<PreviewBrainSearchResponses, PreviewBrainSearchErrors, ThrowOnError> =>
+  (options.client ?? client).post<PreviewBrainSearchResponses, PreviewBrainSearchErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/search-preview',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -723,6 +904,22 @@ export const learnBrainSource = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * set_agent_library_skill operation on agent_library_console resource
+ */
+export const setAgentLibrarySkill = <ThrowOnError extends boolean = false>(
+  options: Options<SetAgentLibrarySkillData, ThrowOnError>
+): RequestResult<SetAgentLibrarySkillResponses, SetAgentLibrarySkillErrors, ThrowOnError> =>
+  (options.client ?? client).put<SetAgentLibrarySkillResponses, SetAgentLibrarySkillErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/library-capabilities/skills/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * Lists the active Principals that a computed group condition matches.
  */
 export const previewComputedPrincipalGroupMembers = <ThrowOnError extends boolean = false>(
@@ -763,6 +960,46 @@ export const assignAgentWorkerProvider = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * show_brain_object operation on brain_console_view resource
+ */
+export const showBrainObject = <ThrowOnError extends boolean = false>(
+  options: Options<ShowBrainObjectData, ThrowOnError>
+): RequestResult<ShowBrainObjectResponses, ShowBrainObjectErrors, ThrowOnError> =>
+  (options.client ?? client).get<ShowBrainObjectResponses, ShowBrainObjectErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/objects/show',
+    ...options
+  })
+
+/**
+ * delete_agent_worker_env operation on worker_env_operation resource
+ */
+export const deleteAgentWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAgentWorkerEnvData, ThrowOnError>
+): RequestResult<DeleteAgentWorkerEnvResponses, DeleteAgentWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteAgentWorkerEnvResponses, DeleteAgentWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/worker-envs/{name}',
+    ...options
+  })
+
+/**
+ * update_agent_worker_env operation on worker_env_operation resource
+ */
+export const updateAgentWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateAgentWorkerEnvData, ThrowOnError>
+): RequestResult<UpdateAgentWorkerEnvResponses, UpdateAgentWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).put<UpdateAgentWorkerEnvResponses, UpdateAgentWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/worker-envs/{name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * get_human_access operation on human_access resource
  */
 export const getHumanAccess = <ThrowOnError extends boolean = false>(
@@ -772,6 +1009,22 @@ export const getHumanAccess = <ThrowOnError extends boolean = false>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/principals/{uid}/access',
     ...options
+  })
+
+/**
+ * set_global_library_skill operation on agent_library_console resource
+ */
+export const setGlobalLibrarySkill = <ThrowOnError extends boolean = false>(
+  options: Options<SetGlobalLibrarySkillData, ThrowOnError>
+): RequestResult<SetGlobalLibrarySkillResponses, SetGlobalLibrarySkillErrors, ThrowOnError> =>
+  (options.client ?? client).put<SetGlobalLibrarySkillResponses, SetGlobalLibrarySkillErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agent-library/skills/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -815,6 +1068,34 @@ export const listBrainClaims = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * delete_agent_model_profile operation on agent_model_configuration resource
+ */
+export const deleteAgentModelProfile = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAgentModelProfileData, ThrowOnError>
+): RequestResult<DeleteAgentModelProfileResponses, DeleteAgentModelProfileErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteAgentModelProfileResponses, DeleteAgentModelProfileErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/model-profiles/{profile}',
+    ...options
+  })
+
+/**
+ * put_agent_model_profile operation on agent_model_configuration resource
+ */
+export const putAgentModelProfile = <ThrowOnError extends boolean = false>(
+  options: Options<PutAgentModelProfileData, ThrowOnError>
+): RequestResult<PutAgentModelProfileResponses, PutAgentModelProfileErrors, ThrowOnError> =>
+  (options.client ?? client).put<PutAgentModelProfileResponses, PutAgentModelProfileErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/model-profiles/{profile}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * get_automation_job operation on automation_job resource
  */
 export const getAutomationJob = <ThrowOnError extends boolean = false>(
@@ -823,6 +1104,18 @@ export const getAutomationJob = <ThrowOnError extends boolean = false>(
   (options.client ?? client).get<GetAutomationJobResponses, GetAutomationJobErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/agents/{agent_uid}/automation-jobs/{id}',
+    ...options
+  })
+
+/**
+ * list_brain_object_types operation on brain_console_view resource
+ */
+export const listBrainObjectTypes = <ThrowOnError extends boolean = false>(
+  options?: Options<ListBrainObjectTypesData, ThrowOnError>
+): RequestResult<ListBrainObjectTypesResponses, ListBrainObjectTypesErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListBrainObjectTypesResponses, ListBrainObjectTypesErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/object-types',
     ...options
   })
 
@@ -967,6 +1260,18 @@ export const listAutomationJobs = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * list_agent_model_profiles operation on agent_model_configuration resource
+ */
+export const listAgentModelProfiles = <ThrowOnError extends boolean = false>(
+  options: Options<ListAgentModelProfilesData, ThrowOnError>
+): RequestResult<ListAgentModelProfilesResponses, ListAgentModelProfilesErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListAgentModelProfilesResponses, ListAgentModelProfilesErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/model-profiles',
+    ...options
+  })
+
+/**
  * Lists the grants that one group owns.
  */
 export const listPrincipalGroupGrants = <ThrowOnError extends boolean = false>(
@@ -1039,6 +1344,18 @@ export const listIdentityProviders = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * reset_agent_token_quota operation on agent_model_configuration resource
+ */
+export const resetAgentTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<ResetAgentTokenQuotaData, ThrowOnError>
+): RequestResult<ResetAgentTokenQuotaResponses, ResetAgentTokenQuotaErrors, ThrowOnError> =>
+  (options.client ?? client).post<ResetAgentTokenQuotaResponses, ResetAgentTokenQuotaErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/token-quota/reset',
+    ...options
+  })
+
+/**
  * list_automation_job_runs operation on automation_job_run resource
  */
 export const listAutomationJobRuns = <ThrowOnError extends boolean = false>(
@@ -1047,6 +1364,98 @@ export const listAutomationJobRuns = <ThrowOnError extends boolean = false>(
   (options.client ?? client).get<ListAutomationJobRunsResponses, ListAutomationJobRunsErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/agents/{agent_uid}/automation-jobs/{automation_job_id}/runs',
+    ...options
+  })
+
+/**
+ * delete_agent_token_quota operation on agent_model_configuration resource
+ */
+export const deleteAgentTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAgentTokenQuotaData, ThrowOnError>
+): RequestResult<DeleteAgentTokenQuotaResponses, DeleteAgentTokenQuotaErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteAgentTokenQuotaResponses, DeleteAgentTokenQuotaErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/token-quota',
+    ...options
+  })
+
+/**
+ * get_agent_token_quota operation on agent_model_configuration resource
+ */
+export const getAgentTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<GetAgentTokenQuotaData, ThrowOnError>
+): RequestResult<GetAgentTokenQuotaResponses, GetAgentTokenQuotaErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetAgentTokenQuotaResponses, GetAgentTokenQuotaErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/token-quota',
+    ...options
+  })
+
+/**
+ * put_agent_token_quota operation on agent_model_configuration resource
+ */
+export const putAgentTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<PutAgentTokenQuotaData, ThrowOnError>
+): RequestResult<PutAgentTokenQuotaResponses, PutAgentTokenQuotaErrors, ThrowOnError> =>
+  (options.client ?? client).put<PutAgentTokenQuotaResponses, PutAgentTokenQuotaErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/token-quota',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * list_agent_library_documents operation on agent_library_console resource
+ */
+export const listAgentLibraryDocuments = <ThrowOnError extends boolean = false>(
+  options: Options<ListAgentLibraryDocumentsData, ThrowOnError>
+): RequestResult<ListAgentLibraryDocumentsResponses, ListAgentLibraryDocumentsErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListAgentLibraryDocumentsResponses, ListAgentLibraryDocumentsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/library-documents',
+    ...options
+  })
+
+/**
+ * delete_worker_env operation on worker_env_operation resource
+ */
+export const deleteWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteWorkerEnvData, ThrowOnError>
+): RequestResult<DeleteWorkerEnvResponses, DeleteWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteWorkerEnvResponses, DeleteWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/worker-envs/{name}',
+    ...options
+  })
+
+/**
+ * update_worker_env operation on worker_env_operation resource
+ */
+export const updateWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateWorkerEnvData, ThrowOnError>
+): RequestResult<UpdateWorkerEnvResponses, UpdateWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).put<UpdateWorkerEnvResponses, UpdateWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/worker-envs/{name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * decrypt_app_configuration operation on app_configuration_operation resource
+ */
+export const decryptAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<DecryptAppConfigurationData, ThrowOnError>
+): RequestResult<DecryptAppConfigurationResponses, DecryptAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).post<DecryptAppConfigurationResponses, DecryptAppConfigurationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/app-configurations/{key}/decryptions',
     ...options
   })
 
@@ -1127,6 +1536,22 @@ export const createOidcClient = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * put_agent_provider_hosted operation on agent_model_configuration resource
+ */
+export const putAgentProviderHosted = <ThrowOnError extends boolean = false>(
+  options: Options<PutAgentProviderHostedData, ThrowOnError>
+): RequestResult<PutAgentProviderHostedResponses, PutAgentProviderHostedErrors, ThrowOnError> =>
+  (options.client ?? client).put<PutAgentProviderHostedResponses, PutAgentProviderHostedErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/provider-hosted',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * list_principals operation on principal resource
  */
 export const listPrincipals = <ThrowOnError extends boolean = false>(
@@ -1155,6 +1580,20 @@ export const createLocalUser = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * get_agent_library_capabilities operation on agent_library_console resource
+ */
+export const getAgentLibraryCapabilities = <ThrowOnError extends boolean = false>(
+  options: Options<GetAgentLibraryCapabilitiesData, ThrowOnError>
+): RequestResult<GetAgentLibraryCapabilitiesResponses, GetAgentLibraryCapabilitiesErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetAgentLibraryCapabilitiesResponses, GetAgentLibraryCapabilitiesErrors, ThrowOnError>(
+    {
+      security: [{ name: 'Cookie', type: 'apiKey' }],
+      url: '/api/v2/agents/{agent_uid}/library-capabilities',
+      ...options
+    }
+  )
+
+/**
  * list_identity_mapping_requests operation on identity_mapping_request resource
  */
 export const listIdentityMappingRequests = <ThrowOnError extends boolean = false>(
@@ -1167,6 +1606,30 @@ export const listIdentityMappingRequests = <ThrowOnError extends boolean = false
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/identity-mapping-requests',
+    ...options
+  })
+
+/**
+ * get_brain_health operation on brain_console_view resource
+ */
+export const getBrainHealth = <ThrowOnError extends boolean = false>(
+  options?: Options<GetBrainHealthData, ThrowOnError>
+): RequestResult<GetBrainHealthResponses, GetBrainHealthErrors, ThrowOnError> =>
+  (options?.client ?? client).get<GetBrainHealthResponses, GetBrainHealthErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/health',
+    ...options
+  })
+
+/**
+ * list_app_configurations operation on app_configuration_operation resource
+ */
+export const listAppConfigurations = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAppConfigurationsData, ThrowOnError>
+): RequestResult<ListAppConfigurationsResponses, ListAppConfigurationsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListAppConfigurationsResponses, ListAppConfigurationsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/app-configurations',
     ...options
   })
 
@@ -1287,6 +1750,34 @@ export const classifyWorkAccess = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * decrypt_worker_env operation on worker_env_operation resource
+ */
+export const decryptWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<DecryptWorkerEnvData, ThrowOnError>
+): RequestResult<DecryptWorkerEnvResponses, DecryptWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).post<DecryptWorkerEnvResponses, DecryptWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/worker-envs/{name}/decryptions',
+    ...options
+  })
+
+/**
+ * set_agent_library_plugin operation on agent_library_console resource
+ */
+export const setAgentLibraryPlugin = <ThrowOnError extends boolean = false>(
+  options: Options<SetAgentLibraryPluginData, ThrowOnError>
+): RequestResult<SetAgentLibraryPluginResponses, SetAgentLibraryPluginErrors, ThrowOnError> =>
+  (options.client ?? client).put<SetAgentLibraryPluginResponses, SetAgentLibraryPluginErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/library-capabilities/agent-plugins/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * archive_brain_source operation on brain_source resource
  */
 export const archiveBrainSource = <ThrowOnError extends boolean = false>(
@@ -1327,6 +1818,18 @@ export const listAgentWorkers = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * list_agent_worker_envs operation on worker_env_operation resource
+ */
+export const listAgentWorkerEnvs = <ThrowOnError extends boolean = false>(
+  options: Options<ListAgentWorkerEnvsData, ThrowOnError>
+): RequestResult<ListAgentWorkerEnvsResponses, ListAgentWorkerEnvsErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListAgentWorkerEnvsResponses, ListAgentWorkerEnvsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/worker-envs',
+    ...options
+  })
+
+/**
  * pause_cron_schedule operation on cron_schedule resource
  */
 export const pauseCronSchedule = <ThrowOnError extends boolean = false>(
@@ -1336,6 +1839,46 @@ export const pauseCronSchedule = <ThrowOnError extends boolean = false>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/pause',
     ...options
+  })
+
+/**
+ * reset_app_configuration operation on app_configuration_operation resource
+ */
+export const resetAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<ResetAppConfigurationData, ThrowOnError>
+): RequestResult<ResetAppConfigurationResponses, ResetAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).delete<ResetAppConfigurationResponses, ResetAppConfigurationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/app-configurations/{key}',
+    ...options
+  })
+
+/**
+ * get_app_configuration operation on app_configuration_operation resource
+ */
+export const getAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<GetAppConfigurationData, ThrowOnError>
+): RequestResult<GetAppConfigurationResponses, GetAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetAppConfigurationResponses, GetAppConfigurationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/app-configurations/{key}',
+    ...options
+  })
+
+/**
+ * update_app_configuration operation on app_configuration_operation resource
+ */
+export const updateAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateAppConfigurationData, ThrowOnError>
+): RequestResult<UpdateAppConfigurationResponses, UpdateAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).put<UpdateAppConfigurationResponses, UpdateAppConfigurationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/app-configurations/{key}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -1535,6 +2078,18 @@ export const addPrincipalGroupMember = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * list_worker_envs operation on worker_env_operation resource
+ */
+export const listWorkerEnvs = <ThrowOnError extends boolean = false>(
+  options?: Options<ListWorkerEnvsData, ThrowOnError>
+): RequestResult<ListWorkerEnvsResponses, ListWorkerEnvsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListWorkerEnvsResponses, ListWorkerEnvsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/worker-envs',
+    ...options
+  })
+
+/**
  * delete_agent operation on agent resource
  */
 export const deleteAgent = <ThrowOnError extends boolean = false>(
@@ -1583,6 +2138,22 @@ export const listAiGatewayConversations = <ThrowOnError extends boolean = false>
   (options?.client ?? client).get<ListAiGatewayConversationsResponses, ListAiGatewayConversationsErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/ai-gateway/conversations',
+    ...options
+  })
+
+/**
+ * get_global_library_capabilities operation on agent_library_console resource
+ */
+export const getGlobalLibraryCapabilities = <ThrowOnError extends boolean = false>(
+  options?: Options<GetGlobalLibraryCapabilitiesData, ThrowOnError>
+): RequestResult<GetGlobalLibraryCapabilitiesResponses, GetGlobalLibraryCapabilitiesErrors, ThrowOnError> =>
+  (options?.client ?? client).get<
+    GetGlobalLibraryCapabilitiesResponses,
+    GetGlobalLibraryCapabilitiesErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agent-library/capabilities',
     ...options
   })
 
@@ -1700,6 +2271,18 @@ export const approveBrainSuggestion = <ThrowOnError extends boolean = false>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * enqueue_brain_dream operation on brain_console_view resource
+ */
+export const enqueueBrainDream = <ThrowOnError extends boolean = false>(
+  options?: Options<EnqueueBrainDreamData, ThrowOnError>
+): RequestResult<EnqueueBrainDreamResponses, EnqueueBrainDreamErrors, ThrowOnError> =>
+  (options?.client ?? client).post<EnqueueBrainDreamResponses, EnqueueBrainDreamErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/brain/dream',
+    ...options
   })
 
 /**

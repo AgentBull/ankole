@@ -3,15 +3,42 @@
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client'
 import { client } from './client.gen'
 import type {
+  AddAiGatewayCredentialData,
+  AddAiGatewayCredentialErrors,
+  AddAiGatewayCredentialResponses,
+  AddChatgptEnterpriseCredentialData,
+  AddChatgptEnterpriseCredentialErrors,
+  AddChatgptEnterpriseCredentialResponses,
+  CheckWorkerProviderData,
+  CheckWorkerProviderErrors,
+  CheckWorkerProviderResponses,
+  CompleteChatgptBrowserLoginData,
+  CompleteChatgptBrowserLoginErrors,
+  CompleteChatgptBrowserLoginResponses,
+  ConfigureControlPlanePluginData,
+  ConfigureControlPlanePluginErrors,
+  ConfigureControlPlanePluginResponses,
   CreateTenantData,
   CreateTenantErrors,
   CreateTenantResponses,
   CreateWorkerProviderData,
   CreateWorkerProviderErrors,
   CreateWorkerProviderResponses,
+  DecryptSiteAppConfigurationData,
+  DecryptSiteAppConfigurationErrors,
+  DecryptSiteAppConfigurationResponses,
+  DecryptSiteWorkerEnvData,
+  DecryptSiteWorkerEnvErrors,
+  DecryptSiteWorkerEnvResponses,
+  DeleteAiGatewayCredentialData,
+  DeleteAiGatewayCredentialErrors,
+  DeleteAiGatewayCredentialResponses,
   DeleteAiGatewayProviderData,
   DeleteAiGatewayProviderErrors,
   DeleteAiGatewayProviderResponses,
+  DeleteSiteWorkerEnvData,
+  DeleteSiteWorkerEnvErrors,
+  DeleteSiteWorkerEnvResponses,
   DeleteTenantData,
   DeleteTenantErrors,
   DeleteTenantResponses,
@@ -27,30 +54,72 @@ import type {
   GetPrivilegedTenantData,
   GetPrivilegedTenantErrors,
   GetPrivilegedTenantResponses,
+  GetSiteAppConfigurationData,
+  GetSiteAppConfigurationErrors,
+  GetSiteAppConfigurationResponses,
+  ListAiGatewayModelsData,
+  ListAiGatewayModelsErrors,
+  ListAiGatewayModelsResponses,
+  ListAiGatewayProviderKindsData,
+  ListAiGatewayProviderKindsErrors,
+  ListAiGatewayProviderKindsResponses,
   ListAiGatewayProvidersData,
   ListAiGatewayProvidersErrors,
   ListAiGatewayProvidersResponses,
+  ListControlPlanePluginsData,
+  ListControlPlanePluginsErrors,
+  ListControlPlanePluginsResponses,
+  ListSiteAppConfigurationsData,
+  ListSiteAppConfigurationsErrors,
+  ListSiteAppConfigurationsResponses,
+  ListSiteWorkerEnvsData,
+  ListSiteWorkerEnvsErrors,
+  ListSiteWorkerEnvsResponses,
   ListTenantBrainPacksData,
   ListTenantBrainPacksErrors,
   ListTenantBrainPacksResponses,
   ListTenantsData,
   ListTenantsErrors,
   ListTenantsResponses,
+  ListWorkerProviderKindsData,
+  ListWorkerProviderKindsErrors,
+  ListWorkerProviderKindsResponses,
   ListWorkerProvidersData,
   ListWorkerProvidersErrors,
   ListWorkerProvidersResponses,
+  PollChatgptLoginData,
+  PollChatgptLoginErrors,
+  PollChatgptLoginResponses,
+  PutAiGatewayCredentialData,
+  PutAiGatewayCredentialErrors,
+  PutAiGatewayCredentialResponses,
+  PutAiGatewayCredentialStrategyData,
+  PutAiGatewayCredentialStrategyErrors,
+  PutAiGatewayCredentialStrategyResponses,
   PutAiGatewayProviderData,
   PutAiGatewayProviderErrors,
   PutAiGatewayProviderResponses,
+  ResetSiteAppConfigurationData,
+  ResetSiteAppConfigurationErrors,
+  ResetSiteAppConfigurationResponses,
   ResumeTenantData,
   ResumeTenantErrors,
   ResumeTenantResponses,
+  StartChatgptLoginData,
+  StartChatgptLoginErrors,
+  StartChatgptLoginResponses,
   SuspendTenantData,
   SuspendTenantErrors,
   SuspendTenantResponses,
   TransferSiteAdministrationData,
   TransferSiteAdministrationErrors,
   TransferSiteAdministrationResponses,
+  UpdateSiteAppConfigurationData,
+  UpdateSiteAppConfigurationErrors,
+  UpdateSiteAppConfigurationResponses,
+  UpdateSiteWorkerEnvData,
+  UpdateSiteWorkerEnvErrors,
+  UpdateSiteWorkerEnvResponses,
   UpdateTenantData,
   UpdateTenantErrors,
   UpdateTenantResponses,
@@ -76,6 +145,30 @@ export type Options<
    */
   meta?: keyof ClientMeta extends never ? Record<string, unknown> : ClientMeta
 }
+
+/**
+ * list_ai_gateway_models operation on chatgpt_login resource
+ */
+export const listAiGatewayModels = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAiGatewayModelsData, ThrowOnError>
+): RequestResult<ListAiGatewayModelsResponses, ListAiGatewayModelsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListAiGatewayModelsResponses, ListAiGatewayModelsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/models',
+    ...options
+  })
+
+/**
+ * list_ai_gateway_provider_kinds operation on chatgpt_login resource
+ */
+export const listAiGatewayProviderKinds = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAiGatewayProviderKindsData, ThrowOnError>
+): RequestResult<ListAiGatewayProviderKindsResponses, ListAiGatewayProviderKindsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListAiGatewayProviderKindsResponses, ListAiGatewayProviderKindsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/provider-kinds',
+    ...options
+  })
 
 /**
  * list_ai_gateway_providers operation on ai_gateway_provider resource
@@ -130,6 +223,142 @@ export const putAiGatewayProvider = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * add_chatgpt_enterprise_credential operation on chatgpt_login resource
+ */
+export const addChatgptEnterpriseCredential = <ThrowOnError extends boolean = false>(
+  options: Options<AddChatgptEnterpriseCredentialData, ThrowOnError>
+): RequestResult<AddChatgptEnterpriseCredentialResponses, AddChatgptEnterpriseCredentialErrors, ThrowOnError> =>
+  (options.client ?? client).post<
+    AddChatgptEnterpriseCredentialResponses,
+    AddChatgptEnterpriseCredentialErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-enterprise-credentials',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * start_chatgpt_login operation on chatgpt_login resource
+ */
+export const startChatgptLogin = <ThrowOnError extends boolean = false>(
+  options: Options<StartChatgptLoginData, ThrowOnError>
+): RequestResult<StartChatgptLoginResponses, StartChatgptLoginErrors, ThrowOnError> =>
+  (options.client ?? client).post<StartChatgptLoginResponses, StartChatgptLoginErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-login',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * complete_chatgpt_browser_login operation on chatgpt_login resource
+ */
+export const completeChatgptBrowserLogin = <ThrowOnError extends boolean = false>(
+  options: Options<CompleteChatgptBrowserLoginData, ThrowOnError>
+): RequestResult<CompleteChatgptBrowserLoginResponses, CompleteChatgptBrowserLoginErrors, ThrowOnError> =>
+  (options.client ?? client).post<
+    CompleteChatgptBrowserLoginResponses,
+    CompleteChatgptBrowserLoginErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-login/browser-callback',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * poll_chatgpt_login operation on chatgpt_login resource
+ */
+export const pollChatgptLogin = <ThrowOnError extends boolean = false>(
+  options: Options<PollChatgptLoginData, ThrowOnError>
+): RequestResult<PollChatgptLoginResponses, PollChatgptLoginErrors, ThrowOnError> =>
+  (options.client ?? client).post<PollChatgptLoginResponses, PollChatgptLoginErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-login/poll',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * put_ai_gateway_credential_strategy operation on ai_gateway_provider resource
+ */
+export const putAiGatewayCredentialStrategy = <ThrowOnError extends boolean = false>(
+  options: Options<PutAiGatewayCredentialStrategyData, ThrowOnError>
+): RequestResult<PutAiGatewayCredentialStrategyResponses, PutAiGatewayCredentialStrategyErrors, ThrowOnError> =>
+  (options.client ?? client).patch<
+    PutAiGatewayCredentialStrategyResponses,
+    PutAiGatewayCredentialStrategyErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/credential-pool/strategy',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * add_ai_gateway_credential operation on ai_gateway_provider resource
+ */
+export const addAiGatewayCredential = <ThrowOnError extends boolean = false>(
+  options: Options<AddAiGatewayCredentialData, ThrowOnError>
+): RequestResult<AddAiGatewayCredentialResponses, AddAiGatewayCredentialErrors, ThrowOnError> =>
+  (options.client ?? client).post<AddAiGatewayCredentialResponses, AddAiGatewayCredentialErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/credentials',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * delete_ai_gateway_credential operation on ai_gateway_provider resource
+ */
+export const deleteAiGatewayCredential = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAiGatewayCredentialData, ThrowOnError>
+): RequestResult<DeleteAiGatewayCredentialResponses, DeleteAiGatewayCredentialErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteAiGatewayCredentialResponses, DeleteAiGatewayCredentialErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}',
+    ...options
+  })
+
+/**
+ * put_ai_gateway_credential operation on ai_gateway_provider resource
+ */
+export const putAiGatewayCredential = <ThrowOnError extends boolean = false>(
+  options: Options<PutAiGatewayCredentialData, ThrowOnError>
+): RequestResult<PutAiGatewayCredentialResponses, PutAiGatewayCredentialErrors, ThrowOnError> =>
+  (options.client ?? client).patch<PutAiGatewayCredentialResponses, PutAiGatewayCredentialErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * enable_ai_gateway_provider operation on ai_gateway_provider resource
  */
 export const enableAiGatewayProvider = <ThrowOnError extends boolean = false>(
@@ -144,6 +373,104 @@ export const enableAiGatewayProvider = <ThrowOnError extends boolean = false>(
       ...options.headers
     }
   })
+
+/**
+ * list_site_app_configurations operation on site_app_configuration_operation resource
+ */
+export const listSiteAppConfigurations = <ThrowOnError extends boolean = false>(
+  options?: Options<ListSiteAppConfigurationsData, ThrowOnError>
+): RequestResult<ListSiteAppConfigurationsResponses, ListSiteAppConfigurationsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListSiteAppConfigurationsResponses, ListSiteAppConfigurationsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/app-configurations',
+    ...options
+  })
+
+/**
+ * reset_site_app_configuration operation on site_app_configuration_operation resource
+ */
+export const resetSiteAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<ResetSiteAppConfigurationData, ThrowOnError>
+): RequestResult<ResetSiteAppConfigurationResponses, ResetSiteAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).delete<ResetSiteAppConfigurationResponses, ResetSiteAppConfigurationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/app-configurations/{key}',
+    ...options
+  })
+
+/**
+ * get_site_app_configuration operation on site_app_configuration_operation resource
+ */
+export const getSiteAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<GetSiteAppConfigurationData, ThrowOnError>
+): RequestResult<GetSiteAppConfigurationResponses, GetSiteAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetSiteAppConfigurationResponses, GetSiteAppConfigurationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/app-configurations/{key}',
+    ...options
+  })
+
+/**
+ * update_site_app_configuration operation on site_app_configuration_operation resource
+ */
+export const updateSiteAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateSiteAppConfigurationData, ThrowOnError>
+): RequestResult<UpdateSiteAppConfigurationResponses, UpdateSiteAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).put<UpdateSiteAppConfigurationResponses, UpdateSiteAppConfigurationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/app-configurations/{key}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * decrypt_site_app_configuration operation on site_app_configuration_operation resource
+ */
+export const decryptSiteAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<DecryptSiteAppConfigurationData, ThrowOnError>
+): RequestResult<DecryptSiteAppConfigurationResponses, DecryptSiteAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).post<
+    DecryptSiteAppConfigurationResponses,
+    DecryptSiteAppConfigurationErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/app-configurations/{key}/decryptions',
+    ...options
+  })
+
+/**
+ * list_control_plane_plugins operation on control_plane_plugin_console resource
+ */
+export const listControlPlanePlugins = <ThrowOnError extends boolean = false>(
+  options?: Options<ListControlPlanePluginsData, ThrowOnError>
+): RequestResult<ListControlPlanePluginsResponses, ListControlPlanePluginsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListControlPlanePluginsResponses, ListControlPlanePluginsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/control-plane-plugins',
+    ...options
+  })
+
+/**
+ * configure_control_plane_plugin operation on control_plane_plugin_console resource
+ */
+export const configureControlPlanePlugin = <ThrowOnError extends boolean = false>(
+  options: Options<ConfigureControlPlanePluginData, ThrowOnError>
+): RequestResult<ConfigureControlPlanePluginResponses, ConfigureControlPlanePluginErrors, ThrowOnError> =>
+  (options.client ?? client).put<ConfigureControlPlanePluginResponses, ConfigureControlPlanePluginErrors, ThrowOnError>(
+    {
+      security: [{ name: 'Cookie', type: 'apiKey' }],
+      url: '/api/v2/site/control-plane-plugins',
+      ...options,
+      headers: {
+        'Content-Type': 'application/vnd.api+json',
+        ...options.headers
+      }
+    }
+  )
 
 /**
  * get_privileged_tenant operation on tenant resource
@@ -272,6 +599,70 @@ export const suspendTenant = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * list_site_worker_envs operation on site_worker_env_operation resource
+ */
+export const listSiteWorkerEnvs = <ThrowOnError extends boolean = false>(
+  options?: Options<ListSiteWorkerEnvsData, ThrowOnError>
+): RequestResult<ListSiteWorkerEnvsResponses, ListSiteWorkerEnvsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListSiteWorkerEnvsResponses, ListSiteWorkerEnvsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/worker-envs',
+    ...options
+  })
+
+/**
+ * delete_site_worker_env operation on site_worker_env_operation resource
+ */
+export const deleteSiteWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteSiteWorkerEnvData, ThrowOnError>
+): RequestResult<DeleteSiteWorkerEnvResponses, DeleteSiteWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteSiteWorkerEnvResponses, DeleteSiteWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/worker-envs/{name}',
+    ...options
+  })
+
+/**
+ * update_site_worker_env operation on site_worker_env_operation resource
+ */
+export const updateSiteWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateSiteWorkerEnvData, ThrowOnError>
+): RequestResult<UpdateSiteWorkerEnvResponses, UpdateSiteWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).put<UpdateSiteWorkerEnvResponses, UpdateSiteWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/worker-envs/{name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * decrypt_site_worker_env operation on site_worker_env_operation resource
+ */
+export const decryptSiteWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<DecryptSiteWorkerEnvData, ThrowOnError>
+): RequestResult<DecryptSiteWorkerEnvResponses, DecryptSiteWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).post<DecryptSiteWorkerEnvResponses, DecryptSiteWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/worker-envs/{name}/decryptions',
+    ...options
+  })
+
+/**
+ * list_worker_provider_kinds operation on worker_provider_operation resource
+ */
+export const listWorkerProviderKinds = <ThrowOnError extends boolean = false>(
+  options?: Options<ListWorkerProviderKindsData, ThrowOnError>
+): RequestResult<ListWorkerProviderKindsResponses, ListWorkerProviderKindsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListWorkerProviderKindsResponses, ListWorkerProviderKindsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/worker-provider-kinds',
+    ...options
+  })
+
+/**
  * list_worker_providers operation on worker_provider resource
  */
 export const listWorkerProviders = <ThrowOnError extends boolean = false>(
@@ -325,4 +716,16 @@ export const updateWorkerProvider = <ThrowOnError extends boolean = false>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * check_worker_provider operation on worker_provider_operation resource
+ */
+export const checkWorkerProvider = <ThrowOnError extends boolean = false>(
+  options: Options<CheckWorkerProviderData, ThrowOnError>
+): RequestResult<CheckWorkerProviderResponses, CheckWorkerProviderErrors, ThrowOnError> =>
+  (options.client ?? client).get<CheckWorkerProviderResponses, CheckWorkerProviderErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/worker-providers/{provider_id}/check',
+    ...options
   })

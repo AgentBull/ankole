@@ -16,12 +16,12 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState, type SetStateAction } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  ankoleWebWorkerEnvControllerDecryptForAgentMutation,
-  ankoleWebWorkerEnvControllerDeleteForAgentMutation,
-  ankoleWebWorkerEnvControllerIndexForAgentOptions,
-  ankoleWebWorkerEnvControllerUpdateForAgentMutation
-} from '../api/generated/@tanstack/react-query.gen'
-import type { WorkerEnvItem } from '../api/generated/types.gen'
+  decryptAgentWorkerEnvMutation,
+  deleteAgentWorkerEnvMutation,
+  listAgentWorkerEnvsOptions,
+  updateAgentWorkerEnvMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import type { WorkerEnvItem } from '../api/configuration-types'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ConfirmDeleteButton, SaveButton } from '../console-form'
 import { ErrorBlock } from '../../common/error-block'
@@ -48,7 +48,7 @@ const emptyDraft: OverrideDraft = { name: '', value: '', secret: true }
  */
 export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
   const { t } = useTranslation()
-  const list = useQuery(ankoleWebWorkerEnvControllerIndexForAgentOptions({ path: { agent_uid: agentUID } }))
+  const list = useQuery(listAgentWorkerEnvsOptions({ path: { agent_uid: agentUID } }))
   const items = list.data?.worker_envs ?? []
   const [draft, setDraftState] = useState<OverrideDraft>(emptyDraft)
   const editGeneration = useRef(0)
@@ -72,7 +72,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
   const valueInput = useRef<HTMLInputElement>(null)
 
   const save = useMutation({
-    ...ankoleWebWorkerEnvControllerUpdateForAgentMutation(),
+    ...updateAgentWorkerEnvMutation(),
     onMutate: () => editGeneration.current,
     onSuccess: (_data, variables, generation) => {
       hideRevealed(variables.path.name)
@@ -88,7 +88,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
     }
   })
   const clear = useMutation({
-    ...ankoleWebWorkerEnvControllerDeleteForAgentMutation(),
+    ...deleteAgentWorkerEnvMutation(),
     onSuccess: (_data, variables) => {
       hideRevealed(variables.path.name)
       toast.success(t('console.worker_envs.cleared', { name: variables.path.name }))
@@ -97,7 +97,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
   })
   const decrypt = useMutation({
     meta: { invalidates: false },
-    ...ankoleWebWorkerEnvControllerDecryptForAgentMutation(),
+    ...decryptAgentWorkerEnvMutation(),
     gcTime: 0,
     onMutate: variables => {
       const request = Symbol()
@@ -163,8 +163,10 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
   const persistDraft = () => {
     save.mutate({
       body: {
-        ...(isEncryptedValueMask(draft.value) ? {} : { value: draft.value }),
-        secret: draft.secret
+        data: {
+          ...(isEncryptedValueMask(draft.value) ? {} : { value: draft.value }),
+          secret: draft.secret
+        }
       },
       path: { agent_uid: agentUID, name: draft.name.trim() }
     })

@@ -38,15 +38,17 @@ import { Link, useParams } from '@tanstack/react-router'
 import { linkTarget, useSearchParams } from '../../common/router'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
-  ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions,
-  ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions,
-  ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideMutation,
-  ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideMutation,
-  ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginMutation,
-  ankoleWebAgentLibraryCapabilityControllerPutGlobalSkillMutation,
-  ankoleWebControlPlanePluginControllerIndexOptions,
-  ankoleWebControlPlanePluginControllerUpdateMutation
-} from '../api/generated/@tanstack/react-query.gen'
+  getAgentLibraryCapabilitiesOptions,
+  getGlobalLibraryCapabilitiesOptions,
+  setAgentLibraryPluginMutation,
+  setAgentLibrarySkillMutation,
+  setGlobalLibraryPluginMutation,
+  setGlobalLibrarySkillMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import {
+  listControlPlanePluginsOptions,
+  configureControlPlanePluginMutation
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { agentListOptions } from '../api/agents'
 import { fromDocument } from '../api/json-api'
 import {
@@ -56,11 +58,10 @@ import {
 } from '../api/v2/generated/@tanstack/react-query.gen'
 import type { ListAgentSkillLessonsResponse } from '../api/v2/generated/types.gen'
 import type {
-  AgentLibraryCapabilitiesResponse,
   AgentLibrarySkillCapabilityItem,
   AgentPluginCapabilityItem,
   ControlPlanePluginItem
-} from '../api/generated/types.gen'
+} from '../state/agent-library-capabilities'
 import { BackLink, PageHeader, PageStack, RefreshButton } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
@@ -200,7 +201,7 @@ export function AgentLibraryPage() {
                   key={plugin.id}
                   plugin={plugin}
                   pending={controlPlaneMutation.isPending}
-                  onChange={enabled => controlPlaneMutation.mutate({ body: { id: plugin.id, enabled } })}
+                  onChange={enabled => controlPlaneMutation.mutate({ body: { data: { id: plugin.id, enabled } } })}
                 />
               ))}
             </CapabilityGrid>
@@ -744,7 +745,7 @@ function AgentOverrideControl({
   effective: boolean
   inheritLabel?: string
   onChange: (enabled: boolean | null) => void
-  override: boolean | null
+  override: boolean | null | undefined
 }) {
   const { t } = useTranslation()
   return (
@@ -847,21 +848,21 @@ function useLibraryCapabilities(scope: string) {
   const global = scope === GLOBAL_LIBRARY_SCOPE
   const agentsQuery = useQuery(agentListOptions())
   const globalQuery = useQuery({
-    ...ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions(),
+    ...getGlobalLibraryCapabilitiesOptions(),
     enabled: global
   })
   const agentQuery = useQuery({
-    ...ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions({ path: { agent_uid: scope } }),
+    ...getAgentLibraryCapabilitiesOptions({ path: { agent_uid: scope } }),
     enabled: !global
   })
   const controlPlaneQuery = useQuery({
-    ...ankoleWebControlPlanePluginControllerIndexOptions(),
+    ...listControlPlanePluginsOptions(),
     enabled: global
   })
 
   return {
     agents: agentsQuery.data ?? [],
-    capabilities: (global ? globalQuery.data : agentQuery.data) as AgentLibraryCapabilitiesResponse | undefined,
+    capabilities: global ? globalQuery.data : agentQuery.data,
     controlPlanePlugins: controlPlaneQuery.data?.control_plane_plugins ?? [],
     controlPlaneLoading: controlPlaneQuery.isLoading,
     error: agentsQuery.error ?? globalQuery.error ?? agentQuery.error ?? controlPlaneQuery.error,
@@ -877,22 +878,22 @@ function useCapabilityMutations(scope: string) {
   }
   const error = (mutationError: unknown) => toast.error(requestErrorMessage(mutationError))
   const globalPlugin = useMutation({
-    ...ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginMutation(),
+    ...setGlobalLibraryPluginMutation(),
     onSuccess: success,
     onError: error
   })
   const agentPlugin = useMutation({
-    ...ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideMutation(),
+    ...setAgentLibraryPluginMutation(),
     onSuccess: success,
     onError: error
   })
   const globalSkill = useMutation({
-    ...ankoleWebAgentLibraryCapabilityControllerPutGlobalSkillMutation(),
+    ...setGlobalLibrarySkillMutation(),
     onSuccess: success,
     onError: error
   })
   const agentSkill = useMutation({
-    ...ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideMutation(),
+    ...setAgentLibrarySkillMutation(),
     onSuccess: success,
     onError: error
   })
@@ -900,12 +901,14 @@ function useCapabilityMutations(scope: string) {
   return {
     pending: globalPlugin.isPending || agentPlugin.isPending || globalSkill.isPending || agentSkill.isPending,
     setAgentPlugin(id: string, enabled: boolean | null) {
-      if (scope === GLOBAL_LIBRARY_SCOPE) globalPlugin.mutate({ path: { id }, body: { enabled: enabled === true } })
-      else agentPlugin.mutate({ path: { agent_uid: scope, id }, body: { enabled } })
+      if (scope === GLOBAL_LIBRARY_SCOPE)
+        globalPlugin.mutate({ path: { id }, body: { data: { enabled: enabled === true } } })
+      else agentPlugin.mutate({ path: { agent_uid: scope, id }, body: { data: { enabled } } })
     },
     setSkill(id: string, enabled: boolean | null) {
-      if (scope === GLOBAL_LIBRARY_SCOPE) globalSkill.mutate({ path: { id }, body: { enabled: enabled === true } })
-      else agentSkill.mutate({ path: { agent_uid: scope, id }, body: { enabled } })
+      if (scope === GLOBAL_LIBRARY_SCOPE)
+        globalSkill.mutate({ path: { id }, body: { data: { enabled: enabled === true } } })
+      else agentSkill.mutate({ path: { agent_uid: scope, id }, body: { data: { enabled } } })
     }
   }
 }
@@ -964,7 +967,7 @@ function useSkillLessons(scope: string): SkillLessonsController | undefined {
 function useControlPlanePluginMutation() {
   const { t } = useTranslation()
   return useMutation({
-    ...ankoleWebControlPlanePluginControllerUpdateMutation(),
+    ...configureControlPlanePluginMutation(),
     onSuccess: () => {
       toast.success(t('console.agent_library_capabilities.saved_for_restart'))
     },

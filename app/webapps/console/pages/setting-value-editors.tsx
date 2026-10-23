@@ -11,7 +11,7 @@ import {
 import { useMemo, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import { availableLocaleIDs, nativeLocaleLabel } from '../../common/i18n'
-import type { AppConfigurationItem } from '../api/generated/types.gen'
+import type { AppConfigurationItem } from '../api/configuration-types'
 import { EncryptedValueInput } from '../encrypted-value-input'
 import { JSONObjectField } from '../json-object-field'
 import { JSONField, LabeledField } from '../console-form'

@@ -9,6 +9,64 @@ defmodule Ankole.AIAgent.Library do
   registry semantics, and manifest hashes; it is not a file content table.
   """
 
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/agent-library", Ankole.AIAgent.Library.Console do
+        route(:get, "/capabilities", :global_capabilities,
+          name: "get_global_library_capabilities",
+          wrap_in_result?: false
+        )
+
+        route(:put, "/agent-plugins/:id", :set_global_plugin,
+          name: "set_global_library_plugin",
+          wrap_in_result?: false
+        )
+
+        route(:put, "/skills/:id", :set_global_skill,
+          name: "set_global_library_skill",
+          wrap_in_result?: false
+        )
+      end
+
+      base_route "/agents/:agent_uid", Ankole.AIAgent.Library.Console do
+        route(:get, "/library-capabilities", :agent_capabilities,
+          name: "get_agent_library_capabilities",
+          wrap_in_result?: false
+        )
+
+        route(:put, "/library-capabilities/agent-plugins/:id", :set_agent_plugin,
+          name: "set_agent_library_plugin",
+          wrap_in_result?: false
+        )
+
+        route(:put, "/library-capabilities/skills/:id", :set_agent_skill,
+          name: "set_agent_library_skill",
+          wrap_in_result?: false
+        )
+
+        route(:get, "/library-documents", :documents,
+          name: "list_agent_library_documents",
+          wrap_in_result?: false
+        )
+
+        route(:put, "/library-documents/:document_kind", :replace_document,
+          name: "replace_agent_library_document",
+          wrap_in_result?: false
+        )
+      end
+    end
+  end
+
+  resources do
+    resource(Ankole.AIAgent.Library.Console)
+  end
+
   require Ash.Query
 
   alias Ankole.AIAgent.Library.AgentPlugins

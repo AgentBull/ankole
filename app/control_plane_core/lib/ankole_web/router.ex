@@ -200,76 +200,12 @@ defmodule AnkoleWeb.Router do
   scope "/api/v1/site", AnkoleWeb do
     pipe_through [:session_api, :site_admin]
 
-    get "/app-configurations", AppConfigurationController, :index
-    get "/app-configurations/:key", AppConfigurationController, :show
-    put "/app-configurations/:key", AppConfigurationController, :update
-    delete "/app-configurations/:key", AppConfigurationController, :delete
-    post "/app-configurations/:key/decryptions", AppConfigurationController, :decrypt
-    get "/worker-envs", WorkerEnvController, :index
-    put "/worker-envs/:name", WorkerEnvController, :update
-    delete "/worker-envs/:name", WorkerEnvController, :delete
-    post "/worker-envs/:name/decryptions", WorkerEnvController, :decrypt
     get "/control-plane-plugins", ControlPlanePluginController, :index
     put "/control-plane-plugins", ControlPlanePluginController, :update
-    get "/worker-provider-kinds", WorkerProviderController, :kinds
-    get "/worker-providers/:provider_id/check", WorkerProviderController, :check
-    get "/ai-gateway/models", AIGatewayProviderController, :models
-    get "/ai-gateway/provider-kinds", AIGatewayProviderController, :provider_kinds
-
-    post "/ai-gateway/providers/:provider_id/credentials",
-         AIGatewayProviderController,
-         :add_credential
-
-    put "/ai-gateway/providers/:provider_id/credentials/:credential_id",
-        AIGatewayProviderController,
-        :put_credential
-
-    delete "/ai-gateway/providers/:provider_id/credentials/:credential_id",
-           AIGatewayProviderController,
-           :delete_credential
-
-    put "/ai-gateway/providers/:provider_id/credential-pool/strategy",
-        AIGatewayProviderController,
-        :put_credential_strategy
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-login",
-         AIGatewayProviderController,
-         :start_chatgpt_login
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-login/poll",
-         AIGatewayProviderController,
-         :poll_chatgpt_login
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback",
-         AIGatewayProviderController,
-         :complete_chatgpt_browser_login
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials",
-         AIGatewayProviderController,
-         :add_chatgpt_enterprise_credential
   end
 
   scope "/api/v1", AnkoleWeb do
     pipe_through [:session_api, :site_admin, :data_context]
-
-    get "/app-configurations", AppConfigurationController, :index_tenant
-    get "/app-configurations/:key", AppConfigurationController, :show_tenant
-    put "/app-configurations/:key", AppConfigurationController, :update_tenant
-    delete "/app-configurations/:key", AppConfigurationController, :delete_tenant
-    post "/app-configurations/:key/decryptions", AppConfigurationController, :decrypt_tenant
-
-    get "/worker-envs", WorkerEnvController, :index_tenant
-    put "/worker-envs/:name", WorkerEnvController, :update_tenant
-    delete "/worker-envs/:name", WorkerEnvController, :delete_tenant
-    post "/worker-envs/:name/decryptions", WorkerEnvController, :decrypt_tenant
-
-    get "/agents/:agent_uid/worker-envs", WorkerEnvController, :index_for_agent
-    put "/agents/:agent_uid/worker-envs/:name", WorkerEnvController, :update_for_agent
-    delete "/agents/:agent_uid/worker-envs/:name", WorkerEnvController, :delete_for_agent
-
-    post "/agents/:agent_uid/worker-envs/:name/decryptions",
-         WorkerEnvController,
-         :decrypt_for_agent
 
     get "/brain/health", BrainController, :health
     post "/brain/dream", BrainController, :dream
@@ -331,23 +267,6 @@ defmodule AnkoleWeb.Router do
     post "/agents/:agent_uid/files", AgentFileController, :upload
     post "/agents/:agent_uid/file-moves", AgentFileController, :move
     delete "/agents/:agent_uid/files", AgentFileController, :delete
-
-    get "/agents/:agent_uid/model-profiles", AgentController, :index_model_profiles
-
-    put "/agents/:agent_uid/provider-hosted", AgentController, :put_provider_hosted
-
-    put "/agents/:agent_uid/model-profiles/:profile",
-        AgentController,
-        :put_model_profile
-
-    delete "/agents/:agent_uid/model-profiles/:profile",
-           AgentController,
-           :delete_model_profile
-
-    get "/agents/:agent_uid/token-quota", AgentController, :show_token_quota
-    put "/agents/:agent_uid/token-quota", AgentController, :put_token_quota
-    delete "/agents/:agent_uid/token-quota", AgentController, :delete_token_quota
-    post "/agents/:agent_uid/token-quota/reset", AgentController, :reset_token_quota
 
     get "/signal-adapters", SignalBindingController, :adapters
 

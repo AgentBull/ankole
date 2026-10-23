@@ -1,5 +1,8 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
-import type { TokenQuota, TokenQuotaWriteRequest } from '../api/generated/types.gen'
+import type { GetAgentTokenQuotaResponse, PutAgentTokenQuotaData } from '../api/v2/generated/types.gen'
+
+type TokenQuota = NonNullable<GetAgentTokenQuotaResponse['token_quota']>
+type TokenQuotaWriteRequest = PutAgentTokenQuotaData['body']['data']
 
 export type TokenQuotaDraft = {
   periodDays: string

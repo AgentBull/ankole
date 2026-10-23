@@ -204,15 +204,16 @@ See [Background Agent Job](BackgroundAgentJob.md) for the complete Job contract.
 The Console API exposes the selected tenant's defaults and Agent-specific
 effective state.
 
-- `GET /api/v1/agent-library/capabilities`
-- `PUT /api/v1/agent-library/agent-plugins/:id`
-- `PUT /api/v1/agent-library/skills/:id`
-- `GET /api/v1/agents/:agent_uid/library-capabilities`
-- `PUT /api/v1/agents/:agent_uid/library-capabilities/agent-plugins/:id`
-- `PUT /api/v1/agents/:agent_uid/library-capabilities/skills/:id`
+- `GET /api/v2/agent-library/capabilities`
+- `PUT /api/v2/agent-library/agent-plugins/:id`
+- `PUT /api/v2/agent-library/skills/:id`
+- `GET /api/v2/agents/:agent_uid/library-capabilities`
+- `PUT /api/v2/agents/:agent_uid/library-capabilities/agent-plugins/:id`
+- `PUT /api/v2/agents/:agent_uid/library-capabilities/skills/:id`
 
-Tenant default writes use `{ "enabled": boolean }`.
-Agent writes use `{ "enabled": boolean | null }`.
+Requests use `application/vnd.api+json`. Tenant default writes use
+`{ "data": { "enabled": boolean } }`. Agent writes use
+`{ "data": { "enabled": boolean | null } }`.
 A null value restores inheritance.
 
 Capability rows include these state fields:
@@ -358,10 +359,11 @@ completes applies that list. Completed installations fail closed.
 
 The Console API makes both states visible.
 
-- `GET /api/v1/site/control-plane-plugins`
-- `PUT /api/v1/site/control-plane-plugins`
+- `GET /api/v2/site/control-plane-plugins`
+- `PUT /api/v2/site/control-plane-plugins`
 
-The write body uses `{ "id": string, "enabled": boolean }`.
+The write body uses `{ "data": { "id": string, "enabled": boolean } }` with
+`Content-Type: application/vnd.api+json`.
 
 Each response row includes these fields:
 

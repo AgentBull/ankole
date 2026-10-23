@@ -41,18 +41,20 @@ import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router'
 import { useSearchParams } from '../../common/router'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import {
-  ankoleWebAppConfigurationControllerDecryptMutation,
-  ankoleWebAppConfigurationControllerDecryptTenantMutation,
-  ankoleWebAppConfigurationControllerDeleteMutation,
-  ankoleWebAppConfigurationControllerDeleteTenantMutation,
-  ankoleWebAppConfigurationControllerIndexOptions,
-  ankoleWebAppConfigurationControllerIndexTenantOptions,
-  ankoleWebAppConfigurationControllerShowOptions,
-  ankoleWebAppConfigurationControllerShowTenantOptions,
-  ankoleWebAppConfigurationControllerUpdateMutation,
-  ankoleWebAppConfigurationControllerUpdateTenantMutation
-} from '../api/generated/@tanstack/react-query.gen'
-import type { AppConfigurationItem } from '../api/generated/types.gen'
+  decryptSiteAppConfigurationMutation,
+  resetSiteAppConfigurationMutation,
+  listSiteAppConfigurationsOptions,
+  getSiteAppConfigurationOptions,
+  updateSiteAppConfigurationMutation
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
+import {
+  decryptAppConfigurationMutation,
+  resetAppConfigurationMutation,
+  listAppConfigurationsOptions,
+  getAppConfigurationOptions,
+  updateAppConfigurationMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import type { AppConfigurationItem } from '../api/configuration-types'
 import { EditorNavigationGuard, SaveButton, focusFirstInvalidControl, useFormCompleteness } from '../console-form'
 import { ErrorBlock } from '../../common/error-block'
 import { formatJSON } from '../console-primitives'
@@ -78,18 +80,18 @@ const SETTING_MUTATION_KEY = ['app-configurations']
 
 const SETTING_API = {
   global: {
-    index: ankoleWebAppConfigurationControllerIndexOptions,
-    show: ankoleWebAppConfigurationControllerShowOptions,
-    update: ankoleWebAppConfigurationControllerUpdateMutation,
-    remove: ankoleWebAppConfigurationControllerDeleteMutation,
-    decrypt: ankoleWebAppConfigurationControllerDecryptMutation
+    index: listSiteAppConfigurationsOptions,
+    show: getSiteAppConfigurationOptions,
+    update: updateSiteAppConfigurationMutation,
+    remove: resetSiteAppConfigurationMutation,
+    decrypt: decryptSiteAppConfigurationMutation
   },
   tenant: {
-    index: ankoleWebAppConfigurationControllerIndexTenantOptions,
-    show: ankoleWebAppConfigurationControllerShowTenantOptions,
-    update: ankoleWebAppConfigurationControllerUpdateTenantMutation,
-    remove: ankoleWebAppConfigurationControllerDeleteTenantMutation,
-    decrypt: ankoleWebAppConfigurationControllerDecryptTenantMutation
+    index: listAppConfigurationsOptions,
+    show: getAppConfigurationOptions,
+    update: updateAppConfigurationMutation,
+    remove: resetAppConfigurationMutation,
+    decrypt: decryptAppConfigurationMutation
   }
 } as const
 
@@ -105,8 +107,8 @@ export function SettingsPage() {
 
 function SettingsList() {
   const { t } = useTranslation()
-  const globalList = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
-  const tenantList = useQuery(ankoleWebAppConfigurationControllerIndexTenantOptions())
+  const globalList = useQuery(listSiteAppConfigurationsOptions())
+  const tenantList = useQuery(listAppConfigurationsOptions())
   const globalItems = new Map((globalList.data?.app_configurations ?? []).map(item => [item.key, item]))
   const tenantItems = new Map((tenantList.data?.app_configurations ?? []).map(item => [item.key, item]))
   const [query, setQuery] = useState('')
@@ -411,7 +413,7 @@ export function SettingEditorDrawer() {
       .save(
         item.encrypted,
         t,
-        body => update.mutateAsync({ body, path: { key: item.key } }),
+        body => update.mutateAsync({ body: { data: body }, path: { key: item.key } }),
         clean => finish(t('console.settings.saved', { key: item.key }), clean)
       )
       .catch(error => toast.error(requestErrorMessage(error)))
@@ -654,7 +656,7 @@ export function SettingGroupDrawer() {
       .save(
         items,
         t,
-        (key, value) => update.mutateAsync({ body: { value }, path: { key } }),
+        (key, value) => update.mutateAsync({ body: { data: { value } }, path: { key } }),
         (count, clean) => {
           toast.success(t('console.settings.group_saved', { count }))
           if (clean) void navigate({ to: '/settings' })

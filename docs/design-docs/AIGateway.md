@@ -90,7 +90,11 @@ sections. Both use the same provider, model, context-length, and request-option
 form. The custom section also requires the immutable name and description. The
 `coding` label identifies the Background Agent Job default model. A sibling
 `Token quota` section sets the Agent's period and token limit; see
-[Agent Token Quota](AgentTokenQuota.md).
+[Agent Token Quota](AgentTokenQuota.md). The tenant Console routes under
+`/api/v2/agents/:agent_uid` read and write model profiles, provider-hosted
+capabilities, and token quotas through the owning domain actions. These HTTP
+actions return typed configuration and usage views. Principal/AuthZ checks each
+operation before it reaches the domain.
 
 For an Agent token, `GET /models` exposes each configured custom name as an
 alias and uses its description in the catalog. Another Agent and an admin
@@ -269,9 +273,12 @@ changes (`PATCH`, the `put` action), disables or deletes (`delete`, the
 `credential_pool` field (`CredentialPoolView`) and `provider_metadata` field
 give the same projection as `ProviderConfigs.projection/1`; no credential
 value leaves the row. A rejection carries the operator text of
-`ProviderConfigs.rejection/1`. The credential, credential-pool strategy, and
-ChatGPT login routes stay in `/api/v1/site`: they take plaintext credentials or
-run the login flow.
+`ProviderConfigs.rejection/1`. The same site API serves the model catalog,
+provider kinds, credential writes, credential-pool strategy, and ChatGPT login.
+Credential writes return the safe Provider projection. ChatGPT sign-in actions
+call `ChatGPTAuth` without a transport transaction; the provider domain owns
+the transaction that stores a completed credential. The login response contains
+only the current step, its opaque client context, and safe account metadata.
 
 `ai_gateway_providers` stores operator-configured provider rows. Each row
 contains:

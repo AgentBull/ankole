@@ -32,6 +32,53 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   # {resource, route type, action or relationship} => {AuthZ resource, AuthZ action}
   @rules %{
     site: %{
+      # K1 registry settings and operator Worker environment.
+      {Ankole.AppConfigure.SiteOperations, :route, :console_list} =>
+        {"app_configurations", "read"},
+      {Ankole.AppConfigure.SiteOperations, :route, :console_show} =>
+        {"app_configuration:{key}", "read"},
+      {Ankole.AppConfigure.SiteOperations, :route, :console_update} =>
+        {"app_configuration:{key}", "update"},
+      {Ankole.AppConfigure.SiteOperations, :route, :console_delete} =>
+        {"app_configuration:{key}", "reset"},
+      {Ankole.AppConfigure.SiteOperations, :route, :console_decrypt} =>
+        {"app_configuration:{key}", "decrypt"},
+      {Ankole.AgentWorkers.WorkerEnv.SiteOperations, :route, :console_list} =>
+        {"worker_envs", "read"},
+      {Ankole.AgentWorkers.WorkerEnv.SiteOperations, :route, :console_put} =>
+        {"worker_env:{name}", "update"},
+      {Ankole.AgentWorkers.WorkerEnv.SiteOperations, :route, :console_delete} =>
+        {"worker_env:{name}", "reset"},
+      {Ankole.AgentWorkers.WorkerEnv.SiteOperations, :route, :console_decrypt} =>
+        {"worker_env:{name}", "decrypt"},
+      {Ankole.AgentWorkers.Providers.ConsoleOperations, :route, :console_kinds} =>
+        {"worker_providers", "read"},
+      {Ankole.AgentWorkers.Providers.ConsoleOperations, :route, :console_check} =>
+        {"worker_provider:{provider_id}", "read"},
+      {Ankole.ControlPlanePlugins.Console, :route, :list} => {"control_plane_plugins", "read"},
+      {Ankole.ControlPlanePlugins.Console, :route, :configure} =>
+        {"control_plane_plugins", "update"},
+      # K2 provider credentials and model catalog
+      {Ankole.AIGateway.ProviderConfigs.Console, :route, :models} =>
+        {"ai_gateway_providers", "read"},
+      {Ankole.AIGateway.ProviderConfigs.Console, :route, :provider_kinds} =>
+        {"ai_gateway_provider_kinds", "read"},
+      {Ankole.AIGateway.ProviderConfigs.Provider, :post, :console_add_credential} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
+      {Ankole.AIGateway.ProviderConfigs.Provider, :patch, :console_put_credential} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
+      {Ankole.AIGateway.ProviderConfigs.Provider, :delete, :console_delete_credential} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
+      {Ankole.AIGateway.ProviderConfigs.Provider, :patch, :console_credential_strategy} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
+      {Ankole.AIGateway.ProviderConfigs.Console, :route, :start} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
+      {Ankole.AIGateway.ProviderConfigs.Console, :route, :poll} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
+      {Ankole.AIGateway.ProviderConfigs.Console, :route, :complete} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
+      {Ankole.AIGateway.ProviderConfigs.Console, :route, :enterprise} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
       # J1 site tenants (v1: tenant_controller.ex)
       {Ankole.Tenants.Tenant, :index, :list} => {"site:tenants", "read"},
       {Ankole.Tenants.Tenant, :route, :brain_packs} => {"site:tenants", "read"},
@@ -87,6 +134,68 @@ defmodule AnkoleWeb.JSONAPI.Policy do
       {Ankole.Principals.Access, :route, :classify_work} => {"principals", "update"},
       {Ankole.OIDC.Client, :route, :login_sources} => {"oidc_clients", "read"},
       {Ankole.OIDC.Client, :route, :console_rotate_secret} => {"oidc_client:{id}", "update"},
+      # K1 registry settings and operator Worker environment.
+      {Ankole.AppConfigure.ConsoleOperations, :route, :console_list} =>
+        {"app_configurations", "read"},
+      {Ankole.AppConfigure.ConsoleOperations, :route, :console_show} =>
+        {"app_configuration:{key}", "read"},
+      {Ankole.AppConfigure.ConsoleOperations, :route, :console_update} =>
+        {"app_configuration:{key}", "update"},
+      {Ankole.AppConfigure.ConsoleOperations, :route, :console_delete} =>
+        {"app_configuration:{key}", "reset"},
+      {Ankole.AppConfigure.ConsoleOperations, :route, :console_decrypt} =>
+        {"app_configuration:{key}", "decrypt"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_list} =>
+        {"worker_envs", "read"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_put} =>
+        {"worker_env:{name}", "update"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_delete} =>
+        {"worker_env:{name}", "reset"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_decrypt} =>
+        {"worker_env:{name}", "decrypt"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_list_for_agent} =>
+        {"agent:{agent_uid}:worker_envs", "read"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_put_for_agent} =>
+        {"agent:{agent_uid}:worker_env:{name}", "update"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_delete_for_agent} =>
+        {"agent:{agent_uid}:worker_env:{name}", "reset"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_decrypt_for_agent} =>
+        {"agent:{agent_uid}:worker_env:{name}", "decrypt"},
+      {Ankole.Brain.ConsoleViews, :route, :health} => {"brain", "read"},
+      {Ankole.Brain.ConsoleViews, :route, :dream} => {"brain", "update"},
+      {Ankole.Brain.ConsoleViews, :route, :object_types} => {"brain", "read"},
+      {Ankole.Brain.ConsoleViews, :route, :show_object} => {"brain", "read"},
+      {Ankole.Brain.ConsoleViews, :route, :search_preview} => {"brain", "read"},
+      {Ankole.Brain.ConsoleViews, :route, :principal_knowledge} => {"brain", "read"},
+      {Ankole.AIAgent.Library.Console, :route, :global_capabilities} => {"agent_library", "read"},
+      {Ankole.AIAgent.Library.Console, :route, :set_global_plugin} => {"agent_library", "update"},
+      {Ankole.AIAgent.Library.Console, :route, :set_global_skill} => {"agent_library", "update"},
+      {Ankole.AIAgent.Library.Console, :route, :agent_capabilities} =>
+        {"agent:{agent_uid}:library", "read"},
+      {Ankole.AIAgent.Library.Console, :route, :set_agent_plugin} =>
+        {"agent:{agent_uid}:library", "update"},
+      {Ankole.AIAgent.Library.Console, :route, :set_agent_skill} =>
+        {"agent:{agent_uid}:library", "update"},
+      {Ankole.AIAgent.Library.Console, :route, :documents} =>
+        {"agent:{agent_uid}:library", "read"},
+      {Ankole.AIAgent.Library.Console, :route, :replace_document} =>
+        {"agent:{agent_uid}:library", "update"},
+      # K2 Agent model configuration and token quotas
+      {Ankole.AIAgent.Console, :route, :model_profiles} =>
+        {"agent:{agent_uid}:model_profiles", "read"},
+      {Ankole.AIAgent.Console, :route, :put_model_profile} =>
+        {"agent:{agent_uid}:model_profile:{profile}", "update"},
+      {Ankole.AIAgent.Console, :route, :delete_model_profile} =>
+        {"agent:{agent_uid}:model_profile:{profile}", "delete"},
+      {Ankole.AIAgent.Console, :route, :put_provider_hosted} =>
+        {"agent:{agent_uid}:model_profiles", "update"},
+      {Ankole.AIAgent.Console, :route, :token_quota} => {"agent:{agent_uid}:token_quota", "read"},
+      {Ankole.AIAgent.Console, :route, :put_token_quota} =>
+        {"agent:{agent_uid}:token_quota", "update"},
+      {Ankole.AIAgent.Console, :route, :delete_token_quota} =>
+        {"agent:{agent_uid}:token_quota", "delete"},
+      {Ankole.AIAgent.Console, :route, :reset_token_quota} =>
+        {"agent:{agent_uid}:token_quota", "update"},
       # J4 background agent jobs (v1: background_agent_job_controller.ex)
       {Ankole.BackgroundAgentJobs.Schemas.Job, :index, :console_list} =>
         {"background_agent_jobs", "read"},

@@ -1,10 +1,11 @@
-import type {
-  AgentLibrarySkillCapabilityItem,
-  AgentPluginCapabilityItem,
-  ControlPlanePluginItem,
-  JsonValue as JSONValue
-} from '../api/generated/types.gen'
+import type { GetGlobalLibraryCapabilitiesResponse } from '../api/v2/generated/types.gen'
+import type { ListControlPlanePluginsResponse } from '../api/v2-site/generated/types.gen'
 import { matchesResourceSearch } from './resource-search'
+
+export type AgentLibraryCapabilitiesResponse = GetGlobalLibraryCapabilitiesResponse
+export type AgentLibrarySkillCapabilityItem = AgentLibraryCapabilitiesResponse['skills'][number]
+export type AgentPluginCapabilityItem = AgentLibraryCapabilitiesResponse['agent_plugins'][number]
+export type ControlPlanePluginItem = ListControlPlanePluginsResponse['control_plane_plugins'][number]
 
 export const GLOBAL_LIBRARY_SCOPE = '__global__'
 
@@ -17,8 +18,8 @@ export function availableAgentLibraryTabs(scope: string): AgentLibraryTab[] {
     : ['agent-plugins', 'skills']
 }
 
-export function agentLibraryOverrideValue(value: boolean | null): AgentLibraryOverrideValue {
-  if (value === null) return 'inherit'
+export function agentLibraryOverrideValue(value: boolean | null | undefined): AgentLibraryOverrideValue {
+  if (value == null) return 'inherit'
   return value ? 'enabled' : 'disabled'
 }
 
@@ -62,10 +63,10 @@ export function filterControlPlanePlugins(items: ControlPlanePluginItem[], query
   )
 }
 
-export function localizedJSONText(value: JSONValue, locale = 'en-US'): string {
+export function localizedJSONText(value: unknown, locale = 'en-US'): string {
   if (typeof value === 'string') return value
   if (!value || Array.isArray(value) || typeof value !== 'object') return value == null ? '' : String(value)
-  const localized = value as Record<string, JSONValue>
+  const localized = value as Record<string, unknown>
   const candidate = localized[locale] ?? localized[locale.split('-')[0]] ?? localized['en-US'] ?? localized.en
   if (typeof candidate === 'string') return candidate
   return JSON.stringify(value)

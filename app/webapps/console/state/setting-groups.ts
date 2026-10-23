@@ -1,5 +1,5 @@
 import type { TFunction } from 'i18next'
-import type { AppConfigurationItem } from '../api/generated/types.gen'
+import type { AppConfigurationItem } from '../api/configuration-types'
 
 /**
  * Declared key prefixes that one subsystem owns. Each group selects its typed editor.

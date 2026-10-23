@@ -1,4 +1,4 @@
-import type { AiGatewayModelCatalogEntry as AIGatewayModelCatalogEntry } from '../api/generated/types.gen'
+import type { AIGatewayModelCatalogEntry } from '../state/provider-settings'
 import {
   CreatableCombobox,
   CronEditor,
@@ -17,11 +17,11 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { Link } from '@tanstack/react-router'
 import {
-  ankoleWebAiGatewayProviderControllerModelsOptions,
-  ankoleWebAiGatewayProviderControllerProviderKindsOptions
-} from '../api/generated/@tanstack/react-query.gen'
+  listAiGatewayModelsOptions,
+  listAiGatewayProviderKindsOptions
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { agentListOptions } from '../api/agents'
-import type { AppConfigurationItem } from '../api/generated/types.gen'
+import type { AppConfigurationItem } from '../api/configuration-types'
 import { LabeledField } from '../console-form'
 import { modelOptionsForBrainModel, providersWithCapability } from './model-profile-options'
 import {
@@ -96,8 +96,8 @@ export function BrainSettingsEditor({
   const itemsByKey = new Map(items.map(item => [item.key, item]))
   const cronLabels = cronEditorLabels(t)
   const providers = useQuery({ ...listAiGatewayProvidersOptions(), select: aiGatewayProviders })
-  const providerKinds = useQuery(ankoleWebAiGatewayProviderControllerProviderKindsOptions())
-  const modelCatalog = useQuery(ankoleWebAiGatewayProviderControllerModelsOptions())
+  const providerKinds = useQuery(listAiGatewayProviderKindsOptions())
+  const modelCatalog = useQuery(listAiGatewayModelsOptions())
   const agents = useQuery(agentListOptions())
   const providerList = providers.data ?? []
   const kindList = providerKinds.data?.provider_kinds ?? []

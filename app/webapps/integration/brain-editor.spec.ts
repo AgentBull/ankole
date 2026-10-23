@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
-import type { BrainObjectPage } from '../console/api/generated/types.gen'
+import type { BrainObjectPage } from '../console/state/brain-object-editor-model'
 
 function object(slug: string): BrainObjectPage {
   return {
@@ -48,8 +48,6 @@ async function brain(page: Page) {
   const reads = new Map<string, number>()
   let holdSlug: string | undefined
   let failReads = false
-  // Object writes, the list, and the versions are JSON:API v2 routes; the
-  // object page and the type list are v1 read models.
   await page.route('**/api/v2/brain/**', async route => {
     const url = new URL(route.request().url())
     if (['POST', 'PATCH'].includes(route.request().method())) {
@@ -67,7 +65,7 @@ async function brain(page: Page) {
       }
     })
   })
-  await page.route('**/api/v1/brain/**', async route => {
+  await page.route('**/api/v2/brain/**', async route => {
     const url = new URL(route.request().url())
     if (url.pathname.endsWith('/object-types')) return route.fulfill({ json: { types: ['note'] } })
     if (url.pathname.endsWith('/show')) {

@@ -10,30 +10,6 @@ import {
 } from './client'
 import { client } from './client.gen'
 import type {
-  AnkoleWebAgentControllerDeleteModelProfileData,
-  AnkoleWebAgentControllerDeleteModelProfileErrors,
-  AnkoleWebAgentControllerDeleteModelProfileResponses,
-  AnkoleWebAgentControllerDeleteTokenQuotaData,
-  AnkoleWebAgentControllerDeleteTokenQuotaErrors,
-  AnkoleWebAgentControllerDeleteTokenQuotaResponses,
-  AnkoleWebAgentControllerIndexModelProfilesData,
-  AnkoleWebAgentControllerIndexModelProfilesErrors,
-  AnkoleWebAgentControllerIndexModelProfilesResponses,
-  AnkoleWebAgentControllerPutModelProfileData,
-  AnkoleWebAgentControllerPutModelProfileErrors,
-  AnkoleWebAgentControllerPutModelProfileResponses,
-  AnkoleWebAgentControllerPutProviderHostedData,
-  AnkoleWebAgentControllerPutProviderHostedErrors,
-  AnkoleWebAgentControllerPutProviderHostedResponses,
-  AnkoleWebAgentControllerPutTokenQuotaData,
-  AnkoleWebAgentControllerPutTokenQuotaErrors,
-  AnkoleWebAgentControllerPutTokenQuotaResponses,
-  AnkoleWebAgentControllerResetTokenQuotaData,
-  AnkoleWebAgentControllerResetTokenQuotaErrors,
-  AnkoleWebAgentControllerResetTokenQuotaResponses,
-  AnkoleWebAgentControllerShowTokenQuotaData,
-  AnkoleWebAgentControllerShowTokenQuotaErrors,
-  AnkoleWebAgentControllerShowTokenQuotaResponses,
   AnkoleWebAgentFileControllerDeleteData,
   AnkoleWebAgentFileControllerDeleteErrors,
   AnkoleWebAgentFileControllerDeleteResponses,
@@ -112,66 +88,6 @@ import type {
   AnkoleWebAiGatewayFilesControllerShowData,
   AnkoleWebAiGatewayFilesControllerShowErrors,
   AnkoleWebAiGatewayFilesControllerShowResponses,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialData,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerAddCredentialData,
-  AnkoleWebAiGatewayProviderControllerAddCredentialErrors,
-  AnkoleWebAiGatewayProviderControllerAddCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialData,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerModelsData,
-  AnkoleWebAiGatewayProviderControllerModelsErrors,
-  AnkoleWebAiGatewayProviderControllerModelsResponses,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginData,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses,
-  AnkoleWebAiGatewayProviderControllerProviderKindsData,
-  AnkoleWebAiGatewayProviderControllerProviderKindsErrors,
-  AnkoleWebAiGatewayProviderControllerProviderKindsResponses,
-  AnkoleWebAiGatewayProviderControllerPutCredentialData,
-  AnkoleWebAiGatewayProviderControllerPutCredentialErrors,
-  AnkoleWebAiGatewayProviderControllerPutCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginData,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses,
-  AnkoleWebAppConfigurationControllerDecryptData,
-  AnkoleWebAppConfigurationControllerDecryptErrors,
-  AnkoleWebAppConfigurationControllerDecryptResponses,
-  AnkoleWebAppConfigurationControllerDecryptTenantData,
-  AnkoleWebAppConfigurationControllerDecryptTenantErrors,
-  AnkoleWebAppConfigurationControllerDecryptTenantResponses,
-  AnkoleWebAppConfigurationControllerDeleteData,
-  AnkoleWebAppConfigurationControllerDeleteErrors,
-  AnkoleWebAppConfigurationControllerDeleteResponses,
-  AnkoleWebAppConfigurationControllerDeleteTenantData,
-  AnkoleWebAppConfigurationControllerDeleteTenantErrors,
-  AnkoleWebAppConfigurationControllerDeleteTenantResponses,
-  AnkoleWebAppConfigurationControllerIndexData,
-  AnkoleWebAppConfigurationControllerIndexErrors,
-  AnkoleWebAppConfigurationControllerIndexResponses,
-  AnkoleWebAppConfigurationControllerIndexTenantData,
-  AnkoleWebAppConfigurationControllerIndexTenantErrors,
-  AnkoleWebAppConfigurationControllerIndexTenantResponses,
-  AnkoleWebAppConfigurationControllerShowData,
-  AnkoleWebAppConfigurationControllerShowErrors,
-  AnkoleWebAppConfigurationControllerShowResponses,
-  AnkoleWebAppConfigurationControllerShowTenantData,
-  AnkoleWebAppConfigurationControllerShowTenantErrors,
-  AnkoleWebAppConfigurationControllerShowTenantResponses,
-  AnkoleWebAppConfigurationControllerUpdateData,
-  AnkoleWebAppConfigurationControllerUpdateErrors,
-  AnkoleWebAppConfigurationControllerUpdateResponses,
-  AnkoleWebAppConfigurationControllerUpdateTenantData,
-  AnkoleWebAppConfigurationControllerUpdateTenantErrors,
-  AnkoleWebAppConfigurationControllerUpdateTenantResponses,
   AnkoleWebAuthControllerDeleteSessionData,
   AnkoleWebAuthControllerDeleteSessionResponses,
   AnkoleWebBackgroundAgentJobControllerHealthData,
@@ -225,48 +141,6 @@ import type {
   AnkoleWebSignalBindingControllerUpdateBindingData,
   AnkoleWebSignalBindingControllerUpdateBindingErrors,
   AnkoleWebSignalBindingControllerUpdateBindingResponses,
-  AnkoleWebWorkerEnvControllerDecryptData,
-  AnkoleWebWorkerEnvControllerDecryptErrors,
-  AnkoleWebWorkerEnvControllerDecryptForAgentData,
-  AnkoleWebWorkerEnvControllerDecryptForAgentErrors,
-  AnkoleWebWorkerEnvControllerDecryptForAgentResponses,
-  AnkoleWebWorkerEnvControllerDecryptResponses,
-  AnkoleWebWorkerEnvControllerDecryptTenantData,
-  AnkoleWebWorkerEnvControllerDecryptTenantErrors,
-  AnkoleWebWorkerEnvControllerDecryptTenantResponses,
-  AnkoleWebWorkerEnvControllerDeleteData,
-  AnkoleWebWorkerEnvControllerDeleteErrors,
-  AnkoleWebWorkerEnvControllerDeleteForAgentData,
-  AnkoleWebWorkerEnvControllerDeleteForAgentErrors,
-  AnkoleWebWorkerEnvControllerDeleteForAgentResponses,
-  AnkoleWebWorkerEnvControllerDeleteResponses,
-  AnkoleWebWorkerEnvControllerDeleteTenantData,
-  AnkoleWebWorkerEnvControllerDeleteTenantErrors,
-  AnkoleWebWorkerEnvControllerDeleteTenantResponses,
-  AnkoleWebWorkerEnvControllerIndexData,
-  AnkoleWebWorkerEnvControllerIndexErrors,
-  AnkoleWebWorkerEnvControllerIndexForAgentData,
-  AnkoleWebWorkerEnvControllerIndexForAgentErrors,
-  AnkoleWebWorkerEnvControllerIndexForAgentResponses,
-  AnkoleWebWorkerEnvControllerIndexResponses,
-  AnkoleWebWorkerEnvControllerIndexTenantData,
-  AnkoleWebWorkerEnvControllerIndexTenantErrors,
-  AnkoleWebWorkerEnvControllerIndexTenantResponses,
-  AnkoleWebWorkerEnvControllerUpdateData,
-  AnkoleWebWorkerEnvControllerUpdateErrors,
-  AnkoleWebWorkerEnvControllerUpdateForAgentData,
-  AnkoleWebWorkerEnvControllerUpdateForAgentErrors,
-  AnkoleWebWorkerEnvControllerUpdateForAgentResponses,
-  AnkoleWebWorkerEnvControllerUpdateResponses,
-  AnkoleWebWorkerEnvControllerUpdateTenantData,
-  AnkoleWebWorkerEnvControllerUpdateTenantErrors,
-  AnkoleWebWorkerEnvControllerUpdateTenantResponses,
-  AnkoleWebWorkerProviderControllerCheckData,
-  AnkoleWebWorkerProviderControllerCheckErrors,
-  AnkoleWebWorkerProviderControllerCheckResponses,
-  AnkoleWebWorkerProviderControllerKindsData,
-  AnkoleWebWorkerProviderControllerKindsErrors,
-  AnkoleWebWorkerProviderControllerKindsResponses,
   BackgroundActivityAutomationRunsData,
   BackgroundActivityAutomationRunsErrors,
   BackgroundActivityAutomationRunsResponses,
@@ -314,30 +188,6 @@ export const ankoleWebAiGatewayFilesControllerContent = <ThrowOnError extends bo
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/api/v1/ai-gateway/files/{file_id}/content',
     ...options
-  })
-
-/**
- * Start a ChatGPT device or browser-paste login
- */
-export const ankoleWebAiGatewayProviderControllerStartChatgptLogin = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerStartChatgptLoginData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses,
-  AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses,
-    AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-login',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -393,46 +243,6 @@ export const ankoleWebAiGatewayFilesControllerShow = <ThrowOnError extends boole
   })
 
 /**
- * Reveal one encrypted installation-wide worker shell variable
- */
-export const ankoleWebWorkerEnvControllerDecrypt = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWorkerEnvControllerDecryptData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerEnvControllerDecryptResponses,
-  AnkoleWebWorkerEnvControllerDecryptErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebWorkerEnvControllerDecryptResponses,
-    AnkoleWebWorkerEnvControllerDecryptErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/worker-envs/{name}/decryptions',
-    ...options
-  })
-
-/**
- * List console-visible AppConfigure entries
- */
-export const ankoleWebAppConfigurationControllerIndexTenant = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAppConfigurationControllerIndexTenantData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAppConfigurationControllerIndexTenantResponses,
-  AnkoleWebAppConfigurationControllerIndexTenantErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAppConfigurationControllerIndexTenantResponses,
-    AnkoleWebAppConfigurationControllerIndexTenantErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/app-configurations',
-    ...options
-  })
-
-/**
  * Rename or move a file or folder in an Agent's drive
  */
 export const ankoleWebAgentFileControllerMove = <ThrowOnError extends boolean = false>(
@@ -445,70 +255,6 @@ export const ankoleWebAgentFileControllerMove = <ThrowOnError extends boolean = 
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/agents/{agent_uid}/file-moves',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Start a new token quota period at this instant
- */
-export const ankoleWebAgentControllerResetTokenQuota = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerResetTokenQuotaData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerResetTokenQuotaResponses,
-  AnkoleWebAgentControllerResetTokenQuotaErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAgentControllerResetTokenQuotaResponses,
-    AnkoleWebAgentControllerResetTokenQuotaErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/token-quota/reset',
-    ...options
-  })
-
-/**
- * List console-visible AppConfigure entries
- */
-export const ankoleWebAppConfigurationControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAppConfigurationControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAppConfigurationControllerIndexResponses,
-  AnkoleWebAppConfigurationControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAppConfigurationControllerIndexResponses,
-    AnkoleWebAppConfigurationControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/app-configurations',
-    ...options
-  })
-
-/**
- * Add one credential-pool member
- */
-export const ankoleWebAiGatewayProviderControllerAddCredential = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerAddCredentialData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerAddCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerAddCredentialErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerAddCredentialResponses,
-    AnkoleWebAiGatewayProviderControllerAddCredentialErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/credentials',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -533,30 +279,6 @@ export const ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverride = <
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/agents/{agent_uid}/library-capabilities/agent-plugins/{id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Set the provider credential-pool selection strategy
- */
-export const ankoleWebAiGatewayProviderControllerPutCredentialStrategy = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses,
-  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses,
-    AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/credential-pool/strategy',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -798,114 +520,6 @@ export const ankoleWebAiGatewayControllerWebFetch = <ThrowOnError extends boolea
   })
 
 /**
- * List Worker provider kinds and YAML examples
- */
-export const ankoleWebWorkerProviderControllerKinds = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebWorkerProviderControllerKindsData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerProviderControllerKindsResponses,
-  AnkoleWebWorkerProviderControllerKindsErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebWorkerProviderControllerKindsResponses,
-    AnkoleWebWorkerProviderControllerKindsErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/worker-provider-kinds',
-    ...options
-  })
-
-/**
- * Delete one credential-pool member
- */
-export const ankoleWebAiGatewayProviderControllerDeleteCredential = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerDeleteCredentialData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses,
-    AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}',
-    ...options
-  })
-
-/**
- * Update one credential-pool member
- */
-export const ankoleWebAiGatewayProviderControllerPutCredential = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerPutCredentialData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerPutCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerPutCredentialErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAiGatewayProviderControllerPutCredentialResponses,
-    AnkoleWebAiGatewayProviderControllerPutCredentialErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Clear one optional model profile for an agent
- */
-export const ankoleWebAgentControllerDeleteModelProfile = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerDeleteModelProfileData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerDeleteModelProfileResponses,
-  AnkoleWebAgentControllerDeleteModelProfileErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAgentControllerDeleteModelProfileResponses,
-    AnkoleWebAgentControllerDeleteModelProfileErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/model-profiles/{profile}',
-    ...options
-  })
-
-/**
- * Create or update one model profile for an agent
- */
-export const ankoleWebAgentControllerPutModelProfile = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerPutModelProfileData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerPutModelProfileResponses,
-  AnkoleWebAgentControllerPutModelProfileErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAgentControllerPutModelProfileResponses,
-    AnkoleWebAgentControllerPutModelProfileErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/model-profiles/{profile}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Retrieve a stored stateful OpenResponses response
  */
 export const ankoleWebAiGatewayControllerRetrieveResponse = <ThrowOnError extends boolean = false>(
@@ -926,46 +540,6 @@ export const ankoleWebAiGatewayControllerRetrieveResponse = <ThrowOnError extend
   })
 
 /**
- * Reveal the encrypted worker shell variable effective for one agent
- */
-export const ankoleWebWorkerEnvControllerDecryptForAgent = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWorkerEnvControllerDecryptForAgentData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerEnvControllerDecryptForAgentResponses,
-  AnkoleWebWorkerEnvControllerDecryptForAgentErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebWorkerEnvControllerDecryptForAgentResponses,
-    AnkoleWebWorkerEnvControllerDecryptForAgentErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/worker-envs/{name}/decryptions',
-    ...options
-  })
-
-/**
- * Reveal one encrypted tenant worker shell variable
- */
-export const ankoleWebWorkerEnvControllerDecryptTenant = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWorkerEnvControllerDecryptTenantData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerEnvControllerDecryptTenantResponses,
-  AnkoleWebWorkerEnvControllerDecryptTenantErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebWorkerEnvControllerDecryptTenantResponses,
-    AnkoleWebWorkerEnvControllerDecryptTenantErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/worker-envs/{name}/decryptions',
-    ...options
-  })
-
-/**
  * List signal bindings
  */
 export const ankoleWebSignalBindingControllerIndex = <ThrowOnError extends boolean = false>(
@@ -982,22 +556,6 @@ export const ankoleWebSignalBindingControllerIndex = <ThrowOnError extends boole
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/signal-bindings',
-    ...options
-  })
-
-/**
- * List installation-wide worker shell variables
- */
-export const ankoleWebWorkerEnvControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebWorkerEnvControllerIndexData, ThrowOnError>
-): RequestResult<AnkoleWebWorkerEnvControllerIndexResponses, AnkoleWebWorkerEnvControllerIndexErrors, ThrowOnError> =>
-  (options?.client ?? client).get<
-    AnkoleWebWorkerEnvControllerIndexResponses,
-    AnkoleWebWorkerEnvControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/worker-envs',
     ...options
   })
 
@@ -1070,46 +628,6 @@ export const ankoleWebControlPlanePluginControllerUpdate = <ThrowOnError extends
   })
 
 /**
- * Check a Worker provider connection and permissions
- */
-export const ankoleWebWorkerProviderControllerCheck = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWorkerProviderControllerCheckData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerProviderControllerCheckResponses,
-  AnkoleWebWorkerProviderControllerCheckErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebWorkerProviderControllerCheckResponses,
-    AnkoleWebWorkerProviderControllerCheckErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/worker-providers/{provider_id}/check',
-    ...options
-  })
-
-/**
- * Read all model profiles for one agent
- */
-export const ankoleWebAgentControllerIndexModelProfiles = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerIndexModelProfilesData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerIndexModelProfilesResponses,
-  AnkoleWebAgentControllerIndexModelProfilesErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAgentControllerIndexModelProfilesResponses,
-    AnkoleWebAgentControllerIndexModelProfilesErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/model-profiles',
-    ...options
-  })
-
-/**
  * List signal adapters available for bindings
  */
 export const ankoleWebSignalBindingControllerAdapters = <ThrowOnError extends boolean = false>(
@@ -1127,30 +645,6 @@ export const ankoleWebSignalBindingControllerAdapters = <ThrowOnError extends bo
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/signal-adapters',
     ...options
-  })
-
-/**
- * Poll one ChatGPT device login once
- */
-export const ankoleWebAiGatewayProviderControllerPollChatgptLogin = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerPollChatgptLoginData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses,
-  AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses,
-    AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-login/poll',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -1214,56 +708,6 @@ export const ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverride = <T
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/agents/{agent_uid}/library-capabilities/skills/{id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Add a ChatGPT enterprise access token
- */
-export const ankoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredential = <
-  ThrowOnError extends boolean = false
->(
-  options: Options<AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses,
-  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses,
-    AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-enterprise-credentials',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Complete a ChatGPT browser-paste login
- */
-export const ankoleWebAiGatewayProviderControllerCompleteChatgptBrowserLogin = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses,
-  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses,
-    AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-login/browser-callback',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -1413,70 +857,6 @@ export const ankoleWebSignalBindingControllerPutBinding = <ThrowOnError extends 
   })
 
 /**
- * Delete one tenant worker shell variable
- */
-export const ankoleWebWorkerEnvControllerDeleteTenant = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWorkerEnvControllerDeleteTenantData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerEnvControllerDeleteTenantResponses,
-  AnkoleWebWorkerEnvControllerDeleteTenantErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebWorkerEnvControllerDeleteTenantResponses,
-    AnkoleWebWorkerEnvControllerDeleteTenantErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/worker-envs/{name}',
-    ...options
-  })
-
-/**
- * Store one tenant worker shell variable
- */
-export const ankoleWebWorkerEnvControllerUpdateTenant = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWorkerEnvControllerUpdateTenantData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerEnvControllerUpdateTenantResponses,
-  AnkoleWebWorkerEnvControllerUpdateTenantErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebWorkerEnvControllerUpdateTenantResponses,
-    AnkoleWebWorkerEnvControllerUpdateTenantErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/worker-envs/{name}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * List the Console model catalog
- */
-export const ankoleWebAiGatewayProviderControllerModels = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAiGatewayProviderControllerModelsData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerModelsResponses,
-  AnkoleWebAiGatewayProviderControllerModelsErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAiGatewayProviderControllerModelsResponses,
-    AnkoleWebAiGatewayProviderControllerModelsErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/models',
-    ...options
-  })
-
-/**
  * End authentication in the current browser
  */
 export const ankoleWebAuthControllerDeleteSession = <ThrowOnError extends boolean = false>(
@@ -1485,70 +865,6 @@ export const ankoleWebAuthControllerDeleteSession = <ThrowOnError extends boolea
   (options?.client ?? client).delete<AnkoleWebAuthControllerDeleteSessionResponses, unknown, ThrowOnError>({
     url: '/.internal-apis/session',
     ...options
-  })
-
-/**
- * Remove the token quota of one agent, which leaves it without a limit
- */
-export const ankoleWebAgentControllerDeleteTokenQuota = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerDeleteTokenQuotaData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerDeleteTokenQuotaResponses,
-  AnkoleWebAgentControllerDeleteTokenQuotaErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAgentControllerDeleteTokenQuotaResponses,
-    AnkoleWebAgentControllerDeleteTokenQuotaErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/token-quota',
-    ...options
-  })
-
-/**
- * Read the token quota and the current window of one agent
- */
-export const ankoleWebAgentControllerShowTokenQuota = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerShowTokenQuotaData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerShowTokenQuotaResponses,
-  AnkoleWebAgentControllerShowTokenQuotaErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAgentControllerShowTokenQuotaResponses,
-    AnkoleWebAgentControllerShowTokenQuotaErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/token-quota',
-    ...options
-  })
-
-/**
- * Set the token quota of one agent
- */
-export const ankoleWebAgentControllerPutTokenQuota = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerPutTokenQuotaData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerPutTokenQuotaResponses,
-  AnkoleWebAgentControllerPutTokenQuotaErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAgentControllerPutTokenQuotaResponses,
-    AnkoleWebAgentControllerPutTokenQuotaErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/token-quota',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -1569,110 +885,6 @@ export const ankoleWebAiGatewayControllerRerank = <ThrowOnError extends boolean 
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * List tenant worker shell variables
- */
-export const ankoleWebWorkerEnvControllerIndexTenant = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebWorkerEnvControllerIndexTenantData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerEnvControllerIndexTenantResponses,
-  AnkoleWebWorkerEnvControllerIndexTenantErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebWorkerEnvControllerIndexTenantResponses,
-    AnkoleWebWorkerEnvControllerIndexTenantErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/worker-envs',
-    ...options
-  })
-
-/**
- * Reset one global AppConfigure value
- */
-export const ankoleWebAppConfigurationControllerDelete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAppConfigurationControllerDeleteData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAppConfigurationControllerDeleteResponses,
-  AnkoleWebAppConfigurationControllerDeleteErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAppConfigurationControllerDeleteResponses,
-    AnkoleWebAppConfigurationControllerDeleteErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/app-configurations/{key}',
-    ...options
-  })
-
-/**
- * Read one console-visible AppConfigure entry
- */
-export const ankoleWebAppConfigurationControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAppConfigurationControllerShowData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAppConfigurationControllerShowResponses,
-  AnkoleWebAppConfigurationControllerShowErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAppConfigurationControllerShowResponses,
-    AnkoleWebAppConfigurationControllerShowErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/app-configurations/{key}',
-    ...options
-  })
-
-/**
- * Store one global AppConfigure value
- */
-export const ankoleWebAppConfigurationControllerUpdate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAppConfigurationControllerUpdateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAppConfigurationControllerUpdateResponses,
-  AnkoleWebAppConfigurationControllerUpdateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAppConfigurationControllerUpdateResponses,
-    AnkoleWebAppConfigurationControllerUpdateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/app-configurations/{key}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Reveal one encrypted AppConfigure value on demand
- */
-export const ankoleWebAppConfigurationControllerDecryptTenant = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAppConfigurationControllerDecryptTenantData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAppConfigurationControllerDecryptTenantResponses,
-  AnkoleWebAppConfigurationControllerDecryptTenantErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAppConfigurationControllerDecryptTenantResponses,
-    AnkoleWebAppConfigurationControllerDecryptTenantErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/app-configurations/{key}/decryptions',
-    ...options
   })
 
 /**
@@ -1720,26 +932,6 @@ export const ankoleWebAgentLibraryControllerIndex = <ThrowOnError extends boolea
   })
 
 /**
- * List AIGateway provider kinds
- */
-export const ankoleWebAiGatewayProviderControllerProviderKinds = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebAiGatewayProviderControllerProviderKindsData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAiGatewayProviderControllerProviderKindsResponses,
-  AnkoleWebAiGatewayProviderControllerProviderKindsErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebAiGatewayProviderControllerProviderKindsResponses,
-    AnkoleWebAiGatewayProviderControllerProviderKindsErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/ai-gateway/provider-kinds',
-    ...options
-  })
-
-/**
  * List installed Brain object types
  */
 export const ankoleWebBrainControllerObjectTypes = <ThrowOnError extends boolean = false>(
@@ -1768,26 +960,6 @@ export const ankoleWebAgentSessionControllerIndex = <ThrowOnError extends boolea
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/agents/{agent_uid}/sessions',
-    ...options
-  })
-
-/**
- * List effective worker shell variables for one agent
- */
-export const ankoleWebWorkerEnvControllerIndexForAgent = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWorkerEnvControllerIndexForAgentData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerEnvControllerIndexForAgentResponses,
-  AnkoleWebWorkerEnvControllerIndexForAgentErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebWorkerEnvControllerIndexForAgentResponses,
-    AnkoleWebWorkerEnvControllerIndexForAgentErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/worker-envs',
     ...options
   })
 
@@ -1836,30 +1008,6 @@ export const ankoleWebAgentLibraryControllerUpdate = <ThrowOnError extends boole
   })
 
 /**
- * Set which capabilities an agent leaves to its language-model provider
- */
-export const ankoleWebAgentControllerPutProviderHosted = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentControllerPutProviderHostedData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentControllerPutProviderHostedResponses,
-  AnkoleWebAgentControllerPutProviderHostedErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAgentControllerPutProviderHostedResponses,
-    AnkoleWebAgentControllerPutProviderHostedErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/provider-hosted',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Read one Brain object with full admin detail
  */
 export const ankoleWebBrainControllerShowObject = <ThrowOnError extends boolean = false>(
@@ -1869,70 +1017,6 @@ export const ankoleWebBrainControllerShowObject = <ThrowOnError extends boolean 
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/brain/objects/show',
     ...options
-  })
-
-/**
- * Reset one tenant AppConfigure value
- */
-export const ankoleWebAppConfigurationControllerDeleteTenant = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAppConfigurationControllerDeleteTenantData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAppConfigurationControllerDeleteTenantResponses,
-  AnkoleWebAppConfigurationControllerDeleteTenantErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebAppConfigurationControllerDeleteTenantResponses,
-    AnkoleWebAppConfigurationControllerDeleteTenantErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/app-configurations/{key}',
-    ...options
-  })
-
-/**
- * Read one console-visible AppConfigure entry
- */
-export const ankoleWebAppConfigurationControllerShowTenant = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAppConfigurationControllerShowTenantData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAppConfigurationControllerShowTenantResponses,
-  AnkoleWebAppConfigurationControllerShowTenantErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAppConfigurationControllerShowTenantResponses,
-    AnkoleWebAppConfigurationControllerShowTenantErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/app-configurations/{key}',
-    ...options
-  })
-
-/**
- * Store one tenant AppConfigure value
- */
-export const ankoleWebAppConfigurationControllerUpdateTenant = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAppConfigurationControllerUpdateTenantData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAppConfigurationControllerUpdateTenantResponses,
-  AnkoleWebAppConfigurationControllerUpdateTenantErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebAppConfigurationControllerUpdateTenantResponses,
-    AnkoleWebAppConfigurationControllerUpdateTenantErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/app-configurations/{key}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -2004,42 +1088,6 @@ export const ankoleWebSignalBindingControllerRequeueDelivery = <ThrowOnError ext
   })
 
 /**
- * Delete one installation-wide worker shell variable
- */
-export const ankoleWebWorkerEnvControllerDelete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWorkerEnvControllerDeleteData, ThrowOnError>
-): RequestResult<AnkoleWebWorkerEnvControllerDeleteResponses, AnkoleWebWorkerEnvControllerDeleteErrors, ThrowOnError> =>
-  (options.client ?? client).delete<
-    AnkoleWebWorkerEnvControllerDeleteResponses,
-    AnkoleWebWorkerEnvControllerDeleteErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/worker-envs/{name}',
-    ...options
-  })
-
-/**
- * Store one installation-wide worker shell variable
- */
-export const ankoleWebWorkerEnvControllerUpdate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWorkerEnvControllerUpdateData, ThrowOnError>
-): RequestResult<AnkoleWebWorkerEnvControllerUpdateResponses, AnkoleWebWorkerEnvControllerUpdateErrors, ThrowOnError> =>
-  (options.client ?? client).put<
-    AnkoleWebWorkerEnvControllerUpdateResponses,
-    AnkoleWebWorkerEnvControllerUpdateErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/worker-envs/{name}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Read global Agent Plugin and standalone Skill defaults
  */
 export const ankoleWebAgentLibraryCapabilityControllerGlobalIndex = <ThrowOnError extends boolean = false>(
@@ -2057,70 +1105,6 @@ export const ankoleWebAgentLibraryCapabilityControllerGlobalIndex = <ThrowOnErro
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/agent-library/capabilities',
     ...options
-  })
-
-/**
- * Reveal one encrypted AppConfigure value on demand
- */
-export const ankoleWebAppConfigurationControllerDecrypt = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAppConfigurationControllerDecryptData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAppConfigurationControllerDecryptResponses,
-  AnkoleWebAppConfigurationControllerDecryptErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebAppConfigurationControllerDecryptResponses,
-    AnkoleWebAppConfigurationControllerDecryptErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/site/app-configurations/{key}/decryptions',
-    ...options
-  })
-
-/**
- * Delete one agent-tier worker shell variable
- */
-export const ankoleWebWorkerEnvControllerDeleteForAgent = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWorkerEnvControllerDeleteForAgentData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerEnvControllerDeleteForAgentResponses,
-  AnkoleWebWorkerEnvControllerDeleteForAgentErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebWorkerEnvControllerDeleteForAgentResponses,
-    AnkoleWebWorkerEnvControllerDeleteForAgentErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/worker-envs/{name}',
-    ...options
-  })
-
-/**
- * Store one agent-tier worker shell variable
- */
-export const ankoleWebWorkerEnvControllerUpdateForAgent = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWorkerEnvControllerUpdateForAgentData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWorkerEnvControllerUpdateForAgentResponses,
-  AnkoleWebWorkerEnvControllerUpdateForAgentErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebWorkerEnvControllerUpdateForAgentResponses,
-    AnkoleWebWorkerEnvControllerUpdateForAgentErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/worker-envs/{name}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**

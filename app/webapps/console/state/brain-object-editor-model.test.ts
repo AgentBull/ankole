@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { BrainObjectPage } from '../api/generated/types.gen'
+import type { BrainObjectPage } from './brain-object-editor-model'
 import markdocCases from '../../../kernel/test/fixtures/brain_markdoc.json'
 import {
   BrainObjectEditorModel,

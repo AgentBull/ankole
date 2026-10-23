@@ -85,6 +85,46 @@ export type AiGatewayProvider = {
   type: string
 }
 
+/**
+ * A "Resource object" representing a chatgpt_login
+ */
+export type ChatgptLogin = {
+  /**
+   * An attributes object for a chatgpt_login
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a chatgpt_login
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a control_plane_plugin_console
+ */
+export type ControlPlanePluginConsole = {
+  /**
+   * An attributes object for a control_plane_plugin_console
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a control_plane_plugin_console
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
 export type Error = {
   /**
    * An application-specific error code, expressed as a string value.
@@ -128,6 +168,46 @@ export type Link = string
 
 export type Links = {
   [key: string]: Link
+}
+
+/**
+ * A "Resource object" representing a site_app_configuration_operation
+ */
+export type SiteAppConfigurationOperation = {
+  /**
+   * An attributes object for a site_app_configuration_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a site_app_configuration_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a site_worker_env_operation
+ */
+export type SiteWorkerEnvOperation = {
+  /**
+   * An attributes object for a site_worker_env_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a site_worker_env_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
 }
 
 /**
@@ -223,6 +303,105 @@ export type WorkerProvider = {
   }
   type: string
 }
+
+/**
+ * A "Resource object" representing a worker_provider_operation
+ */
+export type WorkerProviderOperation = {
+  /**
+   * An attributes object for a worker_provider_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a worker_provider_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type ListAiGatewayModelsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/site/ai-gateway/models'
+}
+
+export type ListAiGatewayModelsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAiGatewayModelsError = ListAiGatewayModelsErrors[keyof ListAiGatewayModelsErrors]
+
+export type ListAiGatewayModelsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    models: Array<{
+      capability: string
+      description: string
+      image_input: boolean
+      model: string
+      name: string
+      provider_id: string
+    }>
+  }
+}
+
+export type ListAiGatewayModelsResponse = ListAiGatewayModelsResponses[keyof ListAiGatewayModelsResponses]
+
+export type ListAiGatewayProviderKindsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/site/ai-gateway/provider-kinds'
+}
+
+export type ListAiGatewayProviderKindsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAiGatewayProviderKindsError = ListAiGatewayProviderKindsErrors[keyof ListAiGatewayProviderKindsErrors]
+
+export type ListAiGatewayProviderKindsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    provider_kinds: Array<{
+      capabilities: Array<string>
+      default_base_url?: string | null
+      label: {
+        [key: string]: unknown
+      }
+      provider_kind: string
+      settings: Array<{
+        advanced: boolean
+        default?: unknown | null
+        encrypted: boolean
+        key: string
+        options: Array<string>
+        required: boolean
+        scope: 'connection' | 'credential' | 'request'
+        type: 'boolean' | 'float' | 'integer' | 'map' | 'select' | 'string'
+      }>
+    }>
+  }
+}
+
+export type ListAiGatewayProviderKindsResponse =
+  ListAiGatewayProviderKindsResponses[keyof ListAiGatewayProviderKindsResponses]
 
 export type ListAiGatewayProvidersData = {
   body?: never
@@ -430,6 +609,440 @@ export type PutAiGatewayProviderResponses = {
 
 export type PutAiGatewayProviderResponse = PutAiGatewayProviderResponses[keyof PutAiGatewayProviderResponses]
 
+export type AddChatgptEnterpriseCredentialData = {
+  /**
+   * Request body for the add_chatgpt_enterprise_credential operation on chatgpt_login resource
+   */
+  body: {
+    data: {
+      credential: {
+        [key: string]: unknown
+      }
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-enterprise-credentials'
+}
+
+export type AddChatgptEnterpriseCredentialErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type AddChatgptEnterpriseCredentialError =
+  AddChatgptEnterpriseCredentialErrors[keyof AddChatgptEnterpriseCredentialErrors]
+
+export type AddChatgptEnterpriseCredentialResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ai_gateway_provider: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type AddChatgptEnterpriseCredentialResponse =
+  AddChatgptEnterpriseCredentialResponses[keyof AddChatgptEnterpriseCredentialResponses]
+
+export type StartChatgptLoginData = {
+  /**
+   * Request body for the start_chatgpt_login operation on chatgpt_login resource
+   */
+  body?: {
+    data: {
+      id?: string | null
+      label?: string | null
+      priority?: number | null
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-login'
+}
+
+export type StartChatgptLoginErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type StartChatgptLoginError = StartChatgptLoginErrors[keyof StartChatgptLoginErrors]
+
+export type StartChatgptLoginResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ai_gateway_provider?: {
+      [key: string]: unknown
+    } | null
+    authorization_url?: string | null
+    expires_at?: string | null
+    interval?: number | null
+    login_context?: {
+      [key: string]: unknown
+    } | null
+    mode?: string | null
+    redirect_uri?: string | null
+    retry_after?: number | null
+    status?: string | null
+    user_code?: string | null
+    verification_url?: string | null
+  }
+}
+
+export type StartChatgptLoginResponse = StartChatgptLoginResponses[keyof StartChatgptLoginResponses]
+
+export type CompleteChatgptBrowserLoginData = {
+  /**
+   * Request body for the complete_chatgpt_browser_login operation on chatgpt_login resource
+   */
+  body: {
+    data: {
+      callback_url: string
+      login_context: {
+        [key: string]: unknown
+      }
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-login/browser-callback'
+}
+
+export type CompleteChatgptBrowserLoginErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CompleteChatgptBrowserLoginError =
+  CompleteChatgptBrowserLoginErrors[keyof CompleteChatgptBrowserLoginErrors]
+
+export type CompleteChatgptBrowserLoginResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ai_gateway_provider?: {
+      [key: string]: unknown
+    } | null
+    authorization_url?: string | null
+    expires_at?: string | null
+    interval?: number | null
+    login_context?: {
+      [key: string]: unknown
+    } | null
+    mode?: string | null
+    redirect_uri?: string | null
+    retry_after?: number | null
+    status?: string | null
+    user_code?: string | null
+    verification_url?: string | null
+  }
+}
+
+export type CompleteChatgptBrowserLoginResponse =
+  CompleteChatgptBrowserLoginResponses[keyof CompleteChatgptBrowserLoginResponses]
+
+export type PollChatgptLoginData = {
+  /**
+   * Request body for the poll_chatgpt_login operation on chatgpt_login resource
+   */
+  body: {
+    data: {
+      login_context: {
+        [key: string]: unknown
+      }
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/chatgpt-login/poll'
+}
+
+export type PollChatgptLoginErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PollChatgptLoginError = PollChatgptLoginErrors[keyof PollChatgptLoginErrors]
+
+export type PollChatgptLoginResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ai_gateway_provider?: {
+      [key: string]: unknown
+    } | null
+    authorization_url?: string | null
+    expires_at?: string | null
+    interval?: number | null
+    login_context?: {
+      [key: string]: unknown
+    } | null
+    mode?: string | null
+    redirect_uri?: string | null
+    retry_after?: number | null
+    status?: string | null
+    user_code?: string | null
+    verification_url?: string | null
+  }
+}
+
+export type PollChatgptLoginResponse = PollChatgptLoginResponses[keyof PollChatgptLoginResponses]
+
+export type PutAiGatewayCredentialStrategyData = {
+  /**
+   * Request body for the put_ai_gateway_credential_strategy operation on ai_gateway_provider resource
+   */
+  body: {
+    data: {
+      attributes?: {
+        strategy: string
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'ai_gateway_provider'
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_provider
+       */
+      ai_gateway_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/credential-pool/strategy'
+}
+
+export type PutAiGatewayCredentialStrategyErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutAiGatewayCredentialStrategyError =
+  PutAiGatewayCredentialStrategyErrors[keyof PutAiGatewayCredentialStrategyErrors]
+
+export type PutAiGatewayCredentialStrategyResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: AiGatewayProvider
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type PutAiGatewayCredentialStrategyResponse =
+  PutAiGatewayCredentialStrategyResponses[keyof PutAiGatewayCredentialStrategyResponses]
+
+export type AddAiGatewayCredentialData = {
+  /**
+   * Request body for the add_ai_gateway_credential operation on ai_gateway_provider resource
+   */
+  body: {
+    data: {
+      attributes?: {
+        credential: {
+          [key: string]: unknown
+        }
+      }
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'ai_gateway_provider'
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_provider
+       */
+      ai_gateway_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/credentials'
+}
+
+export type AddAiGatewayCredentialErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type AddAiGatewayCredentialError = AddAiGatewayCredentialErrors[keyof AddAiGatewayCredentialErrors]
+
+export type AddAiGatewayCredentialResponses = {
+  /**
+   * Success
+   */
+  201: {
+    data?: AiGatewayProvider
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type AddAiGatewayCredentialResponse = AddAiGatewayCredentialResponses[keyof AddAiGatewayCredentialResponses]
+
+export type DeleteAiGatewayCredentialData = {
+  body?: never
+  path: {
+    credential_id: string
+    provider_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_provider
+       */
+      ai_gateway_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}'
+}
+
+export type DeleteAiGatewayCredentialErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteAiGatewayCredentialError = DeleteAiGatewayCredentialErrors[keyof DeleteAiGatewayCredentialErrors]
+
+export type DeleteAiGatewayCredentialResponses = {
+  /**
+   * Deleted successfully
+   */
+  200: unknown
+}
+
+export type PutAiGatewayCredentialData = {
+  /**
+   * Request body for the put_ai_gateway_credential operation on ai_gateway_provider resource
+   */
+  body: {
+    data: {
+      attributes?: {
+        credential: {
+          [key: string]: unknown
+        }
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'ai_gateway_provider'
+    }
+  }
+  path: {
+    credential_id: string
+    provider_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_provider
+       */
+      ai_gateway_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/credentials/{credential_id}'
+}
+
+export type PutAiGatewayCredentialErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutAiGatewayCredentialError = PutAiGatewayCredentialErrors[keyof PutAiGatewayCredentialErrors]
+
+export type PutAiGatewayCredentialResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: AiGatewayProvider
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type PutAiGatewayCredentialResponse = PutAiGatewayCredentialResponses[keyof PutAiGatewayCredentialResponses]
+
 export type EnableAiGatewayProviderData = {
   /**
    * Request body for the enable_ai_gateway_provider operation on ai_gateway_provider resource
@@ -490,6 +1103,302 @@ export type EnableAiGatewayProviderResponses = {
 }
 
 export type EnableAiGatewayProviderResponse = EnableAiGatewayProviderResponses[keyof EnableAiGatewayProviderResponses]
+
+export type ListSiteAppConfigurationsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/site/app-configurations'
+}
+
+export type ListSiteAppConfigurationsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListSiteAppConfigurationsError = ListSiteAppConfigurationsErrors[keyof ListSiteAppConfigurationsErrors]
+
+export type ListSiteAppConfigurationsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    app_configurations: Array<{
+      default_present: boolean
+      description?: string | null
+      editable: boolean
+      encrypted: boolean
+      error?: string | null
+      key: string
+      kind: 'exact' | 'pattern' | 'pattern_concrete'
+      overridden: boolean
+      pattern?: string | null
+      pattern_id?: string | null
+      present: boolean
+      scope: 'global' | 'tenant'
+      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      value?: unknown | null
+    }>
+  }
+}
+
+export type ListSiteAppConfigurationsResponse =
+  ListSiteAppConfigurationsResponses[keyof ListSiteAppConfigurationsResponses]
+
+export type ResetSiteAppConfigurationData = {
+  body?: never
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v2/site/app-configurations/{key}'
+}
+
+export type ResetSiteAppConfigurationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResetSiteAppConfigurationError = ResetSiteAppConfigurationErrors[keyof ResetSiteAppConfigurationErrors]
+
+export type ResetSiteAppConfigurationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    app_configuration: {
+      default_present: boolean
+      description?: string | null
+      editable: boolean
+      encrypted: boolean
+      error?: string | null
+      key: string
+      kind: 'exact' | 'pattern' | 'pattern_concrete'
+      overridden: boolean
+      pattern?: string | null
+      pattern_id?: string | null
+      present: boolean
+      scope: 'global' | 'tenant'
+      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      value?: unknown | null
+    }
+  }
+}
+
+export type ResetSiteAppConfigurationResponse =
+  ResetSiteAppConfigurationResponses[keyof ResetSiteAppConfigurationResponses]
+
+export type GetSiteAppConfigurationData = {
+  body?: never
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v2/site/app-configurations/{key}'
+}
+
+export type GetSiteAppConfigurationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetSiteAppConfigurationError = GetSiteAppConfigurationErrors[keyof GetSiteAppConfigurationErrors]
+
+export type GetSiteAppConfigurationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    app_configuration: {
+      default_present: boolean
+      description?: string | null
+      editable: boolean
+      encrypted: boolean
+      error?: string | null
+      key: string
+      kind: 'exact' | 'pattern' | 'pattern_concrete'
+      overridden: boolean
+      pattern?: string | null
+      pattern_id?: string | null
+      present: boolean
+      scope: 'global' | 'tenant'
+      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      value?: unknown | null
+    }
+  }
+}
+
+export type GetSiteAppConfigurationResponse = GetSiteAppConfigurationResponses[keyof GetSiteAppConfigurationResponses]
+
+export type UpdateSiteAppConfigurationData = {
+  /**
+   * Request body for the update_site_app_configuration operation on site_app_configuration_operation resource
+   */
+  body?: {
+    data: {
+      value?: unknown | null
+    }
+  }
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v2/site/app-configurations/{key}'
+}
+
+export type UpdateSiteAppConfigurationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateSiteAppConfigurationError = UpdateSiteAppConfigurationErrors[keyof UpdateSiteAppConfigurationErrors]
+
+export type UpdateSiteAppConfigurationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    app_configuration: {
+      default_present: boolean
+      description?: string | null
+      editable: boolean
+      encrypted: boolean
+      error?: string | null
+      key: string
+      kind: 'exact' | 'pattern' | 'pattern_concrete'
+      overridden: boolean
+      pattern?: string | null
+      pattern_id?: string | null
+      present: boolean
+      scope: 'global' | 'tenant'
+      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      value?: unknown | null
+    }
+  }
+}
+
+export type UpdateSiteAppConfigurationResponse =
+  UpdateSiteAppConfigurationResponses[keyof UpdateSiteAppConfigurationResponses]
+
+export type DecryptSiteAppConfigurationData = {
+  body?: never
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v2/site/app-configurations/{key}/decryptions'
+}
+
+export type DecryptSiteAppConfigurationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DecryptSiteAppConfigurationError =
+  DecryptSiteAppConfigurationErrors[keyof DecryptSiteAppConfigurationErrors]
+
+export type DecryptSiteAppConfigurationResponses = {
+  /**
+   * Success
+   */
+  201: {
+    decrypted_value: {
+      key: string
+      value?: unknown | null
+    }
+  }
+}
+
+export type DecryptSiteAppConfigurationResponse =
+  DecryptSiteAppConfigurationResponses[keyof DecryptSiteAppConfigurationResponses]
+
+export type ListControlPlanePluginsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/site/control-plane-plugins'
+}
+
+export type ListControlPlanePluginsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListControlPlanePluginsError = ListControlPlanePluginsErrors[keyof ListControlPlanePluginsErrors]
+
+export type ListControlPlanePluginsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    control_plane_plugins: Array<{
+      active: boolean
+      configured_enabled: boolean
+      description: unknown
+      display_name: unknown
+      id: string
+      restart_required: boolean
+    }>
+  }
+}
+
+export type ListControlPlanePluginsResponse = ListControlPlanePluginsResponses[keyof ListControlPlanePluginsResponses]
+
+export type ConfigureControlPlanePluginData = {
+  /**
+   * Request body for the configure_control_plane_plugin operation on control_plane_plugin_console resource
+   */
+  body: {
+    data: {
+      enabled: boolean
+      id: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/site/control-plane-plugins'
+}
+
+export type ConfigureControlPlanePluginErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ConfigureControlPlanePluginError =
+  ConfigureControlPlanePluginErrors[keyof ConfigureControlPlanePluginErrors]
+
+export type ConfigureControlPlanePluginResponses = {
+  /**
+   * Success
+   */
+  200: {
+    control_plane_plugins: Array<{
+      active: boolean
+      configured_enabled: boolean
+      description: unknown
+      display_name: unknown
+      id: string
+      restart_required: boolean
+    }>
+  }
+}
+
+export type ConfigureControlPlanePluginResponse =
+  ConfigureControlPlanePluginResponses[keyof ConfigureControlPlanePluginResponses]
 
 export type GetPrivilegedTenantData = {
   body?: never
@@ -938,6 +1847,188 @@ export type SuspendTenantResponses = {
 
 export type SuspendTenantResponse = SuspendTenantResponses[keyof SuspendTenantResponses]
 
+export type ListSiteWorkerEnvsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/site/worker-envs'
+}
+
+export type ListSiteWorkerEnvsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListSiteWorkerEnvsError = ListSiteWorkerEnvsErrors[keyof ListSiteWorkerEnvsErrors]
+
+export type ListSiteWorkerEnvsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_envs: Array<{
+      description?: string | null
+      name: string
+      present: boolean
+      secret: boolean
+      source: 'global' | 'tenant' | 'agent' | 'missing'
+      value?: string | null
+    }>
+  }
+}
+
+export type ListSiteWorkerEnvsResponse = ListSiteWorkerEnvsResponses[keyof ListSiteWorkerEnvsResponses]
+
+export type DeleteSiteWorkerEnvData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v2/site/worker-envs/{name}'
+}
+
+export type DeleteSiteWorkerEnvErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteSiteWorkerEnvError = DeleteSiteWorkerEnvErrors[keyof DeleteSiteWorkerEnvErrors]
+
+export type DeleteSiteWorkerEnvResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_env: {
+      description?: string | null
+      name: string
+      present: boolean
+      secret: boolean
+      source: 'global' | 'tenant' | 'agent' | 'missing'
+      value?: string | null
+    }
+  }
+}
+
+export type DeleteSiteWorkerEnvResponse = DeleteSiteWorkerEnvResponses[keyof DeleteSiteWorkerEnvResponses]
+
+export type UpdateSiteWorkerEnvData = {
+  /**
+   * Request body for the update_site_worker_env operation on site_worker_env_operation resource
+   */
+  body?: {
+    data: {
+      description?: string | null
+      secret?: boolean | null
+      value?: string | null
+    }
+  }
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v2/site/worker-envs/{name}'
+}
+
+export type UpdateSiteWorkerEnvErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateSiteWorkerEnvError = UpdateSiteWorkerEnvErrors[keyof UpdateSiteWorkerEnvErrors]
+
+export type UpdateSiteWorkerEnvResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_env: {
+      description?: string | null
+      name: string
+      present: boolean
+      secret: boolean
+      source: 'global' | 'tenant' | 'agent' | 'missing'
+      value?: string | null
+    }
+  }
+}
+
+export type UpdateSiteWorkerEnvResponse = UpdateSiteWorkerEnvResponses[keyof UpdateSiteWorkerEnvResponses]
+
+export type DecryptSiteWorkerEnvData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v2/site/worker-envs/{name}/decryptions'
+}
+
+export type DecryptSiteWorkerEnvErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DecryptSiteWorkerEnvError = DecryptSiteWorkerEnvErrors[keyof DecryptSiteWorkerEnvErrors]
+
+export type DecryptSiteWorkerEnvResponses = {
+  /**
+   * Success
+   */
+  201: {
+    decrypted_value: {
+      name: string
+      value: string
+    }
+  }
+}
+
+export type DecryptSiteWorkerEnvResponse = DecryptSiteWorkerEnvResponses[keyof DecryptSiteWorkerEnvResponses]
+
+export type ListWorkerProviderKindsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/site/worker-provider-kinds'
+}
+
+export type ListWorkerProviderKindsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListWorkerProviderKindsError = ListWorkerProviderKindsErrors[keyof ListWorkerProviderKindsErrors]
+
+export type ListWorkerProviderKindsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_provider_kinds: Array<{
+      credentials: {
+        [key: string]: {
+          required: boolean
+        }
+      }
+      example: string
+      kind: string
+    }>
+  }
+}
+
+export type ListWorkerProviderKindsResponse = ListWorkerProviderKindsResponses[keyof ListWorkerProviderKindsResponses]
+
 export type ListWorkerProvidersData = {
   body?: never
   path?: never
@@ -1160,3 +2251,32 @@ export type UpdateWorkerProviderResponses = {
 }
 
 export type UpdateWorkerProviderResponse = UpdateWorkerProviderResponses[keyof UpdateWorkerProviderResponses]
+
+export type CheckWorkerProviderData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/site/worker-providers/{provider_id}/check'
+}
+
+export type CheckWorkerProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CheckWorkerProviderError = CheckWorkerProviderErrors[keyof CheckWorkerProviderErrors]
+
+export type CheckWorkerProviderResponses = {
+  /**
+   * Success
+   */
+  200: {
+    available: boolean
+  }
+}
+
+export type CheckWorkerProviderResponse = CheckWorkerProviderResponses[keyof CheckWorkerProviderResponses]
