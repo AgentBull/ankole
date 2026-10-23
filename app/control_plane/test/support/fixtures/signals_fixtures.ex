@@ -251,11 +251,13 @@ defmodule Ankole.SignalsFixtures do
     provider = Map.get(attrs, :provider, "signals-fixture")
 
     {:ok, _} =
-      Ankole.Principals.upsert_platform_subject_human(%{
-        uid: principal_uid,
-        provider: provider,
-        external_id: external_id
-      })
+      Ankole.Repo.transact(
+        &Ankole.Principals.upsert_platform_subject_human_in_tx(&1, %{
+          uid: principal_uid,
+          provider: provider,
+          external_id: external_id
+        })
+      )
 
     Map.merge(%{provider: provider, platform_subject: external_id, id: external_id}, attrs)
   end

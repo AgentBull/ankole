@@ -13,7 +13,6 @@ defmodule Ankole.Schedule do
 
   use Ankole.Ash.Domain
 
-  alias Ankole.Repo
   alias Ankole.Schedule.Checkbacks
   alias Ankole.Schedule.Cron
   alias Ankole.Schedule.Fire
@@ -34,6 +33,8 @@ defmodule Ankole.Schedule do
     end
 
     resource CronSchedule do
+      # `get_cron_schedule/1` is the facade read that gives `{:error, :not_found}`.
+      define(:get_cron_schedule_record, action: :read, get_by: [:id], not_found_error?: false)
       define(:reauthorize_cron_schedule, action: :reauthorize)
     end
   end
@@ -43,9 +44,7 @@ defmodule Ankole.Schedule do
   """
   @spec create_check_back_later(map(), keyword()) :: create_result()
   def create_check_back_later(attrs, opts \\ []) do
-    operation(ScheduledEvent, :create_check_back_later, %{attrs: attrs, opts: opts}, fn repo ->
-      Checkbacks.create_check_back_later_in_tx(repo, attrs, opts)
-    end)
+    Ankole.Ash.run_action(ScheduledEvent, :create_check_back_later, %{attrs: attrs, opts: opts})
   end
 
   @doc """
@@ -55,11 +54,10 @@ defmodule Ankole.Schedule do
           {:ok, %{status: :updated, scheduled_event: ScheduledEvent.t()}}
           | {:error, term()}
   def update_checkback(scheduled_event_id, attrs, opts \\ []) do
-    operation(
+    Ankole.Ash.run_action(
       ScheduledEvent,
       :update_checkback,
-      %{scheduled_event_id: scheduled_event_id, attrs: attrs, opts: opts},
-      &Checkbacks.update_checkback_in_tx(&1, scheduled_event_id, attrs, opts)
+      %{scheduled_event_id: scheduled_event_id, attrs: attrs, opts: opts}
     )
   end
 
@@ -70,9 +68,7 @@ defmodule Ankole.Schedule do
           {:ok, %{status: :created | :already_exists, cron_schedule: CronSchedule.t()}}
           | {:error, term()}
   def create_cron_schedule(attrs, opts \\ []) do
-    operation(CronSchedule, :create_cron_schedule, %{attrs: attrs, opts: opts}, fn repo ->
-      Cron.create_cron_schedule_in_tx(repo, attrs, opts)
-    end)
+    Ankole.Ash.run_action(CronSchedule, :create_cron_schedule, %{attrs: attrs, opts: opts})
   end
 
   @doc """
@@ -81,11 +77,10 @@ defmodule Ankole.Schedule do
   @spec update_cron_schedule(Ecto.UUID.t(), map(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
   def update_cron_schedule(cron_schedule_id, attrs, opts \\ []) do
-    operation(
+    Ankole.Ash.run_action(
       CronSchedule,
       :update_cron_schedule,
-      %{cron_schedule_id: cron_schedule_id, attrs: attrs, opts: opts},
-      &Cron.update_cron_schedule_in_tx(&1, cron_schedule_id, attrs, opts)
+      %{cron_schedule_id: cron_schedule_id, attrs: attrs, opts: opts}
     )
   end
 
@@ -95,11 +90,10 @@ defmodule Ankole.Schedule do
   @spec pause_cron_schedule(Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
   def pause_cron_schedule(cron_schedule_id, opts \\ []) do
-    operation(
+    Ankole.Ash.run_action(
       CronSchedule,
       :pause_cron_schedule,
-      %{cron_schedule_id: cron_schedule_id, opts: opts},
-      &Cron.pause_cron_schedule_in_tx(&1, cron_schedule_id, opts)
+      %{cron_schedule_id: cron_schedule_id, opts: opts}
     )
   end
 
@@ -109,11 +103,10 @@ defmodule Ankole.Schedule do
   @spec resume_cron_schedule(Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
   def resume_cron_schedule(cron_schedule_id, opts \\ []) do
-    operation(
+    Ankole.Ash.run_action(
       CronSchedule,
       :resume_cron_schedule,
-      %{cron_schedule_id: cron_schedule_id, opts: opts},
-      &Cron.resume_cron_schedule_in_tx(&1, cron_schedule_id, opts)
+      %{cron_schedule_id: cron_schedule_id, opts: opts}
     )
   end
 
@@ -123,11 +116,10 @@ defmodule Ankole.Schedule do
   @spec remove_cron_schedule(Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
   def remove_cron_schedule(cron_schedule_id, opts \\ []) do
-    operation(
+    Ankole.Ash.run_action(
       CronSchedule,
       :remove_cron_schedule,
-      %{cron_schedule_id: cron_schedule_id, opts: opts},
-      &Cron.remove_cron_schedule_in_tx(&1, cron_schedule_id, opts)
+      %{cron_schedule_id: cron_schedule_id, opts: opts}
     )
   end
 
@@ -136,11 +128,10 @@ defmodule Ankole.Schedule do
   """
   @spec run_cron_schedule(Ecto.UUID.t(), keyword()) :: create_result()
   def run_cron_schedule(cron_schedule_id, opts \\ []) do
-    operation(
+    Ankole.Ash.run_action(
       CronSchedule,
       :run_cron_schedule,
-      %{cron_schedule_id: cron_schedule_id, opts: opts},
-      &Cron.run_cron_schedule_in_tx(&1, cron_schedule_id, opts)
+      %{cron_schedule_id: cron_schedule_id, opts: opts}
     )
   end
 
@@ -149,11 +140,10 @@ defmodule Ankole.Schedule do
   """
   @spec cancel_checkback(pos_integer(), keyword()) :: {:ok, ScheduledEvent.t()} | {:error, term()}
   def cancel_checkback(scheduled_event_id, opts \\ []) do
-    operation(
+    Ankole.Ash.run_action(
       ScheduledEvent,
       :cancel_checkback,
-      %{scheduled_event_id: scheduled_event_id, opts: opts},
-      &Checkbacks.cancel_checkback_in_tx(&1, scheduled_event_id, opts)
+      %{scheduled_event_id: scheduled_event_id, opts: opts}
     )
   end
 
@@ -279,14 +269,4 @@ defmodule Ankole.Schedule do
   """
   @spec next_fire_after(map(), String.t(), DateTime.t()) :: {:ok, DateTime.t()} | {:error, term()}
   defdelegate next_fire_after(schedule, timezone, after_at), to: Planner
-
-  # Sessions schedule tools still call these operations in their receipt
-  # transaction. There the operation joins that transaction through its
-  # `_in_tx` function, as its `Repo.transact` did. T12 removes this branch
-  # when the tools call the `_in_tx` functions.
-  defp operation(resource, action, args, in_tx) do
-    if Repo.in_transaction?(),
-      do: in_tx.(Repo),
-      else: Ankole.Ash.run_action(resource, action, args)
-  end
 end

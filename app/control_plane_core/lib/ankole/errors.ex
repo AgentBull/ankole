@@ -106,17 +106,29 @@ defmodule Ankole.Errors do
   end
 
   @doc """
+  Gives the error class of an Ash changeset, query, or action input that
+  rolled back a transaction.
+
+  AshPostgres rolls back the caller's transaction with the changeset when a
+  native constraint rejects a write. `Ankole.Repo` gives that rollback as the
+  error class with shaped errors. Other results stay the same.
+  """
+  def rollback_result({:error, %module{} = subject})
+      when module in [Ash.Changeset, Ash.Query, Ash.ActionInput],
+      do: {:error, subject |> Ash.Error.to_error_class() |> shape_errors()}
+
+  def rollback_result(result), do: result
+
+  @doc """
   Gives the result shape of an `Ankole.Ash` call.
 
   An Ash changeset, query, or action input becomes its error class with shaped
-  errors, and a declared rejection becomes its reason. `Ankole.Repo` also gives
-  this shape for a rolled-back transaction while domain entry points still open
-  `Repo.transact` themselves. A domain code interface gives the error class;
-  its caller uses `reason/1`.
+  errors, and a declared rejection becomes its reason. A domain code interface
+  gives the error class; its caller uses `reason/1`.
   """
-  def boundary_result({:error, %module{} = subject})
+  def boundary_result({:error, %module{}} = result)
       when module in [Ash.Changeset, Ash.Query, Ash.ActionInput],
-      do: boundary_result({:error, Ash.Error.to_error_class(subject)})
+      do: result |> rollback_result() |> boundary_result()
 
   def boundary_result({:error, %Ash.Error.Invalid{errors: errors} = invalid}) do
     case Enum.find_value(errors, fn

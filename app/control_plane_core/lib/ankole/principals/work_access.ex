@@ -21,7 +21,7 @@ defmodule Ankole.Principals.WorkAccess do
       |> Ash.Query.filter(human_uid == ^uid)
       |> Ash.Query.sort(inserted_at: :desc)
       |> Ash.Query.limit(@list_limit)
-      |> Owner.read_across_tenants()
+      |> Ankole.Ash.read_across_tenants!()
       |> Enum.map(&projection(kind, &1))
     end)
   end
@@ -314,7 +314,7 @@ defmodule Ankole.Principals.WorkAccess do
     Principal
     |> Ash.Query.for_read(:read_across_tenants)
     |> Ash.Query.filter(uid in ^uids)
-    |> Owner.read_across_tenants()
+    |> Ankole.Ash.read_across_tenants!()
   end
 
   # Principal locks have the first rank of the work lock order; the UID order
@@ -327,6 +327,6 @@ defmodule Ankole.Principals.WorkAccess do
     |> Ash.Query.filter(uid in ^uids)
     |> Ash.Query.sort(uid: :asc)
     |> Ash.Query.lock(:for_update)
-    |> Owner.read_across_tenants({"principals", uids})
+    |> Ankole.Ash.read_across_tenants!(lock_identity: {"principals", uids})
   end
 end

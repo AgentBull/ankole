@@ -58,13 +58,9 @@ defmodule Ankole.Signals.Bindings do
     |> Ankole.Ash.read!()
     |> Enum.each(fn
       %Binding{config_ref: "app-config://" <> key = reference} ->
-        # AppConfigure has no removal of a global row in a caller's transaction yet.
         if not config_ref_shared?(reference, uid) do
-          Ankole.AppConfigure.SiteConfig
-          |> Ash.Query.filter(scope == "global" and key == ^key)
-          |> Ankole.Ash.destroy_where(:remove)
-          |> case do
-            {:ok, _removed} -> :ok
+          case AppConfigure.delete_global_by_key_in_tx(repo, key) do
+            :ok -> :ok
             {:error, error} -> repo.rollback(error)
           end
         end
@@ -883,26 +879,11 @@ defmodule Ankole.Signals.Bindings do
     with {:ok, _} <-
            Ankole.AdvisoryLock.lock(repo, "signals:application:" <> application) do
       conflict =
-        tenant_application_in_other_tenant?(application, tenant_id) or
+        AppConfigure.platform_application_in_other_tenant?(application, tenant_id) or
           site_application_bound_in_other_tenant?(application, tenant_id)
 
       if conflict, do: {:error, :platform_app_bound_to_another_tenant}, else: :ok
     end
-  end
-
-  # AppConfigure has no read of tenant configurations across tenants yet.
-  defp tenant_application_in_other_tenant?(application, tenant_id) do
-    import Ecto.Query, only: [from: 2]
-
-    Repo.across_tenants(fn ->
-      Repo.exists?(
-        from(row in AppConfig,
-          where:
-            fragment("?->>'platform_application' = ?", row.value, ^application) and
-              row.tenant_id != ^tenant_id
-        )
-      )
-    end)
   end
 
   # A global configuration that names the application is in use by the

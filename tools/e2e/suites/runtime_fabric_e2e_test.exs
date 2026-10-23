@@ -513,8 +513,8 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
              })
 
     assert {:ok, %{job: job, dispatch_event: dispatch}} =
-             Repo.transact(fn _repo ->
-               BackgroundAgentJobs.create_with_dispatch(%{
+             Repo.transact(fn repo ->
+               BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(repo, %{
                  source_signal_id: input.id,
                  agent_uid: uid,
                  owner_session_id: input.session_id,

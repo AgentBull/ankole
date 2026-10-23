@@ -18,7 +18,6 @@ defmodule Ankole.AuthZ do
   alias Ankole.AuthZ.Decision
   alias Ankole.AuthZ.ExternalBinding
   alias Ankole.AuthZ.Grant
-  alias Ankole.AuthZ.Grants
   alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Input
   alias Ankole.AuthZ.Membership
@@ -427,6 +426,35 @@ defmodule Ankole.AuthZ do
   end
 
   @doc """
+  Adds a Principal to a synced static group of the expected domain
+  (`:directory`, `:im_group`, or `:signal_source`).
+  """
+  @spec add_synced_group_member(term(), atom(), String.t()) ::
+          {:ok, Membership.t()} | {:error, term()}
+  def add_synced_group_member(group_id, domain, principal_uid) do
+    Ankole.Ash.run_action(Group, :add_synced_member, %{
+      group_id: group_id,
+      domain: domain,
+      principal_uid: principal_uid
+    })
+  end
+
+  @doc """
+  Removes a Principal from a synced static group of the expected domain.
+
+  A missing membership gives `{:error, :not_found}`.
+  """
+  @spec remove_synced_group_member(term(), atom(), String.t()) ::
+          {:ok, :deleted} | {:error, term()}
+  def remove_synced_group_member(group_id, domain, principal_uid) do
+    Ankole.Ash.run_action(Group, :remove_synced_member, %{
+      group_id: group_id,
+      domain: domain,
+      principal_uid: principal_uid
+    })
+  end
+
+  @doc """
   Removes a Principal from a static group.
   """
   @spec remove_principal_from_group(String.t(), String.t()) :: {:ok, :deleted} | {:error, term()}
@@ -541,13 +569,11 @@ defmodule Ankole.AuthZ do
           # `group.domain` back in would make that check a tautology (and a
           # non-synced domain would miss `add_synced_group_member`'s guard
           # and raise out of the transaction).
-          # Staged: Conversations identity admission still calls this function
-          # in its transaction. Change it to a generic action when that caller
-          # uses `ensure_synced_group_member_in_tx/3`.
-          Repo.transact(fn repo ->
-            with :ok <- ensure_synced_group_member_in_tx(repo, group_attrs, uid),
-                 do: {:ok, :ensured}
-          end)
+          Group
+          |> Ankole.Ash.run_action(:ensure_synced_member, %{
+            group_attrs: group_attrs,
+            principal_uid: uid
+          })
           |> case do
             {:ok, :ensured} -> :ok
             {:error, _reason} = error -> error
@@ -593,11 +619,8 @@ defmodule Ankole.AuthZ do
   Inserts a permission grant.
   """
   @spec create_permission_grant(map()) :: {:ok, Grant.t()} | {:error, term()}
-  def create_permission_grant(attrs) when is_map(attrs) do
-    # Staged: a Pod test holds this write in its own transaction. Change it to a
-    # generic action when that caller uses `Ankole.AuthZ.Grants.create_permission_grant/2`.
-    Repo.transact(fn repo -> Grants.create_permission_grant(repo, attrs) end)
-  end
+  def create_permission_grant(attrs) when is_map(attrs),
+    do: Ankole.Ash.run_action(Grant, :create_permission_grant, %{attrs: attrs})
 
   @doc """
   Inserts or updates a permission grant by its natural owner/resource/action/condition key.

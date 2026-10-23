@@ -1,7 +1,6 @@
 defmodule Ankole.Conversations.InputRevisions do
   @moduledoc "Merges queued input and admits revision Signals after a turn has started."
 
-  alias Ankole.Conversations.Locks
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.MessageInput
   alias Ankole.Conversations.Delivery.Deletion
@@ -25,8 +24,10 @@ defmodule Ankole.Conversations.InputRevisions do
     # The Session locks are held, so the candidates do not change before their row lock.
     ids = fact |> candidate_events_for_source_entry() |> Enum.map(& &1.id)
 
-    [filter: [id: [in: ids], status: [in: [:queued, :running]]], sort: [id: :asc]]
-    |> Locks.signals()
+    repo
+    |> Ankole.Signals.lock_signals_in_tx([id: [in: ids], status: [in: [:queued, :running]]],
+      sort: [id: :asc]
+    )
     |> Enum.map(&retract_source_entry_from_event(repo, &1, fact, kind, now))
     |> Ankole.Attrs.collect_results()
     |> case do
@@ -220,7 +221,7 @@ defmodule Ankole.Conversations.InputRevisions do
 
   # The caller holds the Session lock, so the selected Signal stays current
   # until its row lock.
-  defp event_for_supplement_source_entry(_repo, fact, provider_message_id)
+  defp event_for_supplement_source_entry(repo, fact, provider_message_id)
        when is_binary(provider_message_id) do
     filter =
       [
@@ -235,14 +236,17 @@ defmodule Ankole.Conversations.InputRevisions do
     Ankole.Signals.list_signals!(query: [filter: filter, sort: [queue_sequence: :desc]])
     |> Enum.find(&source_entry?(&1, provider_message_id))
     |> case do
-      %Signal{id: id} -> [filter: [id: id] ++ filter] |> Locks.signals() |> List.first()
-      nil -> nil
+      %Signal{id: id} ->
+        repo |> Ankole.Signals.lock_signals_in_tx([id: id] ++ filter) |> List.first()
+
+      nil ->
+        nil
     end
   end
 
   defp event_for_supplement_source_entry(_repo, _fact, _provider_message_id), do: nil
 
-  defp latest_attachment_supplement_event(fact, _repo) do
+  defp latest_attachment_supplement_event(fact, repo) do
     filter =
       [
         agent_uid: fact.agent_uid,
@@ -253,8 +257,8 @@ defmodule Ankole.Conversations.InputRevisions do
         type: "conversation.message.addressed"
       ] ++ exact_event_thread(fact.provider_thread_id)
 
-    [filter: filter, sort: [queue_sequence: :desc], limit: 1]
-    |> Locks.signals()
+    repo
+    |> Ankole.Signals.lock_signals_in_tx(filter, sort: [queue_sequence: :desc], limit: 1)
     |> List.first()
   end
 

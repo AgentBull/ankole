@@ -625,9 +625,10 @@ and handle skipped upserts whose row is not visible in the selected tenant.
 Check the public action behavior when updating these dependencies. Remove each
 patch when an upstream release includes its fix.
 
-Credo checks that bulk actions use `Ankole.Ash` and that resource mutation
-filters use `change(filter(...))`. Resource compilation checks the tenant and
-transaction contracts. Database tests check the resulting isolation and writes.
+Resource compilation checks the tenant and transaction contracts
+(`Ankole.Ash.Verifiers.Contracts`). The persistence boundary checks keep each
+database call at its owner (see [Persistence boundary](#persistence-boundary)).
+Database tests check the resulting isolation and writes.
 
 After you change compile-time dependencies, run this check from
 `app/control_plane`:
@@ -674,6 +675,59 @@ and managed Codex runtime with `setsid` and util-linux `flock` (`-F` support).
 configuration, `tini`, pinned Codex bindings, browser, OCR, and installed Lark
 CLI. `bun run test:docker` runs the unit suite in the image. Only the Docker
 commands require Docker and a current Worker image.
+
+### Persistence boundary
+
+The control plane keeps durable state in Ash resources. The root module of each
+domain, for example `Ankole.Signals`, is its Ash domain. Its `define` entries
+are the code interface for other domains, `ankole_web`, plugins, and the
+application.
+
+- A create, update, or destroy action does not open a transaction. It runs as
+  one statement, or in the transaction of the generic action that calls it.
+- A write with more than one step is a generic action. The generic action owns
+  its transaction and must be the top-level call: in `Repo.transact` or in
+  another generic action it raises `Ankole.Errors.Framework.NestedOperation`.
+  Declare the work after the commit with `after_commit({Module, :function})`.
+  An operation without a subject resource uses a resource with
+  `operations: true` (`Ankole.Ash.Resource`).
+- A step that another domain runs in its own transaction is a
+  `*_in_tx(repo, ...)` function of the owning module. It does not open a
+  transaction, publish, or wake a process. Lock the row of another domain only
+  through its `lock_*_in_tx` function.
+- In its own directory, a domain reads and writes its resources with
+  `Ash.Query` and `Ankole.Ash`: `read/2` and `read_one/2` (`lock_identity:` for
+  a row lock), `read_across_tenants!/2` for an `allow_global` read action,
+  `update_atomic/4`, `update_where/4`, `destroy_where/4`, `insert_if_absent/4`,
+  and `run_action/4`. These functions use the tenant of `Ankole.Repo`.
+- `Ankole.Errors` declares the errors. A resource action gives
+  `Invalid.Stale`, `Invalid.StatusTransition`, or `Invalid.NotFound`. A generic
+  action gives its domain reason as `Invalid.Rejected` through
+  `Ankole.Errors.wrap/1`. A caller gets the reason with `Ankole.Errors.reason/1`
+  and does not match `Ash.Error` structs. `AnkoleWeb.ConsoleErrors.fallback/4`
+  maps the errors to HTTP responses.
+
+Some modules do not match Ash resource semantics.
+`app/control_plane/test/ankole/persistence_boundary.exs` lists them, each with
+its mismatch pattern: M2 process coordination, M4 read model, M7 dynamic
+schema, M8 set maintenance, or M9 retrieval. Only a listed module can use Ecto
+writes, Ecto row locks, `Repo.transact`, and Ecto queries of resource tables. A
+read model selects maps or values, not resource structs. The user approves each
+new entry. Remove an entry when its module stops using the database directly;
+the boundary test reports a stale entry.
+
+- `test/ankole/persistence_boundary_test.exs` uses the compiled resources. It
+  reports an Ecto query of a resource and an Ash call on the resource of
+  another domain outside the listed modules.
+- The Credo check `AshBoundary` reports Ecto writes, Ecto row locks,
+  `Repo.transact`, direct `Ash.bulk_*` calls, transaction hooks, bulk-result
+  decoding, `Ash.Error` matches, and Ash calls in `ankole_web`, plugins, and the
+  application. It also requires `change(filter(...))` for the filter of an
+  update or destroy action.
+- The Credo check `RawSQLTenant` requires `tenant_id` in raw SQL that reads a
+  table, or `@raw_sql_scope :site` in a module whose SQL reads no tenant rows.
+- `test/ankole/tenancy_guard_test.exs` keeps a reviewed count of the raw SQL,
+  fragments, and cross-tenant reads of each function.
 
 ### Pod content checks
 

@@ -11,7 +11,6 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.StatefulResponses
-  alias Ankole.Brain.Claims
   alias Ankole.Brain.Links
   alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
@@ -32,7 +31,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     fact!(agent, "agents/#{agent.uid}", "AGENT_MEMORY")
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "concepts/wire-format", type: "concept", title: "Wire Format"},
         agent.uid
       )
@@ -241,7 +240,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
   test "a checkpoint follows its requested anchor rather than a newer conversation branch",
        context do
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "concepts/frame-header", type: "concept", title: "Frame Header"},
         context.agent.uid
       )
@@ -722,7 +721,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
 
   defp fact!(agent, slug, claim) do
     {:ok, _} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: slug,
           claim: claim,

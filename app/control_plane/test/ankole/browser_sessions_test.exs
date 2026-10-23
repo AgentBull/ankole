@@ -386,6 +386,7 @@ defmodule Ankole.BrowserSessionsTest do
 
     assert {:ok, created} =
              BrowserSessions.create_pod_access(reference, fn authentication ->
+               # The callback runs in the BrowserSessions transaction.
                with {:ok, tenant} <-
                       Ankole.Tenants.create_in_tx(Repo, %{
                         slug: "pod-#{Ecto.UUID.generate()}",
