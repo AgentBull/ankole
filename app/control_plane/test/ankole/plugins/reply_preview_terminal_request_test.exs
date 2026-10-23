@@ -10,7 +10,7 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsFixtures
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
@@ -223,7 +223,7 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
       ReplyPresentation.new(state: "working") |> ReplyPresentation.replace_answer("draft")
 
     {:ok, _event} =
-      PreviewState.put_checkpoint(event.id, %{
+      PreviewStates.put_checkpoint(event.id, %{
         "schema_version" => 1,
         "adapter" => adapter,
         "subject_uid" => @subject_uid,
@@ -232,7 +232,7 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
         "streaming_state" => "open"
       })
 
-    event = PreviewState.load_signal(event.id)
+    event = PreviewStates.load_signal(event.id)
 
     presentation =
       ReplyPresentation.new() |> ReplyPresentation.terminal("completed", "final answer")
@@ -260,7 +260,7 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
     %{
       agent: agent,
       event: event,
-      checkpoint: Ankole.Conversations.Delivery.PreviewState.get(event).checkpoint,
+      checkpoint: Ankole.Conversations.Delivery.PreviewStates.get(event).checkpoint,
       presentation: presentation,
       delivery: intent,
       config: stored_config

@@ -8,9 +8,6 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
 
   alias Ankole.AgentWorkers.Providers
   alias Ankole.AgentWorkers.Providers.Projection
-  alias Ankole.AgentWorkers.Providers.Seed
-  alias Ankole.Errors
-  alias Ankole.Repo
 
   json_api do
     type("worker_provider")
@@ -155,12 +152,7 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
       argument(:is_default, :boolean)
       argument(:credentials, :map, sensitive?: true)
 
-      run(fn input, _context ->
-        Errors.wrap(
-          Providers.create_in_tx(Repo, input.arguments),
-          &Providers.Errors.rejection/1
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :configure_provider, :struct do
@@ -173,31 +165,19 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
       argument(:credentials, :map, sensitive?: true)
       after_commit({Providers, :reconcile_workers})
 
-      run(fn %{arguments: arguments}, _context ->
-        {provider_id, attrs} = Map.pop!(arguments, :provider_id)
-
-        Errors.wrap(
-          Providers.configure_in_tx(Repo, provider_id, attrs),
-          &Providers.Errors.rejection/1
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :delete_provider, :struct do
       constraints(instance_of: __MODULE__)
       argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
 
-      run(fn input, _context ->
-        Errors.wrap(
-          Providers.delete_in_tx(Repo, input.arguments.provider_id),
-          &Providers.Errors.rejection/1
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :import_seed do
       argument(:path, :string, constraints: [trim?: false])
-      run(fn input, _context -> Errors.wrap(Seed.import_in_tx(Repo, input.arguments.path)) end)
+      run(__MODULE__.Actions)
     end
   end
 

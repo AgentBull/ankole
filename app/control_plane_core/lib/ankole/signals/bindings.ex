@@ -15,7 +15,7 @@ defmodule Ankole.Signals.Bindings do
   require Ash.Query
 
   alias Ankole.Signals.Target, as: ExecutionTarget
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Repo
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.AppConfig
@@ -124,7 +124,7 @@ defmodule Ankole.Signals.Bindings do
          :ok <- maybe_handle_binding_saved(definition, binding, normalized_config),
          :ok <- Delivery.wake_blocked_for_binding(principal.uid, binding_name),
          :ok <-
-           PreviewState.wake_blocked(principal.uid, binding_name) do
+           PreviewStates.wake_blocked(principal.uid, binding_name) do
       {:ok, %{binding: binding, config_key: config_key}}
     else
       {:error, :not_found} -> {:error, :agent_not_found}
@@ -236,7 +236,7 @@ defmodule Ankole.Signals.Bindings do
          :ok <- maybe_handle_binding_saved(definition, binding, normalized_config),
          :ok <- Delivery.wake_blocked_for_binding(target_principal.uid, binding_name),
          :ok <-
-           PreviewState.wake_blocked(
+           PreviewStates.wake_blocked(
              target_principal.uid,
              binding_name
            ) do

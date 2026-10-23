@@ -1,7 +1,7 @@
 defmodule Ankole.Sessions.SessionResetTest do
   use Ankole.SessionsCase
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.Run
   alias Ankole.Schedule
@@ -264,7 +264,9 @@ defmodule Ankole.Sessions.SessionResetTest do
 
       adapter_checkpoint =
         source_event.id
-        |> then(&Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, &1)).checkpoint)
+        |> then(
+          &Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, &1)).checkpoint
+        )
         |> Map.merge(%{
           "card_id" => "card-before-reset",
           "message_id" => card_message_id,
@@ -280,19 +282,19 @@ defmodule Ankole.Sessions.SessionResetTest do
         })
 
       assert {:ok, _event} =
-               PreviewState.put_checkpoint(
+               PreviewStates.put_checkpoint(
                  source_event.id,
                  adapter_checkpoint
                )
 
       assert :ok =
-               PreviewState.record_provider_message(
+               PreviewStates.record_provider_message(
                  source_event.id,
                  card_message_id
                )
 
       pending_checkpoint =
-        Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, source_event.id)).checkpoint
+        Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, source_event.id)).checkpoint
 
       assert pending_checkpoint["interactions"]["clarify:call-reset-audience"]["state"] ==
                "pending"
@@ -302,7 +304,7 @@ defmodule Ankole.Sessions.SessionResetTest do
                  now: DateTime.add(@base_time, 3, :second)
                )
 
-      assert Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, source_event.id)).checkpoint[
+      assert Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, source_event.id)).checkpoint[
                "interactions"
              ][
                "clarify:call-reset-audience"
@@ -323,7 +325,7 @@ defmodule Ankole.Sessions.SessionResetTest do
       assert successor_conversation.id != predecessor_conversation.id
 
       resolved_checkpoint =
-        Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, source_event.id)).checkpoint
+        Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, source_event.id)).checkpoint
 
       interaction = resolved_checkpoint["interactions"]["clarify:call-reset-audience"]
       assert interaction["state"] == "superseded"

@@ -227,9 +227,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
 
       argument(:params, :map, allow_nil?: false, sensitive?: true)
 
-      run(fn input, _context ->
-        input.arguments |> ProviderConfigs.change_locked() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     # The arguments keep the raw values: the `create` and `configure` actions
@@ -242,34 +240,21 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       argument(:connection_options, :map)
       argument(:credential_pool, :map, sensitive?: true)
 
-      run(fn input, _context ->
-        input.arguments
-        |> ProviderConfigs.put()
-        |> Ankole.Errors.wrap(&ProviderConfigs.rejection/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :enable_provider, :struct do
       constraints(instance_of: __MODULE__)
       argument(:provider_id, :string, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments
-        |> Map.merge(%{update: :enable, params: %{}})
-        |> ProviderConfigs.change_locked()
-        |> Ankole.Errors.wrap(&ProviderConfigs.rejection/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :retire, :struct do
       constraints(instance_of: __MODULE__)
       argument(:provider_id, :string, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments
-        |> ProviderConfigs.retire()
-        |> Ankole.Errors.wrap(&ProviderConfigs.rejection/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :put_cooldown, :term do
@@ -278,9 +263,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       argument(:until, :struct, allow_nil?: false, constraints: [instance_of: DateTime])
       argument(:reason, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments |> ProviderConfigs.put_cooldown() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :rotate_credential, :map do
@@ -288,9 +271,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       argument(:credential_id, :string, allow_nil?: false)
       argument(:callback, :function, allow_nil?: false, constraints: [arity: 3])
 
-      run(fn input, _context ->
-        input.arguments |> ProviderConfigs.rotate_credential() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

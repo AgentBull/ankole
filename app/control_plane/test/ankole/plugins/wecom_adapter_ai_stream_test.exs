@@ -4,7 +4,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsFixtures
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
@@ -217,7 +217,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
 
     checkpoint =
       PreviewAdapter.adapter_checkpoint(
-        Ankole.Conversations.Delivery.PreviewState.get(stored).checkpoint
+        Ankole.Conversations.Delivery.PreviewStates.get(stored).checkpoint
       )
 
     [page] = checkpoint["pages"]
@@ -227,7 +227,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
       |> Map.put("pages", [Map.put(page, "opened_at", stale)])
       |> Map.delete("last_write_at")
 
-    {:ok, _event} = PreviewState.put_checkpoint(event.id, aged)
+    {:ok, _event} = PreviewStates.put_checkpoint(event.id, aged)
 
     assert {:ok, result} =
              update(request(fresh(event), working("first page text plus growth"), :working))
@@ -291,14 +291,14 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
 
     checkpoint =
       PreviewAdapter.adapter_checkpoint(
-        Ankole.Conversations.Delivery.PreviewState.get(fresh(event)).checkpoint
+        Ankole.Conversations.Delivery.PreviewStates.get(fresh(event)).checkpoint
       )
 
     [page] = checkpoint["pages"]
     stale = DateTime.utc_now() |> DateTime.add(-10 * 60) |> DateTime.to_iso8601()
 
     {:ok, _event} =
-      PreviewState.put_checkpoint(
+      PreviewStates.put_checkpoint(
         event.id,
         Map.put(checkpoint, "pages", [Map.put(page, "opened_at", stale)])
       )

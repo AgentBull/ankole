@@ -124,9 +124,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
       argument(:sources, :term, allow_nil?: false)
       argument(:now, :utc_datetime_usec, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments |> Ankole.AIAgent.Library.sync_catalog() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

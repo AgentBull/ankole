@@ -118,11 +118,7 @@ defmodule Ankole.AIGateway.Schemas.Artifact do
       argument(:output, :term, allow_nil?: false)
       argument(:options, :term, allow_nil?: false, default: [])
 
-      run(fn input, _context ->
-        input.arguments
-        |> Ankole.AIGateway.ImageStreamPersistence.persist_output()
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

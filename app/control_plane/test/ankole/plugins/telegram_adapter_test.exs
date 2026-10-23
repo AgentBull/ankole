@@ -7,7 +7,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   import Ankole.SignalsFixtures
   import Ankole.Eventually, only: [eventually: 1]
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Plugins.TelegramAdapter
 
   alias Ankole.Plugins.TelegramAdapter.Client
@@ -1138,7 +1138,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         )
 
       {:ok, event} =
-        PreviewState.put_checkpoint(event.id, %{
+        PreviewStates.put_checkpoint(event.id, %{
           "message_id" => "900",
           "messages" => [%{"index" => 0, "message_id" => "900"}]
         })
@@ -1216,7 +1216,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         |> InteractionState.initialize(presentation, base_time())
 
       assert {:ok, _event} =
-               PreviewState.put_checkpoint(event.id, checkpoint)
+               PreviewStates.put_checkpoint(event.id, checkpoint)
 
       assert {:ok, token} =
                ActionToken.encode(event.id, 0, hd(presentation["actions"]),
@@ -1253,7 +1253,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         )
 
       assert {:ok, _event} =
-               PreviewState.put_checkpoint(
+               PreviewStates.put_checkpoint(
                  event.id,
                  changed_checkpoint
                )
@@ -1262,7 +1262,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
                ActionToken.resolve(token, agent.uid, "telegram-action", "900", prefix: "tg1")
 
       assert {:ok, _event} =
-               PreviewState.put_checkpoint(event.id, checkpoint)
+               PreviewStates.put_checkpoint(event.id, checkpoint)
 
       assert {:ok, [%{"reply_markup" => markup}]} =
                Presentation.render(presentation, event.id)

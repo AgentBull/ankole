@@ -2,8 +2,9 @@ defmodule Ankole.Sessions.Operations do
   @moduledoc """
   Declares the Session operations of `Ankole.Sessions.SessionWorkspace`.
 
-  Each operation is a generic action that owns one transaction. Its `run`
-  calls the `*_in_tx` function of the owning module with `Ankole.Repo`. The
+  Each operation is a generic action that owns one transaction.
+  `Ankole.Sessions.Operations.Actions` calls the `*_in_tx` function of the
+  owning module with `Ankole.Repo`. The
   `Ankole.Sessions` domain defines one function for each operation; the
   modules call the define and give back the domain reason with
   `Ankole.Errors.reason/1`.
@@ -12,24 +13,9 @@ defmodule Ankole.Sessions.Operations do
 
   import Ankole.Ash.Resource, only: [after_commit: 1]
 
-  alias Ankole.Repo
-
   alias Ankole.Sessions.{
-    Admission,
-    Ambient,
-    AmbientCuration,
-    AmbientTriage,
-    CodexJob,
-    Commands,
-    MessageLifecycle,
-    Notices,
-    Presentation,
     Receipts,
-    Revisions,
-    Run,
-    SessionReset,
-    Worker,
-    WorkflowTask
+    Run
   }
 
   actions do
@@ -41,11 +27,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:prepared, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Admission.admit_in_tx(Repo, args.key, args.snapshot, args.plan, args.prepared, args.now)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :dead_letter_input, :term do
@@ -54,20 +36,14 @@ defmodule Ankole.Sessions.Operations do
       argument(:now, :term)
       argument(:reason, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Admission.dead_letter_input_in_tx(Repo, args.event, args.now, args.reason)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :authorize_input, :term do
       description("Checks the work authorization of one input.")
       argument(:event, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Admission.authorize_event_in_tx(Repo, args.event))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :admit_job_input, :term do
@@ -75,27 +51,21 @@ defmodule Ankole.Sessions.Operations do
       argument(:admission, :term)
       argument(:snapshot, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(CodexJob.admit_in_tx(Repo, args.admission, args.snapshot))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :check_job_turn, :term do
       description("Checks that a Job turn may start on its Worker.")
       argument(:run, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(CodexJob.check_turn_in_tx(Repo, args.run))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :claim_job_mailbox, :term do
       description("Claims the steer input of a running Job turn.")
       argument(:run, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(CodexJob.mailbox_in_tx(Repo, args.run))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :abort_job_turn, :term do
@@ -105,11 +75,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:error, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          CodexJob.abort_in_tx(Repo, args.ref, args.worker_id, args.error, args.now)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :reject_job_admission, :term do
@@ -120,18 +86,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:reason, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          CodexJob.reject_admission_in_tx(
-            Repo,
-            args.job,
-            args.event,
-            args.code,
-            args.reason,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :defer_run_retry, :term do
@@ -141,9 +96,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:now, :term)
       after_commit({Run, :publish_retry})
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Run.defer_retry_in_tx(Repo, args.run, args.error, args.now))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :record_run_round, :term do
@@ -151,9 +104,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:run, :term)
       after_commit({Run, :publish_journal})
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Run.record_round_in_tx(Repo, args.run))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :inject_run_input, :term do
@@ -162,9 +113,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:events, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Run.inject_in_tx(Repo, args.run, args.events, args.now))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :finalize_run, :term do
@@ -174,11 +123,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:reason, :term)
       argument(:images, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Run.finalize_in_tx(Repo, args.run, args.outcome, args.reason, args.images)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :refund_run, :term do
@@ -186,9 +131,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:run, :term)
       argument(:mode, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Run.refund_in_tx(Repo, args.run, args.mode))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :check_run, :term do
@@ -196,9 +139,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:run, :term)
       argument(:lock, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Run.check_live_in_tx(Repo, args.run, args.lock))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :reclaim_run, :term do
@@ -206,9 +147,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:run, :term)
       after_commit({Run, :publish_reclaimed})
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Run.reclaim_in_tx(Repo, args.run))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :apply_command, :term do
@@ -217,9 +156,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:event, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Commands.apply_command_in_tx(Repo, args.key, args.event, args.now))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :resolve_retry_action, :term do
@@ -227,9 +164,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:run, :term)
       argument(:event, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Commands.retry_action_in_tx(Repo, args.run, args.event))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :retry_current_turn, :term do
@@ -238,9 +173,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:event, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Commands.retry_current_in_tx(Repo, args.run, args.event, args.now))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :post_stopped_notice, :term do
@@ -248,11 +181,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:event, :term)
       argument(:command_type, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Commands.post_stopped_notice_in_tx(Repo, args.event, args.command_type)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :submit_workflow_failure, :term do
@@ -260,9 +189,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:run, :term)
       argument(:failure, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Commands.workflow_failure_in_tx(Repo, args.run, args.failure))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :compensate_workflow_error, :term do
@@ -270,9 +197,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:run, :term)
       argument(:error, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Commands.workflow_error_in_tx(Repo, args.run, args.error))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :consume_compress_command, :term do
@@ -281,11 +206,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:compaction, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Commands.consume_compress_command_in_tx(Repo, args.input, args.compaction, args.now)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :consume_command_feedback, :term do
@@ -294,9 +215,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:text, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Commands.command_feedback_in_tx(Repo, args.input, args.text, args.now))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :fail_workflow_model, :term do
@@ -306,17 +225,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:reason, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Notices.workflow_model_unavailable_in_tx(
-            Repo,
-            args.event,
-            args.profile,
-            args.reason,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :reject_suspended_input, :term do
@@ -324,9 +233,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:event, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Notices.reject_suspended_input_in_tx(Repo, args.event, args.now))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :complete_without_turn, :term do
@@ -336,17 +243,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:fields, :term)
       argument(:commit_notice, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Notices.complete_without_turn_in_tx(
-            Repo,
-            args.signal,
-            args.status,
-            args.fields,
-            args.commit_notice
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :apply_revision, :term do
@@ -355,9 +252,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:event, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Revisions.apply_in_tx(Repo, args.run, args.event, args.now))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :process_message_removal, :term do
@@ -365,9 +260,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:input, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(MessageLifecycle.process_in_tx(Repo, args.input, args.now))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :resolve_ambient, :term do
@@ -375,9 +268,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:event, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ambient.resolve_in_tx(Repo, args.event, args.now))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :retry_ambient_triage, :term do
@@ -386,9 +277,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:event, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(AmbientTriage.retry_in_tx(Repo, args.key, args.event, args.now))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :record_ambient_judgment, :term do
@@ -398,17 +287,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:route, :term)
       argument(:attrs, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          AmbientCuration.record_judgment_in_tx(
-            Repo,
-            args.key,
-            args.signal_id,
-            args.route,
-            args.attrs
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :set_standing_orders, :term do
@@ -418,17 +297,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:orders, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          AmbientCuration.set_standing_orders_in_tx(
-            Repo,
-            args.agent_uid,
-            args.signal_id,
-            args.orders,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :execute_receipt, :term do
@@ -439,29 +308,21 @@ defmodule Ankole.Sessions.Operations do
       argument(:operation, :term)
       after_commit({Receipts, :publish_committed})
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Receipts.execute_in_tx(Repo, args.run, args.response_id, args.call_id, args.operation)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :link_run_input, :term do
       description("Links the attachments of the run input to the conversation.")
       argument(:run, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Presentation.link_input_in_tx(Repo, args.run))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :read_worker_status, :term do
       description("Reads the Worker workspace status under the epoch fence.")
       argument(:run, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Worker.worker_status_in_tx(Repo, args.run))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :enqueue_session_resets, :term do
@@ -469,9 +330,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:boundary_at, :term)
       argument(:opts, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(SessionReset.enqueue_in_tx(Repo, args.boundary_at, args.opts))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :reset_session, :term do
@@ -480,11 +339,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:input, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          SessionReset.process_due_in_tx(Repo, args.session_key, args.input, args.now)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :close_workflow_input, :term do
@@ -492,9 +347,7 @@ defmodule Ankole.Sessions.Operations do
       argument(:event, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(WorkflowTask.complete_input_in_tx(Repo, args.event, args.now))
-      end)
+      run(__MODULE__.Actions)
     end
   end
 end

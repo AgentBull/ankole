@@ -22,13 +22,24 @@ defmodule AnkoleWeb.JSONAPI.Router do
     {rules, opts} = Keyword.pop(opts, :rules)
     policy_args = if rules, do: [scope, rules], else: [scope]
 
+    # `AshJsonApi.Router` expands its options in the module body, so each
+    # module in them becomes a compile-time dependency of the router. The
+    # router calls these modules only when it serves a request: expand them
+    # here as runtime references. This module names them only in quoted code,
+    # so it has no runtime dependency on the application.
+    runtime = %{__CALLER__ | function: {:call, 2}}
+    expand = &Macro.expand_literals(&1, runtime)
+    open_api = expand.(quote(do: AnkoleWeb.JSONAPI.OpenAPI))
+    policy = expand.(quote(do: AnkoleWeb.JSONAPI.Policy))
+
     opts =
-      Keyword.merge(opts,
+      opts
+      |> Keyword.update!(:domains, expand)
+      |> Keyword.merge(
         open_api: "/openapi.json",
-        phoenix_endpoint: AnkoleWeb.Endpoint,
-        modify_open_api: quote(do: {AnkoleWeb.JSONAPI.OpenAPI, :modify, [unquote(scope)]}),
-        before_dispatch:
-          quote(do: {AnkoleWeb.JSONAPI.Policy, :before_dispatch, unquote(policy_args)})
+        phoenix_endpoint: expand.(quote(do: AnkoleWeb.Endpoint)),
+        modify_open_api: quote(do: {unquote(open_api), :modify, [unquote(scope)]}),
+        before_dispatch: quote(do: {unquote(policy), :before_dispatch, unquote(policy_args)})
       )
 
     quote do

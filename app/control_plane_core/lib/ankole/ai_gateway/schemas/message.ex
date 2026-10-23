@@ -7,7 +7,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
 
   require Ash.Expr
   import Ash.Expr, only: [arg: 1]
-  alias Ankole.AIGateway.{ResponseCommit, StatefulResponses}
+  alias Ankole.AIGateway.{ResponseCommit}
 
   @merge_metadata Ash.Expr.expr(
                     fragment("COALESCE(?, '{}'::jsonb) || ?::jsonb", metadata, ^arg(:metadata))
@@ -291,9 +291,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
       argument(:metadata, :map, allow_nil?: false)
       argument(:now, :utc_datetime_usec, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments |> ResponseCommit.renew_lease() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :fail_generating, :term do
@@ -303,9 +301,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
       argument(:now, :utc_datetime_usec, allow_nil?: false)
       after_commit({ResponseCommit, :publish_committed})
 
-      run(fn input, _context ->
-        input.arguments |> ResponseCommit.fail_generating() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :reconcile_orphan, :term do
@@ -314,9 +310,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
       argument(:force, :boolean, allow_nil?: false, default: false)
       after_commit({ResponseCommit, :publish_committed})
 
-      run(fn input, _context ->
-        input.arguments |> ResponseCommit.reconcile_orphan() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :commit_terminal, :term do
@@ -326,9 +320,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
       argument(:metadata, :map, allow_nil?: false)
       after_commit({ResponseCommit, :publish_committed})
 
-      run(fn input, _context ->
-        input.arguments |> ResponseCommit.commit_terminal_locked() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :admit_run, :term do
@@ -341,9 +333,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
       argument(:record_response, :term, allow_nil?: false)
       after_commit({ResponseCommit, :publish_committed})
 
-      run(fn input, _context ->
-        input.arguments |> StatefulResponses.admit_run() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :install_recovery_checkpoint, :term do
@@ -352,9 +342,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
       argument(:checkpoint_metadata, :map, allow_nil?: false)
       argument(:injection, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments |> StatefulResponses.install_recovery_checkpoint() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

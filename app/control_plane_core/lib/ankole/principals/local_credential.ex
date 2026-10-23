@@ -46,15 +46,7 @@ defmodule Ankole.Principals.LocalCredential do
       argument(:password_hash, :term, allow_nil?: false, sensitive?: true)
       argument(:credential_version, :integer, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Principals.complete_forced_password_change_in_tx(
-          Ankole.Repo,
-          input.arguments.uid,
-          input.arguments.password_hash,
-          input.arguments.credential_version
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :put_password, :struct do
@@ -63,15 +55,7 @@ defmodule Ankole.Principals.LocalCredential do
       argument(:password_hash, :term, allow_nil?: false, sensitive?: true)
       argument(:must_change_password, :boolean, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Principals.put_local_password_in_tx(
-          Ankole.Repo,
-          input.arguments.uid,
-          input.arguments.password_hash,
-          input.arguments.must_change_password
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

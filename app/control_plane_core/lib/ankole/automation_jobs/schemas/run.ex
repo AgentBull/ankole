@@ -148,11 +148,7 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
       argument(:now, :utc_datetime_usec, allow_nil?: false)
       argument(:ready_timeout_ms, :integer, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.AutomationJobs.start_attempt_in_tx(args.run_id, args.now, args.ready_timeout_ms)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :finish_attempt, :term do
@@ -161,16 +157,7 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
       argument(:result, :term, allow_nil?: false)
       argument(:now, :utc_datetime_usec, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.AutomationJobs.finish_attempt_in_tx(
-          args.run_id,
-          args.attempt_id,
-          args.result,
-          args.now
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :infrastructure_failure, :term do
@@ -185,17 +172,7 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
 
       argument(:now, :utc_datetime_usec, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.AutomationJobs.infrastructure_failure_in_tx(
-          args.run_id,
-          args.attempt_id,
-          args.error,
-          args.disposition,
-          args.now
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :emit_event, :term do
@@ -205,17 +182,7 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
       argument(:payload, :term)
       argument(:now, :utc_datetime_usec, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.AutomationJobs.emit_event_in_tx(
-          args.agent_uid,
-          args.run_id,
-          args.attempt_id,
-          args.payload,
-          args.now
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     create :enqueue do

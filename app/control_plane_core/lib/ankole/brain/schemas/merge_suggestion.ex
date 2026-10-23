@@ -59,14 +59,11 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
     ]
   ]
 
-  # A decided suggestion can name a page that no longer exists, so each page
-  # summary resolves the slug through the redirect ladder and keeps only the
-  # slug of a missing page.
   calculations do
     calculate(
       :a_page,
       :map,
-      fn records, _context -> Enum.map(records, &Ankole.Brain.Merge.page_summary(&1.a_slug)) end,
+      {__MODULE__.PageSummary, slug: :a_slug},
       constraints: @page_summary,
       allow_nil?: false,
       public?: true
@@ -75,7 +72,7 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
     calculate(
       :b_page,
       :map,
-      fn records, _context -> Enum.map(records, &Ankole.Brain.Merge.page_summary(&1.b_slug)) end,
+      {__MODULE__.PageSummary, slug: :b_slug},
       constraints: @page_summary,
       allow_nil?: false,
       public?: true
@@ -141,11 +138,7 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
       argument(:decided_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
       argument(:attrs, :map, default: %{})
 
-      run(fn %{arguments: args}, _context ->
-        args.suggestion_id
-        |> Ankole.Brain.Merge.approve_in_tx(args.decided_by, args.attrs)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     # The Console review. The reviewer is the actor of the action
@@ -154,28 +147,14 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
       argument(:suggestion_id, :uuid, allow_nil?: false)
       argument(:canonical_slug, :string, constraints: [trim?: false])
 
-      run(fn %{arguments: args}, context ->
-        decided_by = Ankole.Brain.Console.actor_ref(context)
-        attrs = %{canonical_slug: args[:canonical_slug]}
-
-        with {:ok, _outcome} <-
-               Ankole.Brain.Console.result(
-                 Ankole.Brain.Merge.approve_in_tx(args.suggestion_id, decided_by, attrs),
-                 __MODULE__
-               ),
-             do: :ok
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_reject, :struct do
       constraints(instance_of: __MODULE__)
       argument(:suggestion_id, :uuid, allow_nil?: false)
 
-      run(fn %{arguments: args}, context ->
-        args.suggestion_id
-        |> Ankole.Brain.Merge.reject_in_tx(Ankole.Brain.Console.actor_ref(context))
-        |> Ankole.Brain.Console.result(__MODULE__)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :reject_merge, :struct do
@@ -183,11 +162,7 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
       argument(:suggestion_id, :uuid, allow_nil?: false)
       argument(:decided_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        args.suggestion_id
-        |> Ankole.Brain.Merge.reject_in_tx(args.decided_by)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

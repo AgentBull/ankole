@@ -8,7 +8,7 @@ defmodule Ankole.Sessions.ReplyDeletionTest do
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsFixtures
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Repo
   alias Ankole.Conversations.Delivery.Deletion
 
@@ -16,7 +16,7 @@ defmodule Ankole.Sessions.ReplyDeletionTest do
     event = signal_on("dingtalk", "dingtalk:cidDel")
 
     {:ok, _event} =
-      PreviewState.put_checkpoint(event.id, %{
+      PreviewStates.put_checkpoint(event.id, %{
         "streaming_state" => "closed",
         "pages" => [
           %{"index" => 0, "out_track_id" => "ankole:#{event.id}:0", "sealed" => true},
@@ -39,7 +39,7 @@ defmodule Ankole.Sessions.ReplyDeletionTest do
     event = signal_on("lark", "lark:chat:group-del")
 
     {:ok, _event} =
-      PreviewState.put_checkpoint(event.id, %{
+      PreviewStates.put_checkpoint(event.id, %{
         "card_id" => "card-b",
         "message_id" => "om_b",
         "active_card_index" => 1,

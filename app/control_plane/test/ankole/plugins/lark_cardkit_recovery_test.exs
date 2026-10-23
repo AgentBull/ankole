@@ -4,7 +4,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsFixtures
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
@@ -174,7 +174,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     }
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     parent = self()
 
@@ -232,7 +232,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
 
     persisted = Repo.get!(Signal, event.id)
 
-    assert Ankole.Conversations.Delivery.PreviewState.get(persisted).checkpoint["streaming_state"] ==
+    assert Ankole.Conversations.Delivery.PreviewStates.get(persisted).checkpoint[
+             "streaming_state"
+           ] ==
              "closed"
   end
 
@@ -268,7 +270,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       )
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     parent = self()
 
@@ -338,7 +340,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       )
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     request_fun = fn _client, :post, path, _opts
                      when path in ["im/v1/messages", "im/v1/messages/:message_id/reply"] ->
@@ -395,7 +397,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     }
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     parent = self()
 
@@ -444,7 +446,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
 
     refreshed =
       event.id
-      |> then(&Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, &1)).checkpoint)
+      |> then(&Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, &1)).checkpoint)
       |> PreviewAdapter.adapter_checkpoint()
 
     cards = CardChain.cards(refreshed)
@@ -519,7 +521,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     }
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     parent = self()
 
@@ -600,7 +602,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       })
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     attempts = :counters.new(1, [])
     parent = self()
@@ -675,7 +677,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     }
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     parent = self()
 
@@ -688,7 +690,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     request_fun = fn
       _client, :post, "cardkit/v1/cards/:card_id/batch_update", _opts ->
         assert {:ok, _event} =
-                 PreviewState.put_checkpoint(
+                 PreviewStates.put_checkpoint(
                    event.id,
                    latest_checkpoint
                  )
@@ -790,7 +792,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     }
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     request_fun = fn _client, :post, "cardkit/v1/cards/:card_id/batch_update", _opts ->
       {:error, :timeout}
@@ -813,7 +815,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
 
     checkpoint =
       PreviewAdapter.adapter_checkpoint(
-        Ankole.Conversations.Delivery.PreviewState.get(persisted).checkpoint
+        Ankole.Conversations.Delivery.PreviewStates.get(persisted).checkpoint
       )
 
     assert "thought" in checkpoint["element_ids"]
@@ -880,7 +882,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         :counters.add(requests, 2, 1)
 
         assert :ok =
-                 PreviewState.record_provider_message(
+                 PreviewStates.record_provider_message(
                    event.id,
                    "first-source-wins"
                  )
@@ -906,10 +908,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
 
     checkpoint =
       PreviewAdapter.adapter_checkpoint(
-        Ankole.Conversations.Delivery.PreviewState.get(persisted).checkpoint
+        Ankole.Conversations.Delivery.PreviewStates.get(persisted).checkpoint
       )
 
-    assert Ankole.Conversations.Delivery.PreviewState.get(persisted).provider_message_id ==
+    assert Ankole.Conversations.Delivery.PreviewStates.get(persisted).provider_message_id ==
              "first-source-wins"
 
     assert checkpoint["card_id"] == "card-source-conflict"
@@ -925,7 +927,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert :counters.get(requests, 1) == 1
     assert :counters.get(requests, 2) == 1
 
-    assert Ankole.Conversations.Delivery.PreviewState.get(Repo.reload!(event)).provider_message_id ==
+    assert Ankole.Conversations.Delivery.PreviewStates.get(Repo.reload!(event)).provider_message_id ==
              "first-source-wins"
   end
 
@@ -988,7 +990,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     }
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     parent = self()
 
@@ -1040,7 +1042,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     }
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     attempts = :counters.new(1, [])
     parent = self()
@@ -1129,7 +1131,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       |> CardChain.append(tail_card)
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     request_fun = fn _client,
                      :put,
@@ -1178,7 +1180,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     }
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     parent = self()
 
@@ -1271,7 +1273,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     }
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     parent = self()
 
@@ -1335,7 +1337,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     }
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     parent = self()
 
@@ -1383,7 +1385,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     }
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     parent = self()
 
@@ -1474,7 +1476,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       })
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     parent = self()
 
@@ -1565,7 +1567,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       |> CardChain.initialize(first_card)
 
     assert {:ok, stored} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     parent = self()
 
@@ -1654,7 +1656,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
 
     interrupted =
       event.id
-      |> then(&Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, &1)).checkpoint)
+      |> then(&Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, &1)).checkpoint)
       |> PreviewAdapter.adapter_checkpoint()
 
     assert interrupted["pending_rollover"]["phase"] == "send"
@@ -1887,7 +1889,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
               checkpoint
           end
 
-        {:ok, _} = PreviewState.put_checkpoint(event.id, checkpoint)
+        {:ok, _} = PreviewStates.put_checkpoint(event.id, checkpoint)
 
         {result, record} =
           golden_cardkit_step(
@@ -1905,7 +1907,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         checkpoint = delivered.reply_preview_checkpoint
 
         persisted =
-          Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, event.id)).checkpoint
+          Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, event.id)).checkpoint
 
         assert persisted["schema_version"] == 2
         assert is_integer(persisted["sequence_high_water"])
@@ -2050,7 +2052,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
           value
 
         _ ->
-          Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, event.id)).checkpoint
+          Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, event.id)).checkpoint
       end
 
     if is_map(checkpoint) and is_binary(checkpoint["stream_deadline_at"]) do
@@ -2072,7 +2074,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       "requests" => Agent.get(recorder, & &1.requests),
       "checkpoint" => checkpoint,
       "persisted_checkpoint" =>
-        Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, event.id)).checkpoint,
+        Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, event.id)).checkpoint,
       "result" =>
         case result do
           {:ok, _} -> "ok"

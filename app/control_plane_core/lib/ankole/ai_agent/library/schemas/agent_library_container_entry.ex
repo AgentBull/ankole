@@ -72,9 +72,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
       argument(:content, :term, allow_nil?: false)
       argument(:expected_content_hash, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments |> Ankole.AIAgent.Library.replace_document() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

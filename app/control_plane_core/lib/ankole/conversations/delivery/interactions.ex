@@ -9,6 +9,8 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   require Ash.Query
 
   alias Ankole.Conversations.Delivery.PreviewState
+
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Logging
   alias Ankole.Signals.Signal
   alias Ankole.Signals.Types
@@ -34,13 +36,13 @@ defmodule Ankole.Conversations.Delivery.Interactions do
           {:ok, Signal.t()} | {:error, term()}
   def open_in_tx(repo, %Signal{} = event, presentation, %DateTime{} = now)
       when is_map(presentation) do
-    checkpoint = PreviewState.get(event).checkpoint || %{}
+    checkpoint = PreviewStates.get(event).checkpoint || %{}
     superseded_by = first_newer_conversation_event(event)
 
     checkpoint =
       InteractionState.initialize(checkpoint, presentation, now, superseded_by: superseded_by)
 
-    PreviewState.put_checkpoint_in_tx(repo, event, checkpoint)
+    PreviewStates.put_checkpoint_in_tx(repo, event, checkpoint)
   end
 
   @doc """
@@ -87,7 +89,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
       provider_message_id
     )
     |> Enum.filter(&(&1.session_id == removed_event.session_id))
-    |> Enum.map(&PreviewState.load(Ankole.Signals.lock_signal_in_tx(repo, &1.id)))
+    |> Enum.map(&PreviewStates.load(Ankole.Signals.lock_signal_in_tx(repo, &1.id)))
     |> Enum.reject(&is_nil/1)
     |> supersede_events_in_tx(repo, removed_event, now)
   end
@@ -272,18 +274,18 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   # the checkpoint says which provider entries the reply surface holds.
   defp reply_surface_entry?(%Signal{} = event, provider_message_id, binding)
        when is_binary(provider_message_id) do
-    PreviewState.get(event).provider_message_id ==
+    PreviewStates.get(event).provider_message_id ==
       provider_message_id or
       provider_message_id in PreviewAdapter.surface_entry_ids(
         PreviewAdapter.for_binding(binding),
-        PreviewState.get(event).checkpoint || %{}
+        PreviewStates.get(event).checkpoint || %{}
       )
   end
 
   defp reply_surface_entry?(_event, _provider_message_id, _binding), do: false
 
   defp accept_locked_event(repo, event, fact, callback, now) do
-    checkpoint = PreviewState.get(event).checkpoint || %{}
+    checkpoint = PreviewStates.get(event).checkpoint || %{}
 
     case InteractionState.interaction(checkpoint, callback.interaction_id) do
       %{"state" => "pending"} ->
@@ -330,7 +332,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
       with {:ok, updated_checkpoint} <-
              InteractionState.resolve(checkpoint, callback.interaction_id, resolution),
            {:ok, _updated} <-
-             PreviewState.put_checkpoint_in_tx(
+             PreviewStates.put_checkpoint_in_tx(
                repo,
                event,
                updated_checkpoint
@@ -406,7 +408,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   defp supersede_events_in_tx(events, repo, newer_event, now) do
     Enum.reduce_while(events, {:ok, []}, fn event, {:ok, updated} ->
       case InteractionState.supersede(
-             PreviewState.get(event).checkpoint || %{},
+             PreviewStates.get(event).checkpoint || %{},
              newer_event,
              now
            ) do
@@ -414,7 +416,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
           {:cont, {:ok, updated}}
 
         {:ok, checkpoint} ->
-          case PreviewState.put_checkpoint_in_tx(
+          case PreviewStates.put_checkpoint_in_tx(
                  repo,
                  event,
                  checkpoint

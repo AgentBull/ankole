@@ -127,11 +127,7 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
     action :create_job, :term do
       argument(:attrs, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.AutomationJobs.create_job_in_tx(input.arguments.attrs)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :cancel_job, :term do
@@ -140,16 +136,7 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
       argument(:job_id, :integer, allow_nil?: false)
       argument(:now, :utc_datetime_usec, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.AutomationJobs.cancel_job_in_tx(
-          args.agent_uid,
-          args.owner_session_id,
-          args.job_id,
-          args.now
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     create :create do
@@ -172,7 +159,7 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
 
       validate(
         fn changeset, _context ->
-          case Ankole.Files.normalize_path(Ash.Changeset.get_attribute(changeset, :drive_prefix)) do
+          case Ankole.Files.Path.normalize(Ash.Changeset.get_attribute(changeset, :drive_prefix)) do
             {:ok, _prefix} -> :ok
             {:error, _reason} -> {:error, field: :drive_prefix, message: "must be a drive path"}
           end

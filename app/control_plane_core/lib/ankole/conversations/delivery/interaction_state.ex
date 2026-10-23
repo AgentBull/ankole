@@ -6,7 +6,7 @@ defmodule Ankole.Conversations.Delivery.InteractionState do
   terminal answer or supersession is monotonic, including when a delayed
   provider write tries to persist an older pending projection.
 
-  Every transition returns a checkpoint for `PreviewState.put_checkpoint`.
+  Every transition returns a checkpoint for `PreviewStates.put_checkpoint`.
   That write projects the terminal interaction into the presentation through
   `merge_checkpoint/3`, so no transition needs to know whether a provider
   surface exists.

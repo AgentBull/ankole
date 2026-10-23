@@ -12,11 +12,7 @@ defmodule Ankole.Setup.Operations do
       argument(:principal_uid, :term, allow_nil?: false)
       argument(:brain_packs, {:array, :string}, default: [])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.Setup.Completion.complete_in_tx(args.principal_uid, args.brain_packs)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 end

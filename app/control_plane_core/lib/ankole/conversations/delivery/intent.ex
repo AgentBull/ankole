@@ -324,18 +324,7 @@ defmodule Ankole.Conversations.Delivery.Intent do
       argument(:adapter, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.Delivery.Dispatch.claim_in_tx(
-            Ankole.Repo,
-            args.agent_uid,
-            args.binding_name,
-            args.outbound_key,
-            args.adapter,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :finalize_attempt, :term do
@@ -345,18 +334,7 @@ defmodule Ankole.Conversations.Delivery.Intent do
       argument(:conversation, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.Delivery.Dispatch.finalize_in_tx(
-            Ankole.Repo,
-            args.intent,
-            args.phase,
-            args.result,
-            args.conversation,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :retry_stopped, :term do
@@ -365,17 +343,7 @@ defmodule Ankole.Conversations.Delivery.Intent do
       argument(:outbound_key, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.Delivery.Recovery.requeue_in_tx(
-            Ankole.Repo,
-            args.agent_uid,
-            args.binding_name,
-            args.outbound_key,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :wake_blocked, :term do
@@ -383,16 +351,7 @@ defmodule Ankole.Conversations.Delivery.Intent do
       argument(:binding_name, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.Delivery.Recovery.wake_blocked_in_tx(
-            Ankole.Repo,
-            args.agent_uid,
-            args.binding_name,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

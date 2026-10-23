@@ -329,12 +329,14 @@ defmodule Ankole.Sessions.Notices do
     |> Enum.uniq_by(& &1.id)
     |> Enum.filter(fn event ->
       Preview.channel_reply_eligible?(event) and
-        Signal.reply_anchor_provider_message_id(event) in Signal.input_provider_message_ids(event)
+        Ankole.Signals.reply_anchor_provider_message_id(event) in Signal.input_provider_message_ids(
+          event
+        )
     end)
     |> Enum.reduce_while({:ok, %Ankole.Conversations.PostResult{}}, fn event, _result ->
       anchor = %{
         event
-        | provider_message_id: Signal.reply_anchor_provider_message_id(event),
+        | provider_message_id: Ankole.Signals.reply_anchor_provider_message_id(event),
           data: %{}
       }
 

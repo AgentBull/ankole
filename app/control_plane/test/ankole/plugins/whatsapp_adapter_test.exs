@@ -7,7 +7,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
   import Ankole.SignalsFixtures
   import Ankole.Eventually, only: [eventually: 1]
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Plugins.WhatsAppAdapter
 
   alias Ankole.Plugins.WhatsAppAdapter.Config
@@ -653,7 +653,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       # The buttons live on the interactive message, so that message is the
       # surface, not the text chunk the gateway records as the created entry.
       assert %Ankole.Conversations.Delivery.PreviewState{provider_message_id: "wamid.card-1"} =
-               Ankole.Conversations.Delivery.PreviewState.get(event.id)
+               Ankole.Conversations.Delivery.PreviewStates.get(event.id)
 
       bind_operator!()
       consumer = consumer(agent.uid, "wa-buttons")
@@ -721,7 +721,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       assert_received {:sent, %{"type" => "interactive"}}
 
       assert %Ankole.Conversations.Delivery.PreviewState{provider_message_id: "wamid.card-1"} =
-               Ankole.Conversations.Delivery.PreviewState.get(event.id)
+               Ankole.Conversations.Delivery.PreviewStates.get(event.id)
 
       bind_operator!()
       token = rows |> Enum.at(2) |> Map.fetch!("id")
@@ -1310,7 +1310,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
     checkpoint = InteractionState.initialize(%{}, presentation, now)
 
     assert {:ok, _event} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+             PreviewStates.put_checkpoint(event.id, checkpoint)
 
     %{agent: agent, event: event, presentation: presentation}
   end

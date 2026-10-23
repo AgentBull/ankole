@@ -116,9 +116,7 @@ defmodule Ankole.OIDC.LogoutDelivery do
       argument(:client_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.OIDC.Logout.console_retry_in_tx(args.client_id, args.id))
-      end)
+      run(__MODULE__.Actions)
     end
 
     create :enqueue_in_tx do
@@ -172,17 +170,13 @@ defmodule Ankole.OIDC.LogoutDelivery do
       constraints(instance_of: __MODULE__)
       argument(:id, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.OIDC.Logout.retry_in_tx(args.id))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :claim, :term do
       argument(:id, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.OIDC.Logout.claim_in_tx(args.id))
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

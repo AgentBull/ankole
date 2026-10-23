@@ -12,7 +12,7 @@ defmodule Ankole.Sessions.DriverTest do
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.Reconciler
-  alias Ankole.Sessions.Receipts
+  alias Ankole.Sessions.Receipt
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Worker
   alias Ankole.AIGateway.Schemas.Message
@@ -292,7 +292,7 @@ defmodule Ankole.Sessions.DriverTest do
              from r in Ankole.Workflow.Schemas.Run, where: r.agent_uid == ^key.agent_uid
            )
 
-    refute Repo.exists?(from r in Receipts, where: r.agent_uid == ^key.agent_uid)
+    refute Repo.exists?(from r in Receipt, where: r.agent_uid == ^key.agent_uid)
   end
 
   test "an external ambient type stays ordinary input instead of entering triage", %{key: key} do
@@ -1889,7 +1889,7 @@ defmodule Ankole.Sessions.DriverTest do
       assert Repo.get!(Signal, other_id).session_id != key.session_id
     end
 
-    assert Repo.aggregate(from(r in Receipts, where: r.agent_uid == ^key.agent_uid), :count) == 0
+    assert Repo.aggregate(from(r in Receipt, where: r.agent_uid == ^key.agent_uid), :count) == 0
 
     assert Repo.aggregate(
              from(c in AgentCall, where: c.agent_uid == ^key.agent_uid and c.status == :running),
@@ -2419,7 +2419,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert Enum.at(results, 2)["content"] =~ "Check the result"
     assert wait_for_completion(event.id).turn_outcome == "loop_finished"
     Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
-    assert Repo.aggregate(from(r in Receipts, where: r.agent_uid == ^key.agent_uid), :count) == 0
+    assert Repo.aggregate(from(r in Receipt, where: r.agent_uid == ^key.agent_uid), :count) == 0
   end
 
   test(
@@ -2491,7 +2491,7 @@ defmodule Ankole.Sessions.DriverTest do
     completed = wait_for_completion(event.id)
     assert completed.attempt_count == 2
     Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
-    assert Repo.aggregate(from(r in Receipts, where: r.agent_uid == ^key.agent_uid), :count) == 0
+    assert Repo.aggregate(from(r in Receipt, where: r.agent_uid == ^key.agent_uid), :count) == 0
     response_id = String.replace_prefix(completed.final_response_id, "resp_", "")
     conversation_id = Repo.get!(Message, response_id).conversation_id
 
@@ -2584,7 +2584,7 @@ defmodule Ankole.Sessions.DriverTest do
     expired_at = DateTime.add(DateTime.utc_now(:microsecond), -120, :second)
 
     assert {1, nil} =
-             Repo.update_all(from(r in Receipts, where: r.agent_uid == ^key.agent_uid),
+             Repo.update_all(from(r in Receipt, where: r.agent_uid == ^key.agent_uid),
                set: [inserted_at: expired_at]
              )
 
@@ -2708,7 +2708,7 @@ defmodule Ankole.Sessions.DriverTest do
 
       Ankole.DataCase.assert_persisted_equal(Repo.get!(AgentWorker, key.agent_uid), worker)
 
-      assert Repo.aggregate(from(r in Receipts, where: r.agent_uid == ^key.agent_uid), :count) ==
+      assert Repo.aggregate(from(r in Receipt, where: r.agent_uid == ^key.agent_uid), :count) ==
                0
 
       journals =
@@ -4256,7 +4256,7 @@ defmodule Ankole.Sessions.DriverTest do
   end
 
   defp wait_for_receipt(uid, attempts) do
-    case Repo.one(from(r in Receipts, where: r.agent_uid == ^uid)) do
+    case Repo.one(from(r in Receipt, where: r.agent_uid == ^uid)) do
       nil ->
         Process.sleep(25)
         wait_for_receipt(uid, attempts - 1)

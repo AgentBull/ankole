@@ -9,33 +9,27 @@ defmodule Ankole.AIAgent.Operations do
   """
   use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIAgent, operations: true
 
-  alias Ankole.AIAgent.{ModelProfiles, TokenQuota}
+  alias Ankole.AIAgent.{}
 
   actions do
     action :put_token_quota, :term do
       argument(:agent_uid, :string, allow_nil?: false)
       argument(:attrs, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments |> TokenQuota.put_locked() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :delete_token_quota, :term do
       allow_nil?(true)
       argument(:agent_uid, :string, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments |> TokenQuota.delete_locked() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :reset_token_quota, :term do
       argument(:agent_uid, :string, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments |> TokenQuota.reset_locked() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :put_model_profile, :term do
@@ -43,18 +37,14 @@ defmodule Ankole.AIAgent.Operations do
       argument(:profile, :term, allow_nil?: false)
       argument(:attrs, :term)
 
-      run(fn input, _context ->
-        input.arguments |> ModelProfiles.put_profile_locked() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :put_provider_hosted_capabilities, :term do
       argument(:agent_uid, :string, allow_nil?: false)
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments |> ModelProfiles.put_provider_hosted_locked() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 end

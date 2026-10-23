@@ -68,10 +68,7 @@ defmodule Ankole.AuthZ.ExternalBinding do
       constraints(instance_of: __MODULE__)
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.AuthZ.Store.upsert_external_binding(Ankole.Repo, input.arguments.attrs)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

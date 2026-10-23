@@ -6,59 +6,14 @@ defmodule Ankole.Sessions.Receipts do
   A takeover can then recover committed writes without repeating them. A
   transaction-scoped advisory lock on the receipt identity serializes two
   executions of one call, so the second one reads the committed receipt.
+  `Ankole.Sessions.Receipt` keeps the results.
   """
 
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Sessions
   require Ash.Query
 
   alias Ankole.Sessions.Fence
   alias Ankole.Sessions.Queue
-
-  @identity_constraint "session_tool_receipts_pkey"
-
-  postgres do
-    table("session_tool_receipts")
-    repo(Ankole.Repo)
-    migrate?(false)
-    unique_index_names([{[:response_id, :call_id], @identity_constraint}])
-    foreign_key_names([{:agent_uid, "session_tool_receipts_agent_uid_fkey"}])
-
-    check_constraints do
-      check_constraint(:result, "session_tool_receipts_result_object")
-    end
-  end
-
-  attributes do
-    attribute(:response_id, :string,
-      primary_key?: true,
-      allow_nil?: false,
-      constraints: [trim?: false]
-    )
-
-    attribute(:call_id, :string,
-      primary_key?: true,
-      allow_nil?: false,
-      constraints: [trim?: false]
-    )
-
-    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
-    attribute(:session_id, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:result, Ankole.Ash.Types.JSONMap, allow_nil?: false)
-    create_timestamp(:inserted_at, type: :utc_datetime_usec)
-  end
-
-  actions do
-    defaults([:read])
-
-    create :commit_result do
-      primary?(true)
-      accept([:response_id, :call_id, :agent_uid, :session_id, :result])
-    end
-
-    destroy :discard do
-      require_atomic?(true)
-    end
-  end
+  alias Ankole.Sessions.Receipt
 
   def execute(run, response_id, call_id, operation) do
     :telemetry.execute([:ankole, :sessions, :receipt, :execute], %{}, %{
@@ -81,7 +36,7 @@ defmodule Ankole.Sessions.Receipts do
 
     with :ok <- Fence.current_in_tx(repo, run) do
       case Ankole.Ash.read_one!(identity_query(response_id, call_id)) do
-        %__MODULE__{} = receipt ->
+        %Receipt{} = receipt ->
           with :ok <- Fence.check_in_tx(repo, run, :share),
                do: {:ok, {receipt, []}}
 
@@ -124,14 +79,14 @@ defmodule Ankole.Sessions.Receipts do
   end
 
   def delete_round_in_tx(_repo, run, response_id) do
-    __MODULE__
+    Receipt
     |> Ash.Query.filter(agent_uid == ^run.agent_uid and session_id == ^run.session_id)
     |> Ash.Query.filter(response_id == ^response_id)
     |> discard_in_tx()
   end
 
   def delete_run_in_tx(_repo, run) do
-    __MODULE__
+    Receipt
     |> Ash.Query.filter(agent_uid == ^run.agent_uid and session_id == ^run.session_id)
     |> discard_in_tx()
   end
@@ -139,7 +94,7 @@ defmodule Ankole.Sessions.Receipts do
   defp commit_in_tx(_repo, run, response_id, call_id, operation) do
     with {:ok, result, after_commit} <- operation.(),
          {:ok, receipt} <-
-           Ankole.Ash.create(__MODULE__, :commit_result, %{
+           Ankole.Ash.create(Receipt, :commit_result, %{
              response_id: response_id,
              call_id: call_id,
              agent_uid: run.agent_uid,
@@ -151,7 +106,7 @@ defmodule Ankole.Sessions.Receipts do
   end
 
   defp identity_query(response_id, call_id) do
-    __MODULE__
+    Receipt
     |> Ash.Query.filter(response_id == ^response_id and call_id == ^call_id)
   end
 

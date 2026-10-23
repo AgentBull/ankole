@@ -87,14 +87,7 @@ defmodule Ankole.AppConfigure.AppConfig do
       argument(:updater, :function, allow_nil?: false, constraints: [arity: 1])
       after_commit({Ankole.AppConfigure, :refresh_committed})
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.AppConfigure.update_tenant_in_tx(
-          input.arguments.definition,
-          input.arguments.updater
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

@@ -13,7 +13,7 @@ defmodule Ankole.Conversations.Delivery.SecretFilter do
   short value cannot be replaced without corrupting normal text.
   """
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Signals.Signal
   alias Ankole.AgentWorkers.WorkerEnv
   alias Ankole.Conversations.Delivery.Intent
@@ -45,7 +45,7 @@ defmodule Ankole.Conversations.Delivery.SecretFilter do
   def filter_reply_preview(%{signal: %Signal{agent_uid: agent_uid}} = request)
       when is_binary(agent_uid) and agent_uid != "" do
     with {:ok, secret_values} <- secret_values(agent_uid) do
-      preview = PreviewState.get(request.signal)
+      preview = PreviewStates.get(request.signal)
 
       signal = %{
         request.signal

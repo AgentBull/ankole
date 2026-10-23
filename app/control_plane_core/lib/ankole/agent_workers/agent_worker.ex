@@ -5,11 +5,8 @@ defmodule Ankole.AgentWorkers.AgentWorker do
     domain: Ankole.AgentWorkers,
     extensions: [AshStateMachine, AshJsonApi.Resource]
 
-  alias Ankole.AgentWorkers.Providers
   alias Ankole.AgentWorkers.ReconcileJob
   alias Ankole.AgentWorkers.WorkerAdmission
-  alias Ankole.AgentWorkers.WorkerRouteAuth
-  alias Ankole.Errors
 
   # The fields that the Console shows for each Worker.
   @console_fields [
@@ -452,7 +449,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       argument(:incarnation, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:capacity, :map, allow_nil?: false)
       after_commit({WorkerAdmission, :publish_admission})
-      run(fn input, _context -> Errors.wrap(WorkerAdmission.admit_in_tx(input.arguments)) end)
+      run(__MODULE__.Actions)
     end
 
     action :renew_connection, :term do
@@ -462,7 +459,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       argument(:capacity, :map, allow_nil?: false)
       argument(:load, :map, allow_nil?: false)
       after_commit({WorkerAdmission, :publish_renewal})
-      run(fn input, _context -> Errors.wrap(WorkerAdmission.renew_in_tx(input.arguments)) end)
+      run(__MODULE__.Actions)
     end
 
     action :drain_connection, :struct do
@@ -471,7 +468,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       argument(:route, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:reason, :string, allow_nil?: false, constraints: [trim?: false])
       after_commit({WorkerAdmission, :publish_worker})
-      run(fn input, _context -> Errors.wrap(WorkerAdmission.drain_in_tx(input.arguments)) end)
+      run(__MODULE__.Actions)
     end
 
     action :release_route, :struct do
@@ -480,16 +477,14 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       argument(:route, :string, allow_nil?: false, constraints: [trim?: false])
       after_commit({WorkerAdmission, :publish_worker})
 
-      run(fn input, _context ->
-        Errors.wrap(WorkerAdmission.release_route_in_tx(input.arguments))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :expire_connection, :term do
       allow_nil?(true)
       argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
       after_commit({WorkerAdmission, :publish_expiry})
-      run(fn input, _context -> Errors.wrap(WorkerAdmission.expire_in_tx(input.arguments)) end)
+      run(__MODULE__.Actions)
     end
 
     read :console_list do
@@ -502,11 +497,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       argument(:provider_id, :string, allow_nil?: true, constraints: [trim?: false])
       after_commit({ReconcileJob, :enqueue})
 
-      run(fn %{arguments: arguments}, _context ->
-        Errors.wrap(
-          Providers.assign_in_tx(Ankole.Repo, arguments.agent_uid, arguments.provider_id)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     # The Console assignment keeps the v1 answers: a missing Agent or provider
@@ -518,9 +509,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
       after_commit({ReconcileJob, :enqueue})
 
-      run(fn %{arguments: arguments}, _context ->
-        Providers.console_assign_in_tx(arguments.agent_uid, arguments.provider_id)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :decide_reconcile_step, :term do
@@ -528,14 +517,14 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       argument(:seen, :term, allow_nil?: false)
       argument(:previous, :term)
       argument(:prepared, :term)
-      run(fn input, _context -> Errors.wrap(ReconcileJob.decide_in_tx(input.arguments)) end)
+      run(__MODULE__.Actions)
     end
 
     action :record_reconcile_result, :term do
       argument(:call, :term, allow_nil?: false)
       argument(:facts, :term, allow_nil?: false)
       argument(:result, :term)
-      run(fn input, _context -> Errors.wrap(ReconcileJob.record_in_tx(input.arguments)) end)
+      run(__MODULE__.Actions)
     end
 
     action :record_prepare_error, :struct do
@@ -547,9 +536,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       argument(:kind, :string, allow_nil?: false)
       after_commit({WorkerAdmission, :publish_worker})
 
-      run(fn input, _context ->
-        Errors.wrap(ReconcileJob.record_prepare_error_in_tx(input.arguments))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :authorize_turn do
@@ -557,18 +544,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:effect, :atom, allow_nil?: false)
 
-      run(fn %{arguments: arguments}, _context ->
-        WorkerRouteAuth.authorize_turn_in_tx(
-          Ankole.Repo,
-          arguments.ref,
-          arguments.agent_uid,
-          arguments.effect
-        )
-        |> case do
-          {:ok, :authorized} -> :ok
-          error -> Errors.wrap(error)
-        end
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

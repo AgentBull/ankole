@@ -112,27 +112,14 @@ defmodule Ankole.IdentityProviders.DirectoryEvent do
       argument(:provider_id, :term, allow_nil?: false)
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.IdentityProviders.DirectoryAccess.receive_event_in_tx(
-          Ankole.Repo,
-          input.arguments.provider_id,
-          input.arguments.attrs
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :apply_restriction, :struct do
       constraints(instance_of: __MODULE__)
       argument(:event, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
 
-      run(fn input, _context ->
-        Ankole.IdentityProviders.DirectoryAccess.apply_restriction_in_tx(
-          Ankole.Repo,
-          input.arguments.event
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_open, :struct do
@@ -142,15 +129,7 @@ defmodule Ankole.IdentityProviders.DirectoryEvent do
       argument(:attrs, :map, allow_nil?: false)
       argument(:only_open?, :boolean, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.IdentityProviders.DirectoryAccess.update_open_event_in_tx(
-          input.arguments.event,
-          input.arguments.action,
-          input.arguments.attrs,
-          input.arguments.only_open?
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

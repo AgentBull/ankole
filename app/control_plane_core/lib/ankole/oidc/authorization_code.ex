@@ -99,9 +99,7 @@ defmodule Ankole.OIDC.AuthorizationCode do
       argument(:params, :term)
       argument(:authentication, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.OIDC.Grants.authorize_in_tx(args.params, args.authentication))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :exchange, :term do
@@ -109,11 +107,7 @@ defmodule Ankole.OIDC.AuthorizationCode do
       argument(:code, :term)
       argument(:grant, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.OIDC.Grants.exchange_code_in_tx(args.client, args.code, args.grant)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
   end
 end

@@ -148,9 +148,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
       argument(:catalog_options, :term, allow_nil?: false)
       argument(:now, :utc_datetime_usec, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments |> Ankole.AIAgent.Library.apply_adds() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_teach, :struct do
@@ -159,12 +157,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
       argument(:skill_name, :string, allow_nil?: false)
       argument(:content, :string, allow_nil?: false, constraints: [trim?: false])
 
-      run(fn input, context ->
-        input.arguments
-        |> Map.put(:author, Ankole.ActorRef.from_principal(context.actor))
-        |> Ankole.AIAgent.Library.console_teach()
-        |> Ankole.Errors.wrap(&Ankole.AIAgent.Library.SkillLessons.rejection/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :teach, :term do
@@ -175,9 +168,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
       argument(:sources, :term, allow_nil?: false)
       argument(:catalog_options, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments |> Ankole.AIAgent.Library.teach() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :apply_reviews, :term do
@@ -187,11 +178,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
       argument(:context, :term, allow_nil?: false)
       argument(:now, :utc_datetime_usec, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments
-        |> Ankole.AIAgent.Library.SkillLessons.apply_reviews()
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :revoke, :struct do
@@ -199,11 +186,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
       argument(:agent_uid, :string, allow_nil?: false)
       argument(:lesson_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments
-        |> Ankole.AIAgent.Library.SkillLessons.revoke()
-        |> Ankole.Errors.wrap(&Ankole.AIAgent.Library.SkillLessons.rejection/1)
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

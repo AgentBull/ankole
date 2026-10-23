@@ -214,19 +214,22 @@ defmodule Ankole.OIDCRefreshCleanupConcurrencyTest do
   end
 
   defp issue(context, now) do
+    # The code exchange issues the first family token in its transaction.
     assert {:ok, issued} =
-             Attesto.RefreshToken.issue(
-               RefreshStore,
-               %{
-                 subject: context.human.uid,
-                 client_id: context.client.id,
-                 scope: ["openid", "offline_access"],
-                 claims: %{"session_id" => context.session.id}
-               },
-               now: now,
-               ttl: 60,
-               family_ttl: 60
-             )
+             Repo.transact(fn ->
+               Attesto.RefreshToken.issue(
+                 RefreshStore,
+                 %{
+                   subject: context.human.uid,
+                   client_id: context.client.id,
+                   scope: ["openid", "offline_access"],
+                   claims: %{"session_id" => context.session.id}
+                 },
+                 now: now,
+                 ttl: 60,
+                 family_ttl: 60
+               )
+             end)
 
     issued
   end

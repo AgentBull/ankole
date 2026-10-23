@@ -161,49 +161,33 @@ defmodule Ankole.Principals.Principal do
     action :create_human, :map do
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Principals.create_human_in_tx(Ankole.Repo, input.arguments.attrs)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :create_agent, :map do
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Principals.create_agent_in_tx(Ankole.Repo, input.arguments.attrs)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :enable_agent, :term do
       argument(:uid, :term, allow_nil?: false)
       after_commit({Ankole.Principals, :publish_agent_changes})
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(Ankole.Principals.enable_agent_in_tx(Ankole.Repo, input.arguments.uid))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :delete_agent, :term do
       argument(:uid, :term, allow_nil?: false)
       after_commit({Ankole.Principals, :publish_agent_deletion})
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(Ankole.Principals.delete_agent_in_tx(Ankole.Repo, input.arguments.uid))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :upsert_platform_subject_human, :map do
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.Principals.upsert_platform_subject_human_in_tx(input.arguments.attrs)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_human, :struct do
@@ -213,11 +197,7 @@ defmodule Ankole.Principals.Principal do
       argument(:display_name, :string)
       argument(:email, :string)
 
-      run(fn input, _context ->
-        Ankole.Principals.update_human_in_tx(Ankole.Repo, input.arguments)
-        |> Ankole.Errors.not_found([:not_found, :principal_not_found], __MODULE__)
-        |> Ankole.Errors.wrap(&Ankole.Principals.describe_refusal/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :create_local_user, :struct do
@@ -235,24 +215,14 @@ defmodule Ankole.Principals.Principal do
       argument(:password_hash, :string, public?: false, sensitive?: true)
       prepare(Ankole.Principals.Changes.InitialPassword)
 
-      run(fn input, _context ->
-        Ankole.Principals.create_local_user_in_tx(Ankole.Repo, input.arguments)
-        |> Ankole.Errors.wrap(&Ankole.Principals.describe_refusal/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_agent, :map do
       argument(:uid, :term, allow_nil?: false)
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Principals.update_agent_in_tx(
-          Ankole.Repo,
-          input.arguments.uid,
-          input.arguments.attrs
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :recover_admin, :struct do
@@ -261,15 +231,7 @@ defmodule Ankole.Principals.Principal do
       argument(:operator, :term, allow_nil?: false)
       argument(:reason, :term)
 
-      run(fn input, _context ->
-        Ankole.Principals.HumanAccess.recover_admin_in_tx(
-          Ankole.Repo,
-          input.arguments.uid,
-          input.arguments.operator,
-          input.arguments.reason
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :restrict, :struct do
@@ -277,14 +239,7 @@ defmodule Ankole.Principals.Principal do
       argument(:uid, :term, allow_nil?: false)
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Principals.HumanAccess.restrict_in_tx(
-          Ankole.Repo,
-          input.arguments.uid,
-          input.arguments.attrs
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :verify_provider_recovery, :term do
@@ -292,15 +247,7 @@ defmodule Ankole.Principals.Principal do
       argument(:provider_id, :term, allow_nil?: false)
       argument(:operation_id, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Principals.HumanAccess.verify_provider_recovery_in_tx(
-          Ankole.Repo,
-          input.arguments.uid,
-          input.arguments.provider_id,
-          input.arguments.operation_id
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :clear_restriction, :term do
@@ -310,17 +257,7 @@ defmodule Ankole.Principals.Principal do
       argument(:reason, :term)
       argument(:operation_id, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Principals.HumanAccess.clear_restriction_in_tx(
-          Ankole.Repo,
-          input.arguments.uid,
-          input.arguments.restriction_id,
-          input.arguments.actor,
-          input.arguments.reason,
-          input.arguments.operation_id
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :restore, :struct do
@@ -331,17 +268,7 @@ defmodule Ankole.Principals.Principal do
       argument(:reason, :term)
       argument(:operation_id, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Principals.HumanAccess.restore_in_tx(
-          Ankole.Repo,
-          input.arguments.uid,
-          input.arguments.review_fingerprint,
-          input.arguments.actor,
-          input.arguments.reason,
-          input.arguments.operation_id
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :classify_work, :map do
@@ -351,31 +278,14 @@ defmodule Ankole.Principals.Principal do
       argument(:actor, :term, allow_nil?: false)
       argument(:reason, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Principals.WorkAccess.classify_in_tx(
-          Ankole.Repo,
-          input.arguments.kind,
-          input.arguments.id,
-          input.arguments.human_uid,
-          input.arguments.actor,
-          input.arguments.reason
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :cleanup_work, :map do
       argument(:uid, :term, allow_nil?: false)
       argument(:version, :integer, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Principals.WorkCleanup.cleanup_in_tx(
-          Ankole.Repo,
-          input.arguments.uid,
-          input.arguments.version
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

@@ -145,7 +145,7 @@ defmodule Ankole.Brain.Schemas.Claim do
       argument(:claim_type, :atom, constraints: [one_of: [:fact, :take]])
       argument(:status, :atom, constraints: [one_of: [:current]])
       argument(:search, :string)
-      prepare(&Ankole.Brain.Claims.console_list/2)
+      prepare(__MODULE__.Preparations)
     end
 
     create :record_fact do
@@ -316,15 +316,9 @@ defmodule Ankole.Brain.Schemas.Claim do
       argument(:options, :term, default: [])
       argument(:embedding, :term, public?: false)
 
-      prepare(fn input, _context ->
-        Ash.ActionInput.before_transaction(input, &Ankole.Brain.Claims.prepare_fact_input/1)
-      end)
+      prepare(__MODULE__.Preparations)
 
-      run(fn %{arguments: args}, _context ->
-        args.attrs
-        |> Ankole.Brain.Claims.record_fact_in_tx(args.writer, args.embedding, args.options)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :supersede_claim, :struct do
@@ -335,39 +329,23 @@ defmodule Ankole.Brain.Schemas.Claim do
       argument(:author, Ankole.Ash.Types.ActorRef)
       argument(:embedding, :term, public?: false)
 
-      prepare(fn input, _context ->
-        Ash.ActionInput.before_transaction(
-          input,
-          &Ankole.Brain.Claims.prepare_replacement_input/1
-        )
-      end)
+      prepare(__MODULE__.Preparations)
 
-      run(fn %{arguments: args}, _context ->
-        args.claim_id
-        |> Ankole.Brain.Claims.supersede_claim_in_tx(args.attrs, args.writer,
-          author: args[:author],
-          embedding: args.embedding
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :expire_fact_by_id, :struct do
       constraints(instance_of: __MODULE__)
       argument(:claim_id, :uuid, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.Brain.Claims.expire_fact_in_tx(args.claim_id))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :deactivate_take_by_id, :struct do
       constraints(instance_of: __MODULE__)
       argument(:claim_id, :uuid, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.Brain.Claims.deactivate_take_in_tx(args.claim_id))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :resolve_take_by_id, :struct do
@@ -380,11 +358,7 @@ defmodule Ankole.Brain.Schemas.Claim do
         constraints: [trim?: false, allow_empty?: true]
       )
 
-      run(fn %{arguments: args}, _context ->
-        args.claim_id
-        |> Ankole.Brain.Claims.resolve_take_in_tx(args.resolution, args.resolved_by)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :attach_claim_embedding, :atom do
@@ -398,15 +372,7 @@ defmodule Ankole.Brain.Schemas.Claim do
 
       argument(:now, :utc_datetime_usec)
 
-      run(fn %{arguments: args}, _context ->
-        args.claim
-        |> Ankole.Brain.Claims.attach_embedding_in_tx(
-          args.embedding,
-          args.signature,
-          args[:now] || DateTime.utc_now(:microsecond)
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :commit_grade, :atom do
@@ -414,11 +380,7 @@ defmodule Ankole.Brain.Schemas.Claim do
       argument(:input_hash, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:output, :map, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        args.take_id
-        |> Ankole.Brain.Calibration.commit_grade_in_tx(args.input_hash, args.output)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :forget_claim, :struct do
@@ -432,11 +394,7 @@ defmodule Ankole.Brain.Schemas.Claim do
 
       argument(:caller, :term, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        args.claim_id
-        |> Ankole.Brain.Forget.forget_claim_in_tx(args.reason, args.caller)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     # The Console operations. The operator is the actor of the action
@@ -454,39 +412,9 @@ defmodule Ankole.Brain.Schemas.Claim do
       argument(:provenance, :string)
       argument(:embedding, :term, public?: false)
 
-      prepare(fn input, _context ->
-        Ash.ActionInput.before_transaction(input, fn input ->
-          Ash.ActionInput.set_private_argument(
-            input,
-            :embedding,
-            Ankole.Brain.Claims.prepare_embedding(input.arguments.claim)
-          )
-        end)
-      end)
+      prepare(__MODULE__.Preparations)
 
-      run(fn %{arguments: args}, context ->
-        attrs =
-          args
-          |> Map.take([
-            :claim,
-            :kind,
-            :confidence,
-            :weight,
-            :notability,
-            :audience_scope,
-            :provenance
-          ])
-          |> Map.reject(fn {_key, value} -> is_nil(value) end)
-
-        args.claim_id
-        |> Ankole.Brain.Claims.supersede_claim_in_tx(
-          attrs,
-          Ankole.Brain.Console.writer(context),
-          author: Ankole.Brain.Console.actor_ref(context),
-          embedding: args.embedding
-        )
-        |> Ankole.Brain.Console.result(__MODULE__)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_forget, :struct do
@@ -494,11 +422,7 @@ defmodule Ankole.Brain.Schemas.Claim do
       argument(:claim_id, :uuid, allow_nil?: false)
       argument(:reason, :string, constraints: [trim?: false, allow_empty?: true])
 
-      run(fn %{arguments: args}, _context ->
-        args.claim_id
-        |> Ankole.Brain.Forget.forget_claim_in_tx(args[:reason] || "", :admin)
-        |> Ankole.Brain.Console.result(__MODULE__)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_resolve, :struct do
@@ -510,22 +434,7 @@ defmodule Ankole.Brain.Schemas.Claim do
       argument(:resolved_unit, :string)
       argument(:resolution_provenance, :string)
 
-      run(fn %{arguments: args}, context ->
-        resolution =
-          Map.take(args, [
-            :resolved_quality,
-            :resolved_outcome,
-            :resolved_value,
-            :resolved_unit,
-            :resolution_provenance
-          ])
-
-        resolved_by = to_string(Ankole.Brain.Console.actor_ref(context))
-
-        args.claim_id
-        |> Ankole.Brain.Claims.resolve_take_in_tx(resolution, resolved_by)
-        |> Ankole.Brain.Console.result(__MODULE__)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :consolidate_facts, :struct do
@@ -534,11 +443,7 @@ defmodule Ankole.Brain.Schemas.Claim do
       argument(:fact_ids, {:array, :uuid}, allow_nil?: false)
       argument(:embedding, :term)
 
-      run(fn %{arguments: args}, _context ->
-        args.take
-        |> Ankole.Brain.Claims.consolidate_facts_in_tx(args.fact_ids, args[:embedding])
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

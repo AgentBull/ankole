@@ -5,8 +5,6 @@ defmodule Ankole.Tenants.Tenant do
     domain: Ankole.Tenants,
     extensions: [AshJsonApi.Resource]
 
-  require Ash.Query
-
   json_api do
     type("tenant")
     derive_filter?(false)
@@ -91,12 +89,7 @@ defmodule Ankole.Tenants.Tenant do
     read :privileged do
       get?(true)
 
-      prepare(fn query, _context ->
-        case Ankole.Tenants.privileged_id() do
-          {:ok, id} -> Ash.Query.filter(query, id == ^id)
-          _missing -> Ash.Query.filter(query, false)
-        end
-      end)
+      prepare(__MODULE__.Preparations)
     end
 
     create :create_in_tx do
@@ -136,11 +129,7 @@ defmodule Ankole.Tenants.Tenant do
     action :ensure_scaffold do
       argument(:tenant, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Tenants.ensure_scaffold_in_tx(Ankole.Repo, input.arguments.tenant)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :create, :struct do
@@ -149,15 +138,11 @@ defmodule Ankole.Tenants.Tenant do
       argument(:display_name, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:brain_packs, {:array, :string}, default: [])
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.Tenants.create_in_tx(input.arguments)
-        |> Ankole.Errors.wrap(&Ankole.Tenants.rejection/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :brain_packs, {:array, :string} do
-      run(fn _input, _context -> {:ok, Ankole.Brain.SchemaPacks.industry_packs()} end)
+      run(__MODULE__.Actions)
     end
 
     action :change_profile, :struct do
@@ -166,49 +151,28 @@ defmodule Ankole.Tenants.Tenant do
       argument(:slug, :string, constraints: [trim?: false])
       argument(:display_name, :string, constraints: [trim?: false])
 
-      run(fn input, _context ->
-        {id, attrs} = Map.pop!(input.arguments, :id)
-
-        Ankole.Repo
-        |> Ankole.Tenants.change_profile_in_tx(id, attrs)
-        |> Ankole.Errors.wrap(&Ankole.Tenants.rejection/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :suspend, :struct do
       constraints(instance_of: __MODULE__)
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Tenants.suspend_in_tx(Ankole.Repo, input.arguments.id),
-          &Ankole.Tenants.rejection/1
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :resume, :struct do
       constraints(instance_of: __MODULE__)
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Tenants.resume_in_tx(Ankole.Repo, input.arguments.id),
-          &Ankole.Tenants.rejection/1
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :begin_delete, :struct do
       constraints(instance_of: __MODULE__)
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Tenants.begin_delete_in_tx(Ankole.Repo, input.arguments.id),
-          &Ankole.Tenants.rejection/1
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :transfer_site_administration, :struct do
@@ -217,14 +181,7 @@ defmodule Ankole.Tenants.Tenant do
       argument(:site_admin_uid, :string, allow_nil?: false, constraints: [trim?: false])
       after_commit({Ankole.Tenants, :publish_site_administration})
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.Tenants.transfer_site_administration_in_tx(
-          input.arguments.tenant_id,
-          input.arguments.site_admin_uid
-        )
-        |> Ankole.Errors.wrap(&Ankole.Tenants.rejection/1)
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

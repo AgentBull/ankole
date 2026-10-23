@@ -182,17 +182,7 @@ defmodule Ankole.AuthZ.Group do
       argument(:group_attrs, :map, allow_nil?: false)
       argument(:principal_uid, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.AuthZ.ensure_synced_group_member_in_tx(
-          input.arguments.group_attrs,
-          input.arguments.principal_uid
-        )
-        |> case do
-          :ok -> {:ok, :ensured}
-          error -> Ankole.Errors.wrap(error)
-        end
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :delete_operator_group, :struct do
@@ -200,11 +190,7 @@ defmodule Ankole.AuthZ.Group do
       constraints(instance_of: __MODULE__)
       argument(:name, :string, allow_nil?: false, description: "The group name or ID.")
 
-      run(fn input, _context ->
-        Ankole.AuthZ.Store.delete_operator_group(Ankole.Repo, input.arguments.name)
-        |> Ankole.Errors.not_found([:not_found, :principal_not_found], __MODULE__)
-        |> Ankole.Errors.wrap(&Ankole.AuthZ.describe_group_refusal/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :list_members, {:array, :map} do
@@ -212,12 +198,7 @@ defmodule Ankole.AuthZ.Group do
       constraints(items: [fields: @member_fields])
       argument(:name, :string, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments.name
-        |> Ankole.AuthZ.effective_group_members()
-        |> Ankole.Errors.not_found([:not_found, :principal_not_found], __MODULE__)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :preview_computed_members, {:array, :map} do
@@ -225,9 +206,7 @@ defmodule Ankole.AuthZ.Group do
       constraints(items: [fields: @member_fields])
       argument(:condition, :string, allow_nil?: false)
 
-      run(fn input, _context ->
-        input.arguments.condition |> Ankole.AuthZ.preview_members() |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :add_member, :struct do
@@ -236,16 +215,7 @@ defmodule Ankole.AuthZ.Group do
       argument(:principal_uid, :string, allow_nil?: false)
       argument(:name, :string, allow_nil?: false, description: "The group name or ID.")
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.AuthZ.Store.add_principal_to_group(
-          input.arguments.principal_uid,
-          input.arguments.name,
-          Ankole.AuthZ.Root.admin_group_name()
-        )
-        |> Ankole.Errors.not_found([:not_found, :principal_not_found], __MODULE__)
-        |> Ankole.Errors.wrap(&Ankole.AuthZ.describe_group_refusal/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :remove_member, :atom do
@@ -253,16 +223,7 @@ defmodule Ankole.AuthZ.Group do
       argument(:principal_uid, :string, allow_nil?: false)
       argument(:name, :string, allow_nil?: false, description: "The group name or ID.")
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.AuthZ.Store.remove_principal_from_group(
-          input.arguments.principal_uid,
-          input.arguments.name,
-          Ankole.AuthZ.Root.admin_group_name()
-        )
-        |> Ankole.Errors.not_found([:not_found, :principal_not_found], __MODULE__)
-        |> Ankole.Errors.wrap(&Ankole.AuthZ.describe_group_refusal/1)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :add_synced_member, :struct do
@@ -271,15 +232,7 @@ defmodule Ankole.AuthZ.Group do
       argument(:domain, :atom, constraints: [one_of: [:directory, :im_group, :signal_source]])
       argument(:principal_uid, :term, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.AuthZ.Store.add_synced_group_member(
-          args.group_id,
-          args.domain,
-          args.principal_uid
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :remove_synced_member, :atom do
@@ -287,15 +240,7 @@ defmodule Ankole.AuthZ.Group do
       argument(:domain, :atom, constraints: [one_of: [:directory, :im_group, :signal_source]])
       argument(:principal_uid, :term, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Repo
-        |> Ankole.AuthZ.Store.remove_synced_group_member(
-          args.group_id,
-          args.domain,
-          args.principal_uid
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :replace_static_members, :map do
@@ -303,15 +248,7 @@ defmodule Ankole.AuthZ.Group do
       argument(:expected_domain, :atom, allow_nil?: false)
       argument(:principal_uids, {:array, :term}, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.AuthZ.Store.replace_static_group_members(
-          input.arguments.group_id,
-          input.arguments.expected_domain,
-          input.arguments.principal_uids
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :apply_static_member_delta, :map do
@@ -320,16 +257,7 @@ defmodule Ankole.AuthZ.Group do
       argument(:added_uids, {:array, :term}, allow_nil?: false)
       argument(:removed_uids, {:array, :term}, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.AuthZ.Store.apply_static_group_member_delta(
-          input.arguments.group_id,
-          input.arguments.expected_domain,
-          input.arguments.added_uids,
-          input.arguments.removed_uids
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

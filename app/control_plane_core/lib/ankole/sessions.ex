@@ -64,8 +64,8 @@ defmodule Ankole.Sessions do
       define(:list_round_states, action: :read)
     end
 
-    resource Ankole.Sessions.Receipts do
-      define(:get_receipts,
+    resource Ankole.Sessions.Receipt do
+      define(:get_receipt,
         action: :read,
         get_by: [:response_id, :call_id],
         not_found_error?: false

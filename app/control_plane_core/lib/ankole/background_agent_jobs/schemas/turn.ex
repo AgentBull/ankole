@@ -288,18 +288,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
 
       argument(:worker_id, :string, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BackgroundAgentJobs.Lifecycle.upsert_turn_from_worker_in_tx(
-            Ankole.Repo,
-            input.arguments.job_id,
-            input.arguments.agent_uid,
-            input.arguments.attrs,
-            input.arguments.turn_ref,
-            input.arguments.worker_id
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

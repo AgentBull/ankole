@@ -52,8 +52,6 @@ defmodule Ankole.Files do
 
   defguardp is_drive(drive) when is_binary(drive) or drive == :pod
 
-  @max_path_bytes 1024
-  @max_segment_bytes 255
   @hash_chunk_bytes 1024 * 1024
   @default_list_limit 1000
   @max_list_limit 5000
@@ -410,25 +408,9 @@ defmodule Ankole.Files do
   def object_key(<<_::binary-size(32)>> = digest),
     do: "blobs/" <> Base.encode16(digest, case: :lower)
 
-  @doc """
-  Validates a drive path and returns it unchanged.
-
-  A path is relative, at most #{@max_path_bytes} bytes, and every segment is
-  1 to #{@max_segment_bytes} bytes, not `.` or `..`, and free of NUL bytes.
-  """
+  @doc "Validates a drive path and returns it unchanged. See `Ankole.Files.Path.normalize/1`."
   @spec normalize_path(term()) :: {:ok, String.t()} | {:error, {:invalid_path, term()}}
-  def normalize_path(path) when is_binary(path) do
-    segments = String.split(path, "/")
-
-    valid? =
-      String.valid?(path) and byte_size(path) in 1..@max_path_bytes and
-        not String.contains?(path, <<0>>) and
-        Enum.all?(segments, &valid_segment?/1)
-
-    if valid?, do: {:ok, path}, else: {:error, {:invalid_path, path}}
-  end
-
-  def normalize_path(path), do: {:error, {:invalid_path, path}}
+  defdelegate normalize_path(path), to: Ankole.Files.Path, as: :normalize
 
   @doc "Returns the drive directory of a channel, unchanged by Session resets."
   @spec chat_directory(String.t()) :: String.t()
@@ -475,7 +457,7 @@ defmodule Ankole.Files do
     name
     |> String.replace(~r/[\x00-\x1f\/\\]+/u, "_")
     |> String.trim()
-    |> truncate_bytes(@max_segment_bytes)
+    |> truncate_bytes(Ankole.Files.Path.max_segment_bytes())
     |> case do
       segment when segment in ["", ".", ".."] -> "file"
       segment -> segment
@@ -763,9 +745,6 @@ defmodule Ankole.Files do
     do: {:ok, Ash.Query.filter(query, path > ^after_path)}
 
   defp after_query(_query, after_path), do: {:error, {:invalid_path, after_path}}
-
-  defp valid_segment?(segment),
-    do: segment not in ["", ".", ".."] and byte_size(segment) <= @max_segment_bytes
 
   defp decode_sha256(<<hex::binary-size(64)>>) do
     case Base.decode16(hex, case: :mixed) do

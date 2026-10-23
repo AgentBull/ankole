@@ -230,9 +230,9 @@ jobs:
           path: |
             app/control_plane/deps
             app/control_plane/_build
-          key: control-plane-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane/mix.exs', 'app/control_plane/mix.lock', 'app/control_plane_core/mix.exs', 'app/control_plane_core/patches/**', 'app/kernel/mix.exs', 'plugins/*/mix.exs', 'libs/*/mix.exs') }}
+          key: control-plane-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane_core/config/**') }}-${{ hashFiles('app/control_plane/mix.exs', 'app/control_plane/mix.lock', 'app/control_plane_core/mix.exs', 'app/control_plane_core/patches/**', 'app/kernel/mix.exs', 'plugins/*/mix.exs', 'libs/*/mix.exs') }}
           restore-keys: |
-            control-plane-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-
+            control-plane-mix-${{ runner.os }}-${{ env.ANKOLE_EDITION }}-otp-29-elixir-1.20.4-${{ hashFiles('app/control_plane_core/config/**') }}-
       - run: mix local.hex --force && mix local.rebar --force && mix deps.get
         working-directory: app/control_plane
       - run: bun run --filter @ankole/control-plane lint

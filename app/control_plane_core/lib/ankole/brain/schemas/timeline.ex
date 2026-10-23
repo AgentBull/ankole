@@ -85,11 +85,7 @@ defmodule Ankole.Brain.Schemas.Timeline do
       argument(:writer, :term, allow_nil?: false)
       argument(:options, :term, default: [])
 
-      run(fn %{arguments: args}, _context ->
-        args.attrs
-        |> Ankole.Brain.Timelines.write_timeline_in_tx(args.writer, args.options)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

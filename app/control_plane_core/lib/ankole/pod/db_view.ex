@@ -64,11 +64,7 @@ defmodule Ankole.Pod.DbView do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Database, :committed_schema})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Database.Schema.create_view_in_tx(a.uid, a.id, a.attrs)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_view, :term do
@@ -78,11 +74,7 @@ defmodule Ankole.Pod.DbView do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Database, :committed_schema})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Database.Schema.update_view_in_tx(a.uid, a.id, a.attrs)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :delete_view, :term do
@@ -92,11 +84,7 @@ defmodule Ankole.Pod.DbView do
       argument(:authority, :term)
       after_commit({Ankole.Pod.Database, :committed_schema})
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Pod.Access.write(a.authority, fn ->
-          Ankole.Pod.Database.Schema.delete_view_in_tx(a.uid, a.id, a.version)
-        end)
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

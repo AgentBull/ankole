@@ -47,11 +47,7 @@ defmodule Ankole.Pod.PageUserState do
       argument(:page_id, :term)
       argument(:changes, :term)
 
-      run(fn %{arguments: a}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Pod.Pages.save_state_in_tx(a.principal_uid, a.page_id, a.changes)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

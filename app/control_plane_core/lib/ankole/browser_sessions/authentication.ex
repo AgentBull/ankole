@@ -106,22 +106,14 @@ defmodule Ankole.BrowserSessions.Authentication do
       argument(:browser_ref, :term)
       argument(:authentication_ref, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BrowserSessions.revoke_in_tx(args.browser_ref, args.authentication_ref)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :create_pod_access, :term do
       argument(:authentication_ref, :term)
       argument(:create, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BrowserSessions.create_pod_access_in_tx(args.authentication_ref, args.create)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :connect_pod_access, :term do
@@ -130,16 +122,7 @@ defmodule Ankole.BrowserSessions.Authentication do
       argument(:tenant_id, :term)
       argument(:connect, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BrowserSessions.connect_pod_access_in_tx(
-            args.authentication_ref,
-            args.verified_ref,
-            args.tenant_id,
-            args.connect
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

@@ -200,30 +200,21 @@ defmodule Ankole.AuthZ.Grant do
       constraints(instance_of: __MODULE__)
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.AuthZ.Grants.create_permission_grant(Ankole.Repo, input.arguments.attrs)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :upsert_permission_grant, :struct do
       constraints(instance_of: __MODULE__)
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.AuthZ.Grants.upsert_permission_grant(Ankole.Repo, input.arguments.attrs)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :delete_permission_grant, :struct do
       constraints(instance_of: __MODULE__)
       argument(:id, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.AuthZ.Grants.delete_permission_grant(Ankole.Repo, input.arguments.id)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :create_operator_grant, :struct do
@@ -236,11 +227,7 @@ defmodule Ankole.AuthZ.Grant do
       argument(:condition, :string)
       argument(:description, :string)
 
-      run(fn input, _context ->
-        Ankole.AuthZ.Grants.create_operator_grant(Ankole.Repo, input.arguments)
-        |> Ankole.Errors.not_found([:not_found, :principal_not_found], Ankole.AuthZ.Group)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_operator_grant, :struct do
@@ -252,14 +239,7 @@ defmodule Ankole.AuthZ.Grant do
       argument(:condition, :string)
       argument(:description, :string)
 
-      run(fn input, _context ->
-        Ankole.AuthZ.Grants.update_operator_grant(
-          Ankole.Repo,
-          input.arguments.id,
-          Map.delete(input.arguments, :id)
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :delete_operator_grant, :struct do
@@ -267,10 +247,7 @@ defmodule Ankole.AuthZ.Grant do
       constraints(instance_of: __MODULE__)
       argument(:id, :string, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.AuthZ.Grants.delete_operator_grant(Ankole.Repo, input.arguments.id)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_permission_grant, :struct do
@@ -278,14 +255,7 @@ defmodule Ankole.AuthZ.Grant do
       argument(:grant, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
       argument(:attrs, :map, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.AuthZ.Grants.update_permission_grant(
-          input.arguments.grant,
-          input.arguments.attrs
-        )
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

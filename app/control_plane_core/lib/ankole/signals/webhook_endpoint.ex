@@ -199,15 +199,7 @@ defmodule Ankole.Signals.WebhookEndpoint do
       argument(:attrs, :map, allow_nil?: false)
       argument(:token, :term, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Signals.Webhooks.create_endpoint_in_tx(
-            Ankole.Repo,
-            input.arguments.attrs,
-            input.arguments.token
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     # The Console creates a standing CloudEvents endpoint. The plaintext token
@@ -227,22 +219,14 @@ defmodule Ankole.Signals.WebhookEndpoint do
       argument(:label, :string, allow_nil?: false)
       argument(:expires_at, :utc_datetime_usec, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.Signals.Webhooks.create_operator_endpoint_in_tx(input.arguments)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :cancel_operator_endpoint, :struct do
       constraints(instance_of: __MODULE__)
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Repo
-        |> Ankole.Signals.Webhooks.cancel_operator_endpoint_in_tx(input.arguments.id)
-        |> Ankole.Errors.wrap()
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :cancel_endpoint, :term do
@@ -251,19 +235,7 @@ defmodule Ankole.Signals.WebhookEndpoint do
       argument(:endpoint_id, :term, allow_nil?: false)
       argument(:now, :utc_datetime_usec, allow_nil?: false)
 
-      run(fn input, _context ->
-        args = input.arguments
-
-        Ankole.Errors.wrap(
-          Ankole.Signals.Webhooks.cancel_endpoint_in_tx(
-            Ankole.Repo,
-            args.agent_uid,
-            args.session_id,
-            args.endpoint_id,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :receive, :term do
@@ -272,19 +244,7 @@ defmodule Ankole.Signals.WebhookEndpoint do
       argument(:input, :term, allow_nil?: false)
       argument(:now, :utc_datetime_usec, allow_nil?: false)
 
-      run(fn input, _context ->
-        args = input.arguments
-
-        Ankole.Errors.wrap(
-          Ankole.Signals.Webhooks.receive_in_tx(
-            Ankole.Repo,
-            args.token,
-            args.format,
-            args.input,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
   end
 end

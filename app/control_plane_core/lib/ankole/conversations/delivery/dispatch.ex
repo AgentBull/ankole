@@ -4,6 +4,8 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   require Ash.Query
 
   alias Ankole.Conversations.Delivery.PreviewState
+
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Logging
   alias Ankole.Signals.Signal
   alias Ankole.Repo
@@ -308,7 +310,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
        )
        when status in [:pending, :failed] and is_map(original) do
     if reply_preview_finalization?(intent) do
-      case PreviewState.load_signal(intent.source_signal_id) do
+      case PreviewStates.load_signal(intent.source_signal_id) do
         %Signal{} = event ->
           with {:ok, refreshed} <-
                  terminal_presentation_from_latest_checkpoint(
@@ -383,7 +385,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   defp adopt_late_reply_preview(%Intent{status: status, operation: operation} = intent)
        when status in [:pending, :failed] and operation in [:post, :reply] do
     if reply_preview_finalization?(intent) do
-      case PreviewState.load_signal(intent.source_signal_id) do
+      case PreviewStates.load_signal(intent.source_signal_id) do
         %Signal{
           preview: %PreviewState{
             provider_message_id: provider_message_id
@@ -674,7 +676,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
          } = intent
        )
        when is_binary(signal_id) and is_map(presentation) do
-    case PreviewState.load_signal(signal_id) do
+    case PreviewStates.load_signal(signal_id) do
       %Signal{preview: %PreviewState{checkpoint: checkpoint}}
       when is_map(checkpoint) ->
         %{

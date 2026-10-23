@@ -190,11 +190,7 @@ defmodule Ankole.Conversations.Conversation do
       argument(:attrs, :term)
       after_commit({Ankole.Conversations, :publish_native_change})
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.create_in_tx(Ankole.Repo, args.human_uid, args.attrs)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :post_native, :term do
@@ -203,11 +199,7 @@ defmodule Ankole.Conversations.Conversation do
       argument(:attrs, :term)
       after_commit({Ankole.Conversations, :publish_native_change})
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.post_in_tx(Ankole.Repo, args.human_uid, args.id, args.attrs)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :change_native_queue, :term do
@@ -216,16 +208,7 @@ defmodule Ankole.Conversations.Conversation do
       argument(:attrs, :term)
       after_commit({Ankole.Conversations, :publish_native_change})
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.update_queue_in_tx(
-            Ankole.Repo,
-            args.human_uid,
-            args.id,
-            args.attrs
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :remove_native, :term do
@@ -233,11 +216,7 @@ defmodule Ankole.Conversations.Conversation do
       argument(:id, :term)
       after_commit({Ankole.Conversations.Events, :publish_status})
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.delete_in_tx(Ankole.Repo, args.human_uid, args.id)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :observe_entry, :term do
@@ -246,16 +225,7 @@ defmodule Ankole.Conversations.Conversation do
       argument(:now, :term)
       after_commit({Ankole.Conversations.Observe, :stop_retracted_previews})
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.Observe.accept_entry_in_tx(
-            Ankole.Repo,
-            args.binding,
-            args.fact,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :observe_reaction, :term do
@@ -263,16 +233,7 @@ defmodule Ankole.Conversations.Conversation do
       argument(:fact, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.Observe.accept_reaction_in_tx(
-            Ankole.Repo,
-            args.binding,
-            args.fact,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :observe_action, :term do
@@ -281,16 +242,7 @@ defmodule Ankole.Conversations.Conversation do
       argument(:now, :term)
       after_commit({Ankole.Conversations.Observe, :stop_retracted_previews})
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.Observe.accept_action_in_tx(
-            Ankole.Repo,
-            args.binding,
-            args.fact,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :observe_lifecycle, :term do
@@ -299,27 +251,14 @@ defmodule Ankole.Conversations.Conversation do
       argument(:now, :term)
       after_commit({Ankole.Conversations.Observe, :stop_retracted_previews})
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.Observe.accept_lifecycle_in_tx(
-            Ankole.Repo,
-            args.binding,
-            args.fact,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :notify_held_sender, :term do
       argument(:fact, :term)
       argument(:now, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.Observe.notify_held_sender_in_tx(Ankole.Repo, args.fact, args.now)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :ensure_im_group, :term do
@@ -328,71 +267,34 @@ defmodule Ankole.Conversations.Conversation do
       argument(:context, :term)
       argument(:opts, :term, default: [])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.IMGroupProjection.ensure_group_in_tx(
-            Ankole.Repo,
-            args.group_key,
-            args.attrs,
-            args.context,
-            args.opts
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_im_group_membership, :term do
       argument(:group_key, :term)
       argument(:update, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.IMGroupProjection.update_membership_in_tx(
-            Ankole.Repo,
-            args.group_key,
-            args.update
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :replace_im_group_members, :term do
       argument(:group_id, :term)
       argument(:human_uids, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.IMGroupMembers.replace_members_in_tx(
-            Ankole.Repo,
-            args.group_id,
-            args.human_uids
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :reconcile_im_group_agents, :term do
       argument(:group_id, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.IMGroupMembers.reconcile_agent_members_in_tx(
-            Ankole.Repo,
-            args.group_id
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_external_metadata, :term do
       argument(:id, :term)
       argument(:update, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.External.update_metadata_in_tx(Ankole.Repo, args.id, args.update)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :observe_external_conversation, :struct do
@@ -401,16 +303,7 @@ defmodule Ankole.Conversations.Conversation do
       argument(:observation, :map, allow_nil?: false)
       argument(:now, :utc_datetime_usec, allow_nil?: false)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.External.observe_conversation_in_tx(
-            Ankole.Repo,
-            args.binding,
-            args.observation,
-            args.now
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :native_detail, :term do
@@ -418,11 +311,7 @@ defmodule Ankole.Conversations.Conversation do
       argument(:id, :term)
       argument(:opts, :term, default: [])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.detail_in_tx(Ankole.Repo, args.human_uid, args.id, args.opts)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :select_model_profile, :term do
@@ -430,16 +319,7 @@ defmodule Ankole.Conversations.Conversation do
       argument(:id, :term)
       argument(:profile, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.set_model_profile_in_tx(
-            Ankole.Repo,
-            args.human_uid,
-            args.id,
-            args.profile
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :context_snapshot, :term do
@@ -449,18 +329,7 @@ defmodule Ankole.Conversations.Conversation do
       argument(:excluded_ids, :term)
       argument(:opts, :term, default: [])
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.Conversations.context_snapshot_in_tx(
-            Ankole.Repo,
-            args.id,
-            args.key,
-            args.read_seq,
-            args.excluded_ids,
-            args.opts
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
   end
 end

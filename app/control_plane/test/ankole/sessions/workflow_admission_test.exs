@@ -5,6 +5,7 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.Model
+  alias Ankole.Sessions.Receipt
   alias Ankole.Sessions.Receipts
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Tools
@@ -359,7 +360,7 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
       assert completed.completed_at
       assert completed.attempt_count == 6
       Ankole.DataCase.assert_persisted_equal(Repo.reload!(call), stored_call)
-      assert Repo.aggregate(Receipts, :count) == 0
+      assert Repo.aggregate(Receipt, :count) == 0
       assert Repo.get!(AgentWorker, agent.uid).state == :absent
 
       workspace =
@@ -374,7 +375,7 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
       assert replayed == completed
       Ankole.DataCase.assert_persisted_equal(Repo.reload!(event), completed)
       Ankole.DataCase.assert_persisted_equal(Repo.reload!(call), stored_call)
-      assert Repo.aggregate(Receipts, :count) == 0
+      assert Repo.aggregate(Receipt, :count) == 0
       Ankole.DataCase.assert_persisted_equal(Repo.reload!(workspace), workspace)
 
       assert {:ok, %{status: :completed, signal: ^completed} = result} =

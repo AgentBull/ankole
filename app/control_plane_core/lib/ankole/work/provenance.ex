@@ -8,6 +8,11 @@ defmodule Ankole.Work.Provenance do
   """
 
   defmacro __using__(opts) do
+    # `revoke_action` names a module that the work owner calls at run time.
+    # Expand its alias without a lexical tracker, so that the resource does
+    # not depend on the module of its domain (see `mix ankole.compile_cycles`).
+    opts = Macro.expand_literals(opts, %{__CALLER__ | lexical_tracker: nil})
+
     quote do
       import Ankole.Work.Provenance, only: [ash_attributes: 0]
 

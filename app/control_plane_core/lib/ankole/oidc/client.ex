@@ -221,9 +221,7 @@ defmodule Ankole.OIDC.Client do
       argument(:post_logout_redirect_uris, {:array, :string})
       argument(:allow_insecure_local_logout, :boolean)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(Ankole.OIDC.console_create_in_tx(input.arguments))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_update, :struct do
@@ -241,18 +239,14 @@ defmodule Ankole.OIDC.Client do
       argument(:post_logout_redirect_uris, {:array, :string})
       argument(:allow_insecure_local_logout, :boolean)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(Ankole.OIDC.console_update_in_tx(input.arguments))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :console_delete, :struct do
       constraints(instance_of: __MODULE__)
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
-      run(fn input, _context ->
-        Ankole.Errors.wrap(Ankole.OIDC.console_delete_in_tx(input.arguments.id))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :create_client, :struct do
@@ -260,9 +254,7 @@ defmodule Ankole.OIDC.Client do
       argument(:attrs, :term)
       argument(:group_ids, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.OIDC.create_client_in_tx(args.attrs, args.group_ids))
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :update_client, :struct do
@@ -270,9 +262,7 @@ defmodule Ankole.OIDC.Client do
       argument(:id, :term)
       argument(:attrs, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.OIDC.update_client_in_tx(args.id, args.attrs))
-      end)
+      run(__MODULE__.Actions)
     end
   end
 

@@ -14,6 +14,8 @@ defmodule Ankole.Conversations.Delivery do
   require Ash.Query
 
   alias Ankole.Conversations.Delivery.PreviewState
+
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Signals.Signal
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Conversations.Delivery.Text
@@ -404,7 +406,8 @@ defmodule Ankole.Conversations.Delivery do
             operation: operation,
             conversation_id: routed_event.conversation_id,
             provider_thread_id: routed_event.provider_thread_id,
-            reply_to_provider_message_id: Signal.reply_anchor_provider_message_id(routed_event),
+            reply_to_provider_message_id:
+              Ankole.Signals.reply_anchor_provider_message_id(routed_event),
             # Source table: source_signal_id stores the signals.id that
             # caused this provider-visible side effect.
             source_signal_id: signal.id,
@@ -598,7 +601,7 @@ defmodule Ankole.Conversations.Delivery do
   # The same operation selection serves any Signal terminal state, so a
   # dead-letter notice finalizes the preview exactly like a successful reply.
   defp final_reply_operation(%Signal{} = signal) do
-    case PreviewState.get(signal).provider_message_id do
+    case PreviewStates.get(signal).provider_message_id do
       provider_message_id when is_binary(provider_message_id) ->
         {:ok, :edit, %{target_provider_message_id: provider_message_id}}
 
@@ -606,7 +609,10 @@ defmodule Ankole.Conversations.Delivery do
         with {:ok, operation} <- operation_for_signal(signal) do
           attrs =
             if operation == :reply do
-              %{reply_to_provider_message_id: Signal.reply_anchor_provider_message_id(signal)}
+              %{
+                reply_to_provider_message_id:
+                  Ankole.Signals.reply_anchor_provider_message_id(signal)
+              }
             else
               %{}
             end
@@ -643,7 +649,7 @@ defmodule Ankole.Conversations.Delivery do
 
   def reply_presentation_checkpoint(%Signal{} = signal) do
     presentation =
-      case PreviewState.get(signal).checkpoint do
+      case PreviewStates.get(signal).checkpoint do
         %{"presentation" => presentation} when is_map(presentation) -> presentation
         _checkpoint -> ReplyPresentation.new()
       end

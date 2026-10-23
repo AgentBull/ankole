@@ -144,10 +144,12 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     persisted = fresh(event)
 
-    assert Ankole.Conversations.Delivery.PreviewState.get(persisted).checkpoint["streaming_state"] ==
+    assert Ankole.Conversations.Delivery.PreviewStates.get(persisted).checkpoint[
+             "streaming_state"
+           ] ==
              "open"
 
-    assert Ankole.Conversations.Delivery.PreviewState.get(persisted).checkpoint["presentation"][
+    assert Ankole.Conversations.Delivery.PreviewStates.get(persisted).checkpoint["presentation"][
              "answer"
            ] == "hello from the agent"
   end
@@ -540,7 +542,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert event
            |> fresh()
-           |> Ankole.Conversations.Delivery.PreviewState.get()
+           |> Ankole.Conversations.Delivery.PreviewStates.get()
            |> Map.fetch!(:checkpoint)
            |> PreviewAdapter.adapter_checkpoint()
            |> Map.fetch!("degraded")

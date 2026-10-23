@@ -87,26 +87,14 @@ defmodule Ankole.BrowserSessions.Session do
       argument(:authentication_ref, :term)
       argument(:tenant_id, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BrowserSessions.activate_in_tx(
-            args.browser_ref,
-            args.authentication_ref,
-            args.tenant_id
-          )
-        )
-      end)
+      run(__MODULE__.Actions)
     end
 
     action :logout, :term do
       argument(:browser_ref, :term)
       argument(:expected_revision, :term)
 
-      run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(
-          Ankole.BrowserSessions.logout_in_tx(args.browser_ref, args.expected_revision)
-        )
-      end)
+      run(__MODULE__.Actions)
     end
   end
 
