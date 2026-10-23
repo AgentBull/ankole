@@ -1,5 +1,4 @@
 defmodule Ankole.Conversations.Delivery.FinalReplyTest do
-  alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.AIGateway.ResponseCommit
   use Ankole.SessionsCase

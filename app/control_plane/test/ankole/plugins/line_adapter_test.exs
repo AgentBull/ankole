@@ -7,8 +7,6 @@ defmodule Ankole.Plugins.LineAdapterTest do
   import Ankole.SignalsFixtures
   import Ankole.Eventually, only: [eventually: 1]
 
-  alias Ankole.Conversations.Delivery.PreviewState
-
   alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Plugins.LineAdapter
 

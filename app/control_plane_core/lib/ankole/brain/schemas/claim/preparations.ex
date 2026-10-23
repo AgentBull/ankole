@@ -22,7 +22,7 @@ defmodule Ankole.Brain.Schemas.Claim.Preparations do
   defp action(:supersede_claim, input, _context),
     do: Ash.ActionInput.before_transaction(input, &Claims.prepare_replacement_input/1)
 
-  defp action(:expire_fact_by_id, input, _context) do
+  defp action(:console_supersede, input, _context) do
     Ash.ActionInput.before_transaction(input, fn input ->
       Ash.ActionInput.set_private_argument(
         input,

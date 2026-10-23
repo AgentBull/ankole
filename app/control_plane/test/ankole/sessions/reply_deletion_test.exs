@@ -8,8 +8,6 @@ defmodule Ankole.Sessions.ReplyDeletionTest do
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsFixtures
 
-  alias Ankole.Conversations.Delivery.PreviewState
-
   alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Repo
   alias Ankole.Conversations.Delivery.Deletion

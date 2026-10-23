@@ -1,5 +1,4 @@
 defmodule Ankole.Sessions.MessageLifecycleNoopTest do
-  alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.AIGateway.ResponseCommit
   alias Ankole.AIGateway.ResponseChain

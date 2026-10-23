@@ -10,8 +10,6 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsFixtures
 
-  alias Ankole.Conversations.Delivery.PreviewState
-
   alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache

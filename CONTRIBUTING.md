@@ -705,7 +705,10 @@ application.
   compile-connected cycle (`mix ankole.compile_cycles`). The resource refers to
   that code through a module in its DSL. Spark does not record a module in the
   DSL as a dependency of the resource. For `run`, this is true because the
-  configuration sets `infer_generic_action_reactors?: false` for `:ash`. Put
+  configuration sets `infer_generic_action_reactors?: false` for `:ash`.
+  `mix deps.compile ash --force` rebuilds a local cache that used a different
+  value for this compile-time setting. CI restores dependencies only from a
+  cache with the same core configuration. Put
   the module in the directory of the resource, under the resource name:
   - `run(__MODULE__.Actions)`: `<Resource>.Actions`
     (`use Ash.Resource.Actions.Implementation`) runs all the generic actions of

@@ -2,8 +2,9 @@ defmodule Ankole.Sessions.Operations do
   @moduledoc """
   Declares the Session operations of `Ankole.Sessions.SessionWorkspace`.
 
-  Each operation is a generic action that owns one transaction. Its `run`
-  calls the `*_in_tx` function of the owning module with `Ankole.Repo`. The
+  Each operation is a generic action that owns one transaction.
+  `Ankole.Sessions.Operations.Actions` calls the `*_in_tx` function of the
+  owning module with `Ankole.Repo`. The
   `Ankole.Sessions` domain defines one function for each operation; the
   modules call the define and give back the domain reason with
   `Ankole.Errors.reason/1`.
