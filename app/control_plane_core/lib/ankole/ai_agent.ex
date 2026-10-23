@@ -8,7 +8,7 @@ defmodule Ankole.AIAgent do
   `Ankole.AIAgent.TokenQuota`, which run the generic actions of the
   resources.
   """
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   resources do
     resource Ankole.AIAgent.Library.AgentPlugins.Schemas.AgentPluginOverride do
@@ -37,5 +37,20 @@ defmodule Ankole.AIAgent do
     end
 
     resource(Ankole.AIAgent.Operations)
+  end
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/agents/:agent_uid/skill-lessons",
+                 Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
+        index(:console_list, name: "list_agent_skill_lessons", derive_sort?: false)
+        route(:post, "/", :console_teach, name: "create_agent_skill_lesson")
+        route(:post, "/:lesson_id/retire", :revoke, name: "retire_agent_skill_lesson")
+      end
+    end
   end
 end

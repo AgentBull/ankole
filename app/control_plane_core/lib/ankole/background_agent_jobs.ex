@@ -11,7 +11,7 @@ defmodule Ankole.BackgroundAgentJobs do
   queries, and turn persistence as separate responsibilities.
   """
 
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   @behaviour Ankole.Sessions.AsyncWorkUnit
 
@@ -37,6 +37,36 @@ defmodule Ankole.BackgroundAgentJobs do
 
     resource(Ankole.BackgroundAgentJobs.Schemas.Turn)
     resource(Ankole.BackgroundAgentJobs.Schemas.TurnItem)
+  end
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/background-agent-jobs", Ankole.BackgroundAgentJobs.Schemas.Job do
+        # The list reads only the columns that the board shows.
+        index(:console_list,
+          name: "list_background_agent_jobs",
+          derive_sort?: false,
+          default_fields: [
+            :agent_uid,
+            :title,
+            :status,
+            :attempts,
+            :execution_failures,
+            :workspace_template_id,
+            :duration_seconds,
+            :inserted_at
+          ]
+        )
+
+        get(:read, name: "get_background_agent_job")
+        route(:post, "/:id/cancel", :console_cancel, name: "cancel_background_agent_job")
+        route(:post, "/:id/complete", :console_complete, name: "complete_background_agent_job")
+      end
+    end
   end
 
   require Ankole.ModelIntegerID
@@ -338,20 +368,11 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc "Lists a page of work owned by one Agent."
   def list_for_agent(agent_uid, opts \\ []), do: Queries.list_for_agent(agent_uid, opts)
 
-  @doc "Lists installation-wide Console work with a stable keyset cursor."
-  def list_for_console(opts \\ []), do: Queries.list_for_console(opts)
-
   @doc "Returns operator reliability metrics for the Console health panel."
   defdelegate health_metrics(), to: Ankole.BackgroundAgentJobs.Health, as: :metrics
 
   @doc "Fetches one job without chat visibility constraints for Console."
   defdelegate get_job(job_id), to: Queries, as: :get
-
-  @doc "Projects a job into the named Console API contract."
-  defdelegate console_projection(job), to: Queries
-
-  @doc "Projects one `list_for_console/1` row into the named Console list contract."
-  defdelegate console_list_projection(row), to: Queries
 
   @doc false
   defdelegate worker_turn_projection(turn), to: Turns, as: :worker_projection

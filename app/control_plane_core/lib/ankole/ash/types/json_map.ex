@@ -1,6 +1,7 @@
 defmodule Ankole.Ash.Types.JSONMap do
   @moduledoc "Uses the durable JSON object contract for Ash attributes."
   use Ash.Type
+  use AshJsonApi.Type
 
   @impl true
   def constraints do
@@ -48,4 +49,8 @@ defmodule Ankole.Ash.Types.JSONMap do
         if byte_size(encoded) <= maximum, do: {:ok, map}, else: {:error, message: "is too large"}
     end
   end
+
+  @impl AshJsonApi.Type
+  def json_schema(_constraints),
+    do: %OpenApiSpex.Schema{type: :object, additionalProperties: true}
 end

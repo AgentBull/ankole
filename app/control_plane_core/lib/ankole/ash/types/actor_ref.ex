@@ -1,6 +1,7 @@
 defmodule Ankole.Ash.Types.ActorRef do
   @moduledoc "Uses the Principal owner's tenant-qualified attribution codec."
   use Ash.Type
+  use AshJsonApi.Type
 
   @impl true
   def storage_type(_constraints), do: :string
@@ -15,4 +16,17 @@ defmodule Ankole.Ash.Types.ActorRef do
   @impl true
   def dump_to_native(nil, _constraints), do: {:ok, nil}
   def dump_to_native(value, _constraints), do: Ankole.Ecto.ActorRef.dump(value)
+
+  @impl AshJsonApi.Type
+  def json_schema(_constraints) do
+    %OpenApiSpex.Schema{
+      type: :object,
+      properties: %{
+        tenant_id: %OpenApiSpex.Schema{type: :string},
+        uid: %OpenApiSpex.Schema{type: :string}
+      },
+      required: [:tenant_id, :uid],
+      additionalProperties: false
+    }
+  end
 end

@@ -1,6 +1,29 @@
 defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
   @moduledoc "Immutable lesson content with a renewable lease and terminal retirement."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIAgent
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.AIAgent,
+    extensions: [AshJsonApi.Resource]
+
+  json_api do
+    type("agent_skill_lesson")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :agent_uid,
+      :skill_name,
+      :content,
+      :author_kind,
+      :author,
+      :evidence_job_ids,
+      :checked_release,
+      :review_after,
+      :retired_at,
+      :retire_reason,
+      :inserted_at
+    ])
+  end
 
   postgres do
     table("agent_skill_lessons")
@@ -23,7 +46,8 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
     attribute(:id, Ankole.Ash.Types.UUIDv7,
       primary_key?: true,
       allow_nil?: false,
-      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0,
+      public?: true
     )
 
     attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false, public?: true)
@@ -64,7 +88,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
       constraints: [one_of: [:human_revoked, :lapsed, :obsolete]]
     )
 
-    create_timestamp(:inserted_at, type: :utc_datetime_usec)
+    create_timestamp(:inserted_at, type: :utc_datetime_usec, public?: true)
     update_timestamp(:updated_at, type: :utc_datetime_usec)
   end
 
@@ -74,6 +98,12 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
 
   actions do
     defaults([:read])
+
+    read :console_list do
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      filter(expr(agent_uid == ^arg(:agent_uid)))
+      prepare(build(sort: [skill_name: :asc, inserted_at: :desc]))
+    end
 
     create :teach_human do
       accept([:agent_uid, :skill_name, :content, :author])
@@ -121,6 +151,20 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
       end)
     end
 
+    action :console_teach, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:skill_name, :string, allow_nil?: false)
+      argument(:content, :string, allow_nil?: false, constraints: [trim?: false])
+
+      run(fn input, _context ->
+        input.arguments
+        |> Map.put(:author, Ankole.ActorRef.from_principal(input.context.principal))
+        |> Ankole.AIAgent.Library.console_teach()
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
     action :teach, :term do
       argument(:agent_uid, :string, allow_nil?: false)
       argument(:skill_name, :term)
@@ -148,9 +192,10 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
       end)
     end
 
-    action :revoke, :term do
-      argument(:agent_uid, :string, allow_nil?: false)
-      argument(:lesson_id, :term, allow_nil?: false)
+    action :revoke, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:lesson_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
       run(fn input, _context ->
         input.arguments |> Ankole.AIAgent.Library.SkillLessons.revoke() |> Ankole.Errors.wrap()

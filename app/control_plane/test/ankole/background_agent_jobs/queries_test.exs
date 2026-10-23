@@ -9,6 +9,7 @@ defmodule Ankole.BackgroundAgentJobs.QueriesTest do
   import Ecto.Query
 
   alias Ankole.BackgroundAgentJobs
+  alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
 
   @base ~U[2026-10-01 00:00:00.000000Z]
@@ -70,7 +71,7 @@ defmodule Ankole.BackgroundAgentJobs.QueriesTest do
       assert console_pages(opts, limit) == old_console_ids(opts), inspect({opts, limit})
     end
 
-    assert {:ok, %{jobs: jobs}} = BackgroundAgentJobs.list_for_console(limit: 100)
+    assert {:ok, %{jobs: jobs}} = Queries.list_for_console(limit: 100)
     assert [%Job{} | _] = jobs
     assert Enum.all?(jobs, &match?(%Ash.NotLoaded{}, &1.error_code))
   end
@@ -78,7 +79,7 @@ defmodule Ankole.BackgroundAgentJobs.QueriesTest do
   test "the activity list reads only live Jobs with their error projection",
        %{agent: agent} do
     assert {:ok, %{jobs: jobs, next_cursor: nil}} =
-             Ankole.BackgroundAgentJobs.Queries.list_activity(agent.uid, limit: 100)
+             Queries.list_activity(agent.uid, limit: 100)
 
     assert Enum.map(jobs, & &1.id) ==
              old_console_ids(agent_uid: agent.uid, statuses: Job.live_statuses())
@@ -108,7 +109,7 @@ defmodule Ankole.BackgroundAgentJobs.QueriesTest do
 
   test "a cursor belongs to its list and its parameters", %{agent: agent} do
     assert {:ok, %{next_cursor: console_cursor}} =
-             BackgroundAgentJobs.list_for_console(limit: 1)
+             Queries.list_for_console(limit: 1)
 
     assert is_binary(console_cursor)
 
@@ -118,13 +119,13 @@ defmodule Ankole.BackgroundAgentJobs.QueriesTest do
     end
 
     assert {:error, :invalid_background_agent_job_cursor} =
-             BackgroundAgentJobs.list_for_console(cursor: "not-a-cursor")
+             Queries.list_for_console(cursor: "not-a-cursor")
 
     # A cursor of the old format no longer reads a page.
     old_cursor = Base.url_encode64("#{DateTime.to_iso8601(@base)}|1", padding: false)
 
     assert {:error, :invalid_background_agent_job_cursor} =
-             BackgroundAgentJobs.list_for_console(cursor: old_cursor)
+             Queries.list_for_console(cursor: old_cursor)
   end
 
   test "the owner session read gives the live Job ids in id order", %{agent: agent, ids: ids} do
@@ -147,7 +148,7 @@ defmodule Ankole.BackgroundAgentJobs.QueriesTest do
 
   defp console_pages(opts, limit, cursor \\ nil, acc \\ []) do
     assert {:ok, %{jobs: jobs, next_cursor: next}} =
-             BackgroundAgentJobs.list_for_console(
+             Queries.list_for_console(
                Keyword.merge(opts, limit: limit, cursor: cursor)
              )
 

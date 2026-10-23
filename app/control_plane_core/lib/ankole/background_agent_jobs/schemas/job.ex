@@ -10,7 +10,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     domain: Ankole.BackgroundAgentJobs,
-    extensions: [AshStateMachine]
+    extensions: [AshStateMachine, AshJsonApi.Resource]
 
   use Ankole.Work.Provenance,
     owner_session?: true,
@@ -26,6 +26,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
   alias Ankole.BackgroundAgentJobs.JobState
   alias Ankole.Signals.Signal
 
+  @model_id [min: Ankole.ModelIntegerID.minimum(), max: Ankole.ModelIntegerID.maximum()]
   @model_profile ~r/\A[a-z][a-z0-9_-]{0,63}\z/
   @live_statuses [:queued, :running, :waiting_on_user]
 
@@ -40,6 +41,39 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
   @doc "Returns statuses that occupy an agent running slot."
   @spec running_statuses() :: [JobState.status()]
   defdelegate running_statuses(), to: JobState
+
+  json_api do
+    type("background_agent_job")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :agent_uid,
+      :owner_session_id,
+      :source_signal_id,
+      :source_tool_call_id,
+      :continued_from_job_id,
+      :workspace_owner_job_id,
+      :runtime_thread_id,
+      :title,
+      :task,
+      :status,
+      :attempts,
+      :execution_failures,
+      :workspace_template_id,
+      :model_profile,
+      :reply_route,
+      :result,
+      :error,
+      :metadata,
+      :duration_seconds,
+      :queued_at,
+      :started_at,
+      :completed_at,
+      :inserted_at,
+      :updated_at
+    ])
+  end
 
   postgres do
     table("background_agent_jobs")
@@ -151,7 +185,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       constraints: [allow_datetime?: true]
     )
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps(type: :utc_datetime_usec, public?: true)
   end
 
   state_machine do
@@ -222,6 +256,22 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     )
 
     calculate(:task_excerpt, :string, expr(fragment("left(?, 600)", task)))
+
+    # The seconds from the start (or the queue time) to the completion, or to
+    # now for a Job that is not complete.
+    calculate(
+      :duration_seconds,
+      :integer,
+      expr(
+        fragment(
+          "GREATEST(COALESCE(floor(EXTRACT(EPOCH FROM (COALESCE(?, now()) - COALESCE(?, ?))))::bigint, 0), 0)",
+          completed_at,
+          started_at,
+          queued_at
+        )
+      ),
+      public?: true
+    )
     calculate(:error_code, :string, expr(fragment("left(?->>'code', 200)", error)))
 
     calculate(
@@ -263,9 +313,9 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     defaults([:read])
 
     read :console_list do
-      argument(:agent_uid, :string)
-      argument(:status, :atom)
-      argument(:search, :string)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey)
+      argument(:status, :atom, constraints: [one_of: JobState.statuses()])
+      argument(:search, :string, constraints: [max_length: 200])
       argument(:live_only, :boolean, allow_nil?: false, default: false)
       pagination(keyset?: true, default_limit: 50, max_page_size: 100, required?: false)
 
@@ -511,6 +561,45 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
             Ankole.Repo,
             input.arguments.job_id,
             input.arguments.attrs
+          )
+        )
+      end)
+    end
+
+    action :console_cancel, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id, :integer, allow_nil?: false, constraints: @model_id)
+      after_commit({Ankole.BackgroundAgentJobs.Control, :stop_console_turn})
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BackgroundAgentJobs.Control.console_cancel_in_tx(
+            Ankole.Repo,
+            input.arguments.id,
+            input.context.principal
+          )
+        )
+      end)
+    end
+
+    action :console_complete, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id, :integer, allow_nil?: false, constraints: @model_id)
+
+      argument(:result_summary, :string,
+        allow_nil?: false,
+        constraints: [max_length: 16_384, trim?: false]
+      )
+
+      after_commit({Ankole.BackgroundAgentJobs.Control, :stop_console_turn})
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BackgroundAgentJobs.Control.console_complete_in_tx(
+            Ankole.Repo,
+            input.arguments.id,
+            input.arguments.result_summary,
+            input.context.principal
           )
         )
       end)

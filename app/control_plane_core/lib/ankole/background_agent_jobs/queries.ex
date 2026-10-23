@@ -142,7 +142,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
              search: search,
              live_only: activity?
            })
-           |> select_console_columns(activity?)
+           |> load_activity(activity?)
            |> Ankole.Ash.read(
              page: page_options(opts |> Keyword.get(:limit, 50) |> max(1) |> min(100), keyset)
            ) do
@@ -150,13 +150,8 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     end
   end
 
-  defp select_console_columns(query, false), do: Ash.Query.select(query, @console_list_columns)
-
-  defp select_console_columns(query, true) do
-    query
-    |> Ash.Query.select(@console_list_columns ++ @activity_columns)
-    |> Ash.Query.load([:error_code, :error_summary])
-  end
+  defp load_activity(query, false), do: query
+  defp load_activity(query, true), do: Ash.Query.load(query, [:error_code, :error_summary])
 
   @doc "Reads live background Jobs without task, trajectory or result payloads."
   def list_activity(agent_uid, opts \\ []) do
@@ -189,9 +184,13 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     end
   end
 
-  @doc "Applies the parameters of the `console_list` read action."
+  @doc """
+  Applies the parameters of the `console_list` read action. It reads only the
+  list columns, and the activity columns for `live_only`.
+  """
   def prepare_console_list(%Ash.Query{arguments: arguments} = query) do
     query
+    |> Ash.Query.select(console_columns(arguments[:live_only]))
     |> filter_present(arguments[:agent_uid], fn query, uid ->
       Ash.Query.filter(query, agent_uid == ^uid)
     end)
@@ -217,6 +216,9 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     |> Ash.Query.filter(agent_uid == ^arguments.agent_uid and status in ^statuses)
     |> Ash.Query.sort(updated_at: :desc, id: :desc)
   end
+
+  defp console_columns(true), do: @console_list_columns ++ @activity_columns
+  defp console_columns(_live_only), do: @console_list_columns
 
   defp filter_present(query, value, _filter) when value in [nil, false], do: query
   defp filter_present(query, value, filter), do: filter.(query, value)
@@ -336,62 +338,6 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     end
   end
 
-  @spec console_projection(Job.t()) :: map()
-  def console_projection(%Job{} = job) do
-    job
-    |> base_projection()
-    |> Map.merge(%{
-      duration_seconds: duration_seconds(job),
-      inserted_at: iso8601(job.inserted_at),
-      updated_at: iso8601(job.updated_at)
-    })
-  end
-
-  @doc "Projects one `list_for_console/1` row into the named Console list contract."
-  @spec console_list_projection(map()) :: map()
-  def console_list_projection(row) do
-    %{
-      id: row.id,
-      agent_uid: row.agent_uid,
-      title: row.title,
-      status: to_string(row.status),
-      attempts: row.attempts,
-      execution_failures: row.execution_failures,
-      workspace_template_id: row.workspace_template_id,
-      duration_seconds: duration_seconds(row),
-      inserted_at: iso8601(row.inserted_at)
-    }
-  end
-
-  # Console field list; the RuntimeFabric RPC view is the generated
-  # BackgroundAgentJobResponse message built by the RPC broker.
-  defp base_projection(%Job{} = job) do
-    %{
-      id: job.id,
-      agent_uid: job.agent_uid,
-      owner_session_id: job.owner_session_id,
-      source_signal_id: job.source_signal_id,
-      source_tool_call_id: job.source_tool_call_id,
-      continued_from_job_id: job.continued_from_job_id,
-      workspace_owner_job_id: job.workspace_owner_job_id,
-      runtime_thread_id: job.runtime_thread_id,
-      title: job.title,
-      task: job.task,
-      status: Atom.to_string(job.status),
-      attempts: job.attempts,
-      execution_failures: job.execution_failures,
-      workspace_template_id: job.workspace_template_id,
-      model_profile: job.model_profile,
-      reply_route: job.reply_route || %{},
-      result: job.result || %{},
-      error: job.error || %{},
-      metadata: job.metadata || %{},
-      queued_at: iso8601(job.queued_at),
-      started_at: iso8601(job.started_at),
-      completed_at: iso8601(job.completed_at)
-    }
-  end
-
   defp list_status(nil), do: {:ok, "live"}
   defp list_status(""), do: {:ok, "live"}
   defp list_status(status) when is_map_key(@list_status_groups, status), do: {:ok, status}
@@ -467,24 +413,6 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   end
 
   defp console_search(_search), do: {:error, :invalid_background_agent_job_search}
-
-  defp duration_seconds(job) do
-    case {job.started_at || job.queued_at, job.completed_at} do
-      {%DateTime{} = started_at, %DateTime{} = completed_at} ->
-        max(DateTime.diff(completed_at, started_at, :second), 0)
-
-      {%DateTime{} = started_at, nil} ->
-        max(DateTime.diff(now(), started_at, :second), 0)
-
-      _value ->
-        0
-    end
-  end
-
-  defp iso8601(nil), do: nil
-  defp iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
-
-  defp now, do: DateTime.utc_now(:microsecond)
 
   # Ankole.Brain.SkillLessons still composes Ecto reads of Jobs with these two
   # filters. Job reads use the `skill_lesson_reflection?` calculation. Remove

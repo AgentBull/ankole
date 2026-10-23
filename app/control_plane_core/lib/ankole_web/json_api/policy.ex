@@ -13,7 +13,9 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   The policy also gives the tenant of `Ankole.Repo` to the Ash action of a
   Console route. `Ankole.Repo` stays the owner of the tenant: the action gets
   the same value that `AnkoleWeb.Plugs.PutDataContext` selected. A site route
-  gets no tenant.
+  gets no tenant. The action context gets the Principal of the session under
+  `:principal`, so that an action can record its operator. It is not an Ash
+  actor: no Ash authorization uses it.
 
   `AshJsonApi.Router` calls the controller of a route also after a halted
   `before_dispatch`. Thus a refusal throws the refused connection, and the
@@ -29,7 +31,26 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   @type rule :: {authz_resource :: String.t(), authz_action :: String.t()}
 
   # {resource, route type, action or relationship} => {AuthZ resource, AuthZ action}
-  @rules %{site: %{}, console: %{}}
+  @rules %{
+    site: %{},
+    console: %{
+      # J4 background agent jobs (v1: background_agent_job_controller.ex)
+      {Ankole.BackgroundAgentJobs.Schemas.Job, :index, :console_list} =>
+        {"background_agent_jobs", "read"},
+      {Ankole.BackgroundAgentJobs.Schemas.Job, :get, :read} => {"background_agent_jobs", "read"},
+      {Ankole.BackgroundAgentJobs.Schemas.Job, :route, :console_cancel} =>
+        {"background_agent_jobs", "delete"},
+      {Ankole.BackgroundAgentJobs.Schemas.Job, :route, :console_complete} =>
+        {"background_agent_jobs", "update"},
+      # J4 agent skill lessons (v1: agent_skill_lesson_controller.ex)
+      {Ankole.AIAgent.Library.Schemas.AgentSkillLesson, :index, :console_list} =>
+        {"agent:{agent_uid}:library", "read"},
+      {Ankole.AIAgent.Library.Schemas.AgentSkillLesson, :route, :console_teach} =>
+        {"agent:{agent_uid}:library", "update"},
+      {Ankole.AIAgent.Library.Schemas.AgentSkillLesson, :route, :revoke} =>
+        {"agent:{agent_uid}:library", "update"}
+    }
+  }
 
   @doc "Gives the rules of the routers of one scope."
   @spec rules(scope()) :: %{rule_key() => rule()}
@@ -65,7 +86,9 @@ defmodule AnkoleWeb.JSONAPI.Policy do
     with {:ok, {authz_resource, action}} <-
            Map.fetch(rules || rules(scope), rule_key(resource, route)),
          :ok <- ConsolePolicy.authorize(conn, expand(authz_resource, params), action) do
-      Ash.PlugHelpers.set_tenant(conn, tenant(scope))
+      conn
+      |> Ash.PlugHelpers.set_tenant(tenant(scope))
+      |> Ash.PlugHelpers.set_context(%{principal: conn.assigns[:current_principal]})
     else
       _refused -> refuse(conn)
     end

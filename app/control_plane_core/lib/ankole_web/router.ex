@@ -420,18 +420,6 @@ defmodule AnkoleWeb.Router do
         AgentLibraryController,
         :update
 
-    get "/agents/:agent_uid/skill-lessons",
-        AgentSkillLessonController,
-        :index
-
-    post "/agents/:agent_uid/skill-lessons",
-         AgentSkillLessonController,
-         :create
-
-    post "/agents/:agent_uid/skill-lessons/:lesson_id/retire",
-         AgentSkillLessonController,
-         :retire
-
     get "/console-readiness", ConsoleReadinessController, :show
 
     get "/agent-workers", AgentWorkerController, :index
@@ -448,12 +436,8 @@ defmodule AnkoleWeb.Router do
         BackgroundActivityController,
         :automation_runs
 
-    get "/background-agent-jobs", BackgroundAgentJobController, :index
-
     get "/background-agent-jobs/health", BackgroundAgentJobController, :health
-    get "/background-agent-jobs/:job_id", BackgroundAgentJobController, :show
-    post "/background-agent-jobs/:job_id/cancel", BackgroundAgentJobController, :cancel
-    post "/background-agent-jobs/:job_id/complete", BackgroundAgentJobController, :complete
+    get "/background-agent-jobs/:job_id/turns", BackgroundAgentJobController, :turns
 
     get "/ai-gateway/conversations", AIGatewayConversationController, :index
 

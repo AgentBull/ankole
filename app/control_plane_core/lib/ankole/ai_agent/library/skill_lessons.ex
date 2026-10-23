@@ -118,7 +118,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
          |> Ash.Query.lock(:for_update)
          |> Ankole.Ash.read_one!() do
       nil ->
-        {:error, :skill_lesson_not_found}
+        {:error, Ankole.Errors.Invalid.NotFound.exception(resource: AgentSkillLesson, id: lesson_id)}
 
       %AgentSkillLesson{retired_at: %DateTime{}} ->
         {:error, :skill_lesson_already_retired}

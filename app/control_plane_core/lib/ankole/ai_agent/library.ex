@@ -338,6 +338,16 @@ defmodule Ankole.AIAgent.Library do
   end
 
   @doc false
+  # Runs the `:console_teach` action: an operator lesson from the Console.
+  def console_teach(%{agent_uid: agent_uid} = arguments) do
+    with {:ok, agent_uid, sources, opts} <- prepare_skill_lesson_write(agent_uid, []) do
+      arguments
+      |> Map.merge(%{agent_uid: agent_uid, sources: sources, catalog_options: opts})
+      |> teach()
+    end
+  end
+
+  @doc false
   # Runs the `:teach` action.
   def teach(%{agent_uid: agent_uid} = arguments) do
     with {:ok, _result} <-

@@ -208,20 +208,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobTurnProgress do
   )
 end
 
-defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobStatus do
-  @moduledoc false
-  @behaviour OpenApiSpex.Schema
-
-  @impl OpenApiSpex.Schema
-  def schema do
-    %OpenApiSpex.Schema{
-      title: "BackgroundAgentJobStatus",
-      type: :string,
-      enum: Enum.map(Ankole.BackgroundAgentJobs.JobState.statuses(), &Atom.to_string/1)
-    }
-  end
-end
-
 defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobTurnItem do
   alias OpenApiSpex, as: OpenAPISpex
   alias OpenAPISpex.Schema
@@ -376,173 +362,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobTurnItem do
   end
 end
 
-defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobItem do
-  alias OpenApiSpex, as: OpenAPISpex
-  alias OpenAPISpex.Schema
-  alias AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobTurnItem
-
-  @moduledoc false
-
-  require OpenAPISpex
-
-  OpenAPISpex.schema(
-    %{
-      title: "BackgroundAgentJobItem",
-      type: :object,
-      properties: %{
-        id: %Schema{
-          type: :integer,
-          minimum: Ankole.ModelIntegerID.minimum(),
-          maximum: Ankole.ModelIntegerID.maximum()
-        },
-        agent_uid: %Schema{type: :string},
-        owner_session_id: %Schema{type: :string},
-        source_signal_id: %Schema{type: :string, nullable: true},
-        source_tool_call_id: %Schema{type: :string},
-        continued_from_job_id: %Schema{
-          type: :integer,
-          nullable: true,
-          minimum: Ankole.ModelIntegerID.minimum(),
-          maximum: Ankole.ModelIntegerID.maximum(),
-          description: "The terminal Job that this Job continues; null for a first Job."
-        },
-        workspace_owner_job_id: %Schema{
-          type: :integer,
-          minimum: Ankole.ModelIntegerID.minimum(),
-          maximum: Ankole.ModelIntegerID.maximum(),
-          description:
-            "The first Job of the continuation chain, whose Workspace every Job in the chain uses."
-        },
-        runtime_thread_id: %Schema{type: :string, nullable: true},
-        title: %Schema{type: :string},
-        task: %Schema{type: :string},
-        status: AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobStatus,
-        attempts: %Schema{type: :integer},
-        execution_failures: %Schema{type: :integer},
-        workspace_template_id: %Schema{type: :string, nullable: true},
-        model_profile: %Schema{type: :string},
-        reply_route: %Schema{type: :object, additionalProperties: true},
-        result: %Schema{type: :object, additionalProperties: true},
-        error: %Schema{type: :object, additionalProperties: true},
-        metadata: %Schema{type: :object, additionalProperties: true},
-        duration_seconds: %Schema{type: :integer},
-        queued_at: %Schema{type: :string, nullable: true},
-        started_at: %Schema{type: :string, nullable: true},
-        completed_at: %Schema{type: :string, nullable: true},
-        inserted_at: %Schema{type: :string},
-        updated_at: %Schema{type: :string},
-        turns: %Schema{
-          type: :array,
-          items: BackgroundAgentJobTurnItem,
-          description:
-            "One bounded page of runtime Turns, newest Turns first, in chronological order."
-        },
-        turns_next_cursor: %Schema{
-          type: :string,
-          nullable: true,
-          description: "Opaque cursor for the page of older Turns; null on the last page."
-        }
-      },
-      required: [
-        :id,
-        :agent_uid,
-        :owner_session_id,
-        :source_tool_call_id,
-        :continued_from_job_id,
-        :workspace_owner_job_id,
-        :title,
-        :task,
-        :status,
-        :attempts,
-        :execution_failures,
-        :workspace_template_id,
-        :model_profile,
-        :reply_route,
-        :result,
-        :error,
-        :metadata,
-        :duration_seconds,
-        :inserted_at,
-        :updated_at
-      ],
-      additionalProperties: false
-    },
-    struct?: false
-  )
-end
-
-defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobListItem do
-  alias OpenApiSpex, as: OpenAPISpex
-  alias OpenAPISpex.Schema
-
-  @moduledoc false
-
-  require OpenAPISpex
-
-  # One board row. A list page carries up to 100 of these and reloads on a
-  # timer, so it stays at what the board and the home panel draw. The queued
-  # prompt, the result, the error, and the metadata grow with the work the job
-  # did and belong to the single-job read.
-  OpenAPISpex.schema(
-    %{
-      title: "BackgroundAgentJobListItem",
-      type: :object,
-      properties: %{
-        id: %Schema{
-          type: :integer,
-          minimum: Ankole.ModelIntegerID.minimum(),
-          maximum: Ankole.ModelIntegerID.maximum()
-        },
-        agent_uid: %Schema{type: :string},
-        title: %Schema{type: :string},
-        status: AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobStatus,
-        attempts: %Schema{type: :integer},
-        execution_failures: %Schema{type: :integer},
-        workspace_template_id: %Schema{type: :string, nullable: true},
-        duration_seconds: %Schema{type: :integer},
-        inserted_at: %Schema{type: :string}
-      },
-      required: [
-        :id,
-        :agent_uid,
-        :title,
-        :status,
-        :attempts,
-        :execution_failures,
-        :workspace_template_id,
-        :duration_seconds,
-        :inserted_at
-      ],
-      additionalProperties: false
-    },
-    struct?: false
-  )
-end
-
-defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobListResponse do
-  alias OpenApiSpex, as: OpenAPISpex
-  alias OpenAPISpex.Schema
-  alias AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobListItem
-
-  @moduledoc false
-
-  require OpenAPISpex
-
-  OpenAPISpex.schema(
-    %{
-      title: "BackgroundAgentJobListResponse",
-      type: :object,
-      properties: %{
-        jobs: %Schema{type: :array, items: BackgroundAgentJobListItem},
-        next_cursor: %Schema{type: :string, nullable: true}
-      },
-      required: [:jobs, :next_cursor],
-      additionalProperties: false
-    },
-    struct?: false
-  )
-end
-
 defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobHealthResponse do
   alias OpenApiSpex, as: OpenAPISpex
   alias OpenAPISpex.Schema
@@ -595,10 +414,10 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobHealthResponse do
   )
 end
 
-defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobResponse do
+defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobTurnPageResponse do
   alias OpenApiSpex, as: OpenAPISpex
   alias OpenAPISpex.Schema
-  alias AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobItem
+  alias AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobTurnItem
 
   @moduledoc false
 
@@ -606,12 +425,22 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobResponse do
 
   OpenAPISpex.schema(
     %{
-      title: "BackgroundAgentJobResponse",
+      title: "BackgroundAgentJobTurnPageResponse",
       type: :object,
       properties: %{
-        job: BackgroundAgentJobItem
+        turns: %Schema{
+          type: :array,
+          items: BackgroundAgentJobTurnItem,
+          description:
+            "One bounded page of runtime Turns, newest Turns first, in chronological order."
+        },
+        next_cursor: %Schema{
+          type: :string,
+          nullable: true,
+          description: "Opaque cursor for the page of older Turns; null on the last page."
+        }
       },
-      required: [:job],
+      required: [:turns, :next_cursor],
       additionalProperties: false
     },
     struct?: false

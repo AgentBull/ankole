@@ -121,6 +121,63 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     end
   end
 
+  @doc """
+  Stops one Job for a Console operator in the `console_cancel` action.
+
+  The result Job keeps the Turn to stop in its `:turn` metadata, so that
+  `stop_console_turn/1` stops it after the commit.
+  """
+  @spec console_cancel_in_tx(module(), pos_integer(), Ankole.Principals.Principal.t()) ::
+          {:ok, Job.t()} | {:error, term()}
+  def console_cancel_in_tx(repo, job_id, principal) do
+    with {:ok, job} <- console_job(job_id),
+         {:ok, %{job: job, turn: turn}} <-
+           request_stop_in_tx(repo, job_id, %{
+             "agent_uid" => job.agent_uid,
+             "cancel_requested_by" => operator(principal),
+             "reason" => "Cancelled from the operator console"
+           }) do
+      {:ok, Ash.Resource.put_metadata(job, :turn, turn)}
+    end
+  end
+
+  @doc """
+  Completes one Job for a Console operator in the `console_complete` action.
+
+  The result Job keeps the Turn to stop in its `:turn` metadata.
+  """
+  @spec console_complete_in_tx(
+          module(),
+          pos_integer(),
+          String.t(),
+          Ankole.Principals.Principal.t()
+        ) :: {:ok, Job.t()} | {:error, term()}
+  def console_complete_in_tx(repo, job_id, result_summary, principal) do
+    with {:ok, job} <- console_job(job_id),
+         {:ok, %{job: job, turn: turn}} <-
+           request_complete_in_tx(repo, job_id, %{
+             "agent_uid" => job.agent_uid,
+             "completed_by" => operator(principal),
+             "result_summary" => result_summary
+           }) do
+      {:ok, Ash.Resource.put_metadata(job, :turn, turn)}
+    end
+  end
+
+  @doc "Stops the Turn of a Job that a Console operator cancelled or completed."
+  @spec stop_console_turn(Job.t()) :: :ok
+  def stop_console_turn(%Job{} = job),
+    do: Ankole.Sessions.stop_job_turn(job, job.__metadata__[:turn])
+
+  defp console_job(job_id) do
+    case Queries.get(job_id) do
+      %Job{} = job -> {:ok, job}
+      nil -> {:error, Ankole.Errors.Invalid.NotFound.exception(resource: Job, id: job_id)}
+    end
+  end
+
+  defp operator(principal), do: principal |> Ankole.ActorRef.from_principal() |> to_string()
+
   defp require_result_summary(attrs) do
     case Attrs.text(attrs, "result_summary") do
       summary when is_binary(summary) -> {:ok, summary}
