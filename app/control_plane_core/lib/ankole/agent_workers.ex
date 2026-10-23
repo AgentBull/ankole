@@ -30,13 +30,6 @@ defmodule Ankole.AgentWorkers do
   alias Ankole.AgentWorkers.WorkerRoute
 
   resources do
-    resource Ankole.AgentWorkers.Providers.Provider do
-      define(:add_provider, action: :add, args: [:attrs])
-      define(:configure_provider, action: :configure_provider, args: [:provider_id, :attrs])
-      define(:delete_provider, action: :delete_provider, args: [:provider_id])
-      define(:import_providers, action: :import_seed, args: [:path])
-    end
-
     resource Ankole.AgentWorkers.AgentWorker do
       define(:get_agent_worker, action: :read, get_by: [:agent_uid], not_found_error?: false)
       define(:list_agent_workers, action: :read)

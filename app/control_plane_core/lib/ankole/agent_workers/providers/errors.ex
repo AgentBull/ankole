@@ -133,6 +133,19 @@ defmodule Ankole.AgentWorkers.Providers.Errors do
 
   def describe(_reason), do: :unknown
 
+  @doc "Gives the operator text of a rejection for `Ankole.Errors.wrap/2`."
+  def rejection(:worker_provider_not_found), do: {"Worker provider was not found", []}
+
+  def rejection(:worker_provider_in_use),
+    do: {"Agents still use this provider, including Agents being deleted", []}
+
+  def rejection(reason) do
+    case describe(reason) do
+      {_kind, message, details} -> {message, details}
+      :unknown -> nil
+    end
+  end
+
   defp invalid(message, details \\ []),
     do: {:invalid, message, details}
 

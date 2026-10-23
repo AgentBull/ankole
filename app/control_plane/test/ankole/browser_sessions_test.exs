@@ -387,7 +387,7 @@ defmodule Ankole.BrowserSessionsTest do
     assert {:ok, created} =
              BrowserSessions.create_pod_access(reference, fn authentication ->
                with {:ok, tenant} <-
-                      Ankole.Tenants.create(%{
+                      Ankole.Tenants.create_in_tx(Repo, %{
                         slug: "pod-#{Ecto.UUID.generate()}",
                         display_name: "New Pod"
                       }) do
@@ -408,7 +408,7 @@ defmodule Ankole.BrowserSessionsTest do
 
     assert {:error, :creation_failed} =
              BrowserSessions.create_pod_access(reference, fn _ ->
-               Ankole.Tenants.create(%{
+               Ankole.Tenants.create_in_tx(Repo, %{
                  slug: "rollback-#{Ecto.UUID.generate()}",
                  display_name: "Roll back"
                })

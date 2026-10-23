@@ -13,18 +13,26 @@ interface ResourceObject {
   attributes?: object
 }
 
-type Flat<R> = R extends { id: infer Id; attributes?: infer Attributes } ? { id: Id } & NonNullable<Attributes> : never
+/** The flat Console record of a JSON:API resource object type. */
+export type Flat<R> = R extends { id: infer Id; attributes?: infer Attributes }
+  ? { id: Id } & NonNullable<Attributes>
+  : never
 
 /** Changes a resource object to `{ id, ...attributes }`. */
 function fromResource<R extends ResourceObject>(resource: R): Flat<R> {
   return { ...resource.attributes, id: resource.id } as Flat<R>
 }
 
-/** Changes a JSON:API document to its flat record, or to a list of flat records. */
-export function fromDocument<R extends ResourceObject>(document: { data: R[] }): Flat<R>[]
-export function fromDocument<R extends ResourceObject>(document: { data: R }): Flat<R>
-export function fromDocument<R extends ResourceObject>(document: { data: R | R[] }): Flat<R> | Flat<R>[] {
-  return Array.isArray(document.data) ? document.data.map(fromResource) : fromResource(document.data)
+/**
+ * Changes a JSON:API document to its flat record, or to a list of flat records.
+ * The generated types make `data` optional, but a success document has it.
+ */
+export function fromDocument<R extends ResourceObject>(document: { data?: R[] }): Flat<R>[]
+export function fromDocument<R extends ResourceObject>(document: { data?: R }): Flat<R>
+export function fromDocument<R extends ResourceObject>(document: { data?: R | R[] }): Flat<R> | Flat<R>[] {
+  const { data } = document
+  if (!data) throw new Error('The JSON:API document has no data')
+  return Array.isArray(data) ? data.map(fromResource) : fromResource(data)
 }
 
 interface JSONAPIError {
@@ -32,33 +40,51 @@ interface JSONAPIError {
   title?: string
   detail?: string
   source?: { pointer?: string; parameter?: string }
+  meta?: Record<string, unknown>
 }
 
 interface ConsoleFailure {
-  error: { code: string; message: string; details: { path: string; message: string }[] }
+  error: { code: string; message: string; details: Record<string, unknown>[] }
 }
 
 /**
  * Changes a JSON:API error document to the Console failure shape. The first
  * error gives the code and the message. Errors at a request field give the
  * details; when all errors are at a field, the code is `validation_failed` as
- * in v1. Other payloads, for example the session and data context failures of
- * the shared pipeline, stay the same. The v2 clients use this function as their
- * error interceptor.
+ * in v1. A domain rejection gives its details in `meta.details`. An Ash error
+ * message can name its `meta` values as `%{name}`. Other payloads, for example
+ * the session and data context failures of the shared pipeline, stay the same.
+ * The v2 clients use this function as their error interceptor.
  */
 export function fromErrors(payload: unknown): unknown {
   const errors = jsonAPIErrors(payload)
   const [first] = errors
   if (!first) return payload
 
-  const details = errors
-    .filter(error => error.source?.pointer || error.source?.parameter)
-    .map(error => ({ path: fieldPath(error.source!), message: error.detail ?? error.title ?? '' }))
-  const code = details.length === errors.length ? 'validation_failed' : (first.code ?? 'request_failed')
+  const fieldErrors = errors.filter(error => error.source?.pointer || error.source?.parameter)
+  const details: Record<string, unknown>[] = fieldErrors.length
+    ? fieldErrors.map(error => ({ path: fieldPath(error.source!), message: message(error) ?? '' }))
+    : metaDetails(first)
+  const code = fieldErrors.length === errors.length ? 'validation_failed' : (first.code ?? 'request_failed')
 
   return {
-    error: { code, message: first.detail ?? first.title ?? code, details }
+    error: { code, message: message(first) ?? code, details }
   } satisfies ConsoleFailure
+}
+
+function message(error: JSONAPIError): string | undefined {
+  const text = error.detail ?? error.title
+  return text?.replace(/%\{(\w+)\}/g, (variable, name: string) => {
+    const value = error.meta?.[name]
+    return typeof value === 'string' || typeof value === 'number' ? String(value) : variable
+  })
+}
+
+function metaDetails(error: JSONAPIError): Record<string, unknown>[] {
+  const details = error.meta?.details
+  return Array.isArray(details)
+    ? details.filter((detail): detail is Record<string, unknown> => Boolean(detail && typeof detail === 'object'))
+    : []
 }
 
 function jsonAPIErrors(payload: unknown): JSONAPIError[] {

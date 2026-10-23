@@ -15,7 +15,6 @@ import {
 } from '../api/generated/sdk.gen'
 import type {
   AgentItem,
-  AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem,
   ModelProfileWriteRequest,
   ProviderHostedCapabilities
@@ -32,6 +31,7 @@ import {
 import { ModelProfileEditorCard, buildModelProfileWriteRequest } from './model-profile-editor-card'
 import { profileUsesConfigurableModel } from './model-profile-options'
 import { useEditorDraft } from '../use-editor-draft'
+import type { AIGatewayProviderItem } from '../state/provider-settings'
 
 const REQUIRED_PROFILES = new Set<string>(['primary', 'light', 'heavy'])
 

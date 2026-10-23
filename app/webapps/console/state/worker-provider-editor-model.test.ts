@@ -12,11 +12,12 @@ const docker: WorkerProviderKind = {
 test('a provider refetch keeps operator YAML and credential edits, and never seeds a mask as a secret', () => {
   const model = new WorkerProviderEditorModel()
   const provider = {
+    id: 'provider-remote',
     provider_id: 'remote',
     display_name: 'Remote',
     kind: 'cloudflare',
     config: '# Operator comment\ninstance: lite\n',
-    credentials: { api_token: '********' },
+    stored_credentials: ['api_token'],
     is_default: false,
     agent_count: 0,
     selectable: true
@@ -57,11 +58,12 @@ test('new provider drafts start from the selected type example and discard crede
 test('a removed stored credential is a null change until the operator keeps the stored value', () => {
   const model = new WorkerProviderEditorModel()
   const provider = {
+    id: 'provider-aws',
     provider_id: 'aws',
     display_name: 'AWS',
     kind: 'lambda',
     config: 'region: us-east-1\n',
-    credentials: { sessionToken: '********' },
+    stored_credentials: ['sessionToken'],
     is_default: false,
     agent_count: 0,
     selectable: true

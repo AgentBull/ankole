@@ -1,6 +1,26 @@
 defmodule Ankole.Tenants.Tenant do
   @moduledoc "One organization's durable data boundary within a site."
-  use Ankole.Ash.Resource, tenancy: :site, domain: Ankole.Tenants
+  use Ankole.Ash.Resource,
+    tenancy: :site,
+    domain: Ankole.Tenants,
+    extensions: [AshJsonApi.Resource]
+
+  require Ash.Query
+
+  json_api do
+    type("tenant")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :slug,
+      :display_name,
+      :suspended_at,
+      :deleting_at,
+      :inserted_at,
+      :updated_at
+    ])
+  end
 
   postgres do
     table("tenants")
@@ -38,7 +58,7 @@ defmodule Ankole.Tenants.Tenant do
 
     attribute(:suspended_at, :utc_datetime_usec, public?: true)
     attribute(:deleting_at, :utc_datetime_usec, public?: true)
-    timestamps(type: :utc_datetime_usec)
+    timestamps(type: :utc_datetime_usec, public?: true)
   end
 
   identities do
@@ -63,6 +83,21 @@ defmodule Ankole.Tenants.Tenant do
 
   actions do
     defaults([:read])
+
+    read :list do
+      prepare(build(sort: [inserted_at: :asc, id: :asc]))
+    end
+
+    read :privileged do
+      get?(true)
+
+      prepare(fn query, _context ->
+        case Ankole.Tenants.privileged_id() do
+          {:ok, id} -> Ash.Query.filter(query, id == ^id)
+          _missing -> Ash.Query.filter(query, false)
+        end
+      end)
+    end
 
     create :create_in_tx do
       accept([:slug, :display_name])
@@ -108,14 +143,34 @@ defmodule Ankole.Tenants.Tenant do
       end)
     end
 
-    action :change_profile, :struct do
+    action :create, :struct do
       constraints(instance_of: __MODULE__)
-      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
-      argument(:attrs, :map, allow_nil?: false)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:display_name, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:brain_packs, {:array, :string}, default: [])
 
       run(fn input, _context ->
         Ankole.Repo
-        |> Ankole.Tenants.change_profile_in_tx(input.arguments.id, input.arguments.attrs)
+        |> Ankole.Tenants.create_in_tx(input.arguments)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :brain_packs, {:array, :string} do
+      run(fn _input, _context -> {:ok, Ankole.Brain.SchemaPacks.industry_packs()} end)
+    end
+
+    action :change_profile, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:slug, :string, constraints: [trim?: false])
+      argument(:display_name, :string, constraints: [trim?: false])
+
+      run(fn input, _context ->
+        {id, attrs} = Map.pop!(input.arguments, :id)
+
+        Ankole.Repo
+        |> Ankole.Tenants.change_profile_in_tx(id, attrs)
         |> Ankole.Errors.wrap()
       end)
     end
@@ -147,16 +202,17 @@ defmodule Ankole.Tenants.Tenant do
       end)
     end
 
-    action :transfer_site_administration, :term do
-      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
-      argument(:uid, :term)
+    action :transfer_site_administration, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:tenant_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:site_admin_uid, :string, allow_nil?: false, constraints: [trim?: false])
       after_commit({Ankole.Tenants, :publish_site_administration})
 
       run(fn input, _context ->
         Ankole.Repo
         |> Ankole.Tenants.transfer_site_administration_in_tx(
-          input.arguments.id,
-          input.arguments.uid
+          input.arguments.tenant_id,
+          input.arguments.site_admin_uid
         )
         |> Ankole.Errors.wrap()
       end)

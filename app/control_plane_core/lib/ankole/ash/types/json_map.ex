@@ -14,6 +14,9 @@ defmodule Ankole.Ash.Types.JSONMap do
 
   @impl true
   def storage_type(_constraints), do: :map
+
+  @doc "Gives the JSON schema of the value for the JSON:API OpenAPI document."
+  def json_schema(_constraints), do: %{"type" => "object", "additionalProperties" => true}
   @impl true
   def cast_input(nil, _constraints), do: {:ok, nil}
   def cast_input(value, constraints), do: normalize(value, constraints)

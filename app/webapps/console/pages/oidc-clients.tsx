@@ -53,7 +53,6 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   ankoleWebAuthZGroupControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
-  ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
   ankoleWebOidcClientControllerCreateMutation,
   ankoleWebOidcClientControllerDeleteMutation,
@@ -63,7 +62,6 @@ import {
   ankoleWebOidcClientControllerUpdateMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type {
-  AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem,
   ModelProfileWriteRequest,
   PrincipalGroupItem
@@ -76,6 +74,8 @@ import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/re
 import { emptyProfileDraft } from '../state/model-profiles-model'
 import { customProfileNameError } from './custom-model-profiles-editor'
 import { ModelProfileEditorCard, buildModelProfileWriteRequest } from './model-profile-editor-card'
+import { type AIGatewayProviderItem, aiGatewayProviders } from '../state/provider-settings'
+import { listAiGatewayProvidersOptions } from '../api/v2-site/generated/@tanstack/react-query.gen'
 
 type SecretState = { nextPath?: string; value: string }
 
@@ -200,7 +200,8 @@ export function OIDCClientEditorPage() {
   })
   const groups = useQuery(ankoleWebAuthZGroupControllerIndexOptions())
   const providers = useQuery({
-    ...ankoleWebAIGatewayProviderControllerIndexOptions(),
+    ...listAiGatewayProvidersOptions(),
+    select: aiGatewayProviders,
     enabled: aiGatewayEnabled
   })
   const providerKinds = useQuery({
@@ -297,12 +298,7 @@ export function OIDCClientEditorPage() {
     }
 
     const builtAliases = aiGatewayEnabled
-      ? buildModelAliases(
-          draft.modelAliases,
-          providers.data?.ai_gateway_providers ?? [],
-          providerKinds.data?.provider_kinds ?? [],
-          t
-        )
+      ? buildModelAliases(draft.modelAliases, providers.data ?? [], providerKinds.data?.provider_kinds ?? [], t)
       : ({ ok: true, value: {} } as const)
 
     if (!builtAliases.ok) {
@@ -592,7 +588,7 @@ export function OIDCClientEditorPage() {
                   }
                   deleteDisabled={false}
                   deleteLabel={t(alias.persisted ? 'common.delete' : 'common.cancel')}
-                  providers={providers.data?.ai_gateway_providers ?? []}
+                  providers={providers.data ?? []}
                   providerKinds={providerKinds.data?.provider_kinds ?? []}
                   modelCatalog={modelCatalog.data?.models ?? []}
                   onUpdate={patch =>

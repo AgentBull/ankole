@@ -60,11 +60,6 @@ defmodule Ankole.AIGateway do
       define(:get_message, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_messages, action: :read)
     end
-
-    resource Ankole.AIGateway.ProviderConfigs.Provider do
-      define(:get_provider, action: :read, get_by: [:id], not_found_error?: false)
-      define(:list_providers, action: :read)
-    end
   end
 
   @stateful_http_fields ~w(previous_response_id conversation store)
