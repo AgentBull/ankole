@@ -28,10 +28,9 @@ function fromResource<R extends ResourceObject>(resource: R): Flat<R> {
  * The generated document types have an optional `data`; a successful response
  * always has it.
  *
- * AshJsonApi 1.7.1 gives no OpenAPI type to a `utc_datetime_usec`, a Principal
- * UID, a JSON object, or a nullable attribute, so the generated type of such a
- * field is `unknown`. A page casts the flat record to the record type that it
- * reads, for example `fromDocument(document) as AutomationJobItem[]`.
+ * The generated types give a JSON object attribute the type
+ * `{ [key: string]: unknown }` and make each calculation optional. A page that
+ * needs a narrower type casts the flat record to the record type that it reads.
  */
 export function fromDocument<R extends ResourceObject>(document: { data?: R[] }): Flat<R>[]
 export function fromDocument<R extends ResourceObject>(document: { data?: R }): Flat<R>

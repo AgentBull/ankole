@@ -97,7 +97,7 @@ test('ending a site session keeps the next login from inheriting the old data te
     tenants.push(request.headers.get('x-ankole-tenant'))
     return Response.json({})
   }) as typeof fetch
-  await withDataContext(transport)('https://ankole.test/api/v1/agents')
+  await withDataContext(transport)('https://ankole.test/api/v2/agents')
   expect(tenants).toEqual([null])
 })
 
@@ -118,7 +118,7 @@ test('cancelling a tenant switch cannot send an old draft to the requested tenan
     tenants.push(request.headers.get('x-ankole-tenant'))
     return new Response('{}')
   }) as typeof fetch
-  await withDataContext(transport)('https://ankole.test/api/v1/agents', { method: 'POST' })
+  await withDataContext(transport)('https://ankole.test/api/v1/worker-envs/TOKEN', { method: 'PUT' })
   await withDataContext(transport)('https://ankole.test/api/v2/agents', { method: 'POST' })
   expect(tenants).toEqual(['tenant-a', 'tenant-a'])
   expect(requestedURL?.searchParams.get('data_tenant')).toBe('tenant-b')
@@ -143,8 +143,8 @@ test('explicit author context and site requests cannot inherit the selected data
     return new Response('{}')
   }) as typeof fetch
   const request = withDataContext(transport)
-  await request('https://ankole.test/api/v1/principals/author', { headers: { 'x-ankole-tenant': 'author-tenant' } })
-  await request('https://ankole.test/api/v1/site/tenants')
+  await request('https://ankole.test/api/v2/principals/author', { headers: { 'x-ankole-tenant': 'author-tenant' } })
+  await request('https://ankole.test/api/v1/site/app-configurations')
   await request('https://ankole.test/api/v2/site/tenants')
   expect(tenants).toEqual(['author-tenant', null, null])
 })

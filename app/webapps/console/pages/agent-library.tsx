@@ -953,10 +953,7 @@ function useSkillLessons(scope: string): SkillLessonsController | undefined {
     error: lessonsQuery.error,
     pending: create.isPending || retire.isPending,
     add(skillName, content, onSuccess) {
-      create.mutate(
-        { path: { agent_uid: scope }, body: { data: { skill_name: skillName, content } } },
-        { onSuccess }
-      )
+      create.mutate({ path: { agent_uid: scope }, body: { data: { skill_name: skillName, content } } }, { onSuccess })
     },
     retire(lessonID) {
       retire.mutate({ path: { agent_uid: scope, lesson_id: lessonID } })

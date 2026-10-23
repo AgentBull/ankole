@@ -618,10 +618,11 @@ The nesting limit is 4 and the cyclomatic complexity limit is 20.
 `bun run analyze:unused` checks production files, exports, types, and
 dependencies; tests do not retain dead production code.
 
-The build applies the pinned Ash 3.36.1 and AshPostgres 2.15.1 patches before
-dependency compilation. The build needs `patch`; the Docker build installs it.
-A failed patch stops the build. The fixes prevent false notification warnings
-and handle skipped upserts whose row is not visible in the selected tenant.
+The build applies the pinned Ash 3.36.1, AshPostgres 2.15.1, and AshJsonApi
+1.7.1 patches before dependency compilation. The build needs `patch`; the
+Docker build installs it. A failed patch stops the build. The fixes prevent
+false notification warnings, handle skipped upserts whose row is not visible in
+the selected tenant, and give a timestamp the OpenAPI `date-time` type.
 Check the public action behavior when updating these dependencies. Remove each
 patch when an upstream release includes its fix.
 
@@ -780,6 +781,59 @@ retained inputs after rejection, viewer write denial, competing reservations,
 and revision-paired frontend/backend replacement. It delays delivery of one
 real committed response to inspect pending UI; it does not replace that write.
 Run `test:garfish` separately for sandbox effects and entry-style scoping.
+
+### Console API and OpenAPI
+
+The Console API has two versions. Both versions use the same session, CSRF,
+and data context pipelines in `AnkoleWeb.Router`.
+
+- `/api/v2` (tenant data) and `/api/v2/site` (site administration) use
+  JSON:API (`application/vnd.api+json`) through AshJsonApi. The `json_api`
+  section of an Ash domain declares its routes. The `json_api` section of a
+  resource declares its type and its default fields.
+  `AnkoleWeb.JSONAPI.ConsoleRouter` and `AnkoleWeb.JSONAPI.SiteRouter` mount
+  the domains; a domain is in one router only. Use v2 for an endpoint that
+  exposes a read, create, update, or destroy action of a resource, or a generic
+  action of a domain.
+- `/api/v1` and `/api/v1/site` are hand-written Phoenix controllers with
+  OpenApiSpex `operation` declarations. Keep an endpoint in v1 when no resource
+  action gives its response: an aggregate or read-model view, a plaintext
+  secret or credential, a protocol or OAuth flow, a file transfer, or a stream.
+
+Each v2 route has these properties:
+
+- A unique `name`. The name is the OpenAPI `operationId` and gives the function
+  name in the generated client.
+- One rule in the `@rules` table of `AnkoleWeb.JSONAPI.Policy`. The rule gives
+  the AuthZ resource and action that `AnkoleWeb.ConsolePolicy` checks. A route
+  without a rule returns 403. Ash policies stay disabled.
+- No derived filter or sort parameters. Each resource sets
+  `derive_filter? false` and `derive_sort? false`. AshJsonApi 1.7.1 ignores the
+  resource option `derive_sort?`, so each `index` and `related` route also sets
+  `derive_sort?: false`.
+
+`test/ankole_web/json_api/router_test.exs` and `policy_test.exs` check these
+properties.
+
+`app/webapps/openapi/` holds four committed OpenAPI documents: `console.json`
+(the v1 Console API, `AnkoleWeb.APISpec`), `internal.json` (`/.internal-apis`,
+`AnkoleWeb.InternalAPISpec`), `console-v2.json`, and `site-v2.json` (the two
+JSON:API routers). `mix ankole.openapi.check` compares each document with the
+code. After you change a route, a schema, or a resource field, write the
+documents and generate the clients:
+
+```bash
+cd app/control_plane
+mix ankole.openapi.check --write
+cd ../webapps
+bun run openapi:generate
+```
+
+`openapi:generate` writes `console/api/generated`, `console/api/v2/generated`,
+`console/api/v2-site/generated`, and `common/api/generated`. Do not edit these
+files. A Console page reads a v2 document as flat records through `fromDocument`
+in `console/api/json-api.ts`. The v2 clients change a JSON:API error to the
+Console error shape.
 
 ### Full local quality gate
 

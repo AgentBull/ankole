@@ -166,7 +166,9 @@ function BrainObjectsList() {
           <TableCell className="text-xs text-muted-foreground">{formatConsoleDate(object.updated_at)}</TableCell>
           <TableCell>
             <div className="flex flex-wrap gap-1">
-              {object.managed_by_source_id ? <Badge variant="outline">{t('console.brain.source_managed')}</Badge> : null}
+              {object.managed_by_source_id ? (
+                <Badge variant="outline">{t('console.brain.source_managed')}</Badge>
+              ) : null}
               {object.deleted_at ? <Badge variant="destructive">{t('console.brain.deleted')}</Badge> : null}
             </div>
           </TableCell>
@@ -585,7 +587,9 @@ export function BrainObjectDrawer() {
             <Button
               disabled={rollback.isPending}
               variant="destructive"
-              onClick={() => rollbackVersionID && rollback.mutate({ body: { data: { slug, version_id: rollbackVersionID } } })}>
+              onClick={() =>
+                rollbackVersionID && rollback.mutate({ body: { data: { slug, version_id: rollbackVersionID } } })
+              }>
               {rollback.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.brain.rollback')}
             </Button>

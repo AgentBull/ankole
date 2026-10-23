@@ -358,8 +358,8 @@ completes applies that list. Completed installations fail closed.
 
 The Console API makes both states visible.
 
-- `GET /api/v1/control-plane-plugins`
-- `PUT /api/v1/control-plane-plugins`
+- `GET /api/v1/site/control-plane-plugins`
+- `PUT /api/v1/site/control-plane-plugins`
 
 The write body uses `{ "id": string, "enabled": boolean }`.
 

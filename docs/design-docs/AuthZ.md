@@ -359,7 +359,7 @@ the generic settings editor. `Tenants.transfer_site_administration/2` owns the
 transaction that locks this configuration and the target tenant, makes the
 selected active human a site administrator, and transfers the role. Suspending
 or deleting the privileged tenant is rejected. Site resources use the `site:`
-AuthZ namespace and `/api/v1/site/` HTTP namespace.
+AuthZ namespace and the `/api/v2/site/` and `/api/v1/site/` HTTP namespaces.
 
 ## Rules
 

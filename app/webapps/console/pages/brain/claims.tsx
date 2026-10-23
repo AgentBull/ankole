@@ -286,7 +286,9 @@ function SupersedeClaimDialog({ claim, onClose }: { claim?: BrainClaim; onClose:
           </DialogClose>
           <Button
             disabled={supersede.isPending || !text.trim() || text.trim() === claim?.claim}
-            onClick={() => supersede.mutate({ path: { claim_id: claim?.id ?? '' }, body: { data: { claim: text.trim() } } })}>
+            onClick={() =>
+              supersede.mutate({ path: { claim_id: claim?.id ?? '' }, body: { data: { claim: text.trim() } } })
+            }>
             {supersede.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
             {t('console.brain.supersede')}
           </Button>
@@ -335,7 +337,9 @@ function ForgetClaimDialog({ claim, onClose }: { claim?: BrainClaim; onClose: ()
           <Button
             disabled={forget.isPending || !reason.trim()}
             variant="destructive"
-            onClick={() => forget.mutate({ path: { claim_id: claim?.id ?? '' }, body: { data: { reason: reason.trim() } } })}>
+            onClick={() =>
+              forget.mutate({ path: { claim_id: claim?.id ?? '' }, body: { data: { reason: reason.trim() } } })
+            }>
             {forget.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
             {t('console.brain.forget')}
           </Button>

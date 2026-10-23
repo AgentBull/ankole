@@ -22,6 +22,6 @@ defmodule AnkoleWeb.InternalAPISpecTest do
     end
 
     refute Enum.any?(AnkoleWeb.Router.__routes__(), &(&1.plug == AnkoleWeb.InternalAPISpec))
-    refute Map.has_key?(private.paths, "/api/v1/agents")
+    refute Map.has_key?(private.paths, "/api/v1/agents/{agent_uid}/files")
   end
 end

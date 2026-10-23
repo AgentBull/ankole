@@ -39,19 +39,21 @@ Agent session이 유한한 배치를 받으면 Agent는 그 session 안에서 Wo
 이 Console 요청을 실행하기 전에 로그인한 browser에서 session cookie와 `x-csrf-token` 값을 가져옵니다.
 
 ```bash
-curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules \
+curl -X POST https://ankole.example.com/api/v2/agents/<agent_uid>/cron-schedules \
   -H "Cookie: $CONSOLE_COOKIE" \
   -H "x-csrf-token: $CSRF_TOKEN" \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/vnd.api+json" \
   -d '{
-    "owner_session_id": "<session_id>",
-    "binding_name": "main",
-    "name": "daily-digest",
-    "idempotency_key": "daily-digest-1",
-    "schedule": { "kind": "cron", "expression": "0 9 * * *" },
-    "timezone": "Asia/Shanghai",
-    "delivery": { "targets": [{ "binding_name": "main", "conversation_id": "<conversation_uuid>" }] },
-    "payload": { "task": "Produce today'\''s digest of the topics in your mission." }
+    "data": {
+      "owner_session_id": "<session_id>",
+      "binding_name": "main",
+      "name": "daily-digest",
+      "idempotency_key": "daily-digest-1",
+      "schedule": { "kind": "cron", "expression": "0 9 * * *" },
+      "timezone": "Asia/Shanghai",
+      "delivery": { "targets": [{ "binding_name": "main", "conversation_id": "<conversation_uuid>" }] },
+      "payload": { "task": "Produce today'\''s digest of the topics in your mission." }
+    }
   }'
 ```
 
@@ -84,7 +86,7 @@ Workflow를 사용하는 동안 폴링하거나 외부 상태를 기다리지 �
 
 agent가 turn에서 어떤 것을 요청받고, 나중에 다시 다루기로 결정합니다. 고정 cron 대신 agent 자신이 `check_back_later`로 일회성 깨우기를 설정합니다. agent 쪽에서의 형태는 “한 시간 후에 다시 보라”입니다. agent가 도구를 호출하고, operator 표면은 읽기 전용입니다.
 
-이것은 주기가 없는 작업에 맞습니다. “배포가 한 시간 안에 끝났는지 확인하세요”, “스탠드업 후 이 스레드를 다시 읽으세요” 같은 경우입니다. agent가 타이밍을 소유합니다. 대기 중인 checkback은 `GET /api/v1/checkbacks?agent=<agent_uid>`로 확인하고 `DELETE /api/v1/agents/:agent_uid/checkbacks/:scheduled_event_id`로 하나씩 취소할 수 있습니다.
+이것은 주기가 없는 작업에 맞습니다. “배포가 한 시간 안에 끝났는지 확인하세요”, “스탠드업 후 이 스레드를 다시 읽으세요” 같은 경우입니다. agent가 타이밍을 소유합니다. 대기 중인 checkback은 `GET /api/v2/checkbacks?agent=<agent_uid>`로 확인하고 `DELETE /api/v2/agents/:agent_uid/checkbacks/:scheduled_event_id`로 하나씩 취소할 수 있습니다.
 
 ## 블루프린트: 리서치 후 보고(스케줄 + background job)
 

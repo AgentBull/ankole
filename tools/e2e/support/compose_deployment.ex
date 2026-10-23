@@ -319,8 +319,8 @@ defmodule Ankole.E2E.ComposeDeployment do
     {deployment, Map.fetch!(session.body, "principalUID")}
   end
 
-  def api!(deployment, method, path, body \\ nil) do
-    {response, _deployment} = request!(deployment, method, path, body)
+  def api!(deployment, method, path, body \\ nil, expected_status \\ 200) do
+    {response, _deployment} = request!(deployment, method, path, body, expected_status)
     response.body
   end
 

@@ -66,10 +66,6 @@ defmodule AnkoleWeb.APISpec do
           description: "Active accountable subjects available to operator surfaces"
         },
         %Tag{
-          name: "LLM Runtime",
-          description: "Operator-managed LLM provider and agent model profile configuration"
-        },
-        %Tag{
           name: "Identity Providers",
           description: "Operator-managed identity-provider configuration and directory sync"
         },
@@ -84,10 +80,6 @@ defmodule AnkoleWeb.APISpec do
         %Tag{
           name: "Sessions",
           description: "Operator-visible Sessions for one Agent"
-        },
-        %Tag{
-          name: "Workers",
-          description: "Agent computer worker registry and worker filesystem management"
         },
         %Tag{
           name: "Background Agent Jobs",

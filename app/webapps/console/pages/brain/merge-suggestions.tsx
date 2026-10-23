@@ -57,7 +57,10 @@ export function BrainMergeSuggestionsPage() {
   const [rejectTarget, setRejectTarget] = useState<BrainMergeSuggestion>()
   const [canonicalSlug, setCanonicalSlug] = useState('')
 
-  const suggestions = useQuery({ ...listBrainMergeSuggestionsOptions({ query: { status } }), select: document => fromDocument(document) })
+  const suggestions = useQuery({
+    ...listBrainMergeSuggestionsOptions({ query: { status } }),
+    select: document => fromDocument(document)
+  })
   const rows = suggestions.data ?? []
 
   const approve = useMutation({
@@ -223,10 +226,7 @@ export function BrainMergeSuggestionsPage() {
             <Button
               disabled={reject.isPending}
               variant="destructive"
-              onClick={() =>
-                rejectTarget &&
-reject.mutate({ path: { suggestion_id: rejectTarget.id } })
-              }>
+              onClick={() => rejectTarget && reject.mutate({ path: { suggestion_id: rejectTarget.id } })}>
               {reject.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.brain.reject')}
             </Button>

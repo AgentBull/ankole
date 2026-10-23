@@ -47,7 +47,10 @@ export function BrainSuggestionsPage() {
   const [slugPrefix, setSlugPrefix] = useState('')
   const [targetType, setTargetType] = useState('')
 
-  const suggestions = useQuery({ ...listBrainSuggestionsOptions({ query: { status } }), select: document => fromDocument(document) })
+  const suggestions = useQuery({
+    ...listBrainSuggestionsOptions({ query: { status } }),
+    select: document => fromDocument(document)
+  })
   const rows = suggestions.data ?? []
 
   const approve = useMutation({
@@ -231,10 +234,7 @@ export function BrainSuggestionsPage() {
             <Button
               disabled={reject.isPending}
               variant="destructive"
-              onClick={() =>
-                rejectTarget &&
-reject.mutate({ path: { suggestion_id: rejectTarget.id } })
-              }>
+              onClick={() => rejectTarget && reject.mutate({ path: { suggestion_id: rejectTarget.id } })}>
               {reject.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.brain.reject')}
             </Button>

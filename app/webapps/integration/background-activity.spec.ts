@@ -148,29 +148,32 @@ async function home(page: Page, failures = false) {
       }
       return route.fulfill({ json: { observed_at, runs: [automation], next_cursor: null } })
     }
-    if (path.endsWith('/agents')) {
+    if (path.includes('readiness')) return route.fulfill({ json: { ready: true, provider: { complete: true } } })
+    return route.fulfill({ json: { identity_providers: [{ enabled: true }], running_count: 0, queued_count: 0 } })
+  })
+  // A URL predicate, because the glob `**/api/v2/**` also matches the source modules of the v2 clients.
+  await page.route(
+    url => url.pathname.startsWith('/api/v2/'),
+    async route => {
+      if (new URL(route.request().url()).pathname !== '/api/v2/agents') return route.fulfill({ json: { data: [] } })
       return route.fulfill({
         json: {
-          agents: [
-            { uid: 'agent-one', display_name: 'Research Agent', handle: 'research', status: 'active' },
-            { uid: 'agent-two', display_name: 'Operations Agent', handle: 'operations', status: 'active' }
+          data: [
+            {
+              id: 'agent-one',
+              type: 'agent',
+              attributes: { display_name: 'Research Agent', handle: 'research', status: 'active' }
+            },
+            {
+              id: 'agent-two',
+              type: 'agent',
+              attributes: { display_name: 'Operations Agent', handle: 'operations', status: 'active' }
+            }
           ]
         }
       })
     }
-    if (path.includes('readiness')) return route.fulfill({ json: { ready: true, provider: { complete: true } } })
-    return route.fulfill({
-      json: {
-        workers: [],
-        ai_gateway_providers: [],
-        identity_providers: [{ enabled: true }],
-        jobs: [],
-        conversations: [],
-        running_count: 0,
-        queued_count: 0
-      }
-    })
-  })
+  )
   return {
     requests,
     allowWorkflow: () => {

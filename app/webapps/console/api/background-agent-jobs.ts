@@ -1,8 +1,5 @@
 import { fromDocument, nextPageAfter } from './json-api'
-import {
-  getBackgroundAgentJobOptions,
-  listBackgroundAgentJobsOptions
-} from './v2/generated/@tanstack/react-query.gen'
+import { getBackgroundAgentJobOptions, listBackgroundAgentJobsOptions } from './v2/generated/@tanstack/react-query.gen'
 import type { GetBackgroundAgentJobResponse, ListBackgroundAgentJobsResponse } from './v2/generated/types.gen'
 
 /** One page of Jobs. The Console keeps the integer Job id of the resource `id`. */

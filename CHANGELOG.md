@@ -8,6 +8,61 @@
   cannot be read, instead of replacing it. To recover, remove the value with
   `Ankole.AppConfigure.delete_global_by_key("plugins.enabled_ids")` in a release
   remote console, then select the Plugins again.
+- Commit the task dispatch and the terminal stop requests of a Workflow run in
+  batches. A run with hundreds of Agent calls does not risk a database timeout.
+- Move the Console and site administration API to JSON:API
+  (`application/vnd.api+json`): site resources are at `/api/v2/site`, and
+  tenant Console resources are at `/api/v2`. The `/api/v1` routes of the moved
+  resources are removed; change each external caller of these routes. Send
+  request bodies with `Content-Type: application/vnd.api+json`. A field error
+  returns 400. A missing record returns 404 `not_found`. A conflict with the
+  current state returns 409, and another domain rejection returns 422; the
+  error `code` is the name of the reason. Lists use keyset pagination with
+  `page[limit]` and `page[after]`.
+- Site API v2: tenants, the privileged tenant, Worker providers, and AIGateway
+  providers. Suspend a tenant with `POST /api/v2/site/tenants/:id/suspension`,
+  transfer site administration with `PATCH /api/v2/site/privileged-tenant`, and
+  create or replace an AIGateway provider with
+  `PATCH /api/v2/site/ai-gateway/providers/:provider_id`. A tenant deletion
+  returns 200 and the deleting tenant. A Worker provider gives the names of its
+  stored credentials in `stored_credentials` instead of the masked
+  `credentials`. AIGateway provider credentials, the credential pool, ChatGPT
+  login, and Worker provider kinds and checks stay at `/api/v1/site`.
+- Console API v2: Principals, Principal groups with their members and the
+  computed member preview, permission grants, and identity mapping requests, at
+  the same paths under `/api/v2`. `POST /api/v2/principals` returns the
+  one-time password in `meta.initial_password`. A Principal record gives
+  `local_credential_status` (`must_change`, `active`, or null) instead of
+  `local_credential.status`. The human access routes and
+  `POST /api/v1/principals/:uid/local-password-resets` stay at `/api/v1`.
+- Console API v2: OIDC Clients, Back-Channel Logout deliveries, webhook
+  endpoints, cron schedules and checkbacks, Automation Jobs and their runs, and
+  the disable operation of signal bindings.
+  `DELETE /api/v1/agents/:agent_uid/webhook-endpoints/:id` is removed; cancel an
+  endpoint with `DELETE /api/v2/webhook-endpoints/:id`. A manual cron run takes
+  its idempotency key in the request body as `data.idempotency_key`, not in the
+  `Idempotency-Key` header. A v2 OIDC Client has the fields `client_type` and
+  `model_aliases` (v1: `type` and `allowed_models`). OIDC Client secret
+  rotation and login sources, and the list, read, write, move, and delivery
+  requeue of signal bindings stay at `/api/v1`.
+- Console API v2: Agents, Agent Skill lessons, the Worker list
+  (`/api/v2/agent-workers`), the one-time Worker provider assignment of an
+  Agent, Background Agent Jobs (list, read, cancel, and complete), and AIGateway
+  conversations and their messages. The Turn trajectory of a Job is
+  `GET /api/v1/background-agent-jobs/:job_id/turns`;
+  `GET /api/v1/background-agent-jobs/:job_id` is removed. A v2 Skill lesson does
+  not give the Skill enable state, the Agent Plugin, or the Skill description,
+  and gives `inserted_at` instead of `created_at`. The Agent session list stays
+  at `GET /api/v1/agents/:agent_uid/sessions`.
+- Console API v2: Brain objects, claims, contradictions, Schema suggestions,
+  merge suggestions, and Source management at `/api/v2/brain/...`. Update an
+  object with `PATCH /api/v2/brain/objects` and read its versions with
+  `GET /api/v2/brain/object-versions`. A review of a Schema suggestion or a
+  merge suggestion uses `…/approve` or `…/reject` instead of `…/decide`; a
+  contradiction keeps `…/decide`. The default audience parameter of a Source is
+  `scope`. The error code `reserved_slug` is now `reserved_object_slug`. Brain
+  health, dream, object types, search preview, `principals/:uid/knowledge`, and
+  `objects/show` stay at `/api/v1/brain`.
 
 ## Version 2.0.0-alpha.21 (2026-10-23)
 

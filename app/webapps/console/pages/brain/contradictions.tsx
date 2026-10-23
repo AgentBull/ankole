@@ -46,7 +46,10 @@ export function BrainContradictionsPage() {
   }>()
   const [note, setNote] = useState('')
 
-  const contradictions = useQuery({ ...listBrainContradictionsOptions({ query: { status } }), select: document => fromDocument(document) })
+  const contradictions = useQuery({
+    ...listBrainContradictionsOptions({ query: { status } }),
+    select: document => fromDocument(document)
+  })
   const rows = contradictions.data ?? []
 
   // Reset per target so a note typed for one contradiction never carries to another.
