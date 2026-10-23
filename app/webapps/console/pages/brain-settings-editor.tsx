@@ -21,7 +21,7 @@ import {
   ankoleWebAiGatewayProviderControllerProviderKindsOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import { agentListOptions } from '../api/agents'
-import type { AppConfigurationItem } from '../api/generated/types.gen'
+import type { AppConfigurationItem } from '../api/configuration-types'
 import { LabeledField } from '../console-form'
 import { modelOptionsForBrainModel, providersWithCapability } from './model-profile-options'
 import {

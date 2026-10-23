@@ -1,16 +1,18 @@
 import type { QueryClient } from '@tanstack/react-query'
 import {
-  ankoleWebAppConfigurationControllerIndexOptions,
   ankoleWebIdentityProviderControllerIndexOptions,
   ankoleWebSignalBindingControllerIndexOptions,
-  ankoleWebBackgroundAgentJobControllerTurnsOptions,
-  ankoleWebWorkerEnvControllerIndexOptions
+  ankoleWebBackgroundAgentJobControllerTurnsOptions
 } from './api/generated/@tanstack/react-query.gen'
 import {
   getAgentLibraryCapabilitiesOptions,
   getGlobalLibraryCapabilitiesOptions
 } from './api/v2/generated/@tanstack/react-query.gen'
-import { listControlPlanePluginsOptions } from './api/v2-site/generated/@tanstack/react-query.gen'
+import {
+  listControlPlanePluginsOptions,
+  listSiteAppConfigurationsOptions,
+  listSiteWorkerEnvsOptions
+} from './api/v2-site/generated/@tanstack/react-query.gen'
 import { agentWorkerListOptions } from './api/agent-workers'
 import { agentListOptions } from './api/agents'
 import { aiGatewayConversationsOptions } from './api/ai-gateway-conversations'
@@ -89,8 +91,8 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       all(ensure(agentListOptions()), ensure(webhookEndpointListOptions(agentFilter(location)))),
     automationJobs: ({ location }: ConsoleRouteLoaderContext) =>
       all(ensure(agentListOptions()), ensure(automationJobListOptions(agentFilter(location)))),
-    settings: () => ensure(ankoleWebAppConfigurationControllerIndexOptions()).then(() => null),
-    workerEnvs: () => ensure(ankoleWebWorkerEnvControllerIndexOptions()).then(() => null),
+    settings: () => ensure(listSiteAppConfigurationsOptions()).then(() => null),
+    workerEnvs: () => ensure(listSiteWorkerEnvsOptions()).then(() => null),
     workers: () => ensure(agentWorkerListOptions()).then(() => null),
     backgroundAgentJobs: ({ location }: ConsoleRouteLoaderContext) => {
       const searchParams = new URLSearchParams(location.searchStr)

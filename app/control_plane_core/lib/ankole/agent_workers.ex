@@ -29,6 +29,8 @@ defmodule Ankole.AgentWorkers do
   alias Ankole.AgentWorkers.WorkerRoute
 
   resources do
+    resource(Ankole.AgentWorkers.WorkerEnv.ConsoleOperations)
+
     resource Ankole.AgentWorkers.AgentWorker do
       define(:get_agent_worker, action: :read, get_by: [:agent_uid], not_found_error?: false)
       define(:list_agent_workers, action: :read)
@@ -85,6 +87,24 @@ defmodule Ankole.AgentWorkers do
     show_raised_errors?(false)
 
     routes do
+      base_route "/worker-envs", Ankole.AgentWorkers.WorkerEnv.ConsoleOperations do
+        route(:get, "/", :console_list, name: "list_worker_envs")
+        route(:put, "/:name", :console_put, name: "update_worker_env")
+        route(:delete, "/:name", :console_delete, name: "delete_worker_env")
+        route(:post, "/:name/decryptions", :console_decrypt, name: "decrypt_worker_env")
+      end
+
+      base_route "/agents/:agent_uid/worker-envs",
+                 Ankole.AgentWorkers.WorkerEnv.ConsoleOperations do
+        route(:get, "/", :console_list_for_agent, name: "list_agent_worker_envs")
+        route(:put, "/:name", :console_put_for_agent, name: "update_agent_worker_env")
+        route(:delete, "/:name", :console_delete_for_agent, name: "delete_agent_worker_env")
+
+        route(:post, "/:name/decryptions", :console_decrypt_for_agent,
+          name: "decrypt_agent_worker_env"
+        )
+      end
+
       base_route "/agent-workers", AgentWorker do
         index(:console_list, name: "list_agent_workers", derive_sort?: false)
       end

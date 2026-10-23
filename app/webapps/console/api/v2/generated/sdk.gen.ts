@@ -69,9 +69,21 @@ import type {
   DecideBrainContradictionData,
   DecideBrainContradictionErrors,
   DecideBrainContradictionResponses,
+  DecryptAgentWorkerEnvData,
+  DecryptAgentWorkerEnvErrors,
+  DecryptAgentWorkerEnvResponses,
+  DecryptAppConfigurationData,
+  DecryptAppConfigurationErrors,
+  DecryptAppConfigurationResponses,
+  DecryptWorkerEnvData,
+  DecryptWorkerEnvErrors,
+  DecryptWorkerEnvResponses,
   DeleteAgentData,
   DeleteAgentErrors,
   DeleteAgentResponses,
+  DeleteAgentWorkerEnvData,
+  DeleteAgentWorkerEnvErrors,
+  DeleteAgentWorkerEnvResponses,
   DeleteIdentityMappingRequestData,
   DeleteIdentityMappingRequestErrors,
   DeleteIdentityMappingRequestResponses,
@@ -84,6 +96,9 @@ import type {
   DeletePrincipalGroupData,
   DeletePrincipalGroupErrors,
   DeletePrincipalGroupResponses,
+  DeleteWorkerEnvData,
+  DeleteWorkerEnvErrors,
+  DeleteWorkerEnvResponses,
   DisableSignalBindingData,
   DisableSignalBindingErrors,
   DisableSignalBindingResponses,
@@ -111,6 +126,9 @@ import type {
   GetAiGatewayConversationData,
   GetAiGatewayConversationErrors,
   GetAiGatewayConversationResponses,
+  GetAppConfigurationData,
+  GetAppConfigurationErrors,
+  GetAppConfigurationResponses,
   GetAutomationJobData,
   GetAutomationJobErrors,
   GetAutomationJobResponses,
@@ -150,6 +168,9 @@ import type {
   ListAgentSkillLessonsErrors,
   ListAgentSkillLessonsResponses,
   ListAgentsResponses,
+  ListAgentWorkerEnvsData,
+  ListAgentWorkerEnvsErrors,
+  ListAgentWorkerEnvsResponses,
   ListAgentWorkersData,
   ListAgentWorkersErrors,
   ListAgentWorkersResponses,
@@ -159,6 +180,9 @@ import type {
   ListAiGatewayMessagesData,
   ListAiGatewayMessagesErrors,
   ListAiGatewayMessagesResponses,
+  ListAppConfigurationsData,
+  ListAppConfigurationsErrors,
+  ListAppConfigurationsResponses,
   ListAutomationJobRunsData,
   ListAutomationJobRunsErrors,
   ListAutomationJobRunsResponses,
@@ -234,6 +258,9 @@ import type {
   ListWebhookEndpointsData,
   ListWebhookEndpointsErrors,
   ListWebhookEndpointsResponses,
+  ListWorkerEnvsData,
+  ListWorkerEnvsErrors,
+  ListWorkerEnvsResponses,
   PauseCronScheduleData,
   PauseCronScheduleErrors,
   PauseCronScheduleResponses,
@@ -258,6 +285,9 @@ import type {
   ReplaceAgentLibraryDocumentData,
   ReplaceAgentLibraryDocumentErrors,
   ReplaceAgentLibraryDocumentResponses,
+  ResetAppConfigurationData,
+  ResetAppConfigurationErrors,
+  ResetAppConfigurationResponses,
   ResolveBrainTakeData,
   ResolveBrainTakeErrors,
   ResolveBrainTakeResponses,
@@ -300,6 +330,12 @@ import type {
   UpdateAgentData,
   UpdateAgentErrors,
   UpdateAgentResponses,
+  UpdateAgentWorkerEnvData,
+  UpdateAgentWorkerEnvErrors,
+  UpdateAgentWorkerEnvResponses,
+  UpdateAppConfigurationData,
+  UpdateAppConfigurationErrors,
+  UpdateAppConfigurationResponses,
   UpdateBrainObjectData,
   UpdateBrainObjectErrors,
   UpdateBrainObjectResponses,
@@ -320,7 +356,10 @@ import type {
   UpdatePermissionGrantResponses,
   UpdatePrincipalGroupData,
   UpdatePrincipalGroupErrors,
-  UpdatePrincipalGroupResponses
+  UpdatePrincipalGroupResponses,
+  UpdateWorkerEnvData,
+  UpdateWorkerEnvErrors,
+  UpdateWorkerEnvResponses
 } from './types.gen'
 
 export type Options<
@@ -588,6 +627,18 @@ export const decideBrainContradiction = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * decrypt_agent_worker_env operation on worker_env_operation resource
+ */
+export const decryptAgentWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<DecryptAgentWorkerEnvData, ThrowOnError>
+): RequestResult<DecryptAgentWorkerEnvResponses, DecryptAgentWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).post<DecryptAgentWorkerEnvResponses, DecryptAgentWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/worker-envs/{name}/decryptions',
+    ...options
+  })
+
+/**
  * list_brain_principal_knowledge operation on brain_console_view resource
  */
 export const listBrainPrincipalKnowledge = <ThrowOnError extends boolean = false>(
@@ -799,6 +850,34 @@ export const showBrainObject = <ThrowOnError extends boolean = false>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/brain/objects/show',
     ...options
+  })
+
+/**
+ * delete_agent_worker_env operation on worker_env_operation resource
+ */
+export const deleteAgentWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAgentWorkerEnvData, ThrowOnError>
+): RequestResult<DeleteAgentWorkerEnvResponses, DeleteAgentWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteAgentWorkerEnvResponses, DeleteAgentWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/worker-envs/{name}',
+    ...options
+  })
+
+/**
+ * update_agent_worker_env operation on worker_env_operation resource
+ */
+export const updateAgentWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateAgentWorkerEnvData, ThrowOnError>
+): RequestResult<UpdateAgentWorkerEnvResponses, UpdateAgentWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).put<UpdateAgentWorkerEnvResponses, UpdateAgentWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/worker-envs/{name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -1014,6 +1093,46 @@ export const listAgentLibraryDocuments = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * delete_worker_env operation on worker_env_operation resource
+ */
+export const deleteWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteWorkerEnvData, ThrowOnError>
+): RequestResult<DeleteWorkerEnvResponses, DeleteWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteWorkerEnvResponses, DeleteWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/worker-envs/{name}',
+    ...options
+  })
+
+/**
+ * update_worker_env operation on worker_env_operation resource
+ */
+export const updateWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateWorkerEnvData, ThrowOnError>
+): RequestResult<UpdateWorkerEnvResponses, UpdateWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).put<UpdateWorkerEnvResponses, UpdateWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/worker-envs/{name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * decrypt_app_configuration operation on app_configuration_operation resource
+ */
+export const decryptAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<DecryptAppConfigurationData, ThrowOnError>
+): RequestResult<DecryptAppConfigurationResponses, DecryptAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).post<DecryptAppConfigurationResponses, DecryptAppConfigurationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/app-configurations/{key}/decryptions',
+    ...options
+  })
+
+/**
  * resume_cron_schedule operation on cron_schedule resource
  */
 export const resumeCronSchedule = <ThrowOnError extends boolean = false>(
@@ -1148,6 +1267,18 @@ export const getBrainHealth = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * list_app_configurations operation on app_configuration_operation resource
+ */
+export const listAppConfigurations = <ThrowOnError extends boolean = false>(
+  options?: Options<ListAppConfigurationsData, ThrowOnError>
+): RequestResult<ListAppConfigurationsResponses, ListAppConfigurationsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListAppConfigurationsResponses, ListAppConfigurationsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/app-configurations',
+    ...options
+  })
+
+/**
  * reject_brain_suggestion operation on brain_schema_suggestion resource
  */
 export const rejectBrainSuggestion = <ThrowOnError extends boolean = false>(
@@ -1236,6 +1367,18 @@ export const runCronSchedule = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * decrypt_worker_env operation on worker_env_operation resource
+ */
+export const decryptWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<DecryptWorkerEnvData, ThrowOnError>
+): RequestResult<DecryptWorkerEnvResponses, DecryptWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).post<DecryptWorkerEnvResponses, DecryptWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/worker-envs/{name}/decryptions',
+    ...options
+  })
+
+/**
  * set_agent_library_plugin operation on agent_library_console resource
  */
 export const setAgentLibraryPlugin = <ThrowOnError extends boolean = false>(
@@ -1276,6 +1419,18 @@ export const listAgentWorkers = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * list_agent_worker_envs operation on worker_env_operation resource
+ */
+export const listAgentWorkerEnvs = <ThrowOnError extends boolean = false>(
+  options: Options<ListAgentWorkerEnvsData, ThrowOnError>
+): RequestResult<ListAgentWorkerEnvsResponses, ListAgentWorkerEnvsErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListAgentWorkerEnvsResponses, ListAgentWorkerEnvsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/worker-envs',
+    ...options
+  })
+
+/**
  * pause_cron_schedule operation on cron_schedule resource
  */
 export const pauseCronSchedule = <ThrowOnError extends boolean = false>(
@@ -1285,6 +1440,46 @@ export const pauseCronSchedule = <ThrowOnError extends boolean = false>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/pause',
     ...options
+  })
+
+/**
+ * reset_app_configuration operation on app_configuration_operation resource
+ */
+export const resetAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<ResetAppConfigurationData, ThrowOnError>
+): RequestResult<ResetAppConfigurationResponses, ResetAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).delete<ResetAppConfigurationResponses, ResetAppConfigurationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/app-configurations/{key}',
+    ...options
+  })
+
+/**
+ * get_app_configuration operation on app_configuration_operation resource
+ */
+export const getAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<GetAppConfigurationData, ThrowOnError>
+): RequestResult<GetAppConfigurationResponses, GetAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetAppConfigurationResponses, GetAppConfigurationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/app-configurations/{key}',
+    ...options
+  })
+
+/**
+ * update_app_configuration operation on app_configuration_operation resource
+ */
+export const updateAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateAppConfigurationData, ThrowOnError>
+): RequestResult<UpdateAppConfigurationResponses, UpdateAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).put<UpdateAppConfigurationResponses, UpdateAppConfigurationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/app-configurations/{key}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -1468,6 +1663,18 @@ export const addPrincipalGroupMember = <ThrowOnError extends boolean = false>(
   (options.client ?? client).put<AddPrincipalGroupMemberResponses, AddPrincipalGroupMemberErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/principal-groups/{name}/members/{principal_uid}',
+    ...options
+  })
+
+/**
+ * list_worker_envs operation on worker_env_operation resource
+ */
+export const listWorkerEnvs = <ThrowOnError extends boolean = false>(
+  options?: Options<ListWorkerEnvsData, ThrowOnError>
+): RequestResult<ListWorkerEnvsResponses, ListWorkerEnvsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListWorkerEnvsResponses, ListWorkerEnvsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/worker-envs',
     ...options
   })
 

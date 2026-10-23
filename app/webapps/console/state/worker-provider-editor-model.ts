@@ -1,5 +1,5 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
-import type { WorkerProviderKind } from '../api/generated/types.gen'
+import type { WorkerProviderKind } from '../api/configuration-types'
 import { type Flat, fromDocument } from '../api/json-api'
 import type { WorkerProvider as WorkerProviderResource } from '../api/v2-site/generated/types.gen'
 

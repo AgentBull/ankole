@@ -58,7 +58,7 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     )
 
     response =
-      conn |> recycle_api() |> get(~p"/api/v1/site/worker-provider-kinds") |> json_response(200)
+      conn |> json_api() |> get(~p"/api/v2/site/worker-provider-kinds") |> json_response(200)
 
     refute Enum.any?(response["worker_provider_kinds"], &(&1["kind"] == "vercel"))
 
@@ -69,12 +69,12 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
 
     response =
       conn
-      |> recycle_api()
-      |> get(~p"/api/v1/site/worker-providers/saved-vercel/check")
+      |> json_api()
+      |> get(~p"/api/v2/site/worker-providers/saved-vercel/check")
       |> json_response(422)
 
-    assert response["error"]["message"] =~ "vercel-worker-provider"
-    assert response["error"]["message"] =~ "restart"
+    assert hd(response["errors"])["detail"] =~ "vercel-worker-provider"
+    assert hd(response["errors"])["detail"] =~ "restart"
 
     %{principal: owner} = human_fixture()
 
@@ -200,10 +200,10 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
       Req.Test.stub(__MODULE__, response)
 
       conn
-      |> recycle_api()
-      |> get(~p"/api/v1/site/worker-providers/#{id}/check")
+      |> json_api()
+      |> get(~p"/api/v2/site/worker-providers/#{id}/check")
       |> json_response(422)
-      |> get_in(["error", "message"])
+      |> then(&hd(&1["errors"])["detail"])
     end
 
     assert check.("vercel", fn conn ->

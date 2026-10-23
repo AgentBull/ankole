@@ -1,4 +1,4 @@
-defmodule AnkoleWeb.AppConfigurationControllerTest do
+defmodule AnkoleWeb.JSONAPI.AppConfigurationTest do
   use AnkoleWeb.ConnCase, async: false
 
   alias Ankole.AppConfigure
@@ -22,51 +22,44 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
 
   test "missing browser session returns 401 before OpenAPI body validation", %{conn: conn} do
     conn =
-      put(conn, ~p"/api/v1/site/app-configurations/anything", %{
+      api_put(conn, ~p"/api/v2/site/app-configurations/anything", %{
         "unexpected" => true
       })
 
     assert %{"error" => %{"code" => "unauthorized"}} = json_response(conn, 401)
   end
 
-  test "OpenAPI JSON includes console REST and SPA auth routes for generated clients", %{
-    conn: conn
-  } do
-    conn = get(conn, ~p"/api/v1/openapi.json")
-    paths = json_response(conn, 200)["paths"]
+  test "site settings have typed generated routes", %{conn: conn} do
+    paths =
+      conn
+      |> console_conn()
+      |> api_get("/api/v2/site/openapi.json")
+      |> json_response(200)
+      |> Map.fetch!("paths")
 
-    refute Map.has_key?(paths, "/.internal-apis/oauth/token")
-    assert Map.has_key?(paths, "/.internal-apis/session")
-    assert Map.has_key?(paths, "/api/v1/site/app-configurations")
-    assert Map.has_key?(paths, "/api/v1/site/app-configurations/{key}")
-    assert Map.has_key?(paths, "/api/v1/site/app-configurations/{key}/decryptions")
-    assert Map.has_key?(paths, "/api/v1/oidc-clients/{id}/secret-rotations")
-    assert Map.has_key?(paths, "/api/v1/ai-gateway/models")
+    assert Map.has_key?(paths, "/api/v2/site/app-configurations")
+    assert Map.has_key?(paths, "/api/v2/site/app-configurations/{key}")
+    assert Map.has_key?(paths, "/api/v2/site/app-configurations/{key}/decryptions")
   end
 
   test "unversioned public API paths are not registered", %{conn: conn} do
-    conn = get(conn, "/api/openapi.json")
+    conn = api_get(conn, "/api/openapi.json")
 
     assert response(conn, 404)
   end
 
-  test "session-authenticated invalid request bodies return the uniform 422 envelope", %{
+  test "invalid setting bodies give field feedback before a write", %{
     conn: conn
   } do
     conn = console_conn(conn)
 
     conn =
-      put(conn, ~p"/api/v1/site/app-configurations/anything", %{
+      api_put(conn, ~p"/api/v2/site/app-configurations/anything", %{
         "unexpected" => true
       })
 
-    assert %{
-             "error" => %{
-               "code" => "validation_failed",
-               "message" => "request validation failed",
-               "details" => [_detail | _]
-             }
-           } = json_response(conn, 422)
+    assert %{"errors" => [%{"detail" => detail} | _]} = json_response(conn, 400)
+    assert detail =~ "data"
   end
 
   test "admin can list, update, read, and reset exact AppConfigure entries", %{
@@ -90,7 +83,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
 
     conn = console_conn(conn)
 
-    conn = get(conn, ~p"/api/v1/site/app-configurations")
+    conn = api_get(conn, ~p"/api/v2/site/app-configurations")
     assert %{"app_configurations" => entries} = json_response(conn, 200)
 
     assert %{"value" => 1, "source" => "default", "editable" => true} =
@@ -99,7 +92,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/site/app-configurations/#{definition.key}", %{"value" => 7})
+      |> api_put(~p"/api/v2/site/app-configurations/#{definition.key}", %{"value" => 7})
 
     assert %{
              "app_configuration" => %{
@@ -115,14 +108,14 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/site/app-configurations/#{definition.key}", %{})
+      |> api_put(~p"/api/v2/site/app-configurations/#{definition.key}", %{})
 
-    assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
+    assert %{"errors" => [%{"code" => "missing_value"}]} = json_response(conn, 422)
 
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/site/app-configurations/#{definition.key}")
+      |> api_get(~p"/api/v2/site/app-configurations/#{definition.key}")
 
     assert %{"app_configuration" => %{"value" => 7, "source" => "global"}} =
              json_response(conn, 200)
@@ -130,7 +123,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> delete(~p"/api/v1/site/app-configurations/#{definition.key}")
+      |> api_delete(~p"/api/v2/site/app-configurations/#{definition.key}")
 
     assert %{
              "app_configuration" => %{
@@ -157,7 +150,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn = console_conn(conn)
 
     conn =
-      put(conn, ~p"/api/v1/site/app-configurations/#{definition.key}", %{
+      api_put(conn, ~p"/api/v2/site/app-configurations/#{definition.key}", %{
         "value" => %{"apiKey" => "secret-api-key"}
       })
 
@@ -170,7 +163,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/site/app-configurations/#{definition.key}")
+      |> api_get(~p"/api/v2/site/app-configurations/#{definition.key}")
 
     assert %{"app_configuration" => encrypted_detail} = json_response(conn, 200)
     refute Map.has_key?(encrypted_detail, "value")
@@ -178,7 +171,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/site/app-configurations/#{definition.key}", %{})
+      |> api_put(~p"/api/v2/site/app-configurations/#{definition.key}", %{})
 
     assert %{"app_configuration" => preserved_item} = json_response(conn, 200)
     assert preserved_item["encrypted"] == true
@@ -188,14 +181,14 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/site/app-configurations/#{definition.key}/decryptions", %{})
+      |> api_post(~p"/api/v2/site/app-configurations/#{definition.key}/decryptions", %{})
 
     assert %{
              "decrypted_value" => %{
                "key" => key,
                "value" => %{"apiKey" => "secret-api-key"}
              }
-           } = json_response(conn, 200)
+           } = json_response(conn, 201)
 
     assert key == definition.key
   end
@@ -218,7 +211,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     assert :ok = Ankole.AppConfigure.Registry.register_patterns([pattern])
     conn = console_conn(conn)
 
-    conn = get(conn, ~p"/api/v1/site/app-configurations")
+    conn = api_get(conn, ~p"/api/v2/site/app-configurations")
     assert %{"app_configurations" => entries} = json_response(conn, 200)
 
     assert %{"kind" => "pattern", "editable" => false, "pattern" => pattern_source} =
@@ -230,11 +223,11 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/site/app-configurations/#{runtime_key}", %{
+      |> api_put(~p"/api/v2/site/app-configurations/#{runtime_key}", %{
         "value" => %{"enabled" => true}
       })
 
-    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    assert %{"errors" => [%{"code" => "pattern_key_not_editable"}]} = json_response(conn, 422)
 
     assert {:ok, %{"enabled" => true}} =
              AppConfigure.put_global_by_key(runtime_key, %{"enabled" => true})
@@ -242,7 +235,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/site/app-configurations")
+      |> api_get(~p"/api/v2/site/app-configurations")
 
     assert %{"app_configurations" => entries} = json_response(conn, 200)
 
@@ -252,7 +245,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/site/app-configurations/#{runtime_key}", %{
+      |> api_put(~p"/api/v2/site/app-configurations/#{runtime_key}", %{
         "value" => %{"enabled" => false}
       })
 
@@ -262,7 +255,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> delete(~p"/api/v1/site/app-configurations/#{runtime_key}")
+      |> api_delete(~p"/api/v2/site/app-configurations/#{runtime_key}")
 
     assert %{
              "app_configuration" => %{
@@ -275,7 +268,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/site/app-configurations")
+      |> api_get(~p"/api/v2/site/app-configurations")
 
     assert %{"app_configurations" => entries} = json_response(conn, 200)
     refute Enum.any?(entries, &(&1["key"] == runtime_key))
@@ -285,16 +278,17 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/site/app-configurations/brain.embedding_model", %{
+      |> api_put(~p"/api/v2/site/app-configurations/brain.embedding_model", %{
         "value" => %{"provider_id" => "", "model" => "text-embedding", "dimensions" => 1024}
       })
 
     assert %{
-             "error" => %{
-               "code" => "validation_failed",
-               "message" => "provider_id is invalid",
-               "details" => [%{"path" => "provider_id", "kind" => "invalid"}]
-             }
+             "errors" => [
+               %{
+                 "detail" => "provider_id is invalid",
+                 "meta" => %{"details" => [%{"path" => "provider_id", "message" => "is invalid"}]}
+               }
+             ]
            } = json_response(conn, 422)
   end
 
@@ -302,9 +296,9 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/site/app-configurations/not.registered", %{"value" => "value"})
+      |> api_put(~p"/api/v2/site/app-configurations/not.registered", %{"value" => "value"})
 
-    assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
+    assert %{"errors" => [%{"code" => "not_found"}]} = json_response(conn, 404)
   end
 
   test "setup-owned AppConfigure keys are visible but not writable through the console API", %{
@@ -313,7 +307,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     assert {:ok, "ABCDEFGH"} = SetupConfig.put_bootstrap_activation_code("ABCDEFGH")
     conn = console_conn(conn)
 
-    conn = get(conn, ~p"/api/v1/site/app-configurations")
+    conn = api_get(conn, ~p"/api/v2/site/app-configurations")
     assert %{"app_configurations" => entries} = json_response(conn, 200)
 
     assert %{"editable" => false, "value" => true} = entry(entries, "setup.completed")
@@ -324,16 +318,16 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/site/app-configurations/setup.completed", %{"value" => false})
+      |> api_put(~p"/api/v2/site/app-configurations/setup.completed", %{"value" => false})
 
-    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} = json_response(conn, 422)
 
     conn =
       conn
       |> recycle_api()
-      |> delete(~p"/api/v1/site/app-configurations/setup.bootstrap_activation_code")
+      |> api_delete(~p"/api/v2/site/app-configurations/setup.bootstrap_activation_code")
 
-    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} = json_response(conn, 422)
     assert {:ok, true} = SetupConfig.completed?()
     assert {:ok, "ABCDEFGH"} = SetupConfig.bootstrap_activation_code()
   end
@@ -345,7 +339,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
 
     entries =
       conn
-      |> get(~p"/api/v1/site/app-configurations")
+      |> api_get(~p"/api/v2/site/app-configurations")
       |> json_response(200)
       |> Map.fetch!("app_configurations")
 
@@ -354,18 +348,20 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     for rejected <- [
           conn
           |> recycle_api()
-          |> put(~p"/api/v1/site/app-configurations/plugins.enabled_ids", %{"value" => []}),
+          |> api_put(~p"/api/v2/site/app-configurations/plugins.enabled_ids", %{"value" => []}),
           conn
           |> recycle_api()
-          |> delete(~p"/api/v1/site/app-configurations/plugins.enabled_ids")
+          |> api_delete(~p"/api/v2/site/app-configurations/plugins.enabled_ids")
         ] do
-      assert %{"error" => %{"code" => "not_editable"}} = json_response(rejected, 422)
+      assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} = json_response(rejected, 422)
     end
 
     assert {:ok, ^enabled} = Ankole.Plugins.enabled_ids()
 
     conn
     |> recycle_api()
+    |> put_req_header("accept", "application/json")
+    |> put_req_header("content-type", "application/json")
     |> put(~p"/api/v1/site/control-plane-plugins", %{
       "id" => "vercel-worker-provider",
       "enabled" => false
@@ -379,28 +375,30 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
        %{conn: conn} do
     conn = console_conn(conn)
 
-    conn = get(conn, ~p"/api/v1/site/app-configurations")
+    conn = api_get(conn, ~p"/api/v2/site/app-configurations")
     assert %{"app_configurations" => entries} = json_response(conn, 200)
     assert %{"editable" => false} = entry(entries, "runtime_fabric.worker_auth_key")
-    conn = conn |> recycle_api() |> get(~p"/api/v1/app-configurations")
+    conn = conn |> recycle_api() |> api_get(~p"/api/v2/app-configurations")
     assert %{"app_configurations" => tenant_entries} = json_response(conn, 200)
     assert %{"editable" => false} = entry(tenant_entries, "principals.identity_providers.active")
 
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/app-configurations/principals.identity_providers.active", %{"value" => []})
+      |> api_put(~p"/api/v2/app-configurations/principals.identity_providers.active", %{
+        "value" => []
+      })
 
-    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} = json_response(conn, 422)
 
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/site/app-configurations/runtime_fabric.worker_auth_key", %{
+      |> api_put(~p"/api/v2/site/app-configurations/runtime_fabric.worker_auth_key", %{
         "value" => "leaked"
       })
 
-    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} = json_response(conn, 422)
 
     # Closing the Console path must not close the path the owning API uses.
     assert {:ok, %{"provider_id" => "local-console"}} =
@@ -409,7 +407,76 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
 
   defp key(prefix, name), do: prefix <> "." <> name
 
+  test "tenant setting updates, reveals, and resets keep the site value and other tenants isolated",
+       %{conn: conn, prefix: prefix} do
+    alias Ankole.Repo
+
+    definition =
+      AppConfigure.define(
+        key: key(prefix, "tenant_secret"),
+        scope: :tenant,
+        encrypted: true,
+        schema: Schema.new(fn value -> {:ok, value} end)
+      )
+
+    :ok = Registry.register_definitions([definition])
+    assert {:ok, _} = AppConfigure.put_global_by_key(definition.key, "site secret")
+    conn = console_conn(conn)
+
+    assert %{"app_configuration" => %{"source" => "tenant"}} =
+             conn
+             |> api_put("/api/v2/app-configurations/#{definition.key}", %{value: "tenant secret"})
+             |> json_response(200)
+
+    %{"app_configuration" => item} =
+      conn
+      |> recycle_api()
+      |> api_get("/api/v2/app-configurations/#{definition.key}")
+      |> json_response(200)
+
+    refute item["value"]
+
+    assert %{"decrypted_value" => %{"value" => "tenant secret"}} =
+             conn
+             |> recycle_api()
+             |> api_post("/api/v2/app-configurations/#{definition.key}/decryptions", %{})
+             |> json_response(201)
+
+    other = Ankole.DataCase.create_tenant()
+
+    Repo.with_tenant(other.id, fn ->
+      assert {:ok, "site secret"} = AppConfigure.get_by_key(definition.key)
+    end)
+
+    assert %{"app_configuration" => %{"source" => "global"}} =
+             conn
+             |> recycle_api()
+             |> api_delete("/api/v2/app-configurations/#{definition.key}")
+             |> json_response(200)
+
+    assert %{"decrypted_value" => %{"value" => "site secret"}} =
+             conn
+             |> recycle_api()
+             |> api_post("/api/v2/app-configurations/#{definition.key}/decryptions", %{})
+             |> json_response(201)
+  end
+
   defp entry(entries, key) do
     Enum.find(entries, &(&1["key"] == key))
   end
+
+  defp json_api(conn),
+    do:
+      conn
+      |> put_req_header("accept", "application/vnd.api+json")
+      |> put_req_header("content-type", "application/vnd.api+json")
+
+  defp api_get(conn, path), do: conn |> json_api() |> get(path)
+  defp api_delete(conn, path), do: conn |> json_api() |> delete(path)
+
+  defp api_put(conn, path, attrs),
+    do: conn |> json_api() |> put(path, Jason.encode!(%{data: attrs}))
+
+  defp api_post(conn, path, attrs),
+    do: conn |> json_api() |> post(path, Jason.encode!(%{data: attrs}))
 end

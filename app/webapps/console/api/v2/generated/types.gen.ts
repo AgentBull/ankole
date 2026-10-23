@@ -142,6 +142,26 @@ export type BrainObjectVersion = {
   type: string
 }
 
+/**
+ * A "Resource object" representing a worker_env_operation
+ */
+export type WorkerEnvOperation = {
+  /**
+   * An attributes object for a worker_env_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a worker_env_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
 export type BrainContradictionType = {
   /**
    * Field included by default.
@@ -2025,6 +2045,26 @@ export type PrincipalGroupMembership = {
 }
 
 /**
+ * A "Resource object" representing a app_configuration_operation
+ */
+export type AppConfigurationOperation = {
+  /**
+   * An attributes object for a app_configuration_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a app_configuration_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a agent_library_console
  */
 export type AgentLibraryConsole = {
@@ -3899,6 +3939,39 @@ export type DecideBrainContradictionResponses = {
 export type DecideBrainContradictionResponse =
   DecideBrainContradictionResponses[keyof DecideBrainContradictionResponses]
 
+export type DecryptAgentWorkerEnvData = {
+  body?: never
+  path: {
+    name: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/worker-envs/{name}/decryptions'
+}
+
+export type DecryptAgentWorkerEnvErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DecryptAgentWorkerEnvError = DecryptAgentWorkerEnvErrors[keyof DecryptAgentWorkerEnvErrors]
+
+export type DecryptAgentWorkerEnvResponses = {
+  /**
+   * Success
+   */
+  201: {
+    decrypted_value: {
+      name: string
+      value: string
+    }
+  }
+}
+
+export type DecryptAgentWorkerEnvResponse = DecryptAgentWorkerEnvResponses[keyof DecryptAgentWorkerEnvResponses]
+
 export type ListBrainPrincipalKnowledgeData = {
   body?: never
   path: {
@@ -4633,6 +4706,89 @@ export type ShowBrainObjectResponses = {
 }
 
 export type ShowBrainObjectResponse = ShowBrainObjectResponses[keyof ShowBrainObjectResponses]
+
+export type DeleteAgentWorkerEnvData = {
+  body?: never
+  path: {
+    name: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/worker-envs/{name}'
+}
+
+export type DeleteAgentWorkerEnvErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteAgentWorkerEnvError = DeleteAgentWorkerEnvErrors[keyof DeleteAgentWorkerEnvErrors]
+
+export type DeleteAgentWorkerEnvResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_env: {
+      description?: string | null
+      name: string
+      present: boolean
+      secret: boolean
+      source: 'global' | 'tenant' | 'agent' | 'missing'
+      value?: string | null
+    }
+  }
+}
+
+export type DeleteAgentWorkerEnvResponse = DeleteAgentWorkerEnvResponses[keyof DeleteAgentWorkerEnvResponses]
+
+export type UpdateAgentWorkerEnvData = {
+  /**
+   * Request body for the update_agent_worker_env operation on worker_env_operation resource
+   */
+  body?: {
+    data: {
+      description?: string | null
+      secret?: boolean | null
+      value?: string | null
+    }
+  }
+  path: {
+    name: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/worker-envs/{name}'
+}
+
+export type UpdateAgentWorkerEnvErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateAgentWorkerEnvError = UpdateAgentWorkerEnvErrors[keyof UpdateAgentWorkerEnvErrors]
+
+export type UpdateAgentWorkerEnvResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_env: {
+      description?: string | null
+      name: string
+      present: boolean
+      secret: boolean
+      source: 'global' | 'tenant' | 'agent' | 'missing'
+      value?: string | null
+    }
+  }
+}
+
+export type UpdateAgentWorkerEnvResponse = UpdateAgentWorkerEnvResponses[keyof UpdateAgentWorkerEnvResponses]
 
 export type SetGlobalLibrarySkillData = {
   /**
@@ -5407,6 +5563,119 @@ export type ListAgentLibraryDocumentsResponses = {
 export type ListAgentLibraryDocumentsResponse =
   ListAgentLibraryDocumentsResponses[keyof ListAgentLibraryDocumentsResponses]
 
+export type DeleteWorkerEnvData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v2/worker-envs/{name}'
+}
+
+export type DeleteWorkerEnvErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteWorkerEnvError = DeleteWorkerEnvErrors[keyof DeleteWorkerEnvErrors]
+
+export type DeleteWorkerEnvResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_env: {
+      description?: string | null
+      name: string
+      present: boolean
+      secret: boolean
+      source: 'global' | 'tenant' | 'agent' | 'missing'
+      value?: string | null
+    }
+  }
+}
+
+export type DeleteWorkerEnvResponse = DeleteWorkerEnvResponses[keyof DeleteWorkerEnvResponses]
+
+export type UpdateWorkerEnvData = {
+  /**
+   * Request body for the update_worker_env operation on worker_env_operation resource
+   */
+  body?: {
+    data: {
+      description?: string | null
+      secret?: boolean | null
+      value?: string | null
+    }
+  }
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v2/worker-envs/{name}'
+}
+
+export type UpdateWorkerEnvErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateWorkerEnvError = UpdateWorkerEnvErrors[keyof UpdateWorkerEnvErrors]
+
+export type UpdateWorkerEnvResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_env: {
+      description?: string | null
+      name: string
+      present: boolean
+      secret: boolean
+      source: 'global' | 'tenant' | 'agent' | 'missing'
+      value?: string | null
+    }
+  }
+}
+
+export type UpdateWorkerEnvResponse = UpdateWorkerEnvResponses[keyof UpdateWorkerEnvResponses]
+
+export type DecryptAppConfigurationData = {
+  body?: never
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v2/app-configurations/{key}/decryptions'
+}
+
+export type DecryptAppConfigurationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DecryptAppConfigurationError = DecryptAppConfigurationErrors[keyof DecryptAppConfigurationErrors]
+
+export type DecryptAppConfigurationResponses = {
+  /**
+   * Success
+   */
+  201: {
+    decrypted_value: {
+      key: string
+      value?: unknown | null
+    }
+  }
+}
+
+export type DecryptAppConfigurationResponse = DecryptAppConfigurationResponses[keyof DecryptAppConfigurationResponses]
+
 export type ResumeCronScheduleData = {
   body?: never
   path: {
@@ -5943,6 +6212,48 @@ export type GetBrainHealthResponses = {
 
 export type GetBrainHealthResponse = GetBrainHealthResponses[keyof GetBrainHealthResponses]
 
+export type ListAppConfigurationsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/app-configurations'
+}
+
+export type ListAppConfigurationsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAppConfigurationsError = ListAppConfigurationsErrors[keyof ListAppConfigurationsErrors]
+
+export type ListAppConfigurationsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    app_configurations: Array<{
+      default_present: boolean
+      description?: string | null
+      editable: boolean
+      encrypted: boolean
+      error?: string | null
+      key: string
+      kind: 'exact' | 'pattern' | 'pattern_concrete'
+      overridden: boolean
+      pattern?: string | null
+      pattern_id?: string | null
+      present: boolean
+      scope: 'global' | 'tenant'
+      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      value?: unknown | null
+    }>
+  }
+}
+
+export type ListAppConfigurationsResponse = ListAppConfigurationsResponses[keyof ListAppConfigurationsResponses]
+
 export type RejectBrainSuggestionData = {
   body?: never
   path: {
@@ -6171,6 +6482,38 @@ export type RunCronScheduleResponses = {
 
 export type RunCronScheduleResponse = RunCronScheduleResponses[keyof RunCronScheduleResponses]
 
+export type DecryptWorkerEnvData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v2/worker-envs/{name}/decryptions'
+}
+
+export type DecryptWorkerEnvErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DecryptWorkerEnvError = DecryptWorkerEnvErrors[keyof DecryptWorkerEnvErrors]
+
+export type DecryptWorkerEnvResponses = {
+  /**
+   * Success
+   */
+  201: {
+    decrypted_value: {
+      name: string
+      value: string
+    }
+  }
+}
+
+export type DecryptWorkerEnvResponse = DecryptWorkerEnvResponses[keyof DecryptWorkerEnvResponses]
+
 export type SetAgentLibraryPluginData = {
   /**
    * Request body for the set_agent_library_plugin operation on agent_library_console resource
@@ -6311,6 +6654,42 @@ export type ListAgentWorkersResponses = {
 
 export type ListAgentWorkersResponse = ListAgentWorkersResponses[keyof ListAgentWorkersResponses]
 
+export type ListAgentWorkerEnvsData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/worker-envs'
+}
+
+export type ListAgentWorkerEnvsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAgentWorkerEnvsError = ListAgentWorkerEnvsErrors[keyof ListAgentWorkerEnvsErrors]
+
+export type ListAgentWorkerEnvsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_envs: Array<{
+      description?: string | null
+      name: string
+      present: boolean
+      secret: boolean
+      source: 'global' | 'tenant' | 'agent' | 'missing'
+      value?: string | null
+    }>
+  }
+}
+
+export type ListAgentWorkerEnvsResponse = ListAgentWorkerEnvsResponses[keyof ListAgentWorkerEnvsResponses]
+
 export type PauseCronScheduleData = {
   body?: never
   path: {
@@ -6338,6 +6717,145 @@ export type PauseCronScheduleResponses = {
 }
 
 export type PauseCronScheduleResponse = PauseCronScheduleResponses[keyof PauseCronScheduleResponses]
+
+export type ResetAppConfigurationData = {
+  body?: never
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v2/app-configurations/{key}'
+}
+
+export type ResetAppConfigurationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResetAppConfigurationError = ResetAppConfigurationErrors[keyof ResetAppConfigurationErrors]
+
+export type ResetAppConfigurationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    app_configuration: {
+      default_present: boolean
+      description?: string | null
+      editable: boolean
+      encrypted: boolean
+      error?: string | null
+      key: string
+      kind: 'exact' | 'pattern' | 'pattern_concrete'
+      overridden: boolean
+      pattern?: string | null
+      pattern_id?: string | null
+      present: boolean
+      scope: 'global' | 'tenant'
+      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      value?: unknown | null
+    }
+  }
+}
+
+export type ResetAppConfigurationResponse = ResetAppConfigurationResponses[keyof ResetAppConfigurationResponses]
+
+export type GetAppConfigurationData = {
+  body?: never
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v2/app-configurations/{key}'
+}
+
+export type GetAppConfigurationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetAppConfigurationError = GetAppConfigurationErrors[keyof GetAppConfigurationErrors]
+
+export type GetAppConfigurationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    app_configuration: {
+      default_present: boolean
+      description?: string | null
+      editable: boolean
+      encrypted: boolean
+      error?: string | null
+      key: string
+      kind: 'exact' | 'pattern' | 'pattern_concrete'
+      overridden: boolean
+      pattern?: string | null
+      pattern_id?: string | null
+      present: boolean
+      scope: 'global' | 'tenant'
+      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      value?: unknown | null
+    }
+  }
+}
+
+export type GetAppConfigurationResponse = GetAppConfigurationResponses[keyof GetAppConfigurationResponses]
+
+export type UpdateAppConfigurationData = {
+  /**
+   * Request body for the update_app_configuration operation on app_configuration_operation resource
+   */
+  body?: {
+    data: {
+      value?: unknown | null
+    }
+  }
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v2/app-configurations/{key}'
+}
+
+export type UpdateAppConfigurationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateAppConfigurationError = UpdateAppConfigurationErrors[keyof UpdateAppConfigurationErrors]
+
+export type UpdateAppConfigurationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    app_configuration: {
+      default_present: boolean
+      description?: string | null
+      editable: boolean
+      encrypted: boolean
+      error?: string | null
+      key: string
+      kind: 'exact' | 'pattern' | 'pattern_concrete'
+      overridden: boolean
+      pattern?: string | null
+      pattern_id?: string | null
+      present: boolean
+      scope: 'global' | 'tenant'
+      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      value?: unknown | null
+    }
+  }
+}
+
+export type UpdateAppConfigurationResponse = UpdateAppConfigurationResponses[keyof UpdateAppConfigurationResponses]
 
 export type DeleteOidcClientData = {
   body?: never
@@ -6858,6 +7376,40 @@ export type AddPrincipalGroupMemberResponses = {
 }
 
 export type AddPrincipalGroupMemberResponse = AddPrincipalGroupMemberResponses[keyof AddPrincipalGroupMemberResponses]
+
+export type ListWorkerEnvsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/worker-envs'
+}
+
+export type ListWorkerEnvsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListWorkerEnvsError = ListWorkerEnvsErrors[keyof ListWorkerEnvsErrors]
+
+export type ListWorkerEnvsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_envs: Array<{
+      description?: string | null
+      name: string
+      present: boolean
+      secret: boolean
+      source: 'global' | 'tenant' | 'agent' | 'missing'
+      value?: string | null
+    }>
+  }
+}
+
+export type ListWorkerEnvsResponse = ListWorkerEnvsResponses[keyof ListWorkerEnvsResponses]
 
 export type DeleteAgentData = {
   body?: never

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { MutationObserver, QueryClient } from '@tanstack/react-query'
 import i18n, { loadLocale } from '../../common/i18n'
-import type { AppConfigurationItem } from '../api/generated/types.gen'
+import type { AppConfigurationItem } from '../api/configuration-types'
 import { ENCRYPTED_VALUE_MASK } from '../encrypted-value-input'
 import { seedEditorDraft } from '../use-editor-draft'
 import { BRAIN_FORGETTING_FIELDS, BRAIN_KEYS } from './brain-setting-editor'

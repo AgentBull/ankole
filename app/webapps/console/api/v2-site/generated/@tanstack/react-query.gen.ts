@@ -4,29 +4,43 @@ import { queryOptions, type UseMutationOptions } from '@tanstack/react-query'
 
 import { client } from '../client.gen'
 import {
+  checkWorkerProvider,
   configureControlPlanePlugin,
   createTenant,
   createWorkerProvider,
+  decryptSiteAppConfiguration,
+  decryptSiteWorkerEnv,
   deleteAiGatewayProvider,
+  deleteSiteWorkerEnv,
   deleteTenant,
   deleteWorkerProvider,
   enableAiGatewayProvider,
   getAiGatewayProvider,
   getPrivilegedTenant,
+  getSiteAppConfiguration,
   listAiGatewayProviders,
   listControlPlanePlugins,
+  listSiteAppConfigurations,
+  listSiteWorkerEnvs,
   listTenantBrainPacks,
   listTenants,
+  listWorkerProviderKinds,
   listWorkerProviders,
   type Options,
   putAiGatewayProvider,
+  resetSiteAppConfiguration,
   resumeTenant,
   suspendTenant,
   transferSiteAdministration,
+  updateSiteAppConfiguration,
+  updateSiteWorkerEnv,
   updateTenant,
   updateWorkerProvider
 } from '../sdk.gen'
 import type {
+  CheckWorkerProviderData,
+  CheckWorkerProviderError,
+  CheckWorkerProviderResponse,
   ConfigureControlPlanePluginData,
   ConfigureControlPlanePluginError,
   ConfigureControlPlanePluginResponse,
@@ -36,8 +50,17 @@ import type {
   CreateWorkerProviderData,
   CreateWorkerProviderError,
   CreateWorkerProviderResponse,
+  DecryptSiteAppConfigurationData,
+  DecryptSiteAppConfigurationError,
+  DecryptSiteAppConfigurationResponse,
+  DecryptSiteWorkerEnvData,
+  DecryptSiteWorkerEnvError,
+  DecryptSiteWorkerEnvResponse,
   DeleteAiGatewayProviderData,
   DeleteAiGatewayProviderError,
+  DeleteSiteWorkerEnvData,
+  DeleteSiteWorkerEnvError,
+  DeleteSiteWorkerEnvResponse,
   DeleteTenantData,
   DeleteTenantError,
   DeleteWorkerProviderData,
@@ -51,24 +74,39 @@ import type {
   GetPrivilegedTenantData,
   GetPrivilegedTenantError,
   GetPrivilegedTenantResponse,
+  GetSiteAppConfigurationData,
+  GetSiteAppConfigurationError,
+  GetSiteAppConfigurationResponse,
   ListAiGatewayProvidersData,
   ListAiGatewayProvidersError,
   ListAiGatewayProvidersResponse,
   ListControlPlanePluginsData,
   ListControlPlanePluginsError,
   ListControlPlanePluginsResponse,
+  ListSiteAppConfigurationsData,
+  ListSiteAppConfigurationsError,
+  ListSiteAppConfigurationsResponse,
+  ListSiteWorkerEnvsData,
+  ListSiteWorkerEnvsError,
+  ListSiteWorkerEnvsResponse,
   ListTenantBrainPacksData,
   ListTenantBrainPacksError,
   ListTenantBrainPacksResponse,
   ListTenantsData,
   ListTenantsError,
   ListTenantsResponse,
+  ListWorkerProviderKindsData,
+  ListWorkerProviderKindsError,
+  ListWorkerProviderKindsResponse,
   ListWorkerProvidersData,
   ListWorkerProvidersError,
   ListWorkerProvidersResponse,
   PutAiGatewayProviderData,
   PutAiGatewayProviderError,
   PutAiGatewayProviderResponse,
+  ResetSiteAppConfigurationData,
+  ResetSiteAppConfigurationError,
+  ResetSiteAppConfigurationResponse,
   ResumeTenantData,
   ResumeTenantError,
   SuspendTenantData,
@@ -77,6 +115,12 @@ import type {
   TransferSiteAdministrationData,
   TransferSiteAdministrationError,
   TransferSiteAdministrationResponse,
+  UpdateSiteAppConfigurationData,
+  UpdateSiteAppConfigurationError,
+  UpdateSiteAppConfigurationResponse,
+  UpdateSiteWorkerEnvData,
+  UpdateSiteWorkerEnvError,
+  UpdateSiteWorkerEnvResponse,
   UpdateTenantData,
   UpdateTenantError,
   UpdateTenantResponse,
@@ -237,6 +281,137 @@ export const enableAiGatewayProviderMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await enableAiGatewayProvider({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listSiteAppConfigurationsQueryKey = (options?: Options<ListSiteAppConfigurationsData>) =>
+  createQueryKey('listSiteAppConfigurations', options)
+
+/**
+ * list_site_app_configurations operation on site_app_configuration_operation resource
+ */
+export const listSiteAppConfigurationsOptions = (options?: Options<ListSiteAppConfigurationsData>) =>
+  queryOptions<
+    ListSiteAppConfigurationsResponse,
+    ListSiteAppConfigurationsError,
+    ListSiteAppConfigurationsResponse,
+    ReturnType<typeof listSiteAppConfigurationsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listSiteAppConfigurations({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listSiteAppConfigurationsQueryKey(options)
+  })
+
+/**
+ * reset_site_app_configuration operation on site_app_configuration_operation resource
+ */
+export const resetSiteAppConfigurationMutation = (
+  options?: Partial<Options<ResetSiteAppConfigurationData>>
+): UseMutationOptions<
+  ResetSiteAppConfigurationResponse,
+  ResetSiteAppConfigurationError,
+  Options<ResetSiteAppConfigurationData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    ResetSiteAppConfigurationResponse,
+    ResetSiteAppConfigurationError,
+    Options<ResetSiteAppConfigurationData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await resetSiteAppConfiguration({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getSiteAppConfigurationQueryKey = (options: Options<GetSiteAppConfigurationData>) =>
+  createQueryKey('getSiteAppConfiguration', options)
+
+/**
+ * get_site_app_configuration operation on site_app_configuration_operation resource
+ */
+export const getSiteAppConfigurationOptions = (options: Options<GetSiteAppConfigurationData>) =>
+  queryOptions<
+    GetSiteAppConfigurationResponse,
+    GetSiteAppConfigurationError,
+    GetSiteAppConfigurationResponse,
+    ReturnType<typeof getSiteAppConfigurationQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getSiteAppConfiguration({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getSiteAppConfigurationQueryKey(options)
+  })
+
+/**
+ * update_site_app_configuration operation on site_app_configuration_operation resource
+ */
+export const updateSiteAppConfigurationMutation = (
+  options?: Partial<Options<UpdateSiteAppConfigurationData>>
+): UseMutationOptions<
+  UpdateSiteAppConfigurationResponse,
+  UpdateSiteAppConfigurationError,
+  Options<UpdateSiteAppConfigurationData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateSiteAppConfigurationResponse,
+    UpdateSiteAppConfigurationError,
+    Options<UpdateSiteAppConfigurationData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateSiteAppConfiguration({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * decrypt_site_app_configuration operation on site_app_configuration_operation resource
+ */
+export const decryptSiteAppConfigurationMutation = (
+  options?: Partial<Options<DecryptSiteAppConfigurationData>>
+): UseMutationOptions<
+  DecryptSiteAppConfigurationResponse,
+  DecryptSiteAppConfigurationError,
+  Options<DecryptSiteAppConfigurationData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DecryptSiteAppConfigurationResponse,
+    DecryptSiteAppConfigurationError,
+    Options<DecryptSiteAppConfigurationData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await decryptSiteAppConfiguration({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -490,6 +665,125 @@ export const suspendTenantMutation = (
   return mutationOptions
 }
 
+export const listSiteWorkerEnvsQueryKey = (options?: Options<ListSiteWorkerEnvsData>) =>
+  createQueryKey('listSiteWorkerEnvs', options)
+
+/**
+ * list_site_worker_envs operation on site_worker_env_operation resource
+ */
+export const listSiteWorkerEnvsOptions = (options?: Options<ListSiteWorkerEnvsData>) =>
+  queryOptions<
+    ListSiteWorkerEnvsResponse,
+    ListSiteWorkerEnvsError,
+    ListSiteWorkerEnvsResponse,
+    ReturnType<typeof listSiteWorkerEnvsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listSiteWorkerEnvs({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listSiteWorkerEnvsQueryKey(options)
+  })
+
+/**
+ * delete_site_worker_env operation on site_worker_env_operation resource
+ */
+export const deleteSiteWorkerEnvMutation = (
+  options?: Partial<Options<DeleteSiteWorkerEnvData>>
+): UseMutationOptions<DeleteSiteWorkerEnvResponse, DeleteSiteWorkerEnvError, Options<DeleteSiteWorkerEnvData>> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteSiteWorkerEnvResponse,
+    DeleteSiteWorkerEnvError,
+    Options<DeleteSiteWorkerEnvData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteSiteWorkerEnv({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * update_site_worker_env operation on site_worker_env_operation resource
+ */
+export const updateSiteWorkerEnvMutation = (
+  options?: Partial<Options<UpdateSiteWorkerEnvData>>
+): UseMutationOptions<UpdateSiteWorkerEnvResponse, UpdateSiteWorkerEnvError, Options<UpdateSiteWorkerEnvData>> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateSiteWorkerEnvResponse,
+    UpdateSiteWorkerEnvError,
+    Options<UpdateSiteWorkerEnvData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateSiteWorkerEnv({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * decrypt_site_worker_env operation on site_worker_env_operation resource
+ */
+export const decryptSiteWorkerEnvMutation = (
+  options?: Partial<Options<DecryptSiteWorkerEnvData>>
+): UseMutationOptions<DecryptSiteWorkerEnvResponse, DecryptSiteWorkerEnvError, Options<DecryptSiteWorkerEnvData>> => {
+  const mutationOptions: UseMutationOptions<
+    DecryptSiteWorkerEnvResponse,
+    DecryptSiteWorkerEnvError,
+    Options<DecryptSiteWorkerEnvData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await decryptSiteWorkerEnv({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listWorkerProviderKindsQueryKey = (options?: Options<ListWorkerProviderKindsData>) =>
+  createQueryKey('listWorkerProviderKinds', options)
+
+/**
+ * list_worker_provider_kinds operation on worker_provider_operation resource
+ */
+export const listWorkerProviderKindsOptions = (options?: Options<ListWorkerProviderKindsData>) =>
+  queryOptions<
+    ListWorkerProviderKindsResponse,
+    ListWorkerProviderKindsError,
+    ListWorkerProviderKindsResponse,
+    ReturnType<typeof listWorkerProviderKindsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listWorkerProviderKinds({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listWorkerProviderKindsQueryKey(options)
+  })
+
 export const listWorkerProvidersQueryKey = (options?: Options<ListWorkerProvidersData>) =>
   createQueryKey('listWorkerProviders', options)
 
@@ -579,3 +873,28 @@ export const updateWorkerProviderMutation = (
   }
   return mutationOptions
 }
+
+export const checkWorkerProviderQueryKey = (options: Options<CheckWorkerProviderData>) =>
+  createQueryKey('checkWorkerProvider', options)
+
+/**
+ * check_worker_provider operation on worker_provider_operation resource
+ */
+export const checkWorkerProviderOptions = (options: Options<CheckWorkerProviderData>) =>
+  queryOptions<
+    CheckWorkerProviderResponse,
+    CheckWorkerProviderError,
+    CheckWorkerProviderResponse,
+    ReturnType<typeof checkWorkerProviderQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await checkWorkerProvider({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: checkWorkerProviderQueryKey(options)
+  })

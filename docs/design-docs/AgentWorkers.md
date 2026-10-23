@@ -45,8 +45,12 @@ create, change, and delete a provider through the generic actions `add`,
 `selectable`, and `stored_credentials` fields give the operator projection;
 `stored_credentials` gives only the names of the stored credentials. A
 rejection carries the operator text of `Providers.Errors.rejection/1`, for
-example each YAML error with its path and line. The kinds and check routes
-stay in `/api/v1`. The Console lists the Worker of each Agent
+example each YAML error with its path and line. The kind catalog is at
+`GET /api/v2/site/worker-provider-kinds`. The connection check is at
+`GET /api/v2/site/worker-providers/:provider_id/check`; its typed transport
+action calls the provider adapter without a database transaction. A failed
+check names the platform and gives its useful rejection. The Console lists
+the Worker of each Agent
 (`GET /api/v2/agent-workers`, the `console_list` read action of `AgentWorker`)
 and assigns a provider once to an Agent that the migration left without one
 (`PUT /api/v2/agents/:agent_uid/worker-provider`, the generic action

@@ -6,6 +6,7 @@ defmodule AnkoleWeb.JSONAPI.ConsoleRouter do
     prefix: "/api/v2",
     domains: [
       Ankole.AutomationJobs,
+      Ankole.AppConfigure,
       Ankole.Brain,
       Ankole.OIDC,
       Ankole.Schedule,

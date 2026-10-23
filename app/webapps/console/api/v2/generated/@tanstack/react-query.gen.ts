@@ -26,11 +26,16 @@ import {
   createPrincipalGroup,
   createWebhookEndpoint,
   decideBrainContradiction,
+  decryptAgentWorkerEnv,
+  decryptAppConfiguration,
+  decryptWorkerEnv,
   deleteAgent,
+  deleteAgentWorkerEnv,
   deleteIdentityMappingRequest,
   deleteOidcClient,
   deletePermissionGrant,
   deletePrincipalGroup,
+  deleteWorkerEnv,
   disableSignalBinding,
   enableAgent,
   enqueueBrainDream,
@@ -40,6 +45,7 @@ import {
   getAgent,
   getAgentLibraryCapabilities,
   getAiGatewayConversation,
+  getAppConfiguration,
   getAutomationJob,
   getBackgroundAgentJob,
   getBrainHealth,
@@ -53,9 +59,11 @@ import {
   listAgentLibraryDocuments,
   listAgents,
   listAgentSkillLessons,
+  listAgentWorkerEnvs,
   listAgentWorkers,
   listAiGatewayConversations,
   listAiGatewayMessages,
+  listAppConfigurations,
   listAutomationJobRuns,
   listAutomationJobs,
   listBackgroundAgentJobs,
@@ -81,6 +89,7 @@ import {
   listPrincipalGroups,
   listPrincipals,
   listWebhookEndpoints,
+  listWorkerEnvs,
   type Options,
   pauseCronSchedule,
   previewBrainSearch,
@@ -90,6 +99,7 @@ import {
   removeCronSchedule,
   removePrincipalGroupMember,
   replaceAgentLibraryDocument,
+  resetAppConfiguration,
   resolveBrainTake,
   restoreBrainObject,
   resumeCronSchedule,
@@ -104,13 +114,16 @@ import {
   showBrainObject,
   supersedeBrainClaim,
   updateAgent,
+  updateAgentWorkerEnv,
+  updateAppConfiguration,
   updateBrainObject,
   updateBrainSource,
   updateCronSchedule,
   updateHuman,
   updateOidcClient,
   updatePermissionGrant,
-  updatePrincipalGroup
+  updatePrincipalGroup,
+  updateWorkerEnv
 } from '../sdk.gen'
 import type {
   AddPrincipalGroupMemberData,
@@ -179,9 +192,21 @@ import type {
   DecideBrainContradictionData,
   DecideBrainContradictionError,
   DecideBrainContradictionResponse,
+  DecryptAgentWorkerEnvData,
+  DecryptAgentWorkerEnvError,
+  DecryptAgentWorkerEnvResponse,
+  DecryptAppConfigurationData,
+  DecryptAppConfigurationError,
+  DecryptAppConfigurationResponse,
+  DecryptWorkerEnvData,
+  DecryptWorkerEnvError,
+  DecryptWorkerEnvResponse,
   DeleteAgentData,
   DeleteAgentError,
   DeleteAgentResponse,
+  DeleteAgentWorkerEnvData,
+  DeleteAgentWorkerEnvError,
+  DeleteAgentWorkerEnvResponse,
   DeleteIdentityMappingRequestData,
   DeleteIdentityMappingRequestError,
   DeleteOidcClientData,
@@ -191,6 +216,9 @@ import type {
   DeletePermissionGrantError,
   DeletePrincipalGroupData,
   DeletePrincipalGroupError,
+  DeleteWorkerEnvData,
+  DeleteWorkerEnvError,
+  DeleteWorkerEnvResponse,
   DisableSignalBindingData,
   DisableSignalBindingError,
   DisableSignalBindingResponse,
@@ -218,6 +246,9 @@ import type {
   GetAiGatewayConversationData,
   GetAiGatewayConversationError,
   GetAiGatewayConversationResponse,
+  GetAppConfigurationData,
+  GetAppConfigurationError,
+  GetAppConfigurationResponse,
   GetAutomationJobData,
   GetAutomationJobError,
   GetAutomationJobResponse,
@@ -257,6 +288,9 @@ import type {
   ListAgentSkillLessonsError,
   ListAgentSkillLessonsResponse,
   ListAgentsResponse,
+  ListAgentWorkerEnvsData,
+  ListAgentWorkerEnvsError,
+  ListAgentWorkerEnvsResponse,
   ListAgentWorkersData,
   ListAgentWorkersError,
   ListAgentWorkersResponse,
@@ -266,6 +300,9 @@ import type {
   ListAiGatewayMessagesData,
   ListAiGatewayMessagesError,
   ListAiGatewayMessagesResponse,
+  ListAppConfigurationsData,
+  ListAppConfigurationsError,
+  ListAppConfigurationsResponse,
   ListAutomationJobRunsData,
   ListAutomationJobRunsError,
   ListAutomationJobRunsResponse,
@@ -341,6 +378,9 @@ import type {
   ListWebhookEndpointsData,
   ListWebhookEndpointsError,
   ListWebhookEndpointsResponse,
+  ListWorkerEnvsData,
+  ListWorkerEnvsError,
+  ListWorkerEnvsResponse,
   PauseCronScheduleData,
   PauseCronScheduleError,
   PauseCronScheduleResponse,
@@ -365,6 +405,9 @@ import type {
   ReplaceAgentLibraryDocumentData,
   ReplaceAgentLibraryDocumentError,
   ReplaceAgentLibraryDocumentResponse,
+  ResetAppConfigurationData,
+  ResetAppConfigurationError,
+  ResetAppConfigurationResponse,
   ResolveBrainTakeData,
   ResolveBrainTakeError,
   ResolveBrainTakeResponse,
@@ -407,6 +450,12 @@ import type {
   UpdateAgentData,
   UpdateAgentError,
   UpdateAgentResponse,
+  UpdateAgentWorkerEnvData,
+  UpdateAgentWorkerEnvError,
+  UpdateAgentWorkerEnvResponse,
+  UpdateAppConfigurationData,
+  UpdateAppConfigurationError,
+  UpdateAppConfigurationResponse,
   UpdateBrainObjectData,
   UpdateBrainObjectError,
   UpdateBrainObjectResponse,
@@ -427,7 +476,10 @@ import type {
   UpdatePermissionGrantResponse,
   UpdatePrincipalGroupData,
   UpdatePrincipalGroupError,
-  UpdatePrincipalGroupResponse
+  UpdatePrincipalGroupResponse,
+  UpdateWorkerEnvData,
+  UpdateWorkerEnvError,
+  UpdateWorkerEnvResponse
 } from '../types.gen'
 
 /**
@@ -1050,6 +1102,33 @@ export const decideBrainContradictionMutation = (
   return mutationOptions
 }
 
+/**
+ * decrypt_agent_worker_env operation on worker_env_operation resource
+ */
+export const decryptAgentWorkerEnvMutation = (
+  options?: Partial<Options<DecryptAgentWorkerEnvData>>
+): UseMutationOptions<
+  DecryptAgentWorkerEnvResponse,
+  DecryptAgentWorkerEnvError,
+  Options<DecryptAgentWorkerEnvData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DecryptAgentWorkerEnvResponse,
+    DecryptAgentWorkerEnvError,
+    Options<DecryptAgentWorkerEnvData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await decryptAgentWorkerEnv({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const listBrainPrincipalKnowledgeQueryKey = (options: Options<ListBrainPrincipalKnowledgeData>) =>
   createQueryKey('listBrainPrincipalKnowledge', options)
 
@@ -1385,6 +1464,52 @@ export const showBrainObjectOptions = (options: Options<ShowBrainObjectData>) =>
     },
     queryKey: showBrainObjectQueryKey(options)
   })
+
+/**
+ * delete_agent_worker_env operation on worker_env_operation resource
+ */
+export const deleteAgentWorkerEnvMutation = (
+  options?: Partial<Options<DeleteAgentWorkerEnvData>>
+): UseMutationOptions<DeleteAgentWorkerEnvResponse, DeleteAgentWorkerEnvError, Options<DeleteAgentWorkerEnvData>> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteAgentWorkerEnvResponse,
+    DeleteAgentWorkerEnvError,
+    Options<DeleteAgentWorkerEnvData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteAgentWorkerEnv({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * update_agent_worker_env operation on worker_env_operation resource
+ */
+export const updateAgentWorkerEnvMutation = (
+  options?: Partial<Options<UpdateAgentWorkerEnvData>>
+): UseMutationOptions<UpdateAgentWorkerEnvResponse, UpdateAgentWorkerEnvError, Options<UpdateAgentWorkerEnvData>> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateAgentWorkerEnvResponse,
+    UpdateAgentWorkerEnvError,
+    Options<UpdateAgentWorkerEnvData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateAgentWorkerEnv({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 /**
  * set_global_library_skill operation on agent_library_console resource
@@ -1961,6 +2086,79 @@ export const listAgentLibraryDocumentsOptions = (options: Options<ListAgentLibra
   })
 
 /**
+ * delete_worker_env operation on worker_env_operation resource
+ */
+export const deleteWorkerEnvMutation = (
+  options?: Partial<Options<DeleteWorkerEnvData>>
+): UseMutationOptions<DeleteWorkerEnvResponse, DeleteWorkerEnvError, Options<DeleteWorkerEnvData>> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteWorkerEnvResponse,
+    DeleteWorkerEnvError,
+    Options<DeleteWorkerEnvData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteWorkerEnv({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * update_worker_env operation on worker_env_operation resource
+ */
+export const updateWorkerEnvMutation = (
+  options?: Partial<Options<UpdateWorkerEnvData>>
+): UseMutationOptions<UpdateWorkerEnvResponse, UpdateWorkerEnvError, Options<UpdateWorkerEnvData>> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateWorkerEnvResponse,
+    UpdateWorkerEnvError,
+    Options<UpdateWorkerEnvData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateWorkerEnv({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * decrypt_app_configuration operation on app_configuration_operation resource
+ */
+export const decryptAppConfigurationMutation = (
+  options?: Partial<Options<DecryptAppConfigurationData>>
+): UseMutationOptions<
+  DecryptAppConfigurationResponse,
+  DecryptAppConfigurationError,
+  Options<DecryptAppConfigurationData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DecryptAppConfigurationResponse,
+    DecryptAppConfigurationError,
+    Options<DecryptAppConfigurationData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await decryptAppConfiguration({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * resume_cron_schedule operation on cron_schedule resource
  */
 export const resumeCronScheduleMutation = (
@@ -2198,6 +2396,31 @@ export const getBrainHealthOptions = (options?: Options<GetBrainHealthData>) =>
     queryKey: getBrainHealthQueryKey(options)
   })
 
+export const listAppConfigurationsQueryKey = (options?: Options<ListAppConfigurationsData>) =>
+  createQueryKey('listAppConfigurations', options)
+
+/**
+ * list_app_configurations operation on app_configuration_operation resource
+ */
+export const listAppConfigurationsOptions = (options?: Options<ListAppConfigurationsData>) =>
+  queryOptions<
+    ListAppConfigurationsResponse,
+    ListAppConfigurationsError,
+    ListAppConfigurationsResponse,
+    ReturnType<typeof listAppConfigurationsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAppConfigurations({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listAppConfigurationsQueryKey(options)
+  })
+
 /**
  * reject_brain_suggestion operation on brain_schema_suggestion resource
  */
@@ -2343,6 +2566,29 @@ export const runCronScheduleMutation = (
 }
 
 /**
+ * decrypt_worker_env operation on worker_env_operation resource
+ */
+export const decryptWorkerEnvMutation = (
+  options?: Partial<Options<DecryptWorkerEnvData>>
+): UseMutationOptions<DecryptWorkerEnvResponse, DecryptWorkerEnvError, Options<DecryptWorkerEnvData>> => {
+  const mutationOptions: UseMutationOptions<
+    DecryptWorkerEnvResponse,
+    DecryptWorkerEnvError,
+    Options<DecryptWorkerEnvData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await decryptWorkerEnv({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * set_agent_library_plugin operation on agent_library_console resource
  */
 export const setAgentLibraryPluginMutation = (
@@ -2417,6 +2663,31 @@ export const listAgentWorkersOptions = (options?: Options<ListAgentWorkersData>)
     queryKey: listAgentWorkersQueryKey(options)
   })
 
+export const listAgentWorkerEnvsQueryKey = (options: Options<ListAgentWorkerEnvsData>) =>
+  createQueryKey('listAgentWorkerEnvs', options)
+
+/**
+ * list_agent_worker_envs operation on worker_env_operation resource
+ */
+export const listAgentWorkerEnvsOptions = (options: Options<ListAgentWorkerEnvsData>) =>
+  queryOptions<
+    ListAgentWorkerEnvsResponse,
+    ListAgentWorkerEnvsError,
+    ListAgentWorkerEnvsResponse,
+    ReturnType<typeof listAgentWorkerEnvsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAgentWorkerEnvs({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listAgentWorkerEnvsQueryKey(options)
+  })
+
 /**
  * pause_cron_schedule operation on cron_schedule resource
  */
@@ -2430,6 +2701,85 @@ export const pauseCronScheduleMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await pauseCronSchedule({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * reset_app_configuration operation on app_configuration_operation resource
+ */
+export const resetAppConfigurationMutation = (
+  options?: Partial<Options<ResetAppConfigurationData>>
+): UseMutationOptions<
+  ResetAppConfigurationResponse,
+  ResetAppConfigurationError,
+  Options<ResetAppConfigurationData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    ResetAppConfigurationResponse,
+    ResetAppConfigurationError,
+    Options<ResetAppConfigurationData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await resetAppConfiguration({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getAppConfigurationQueryKey = (options: Options<GetAppConfigurationData>) =>
+  createQueryKey('getAppConfiguration', options)
+
+/**
+ * get_app_configuration operation on app_configuration_operation resource
+ */
+export const getAppConfigurationOptions = (options: Options<GetAppConfigurationData>) =>
+  queryOptions<
+    GetAppConfigurationResponse,
+    GetAppConfigurationError,
+    GetAppConfigurationResponse,
+    ReturnType<typeof getAppConfigurationQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getAppConfiguration({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getAppConfigurationQueryKey(options)
+  })
+
+/**
+ * update_app_configuration operation on app_configuration_operation resource
+ */
+export const updateAppConfigurationMutation = (
+  options?: Partial<Options<UpdateAppConfigurationData>>
+): UseMutationOptions<
+  UpdateAppConfigurationResponse,
+  UpdateAppConfigurationError,
+  Options<UpdateAppConfigurationData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateAppConfigurationResponse,
+    UpdateAppConfigurationError,
+    Options<UpdateAppConfigurationData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateAppConfiguration({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -2755,6 +3105,31 @@ export const addPrincipalGroupMemberMutation = (
   }
   return mutationOptions
 }
+
+export const listWorkerEnvsQueryKey = (options?: Options<ListWorkerEnvsData>) =>
+  createQueryKey('listWorkerEnvs', options)
+
+/**
+ * list_worker_envs operation on worker_env_operation resource
+ */
+export const listWorkerEnvsOptions = (options?: Options<ListWorkerEnvsData>) =>
+  queryOptions<
+    ListWorkerEnvsResponse,
+    ListWorkerEnvsError,
+    ListWorkerEnvsResponse,
+    ReturnType<typeof listWorkerEnvsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listWorkerEnvs({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listWorkerEnvsQueryKey(options)
+  })
 
 /**
  * delete_agent operation on agent resource

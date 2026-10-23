@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import i18n, { loadLocale } from '../../common/i18n'
-import type { AppConfigurationItem, AppConfigurationUpdateRequest } from '../api/generated/types.gen'
+import type { AppConfigurationItem, AppConfigurationUpdateRequest } from '../api/configuration-types'
 import { ENCRYPTED_VALUE_MASK } from '../encrypted-value-input'
 import { seedEditorDraft } from '../use-editor-draft'
 import { encryptedSettingValue, SettingEditorModel, settingDecryptedDraft } from './setting-editor-model'
