@@ -19,7 +19,6 @@ import type { TFunction } from 'i18next'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type {
-  AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem,
   ModelProfileWriteRequest
 } from '../api/generated/types.gen'
@@ -39,6 +38,7 @@ import {
   settingValidationMessage,
   type ProviderSetting
 } from '../state/provider-settings'
+import type { AIGatewayProviderItem } from '../state/provider-settings'
 
 export function ModelProfileEditorCard({
   profile,

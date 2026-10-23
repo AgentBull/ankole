@@ -216,7 +216,7 @@ defmodule Ankole.Principals.Principal do
       run(fn input, _context ->
         Ankole.Principals.update_human_in_tx(Ankole.Repo, input.arguments)
         |> Ankole.Errors.not_found([:not_found, :principal_not_found], __MODULE__)
-        |> Ankole.Errors.wrap()
+        |> Ankole.Errors.wrap(&Ankole.Principals.describe_refusal/1)
       end)
     end
 
@@ -237,7 +237,7 @@ defmodule Ankole.Principals.Principal do
 
       run(fn input, _context ->
         Ankole.Principals.create_local_user_in_tx(Ankole.Repo, input.arguments)
-        |> Ankole.Errors.wrap()
+        |> Ankole.Errors.wrap(&Ankole.Principals.describe_refusal/1)
       end)
     end
 

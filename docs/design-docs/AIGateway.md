@@ -260,6 +260,19 @@ revision; explicit replacement changes it. A stale cooldown action returns the
 existing record without a database write. API controllers authorize and project
 these domain results; they do not choose a persistence path.
 
+`Ankole.AIGateway.ProviderConfigs` is the Ash domain of `Provider`. It is
+separate from `Ankole.AIGateway` because a domain is in one JSON:API router:
+the providers are site resources, and Conversations are tenant resources. The
+site JSON:API (`/api/v2/site/ai-gateway/providers`) lists, reads, creates or
+changes (`PATCH`, the `put` action), disables or deletes (`delete`, the
+`retire` action), and enables (`POST …/enable`) a provider. The calculated
+`credential_pool` field (`CredentialPoolView`) and `provider_metadata` field
+give the same projection as `ProviderConfigs.projection/1`; no credential
+value leaves the row. A rejection carries the operator text of
+`ProviderConfigs.rejection/1`. The credential, credential-pool strategy, and
+ChatGPT login routes stay in `/api/v1/site`: they take plaintext credentials or
+run the login flow.
+
 `ai_gateway_providers` stores operator-configured provider rows. Each row
 contains:
 
@@ -899,8 +912,9 @@ deleting the Agent Principal removes them with its other AIGateway records.
 ### Persistence Contract
 
 `Ankole.AIGateway` is the Ash domain of the gateway resources. Other domains
-read Conversation, Message, Artifact, CompactionArtifact, UsageRecord, and
-Provider rows through its `get_*` and `list_*` defines.
+read Conversation, Message, Artifact, CompactionArtifact, and UsageRecord rows
+through its `get_*` and `list_*` defines. Provider rows belong to the
+`Ankole.AIGateway.ProviderConfigs` domain.
 `get_conversation_by_id` reads one Conversation by its ID;
 `get_conversation/3` reads the Conversation of one subject.
 

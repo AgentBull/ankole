@@ -106,6 +106,18 @@ defmodule Ankole.AuthZ do
 
   @computed_preview_group_id "preview"
 
+  @group_conflicts %{
+    built_in_group: {:conflict, "Built-in groups cannot be changed or deleted.", []},
+    computed_group: {:conflict, "A computed group gets its members from its condition.", []},
+    group_domain_mismatch: {:conflict, "Directory sync manages the members of this group.", []},
+    group_has_grants: {:conflict, "Delete the permission grants of this group first.", []},
+    last_admin_member: {:conflict, "The admin group must keep at least one member.", []},
+    last_active_human_admin:
+      {:conflict, "The installation must keep one active human administrator.", []},
+    not_human: {:conflict, "Only active human users can join the admin group.", []},
+    principal_disabled: {:conflict, "Disabled users cannot join the admin group.", []}
+  }
+
   def administrator_recovery_required? do
     admin_group_name = Root.admin_group_name()
 
@@ -312,6 +324,11 @@ defmodule Ankole.AuthZ do
     |> Map.take([:uid, :type, :status, :display_name, :avatar_url])
     |> Map.put(:member_since, member_since)
   end
+
+  @doc false
+  # The operator text of a refused group or membership change. A refusal that
+  # conflicts with the current group or membership state is a conflict.
+  def describe_group_refusal(reason), do: Map.get(@group_conflicts, reason)
 
   @doc """
   Lists permission grants owned by a Principal group ordered by pattern and action.

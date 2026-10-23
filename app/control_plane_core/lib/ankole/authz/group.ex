@@ -203,7 +203,7 @@ defmodule Ankole.AuthZ.Group do
       run(fn input, _context ->
         Ankole.AuthZ.Store.delete_operator_group(Ankole.Repo, input.arguments.name)
         |> Ankole.Errors.not_found([:not_found, :principal_not_found], __MODULE__)
-        |> Ankole.Errors.wrap()
+        |> Ankole.Errors.wrap(&Ankole.AuthZ.describe_group_refusal/1)
       end)
     end
 
@@ -244,7 +244,7 @@ defmodule Ankole.AuthZ.Group do
           Ankole.AuthZ.Root.admin_group_name()
         )
         |> Ankole.Errors.not_found([:not_found, :principal_not_found], __MODULE__)
-        |> Ankole.Errors.wrap()
+        |> Ankole.Errors.wrap(&Ankole.AuthZ.describe_group_refusal/1)
       end)
     end
 
@@ -261,7 +261,7 @@ defmodule Ankole.AuthZ.Group do
           Ankole.AuthZ.Root.admin_group_name()
         )
         |> Ankole.Errors.not_found([:not_found, :principal_not_found], __MODULE__)
-        |> Ankole.Errors.wrap()
+        |> Ankole.Errors.wrap(&Ankole.AuthZ.describe_group_refusal/1)
       end)
     end
 

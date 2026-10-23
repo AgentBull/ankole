@@ -11,8 +11,8 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
   test "default Compose images migrate an empty database and retain setup after restart" do
     {deployment, owner} = Compose.start!() |> Compose.setup_admin!()
 
-    assert %{"worker_providers" => [%{"provider_id" => "docker"}]} =
-             Compose.api!(deployment, :get, "/api/v1/site/worker-providers")
+    assert %{"data" => [%{"attributes" => %{"provider_id" => "docker"}}]} =
+             Compose.api!(deployment, :get, "/api/v2/site/worker-providers")
 
     assert %{"agent" => %{"uid" => uid}} =
              Compose.api!(deployment, :post, "/api/v1/agents", %{
@@ -232,10 +232,15 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
 
     {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
 
-    Compose.api!(deployment, :put, "/api/v1/site/ai-gateway/providers/compose-model", %{
-      provider_kind: "openai_compatible",
-      base_url: "http://host.docker.internal:#{port}",
-      credential_pool: %{entries: [%{label: "Test", api_key: "compose-test-only"}]}
+    Compose.api!(deployment, :patch, "/api/v2/site/ai-gateway/providers/compose-model", %{
+      data: %{
+        type: "ai_gateway_provider",
+        attributes: %{
+          provider_kind: "openai_compatible",
+          base_url: "http://host.docker.internal:#{port}",
+          credential_pool: %{entries: [%{label: "Test", api_key: "compose-test-only"}]}
+        }
+      }
     })
 
     for profile <- ["primary", "light"] do
@@ -571,11 +576,16 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     work = Ankole.AgentHomePaths.session_workspace(workspace_id)
     compose_public_network_diagnostic!(deployment)
 
-    Compose.api!(deployment, :put, "/api/v1/site/ai-gateway/providers/compose-real-model", %{
-      provider_kind: "openrouter",
-      base_url: "https://openrouter.ai/api/v1",
-      credential_pool: %{
-        entries: [%{label: "Test", api_key: Ankole.E2E.Harness.openrouter_api_key!()}]
+    Compose.api!(deployment, :patch, "/api/v2/site/ai-gateway/providers/compose-real-model", %{
+      data: %{
+        type: "ai_gateway_provider",
+        attributes: %{
+          provider_kind: "openrouter",
+          base_url: "https://openrouter.ai/api/v1",
+          credential_pool: %{
+            entries: [%{label: "Test", api_key: Ankole.E2E.Harness.openrouter_api_key!()}]
+          }
+        }
       }
     })
 

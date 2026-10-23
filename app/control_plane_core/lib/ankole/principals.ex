@@ -454,7 +454,8 @@ defmodule Ankole.Principals do
              email: Map.get(attrs, :email),
              display_name: Map.get(attrs, :display_name),
              must_change_password: must_change_password
-           }) do
+           })
+           |> Ankole.Errors.reason() do
       {:ok,
        %{
          principal: principal,
@@ -487,6 +488,16 @@ defmodule Ankole.Principals do
        |> Ash.Resource.put_metadata(:initial_password, args.initial_password)}
     end
   end
+
+  @doc false
+  # The operator text of a refused local-account or identity binding change.
+  def describe_refusal(:local_identity_provider_disabled),
+    do: {:conflict, "Local account sign-in is not enabled.", []}
+
+  def describe_refusal(:platform_subject_already_bound),
+    do: {:conflict, "This provider account is already bound to another user.", []}
+
+  def describe_refusal(_reason), do: nil
 
   # Each local-account write needs an enabled local identity provider, so that
   # no credential is made that no login path accepts.

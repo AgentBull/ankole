@@ -30,7 +30,10 @@ creation are generic actions of `Tenant`. A lifecycle action locks the
 site-administration row and then the tenant row in its own transaction, and
 checks the protected tenant. Another domain does the same steps in its
 transaction through the `_in_tx` functions, for example `Tenants.create_in_tx/2`
-in the SaaS Pod creation. The
+in the SaaS Pod creation. The site JSON:API serves these actions at
+`/api/v2/site/tenants` (list, Brain pack names, create, profile change,
+suspension as `POST`/`DELETE …/suspension`, begin deletion) and
+`/api/v2/site/privileged-tenant` (read, transfer). The
 deletion job is a registered set maintenance module: it removes external
 resources and durable child rows in dependency order with tenant-scoped SQL
 before it calls the final destroy action. No generic cascade replaces that

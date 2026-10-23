@@ -1,20 +1,18 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import {
-  ankoleWebTenantControllerIndexOptions,
-  ankoleWebTenantControllerPrivilegedOptions
-} from './api/generated/@tanstack/react-query.gen'
+import { getPrivilegedTenantOptions, listTenantsOptions } from './api/v2-site/generated/@tanstack/react-query.gen'
+import { fromDocument } from './api/json-api'
 import { dataTenantID, selectDataTenant } from '../common/browser-session'
 
 export function TenantSwitcher() {
   const { t } = useTranslation()
-  const tenants = useQuery(ankoleWebTenantControllerIndexOptions())
-  const privileged = useQuery(ankoleWebTenantControllerPrivilegedOptions())
-  const items = tenants.data?.tenants.filter(tenant => !tenant.deleting_at) ?? []
+  const tenants = useQuery({ ...listTenantsOptions(), select: document => fromDocument(document) })
+  const privileged = useQuery({ ...getPrivilegedTenantOptions(), select: document => fromDocument(document) })
+  const items = tenants.data?.filter(tenant => !tenant.deleting_at) ?? []
   if (items.length < 2) return null
   return (
-    <Select value={dataTenantID() ?? privileged.data?.tenant.id ?? ''} onValueChange={selectDataTenant}>
+    <Select value={dataTenantID() ?? privileged.data?.id ?? ''} onValueChange={selectDataTenant}>
       <SelectTrigger aria-label={t('console.tenants.data_context')} className="max-w-52">
         <SelectValue placeholder={t('console.tenants.data_context')} />
       </SelectTrigger>

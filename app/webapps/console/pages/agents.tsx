@@ -29,7 +29,6 @@ import {
   ankoleWebAgentControllerShowOptions,
   ankoleWebAgentControllerUpdateMutation,
   ankoleWebAiGatewayProviderControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
-  ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import { listPrincipalsOptions } from '../api/v2/generated/@tanstack/react-query.gen'
@@ -57,7 +56,12 @@ import { TokenQuotaEditorModel } from '../state/token-quota-editor-model'
 import { WorkerEnvAgentSection } from './worker-env-agent-section'
 import { AgentFilesLink } from './agent-files'
 import { AgentWorkerProvider, WorkerProviderSelect } from './agent-worker-provider'
-import { ankoleWebWorkerProviderControllerIndexOptions } from '../api/generated/@tanstack/react-query.gen'
+import {
+  listAiGatewayProvidersOptions,
+  listWorkerProvidersOptions
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
+import { aiGatewayProviders } from '../state/provider-settings'
+import { workerProviders as workerProviderRecords } from '../state/worker-provider-editor-model'
 
 export function AgentsListPage() {
   const { t } = useTranslation()
@@ -212,8 +216,8 @@ function AgentEditor({ uid }: { uid?: string }) {
   const principals = useQuery({ ...listPrincipalsOptions(), select: data => fromDocument(data) })
   const owners = (principals.data ?? []).filter(principal => principal.type === 'human')
   const needsOwner = mode === 'new' && principals.isSuccess && owners.length === 0
-  const providers = useQuery(ankoleWebAIGatewayProviderControllerIndexOptions())
-  const workerProviders = useQuery(ankoleWebWorkerProviderControllerIndexOptions())
+  const providers = useQuery({ ...listAiGatewayProvidersOptions(), select: aiGatewayProviders })
+  const workerProviders = useQuery({ ...listWorkerProvidersOptions(), select: workerProviderRecords })
   const providerKinds = useQuery({
     ...ankoleWebAIGatewayProviderControllerProviderKindsOptions(),
     enabled: Boolean(uid)
@@ -231,9 +235,7 @@ function AgentEditor({ uid }: { uid?: string }) {
     () =>
       mode === 'new'
         ? workerProviders.data
-          ? emptyAgentForm(
-              workerProviders.data.worker_providers.find(provider => provider.is_default)?.provider_id ?? ''
-            )
+          ? emptyAgentForm(workerProviders.data.find(provider => provider.is_default)?.provider_id ?? '')
           : undefined
         : selectedAgent
           ? formFromAgent(selectedAgent)
@@ -347,7 +349,7 @@ function AgentEditor({ uid }: { uid?: string }) {
       supplementary={
         mode === 'edit' && selectedAgent ? (
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 border-t border-border pt-8 [&>*]:min-w-0">
-            <AgentWorkerProvider agent={selectedAgent} providers={workerProviders.data?.worker_providers ?? []} />
+            <AgentWorkerProvider agent={selectedAgent} providers={workerProviders.data ?? []} />
             <AgentLibraryEditor agentUID={selectedAgent.uid} model={libraryModel} />
             <ModelProfilesEditor
               agent={selectedAgent}
@@ -355,7 +357,7 @@ function AgentEditor({ uid }: { uid?: string }) {
               loading={modelProfiles.isLoading}
               profiles={recordValue(modelProfiles.data?.model_profiles) ?? {}}
               providerHosted={modelProfiles.data?.provider_hosted ?? { web_search: true, image_generate: true }}
-              providers={providers.data?.ai_gateway_providers ?? []}
+              providers={providers.data ?? []}
               providerKinds={providerKinds.data?.provider_kinds ?? []}
               modelCatalog={modelCatalog.data?.models ?? []}
             />
@@ -364,7 +366,7 @@ function AgentEditor({ uid }: { uid?: string }) {
               error={modelProfiles.error}
               loading={modelProfiles.isLoading}
               profiles={recordValue(modelProfiles.data?.model_profiles) ?? {}}
-              providers={providers.data?.ai_gateway_providers ?? []}
+              providers={providers.data ?? []}
               providerKinds={providerKinds.data?.provider_kinds ?? []}
               modelCatalog={modelCatalog.data?.models ?? []}
             />
@@ -385,7 +387,7 @@ function AgentEditor({ uid }: { uid?: string }) {
               draftError === 'worker_provider_required' ? requiredText('console.worker_providers.provider') : undefined
             }>
             <WorkerProviderSelect
-              providers={workerProviders.data?.worker_providers ?? []}
+              providers={workerProviders.data ?? []}
               value={model.workerProviderID.value}
               onChange={value => {
                 model.workerProviderID.value = value

@@ -10,10 +10,7 @@ import {
   ankoleWebAgentControllerDeleteModelProfileMutation,
   ankoleWebAgentControllerPutModelProfileMutation
 } from '../api/generated/@tanstack/react-query.gen'
-import type {
-  AiGatewayProviderItem as AIGatewayProviderItem,
-  AiGatewayProviderKindItem as AIGatewayProviderKindItem
-} from '../api/generated/types.gen'
+import type { AiGatewayProviderKindItem as AIGatewayProviderKindItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ErrorBlock } from '../../common/error-block'
 import { LabeledField } from '../console-form'
@@ -27,6 +24,7 @@ import {
 } from '../state/model-profiles-model'
 import { ModelProfileEditorCard, buildModelProfileWriteRequest } from './model-profile-editor-card'
 import { useEditorDraft } from '../use-editor-draft'
+import type { AIGatewayProviderItem } from '../state/provider-settings'
 
 const CUSTOM_PROFILE_NAME = /^[a-z][a-z0-9_-]{0,63}$/
 const FIXED_PROFILE_NAMES = new Set<string>(PROFILE_NAMES)

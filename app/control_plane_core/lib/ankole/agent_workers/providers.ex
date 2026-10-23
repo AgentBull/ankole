@@ -1,5 +1,14 @@
 defmodule Ankole.AgentWorkers.Providers do
-  @moduledoc "The owner of Worker provider configuration, credentials, and Agent assignment."
+  @moduledoc """
+  The owner of Worker provider configuration, credentials, and Agent assignment.
+
+  This module is also the Ash domain of the site `Provider` resource. It is a
+  domain separate from `Ankole.AgentWorkers` because a domain has one JSON:API
+  router: the providers are in the site API, and the Worker rows of a tenant
+  are in the Console API.
+  """
+
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   require Ash.Query
   alias Ankole.Attrs
@@ -19,9 +28,32 @@ defmodule Ankole.AgentWorkers.Providers do
 
   @write_keys ~w(provider_id kind display_name config credentials is_default)
 
-  def list do
-    Provider |> Ash.Query.sort(:provider_id) |> Ankole.Ash.read!()
+  resources do
+    resource Provider do
+      define(:add_provider, action: :add)
+      define(:configure_provider, action: :configure_provider, args: [:provider_id])
+      define(:delete_provider, action: :delete_provider, args: [:provider_id])
+      define(:import_providers, action: :import_seed, args: [:path])
+    end
   end
+
+  # The site administration API at `/api/v2/site` (`AnkoleWeb.JSONAPI.SiteRouter`).
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/worker-providers", Provider do
+        index(:list, name: "list_worker_providers", derive_sort?: false)
+        post(:add, name: "create_worker_provider")
+        patch(:configure_provider, route: "/:provider_id", name: "update_worker_provider")
+        delete(:delete_provider, route: "/:provider_id", name: "delete_worker_provider")
+      end
+    end
+  end
+
+  def list, do: Ankole.Ash.read!(Ash.Query.for_read(Provider, :list))
 
   def fetch(provider_id) when is_binary(provider_id) do
     case Ankole.Ash.read_one!(Ash.Query.filter(Provider, provider_id == ^provider_id)) do
@@ -170,7 +202,7 @@ defmodule Ankole.AgentWorkers.Providers do
     end
   end
 
-  def create(attrs), do: Errors.reason(AgentWorkers.add_provider(attrs))
+  def create(attrs), do: Errors.reason(add_provider(attrs))
 
   @doc "Creates a provider in the caller's transaction (the composition step of `create/1`)."
   def create_in_tx(repo, attrs) do
@@ -183,7 +215,7 @@ defmodule Ankole.AgentWorkers.Providers do
   end
 
   def update(provider_id, attrs),
-    do: Errors.reason(AgentWorkers.configure_provider(provider_id, attrs))
+    do: Errors.reason(configure_provider(provider_id, attrs))
 
   @doc "Changes a provider in the caller's transaction (the composition step of `update/2`)."
   def configure_in_tx(repo, provider_id, attrs) do
@@ -206,7 +238,7 @@ defmodule Ankole.AgentWorkers.Providers do
   def reconcile_workers(%Provider{provider_id: provider_id}),
     do: provider_id |> AgentWorkers.provider_workers() |> Enum.each(&ReconcileJob.enqueue/1)
 
-  def delete(provider_id), do: Errors.reason(AgentWorkers.delete_provider(provider_id))
+  def delete(provider_id), do: Errors.reason(delete_provider(provider_id))
 
   @doc "Deletes an unassigned provider in the caller's transaction."
   def delete_in_tx(_repo, provider_id) do
@@ -242,31 +274,15 @@ defmodule Ankole.AgentWorkers.Providers do
     |> Map.new(&{&1.agent_uid, &1.provider_id})
   end
 
-  def projection(provider, agent_count \\ nil) do
-    agent_count = agent_count || AgentWorkers.provider_worker_count(provider.provider_id)
-    projection(provider, agent_count, configured_plugins(Repo))
-  end
+  @doc """
+  Gives a function that tells whether a new Agent can select a provider.
 
-  defp projection(provider, agent_count, enabled) do
-    %{
-      provider_id: provider.provider_id,
-      kind: provider.kind,
-      display_name: provider.display_name,
-      config: provider.config,
-      is_default: provider.is_default,
-      agent_count: agent_count,
-      selectable: match?({:ok, _id}, validate_selection(provider, enabled)),
-      credentials: Map.new(provider.credentials, fn {name, _ciphertext} -> {name, "********"} end)
-    }
-  end
-
-  def list_projections do
+  The function reads the enabled Plugins once, so it can check many providers.
+  """
+  @spec selectable_fun() :: (Provider.t() -> boolean())
+  def selectable_fun do
     enabled = configured_plugins(Repo)
-
-    Enum.map(
-      list(),
-      &projection(&1, AgentWorkers.provider_worker_count(&1.provider_id), enabled)
-    )
+    &match?({:ok, _id}, validate_selection(&1, enabled))
   end
 
   defp action_input(attrs) when is_map(attrs) do

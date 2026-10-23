@@ -24,12 +24,14 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { requestErrorDetailList, requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebWorkerProviderControllerCheckOptions,
-  ankoleWebWorkerProviderControllerCreateMutation,
-  ankoleWebWorkerProviderControllerDeleteMutation,
-  ankoleWebWorkerProviderControllerIndexOptions,
-  ankoleWebWorkerProviderControllerKindsOptions,
-  ankoleWebWorkerProviderControllerUpdateMutation
+  ankoleWebWorkerProviderControllerKindsOptions
 } from '../api/generated/@tanstack/react-query.gen'
+import {
+  createWorkerProviderMutation,
+  deleteWorkerProviderMutation,
+  listWorkerProvidersOptions,
+  updateWorkerProviderMutation
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
 import {
   ConfirmDeleteButton,
   EditorNotFound,
@@ -43,8 +45,10 @@ import { EncryptedValueInput } from '../encrypted-value-input'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import {
   newWorkerProviderDraft,
+  workerProvider,
   workerProviderDraft,
-  WorkerProviderEditorModel
+  WorkerProviderEditorModel,
+  workerProviders
 } from '../state/worker-provider-editor-model'
 import { useEditorDraft } from '../use-editor-draft'
 
@@ -52,10 +56,10 @@ const providersPath = '/worker-providers'
 
 export function WorkerProvidersListPage() {
   const { t } = useTranslation()
-  const providers = useQuery(ankoleWebWorkerProviderControllerIndexOptions())
+  const providers = useQuery({ ...listWorkerProvidersOptions(), select: workerProviders })
   const [query, setQuery] = useState('')
   const search = effectiveResourceSearchQuery(query, useDeferredValue(query))
-  const rows = (providers.data?.worker_providers ?? []).filter(provider =>
+  const rows = (providers.data ?? []).filter(provider =>
     matchesResourceSearch(search, provider.provider_id, provider.display_name, provider.kind)
   )
 
@@ -144,9 +148,9 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const model = useModel(WorkerProviderEditorModel)
-  const providers = useQuery(ankoleWebWorkerProviderControllerIndexOptions())
+  const providers = useQuery({ ...listWorkerProvidersOptions(), select: workerProviders })
   const kinds = useQuery(ankoleWebWorkerProviderControllerKindsOptions())
-  const selected = providers.data?.worker_providers.find(provider => provider.provider_id === providerID)
+  const selected = providers.data?.find(provider => provider.provider_id === providerID)
   const definitions = kinds.data?.worker_provider_kinds
   const source = useMemo(() => {
     if (providerID) return selected ? workerProviderDraft(selected) : undefined
@@ -163,29 +167,30 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
     toast.success(t('console.worker_providers.saved'))
   }
   const create = useMutation({
-    ...ankoleWebWorkerProviderControllerCreateMutation(),
+    ...createWorkerProviderMutation(),
     onMutate: () => model.captureSave(),
     onSuccess: (response, _variables, confirm) => {
+      const provider = workerProvider(response)
       let accepted = false
       flushSync(() => {
-        accepted = confirm?.(workerProviderDraft(response.worker_provider)) ?? false
+        accepted = confirm?.(workerProviderDraft(provider)) ?? false
       })
       if (!accepted) return
       saved()
       if (!model.dirty.value) {
-        void navigate({ to: `${providersPath}/${encodeURIComponent(response.worker_provider.provider_id)}` })
+        void navigate({ to: `${providersPath}/${encodeURIComponent(provider.provider_id)}` })
       }
     }
   })
   const update = useMutation({
-    ...ankoleWebWorkerProviderControllerUpdateMutation(),
+    ...updateWorkerProviderMutation(),
     onMutate: () => model.captureSave(),
     onSuccess: (response, _variables, confirm) => {
-      if (confirm?.(workerProviderDraft(response.worker_provider))) saved()
+      if (confirm?.(workerProviderDraft(workerProvider(response)))) saved()
     }
   })
   const remove = useMutation({
-    ...ankoleWebWorkerProviderControllerDeleteMutation(),
+    ...deleteWorkerProviderMutation(),
     onMutate: () => window.location.href,
     onSuccess: (_response, _variables, sourceURL) => {
       if (window.location.href !== sourceURL) return
@@ -195,14 +200,21 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
   const saveError = create.error ?? update.error
   const details = requestErrorDetailList(saveError)
   const submit = () => {
-    const body = {
+    const attributes = {
       display_name: model.displayName.value.trim(),
       config: model.config.value,
       is_default: model.isDefault.value,
       credentials: model.credentials.value
     }
-    if (providerID) update.mutate({ path: { provider_id: providerID }, body })
-    else create.mutate({ body: { ...body, provider_id: model.providerID.value.trim(), kind: model.kind.value } })
+    if (providerID) {
+      update.mutate({
+        path: { provider_id: providerID },
+        body: { data: { type: 'worker_provider', id: selected?.id ?? '', attributes } }
+      })
+    } else {
+      const identity = { provider_id: model.providerID.value.trim(), kind: model.kind.value }
+      create.mutate({ body: { data: { type: 'worker_provider', attributes: { ...attributes, ...identity } } } })
+    }
   }
 
   if (status === 'absent') {
@@ -309,7 +321,8 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
           </ul>
         ) : null}
         {Object.entries(definition?.credentials ?? {}).map(([name, credential]) => {
-          const stored = selected?.credentials[name]
+          // The API names the stored credentials; their values never leave the server.
+          const stored = selected?.stored_credentials.includes(name) ? '********' : undefined
           const removed = model.credentials.value[name] === null
           return (
             <LabeledField

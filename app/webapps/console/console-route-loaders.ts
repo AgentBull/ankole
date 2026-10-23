@@ -12,7 +12,6 @@ import {
   ankoleWebIdentityProviderControllerIndexOptions,
   ankoleWebSignalBindingControllerIndexOptions,
   ankoleWebAiGatewayConversationControllerIndexOptions as ankoleWebAIGatewayConversationControllerIndexOptions,
-  ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
   ankoleWebWorkerEnvControllerIndexOptions
 } from './api/generated/@tanstack/react-query.gen'
 import {
@@ -21,6 +20,7 @@ import {
   listPrincipalGroupsOptions,
   listPrincipalsOptions
 } from './api/v2/generated/@tanstack/react-query.gen'
+import { listAiGatewayProvidersOptions } from './api/v2-site/generated/@tanstack/react-query.gen'
 import { automationJobListOptions } from './pages/automation-jobs'
 import { backgroundAgentJobListOptions } from './pages/background-agent-jobs'
 import { conversationListOptions } from './pages/conversations'
@@ -50,7 +50,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       all(
         ensure(ankoleWebAgentControllerIndexOptions()),
         ensure(ankoleWebAgentWorkerControllerIndexOptions()),
-        ensure(ankoleWebAIGatewayProviderControllerIndexOptions()),
+        ensure(listAiGatewayProvidersOptions()),
         ensure(ankoleWebIdentityProviderControllerIndexOptions()),
         ensure(ankoleWebBackgroundAgentJobControllerIndexOptions({ query: { limit: 20 } })),
         ensure(ankoleWebAIGatewayConversationControllerIndexOptions({ query: { limit: 5, min_messages: 2 } }))
@@ -72,7 +72,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
             ensure(ankoleWebAgentSkillLessonControllerIndexOptions({ path: { agent_uid: scope } }))
           )
     },
-    providers: () => ensure(ankoleWebAIGatewayProviderControllerIndexOptions()).then(() => null),
+    providers: () => ensure(listAiGatewayProvidersOptions()).then(() => null),
     identity: () => ensure(ankoleWebIdentityProviderControllerIndexOptions()).then(() => null),
     oidcClients: () => all(ensure(listOidcClientsOptions()), ensure(listPrincipalGroupsOptions())),
     identityMappings: () => all(ensure(listIdentityMappingRequestsOptions()), ensure(listPrincipalsOptions())),

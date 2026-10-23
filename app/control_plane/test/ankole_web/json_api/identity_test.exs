@@ -200,7 +200,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
           resource("principal", %{email: "someone@example.com"})
         )
 
-      assert {422, _} = response
+      assert {409, _} = response
       assert error_code(response) == "local_identity_provider_disabled"
 
       response =
@@ -208,6 +208,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
           data: %{type: "principal", attributes: %{display_name: "Renamed"}}
         })
 
+      assert {409, _} = response
       assert error_code(response) == "local_identity_provider_disabled"
     end
 
@@ -280,6 +281,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
           data: %{type: "principal", attributes: %{display_name: "Agent"}}
         })
 
+      assert {422, _} = response
       assert error_code(response) == "not_human"
     end
   end
@@ -353,6 +355,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
                })
 
       response = request(conn, :delete, "/api/v2/principal-groups/siteadmin")
+      assert {409, _} = response
       assert error_code(response) == "built_in_group"
       assert {:ok, _group} = AuthZ.get_principal_group("siteadmin")
     end
@@ -387,12 +390,14 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
       response =
         request(conn, :put, "/api/v2/principal-groups/#{directory.name}/members/#{member.uid}")
 
+      assert {409, _} = response
       assert error_code(response) == "group_domain_mismatch"
 
       [admin_uid] =
         AuthZ.list_group_members("siteadmin") |> elem(1) |> Enum.map(& &1.principal.uid)
 
       response = request(conn, :delete, "/api/v2/principal-groups/siteadmin/members/#{admin_uid}")
+      assert {409, _} = response
       assert error_code(response) == "last_admin_member"
     end
 
@@ -542,6 +547,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
       assert %{"action" => "page_view", "description" => "team share"} = kept
 
       response = request(conn, :delete, "/api/v2/permission-grants/#{grant.id}")
+      assert {422, _} = response
       assert error_code(response) == "page_grant"
       assert {:ok, _stored} = AuthZ.get_permission_grant(grant.id)
     end
@@ -622,6 +628,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
           data: Map.put(subject, :principal_uid, second.uid)
         })
 
+      assert {409, _} = response
       assert error_code(response) == "platform_subject_already_bound"
     end
   end

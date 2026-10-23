@@ -31,7 +31,37 @@ defmodule AnkoleWeb.JSONAPI.Policy do
 
   # {resource, route type, action or relationship} => {AuthZ resource, AuthZ action}
   @rules %{
-    site: %{},
+    site: %{
+      # J1 site tenants (v1: tenant_controller.ex)
+      {Ankole.Tenants.Tenant, :index, :list} => {"site:tenants", "read"},
+      {Ankole.Tenants.Tenant, :route, :brain_packs} => {"site:tenants", "read"},
+      {Ankole.Tenants.Tenant, :post, :create} => {"site:tenants", "update"},
+      {Ankole.Tenants.Tenant, :patch, :change_profile} => {"site:tenant:{id}", "update"},
+      {Ankole.Tenants.Tenant, :delete, :begin_delete} => {"site:tenant:{id}", "delete"},
+      {Ankole.Tenants.Tenant, :post, :suspend} => {"site:tenant:{id}", "update"},
+      {Ankole.Tenants.Tenant, :delete, :resume} => {"site:tenant:{id}", "update"},
+      {Ankole.Tenants.Tenant, :get, :privileged} => {"site:privileged_tenant", "read"},
+      {Ankole.Tenants.Tenant, :patch, :transfer_site_administration} =>
+        {"site:privileged_tenant", "update"},
+      # J1 site worker providers (v1: worker_provider_controller.ex)
+      {Ankole.AgentWorkers.Providers.Provider, :index, :list} => {"worker_providers", "read"},
+      {Ankole.AgentWorkers.Providers.Provider, :post, :add} => {"worker_providers", "update"},
+      {Ankole.AgentWorkers.Providers.Provider, :patch, :configure_provider} =>
+        {"worker_provider:{provider_id}", "update"},
+      {Ankole.AgentWorkers.Providers.Provider, :delete, :delete_provider} =>
+        {"worker_provider:{provider_id}", "delete"},
+      # J1 site AIGateway providers (v1: ai_gateway_provider_controller.ex)
+      {Ankole.AIGateway.ProviderConfigs.Provider, :index, :list} =>
+        {"ai_gateway_providers", "read"},
+      {Ankole.AIGateway.ProviderConfigs.Provider, :get, :read} =>
+        {"ai_gateway_provider:{provider_id}", "read"},
+      {Ankole.AIGateway.ProviderConfigs.Provider, :patch, :put} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
+      {Ankole.AIGateway.ProviderConfigs.Provider, :delete, :retire} =>
+        {"ai_gateway_provider:{provider_id}", "delete"},
+      {Ankole.AIGateway.ProviderConfigs.Provider, :post, :enable_provider} =>
+        {"ai_gateway_provider:{provider_id}", "update"}
+    },
     console: %{
       # J3 automation jobs (v1: automation_job_controller.ex)
       {Ankole.AutomationJobs.Schemas.Job, :index, :console_list} => {"automation_jobs", "read"},
