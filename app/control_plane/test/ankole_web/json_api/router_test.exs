@@ -82,25 +82,23 @@ defmodule AnkoleWeb.JSONAPI.RouterTest do
     end
   end
 
+  # AshJsonApi 1.7.1 `Info.derive_sort?/1` reads the option `:derive_sort`, so
+  # it is always true. A list route derives a sort parameter unless the route
+  # sets `derive_sort?: false`.
   test "each JSON:API resource derives no filter or sort parameters" do
     for module <- Ankole.TestModules.all(),
         Code.ensure_loaded?(module),
         Spark.Dsl.is?(module, Ash.Resource),
         AshJsonApi.Resource in Spark.extensions(module) do
       refute AshJsonApi.Resource.Info.derive_filter?(module), inspect(module)
-      # AshJsonApi 1.7.1 `Info.derive_sort?/1` reads `:derive_sort`, so it is
-      # always true. Read the declared option.
+
       refute Spark.Dsl.Extension.get_opt(module, [:json_api], :derive_sort?, true),
              inspect(module)
     end
-  end
 
-  test "each read route derives no sort parameter" do
-    # The resource option `derive_sort? false` has no effect in AshJsonApi
-    # 1.7.1 (see above). Only the route option `derive_sort?: false` stops it.
     for router <- @routers,
         {resource, route} <- routes(router),
-        Ash.Resource.Info.action(resource, route.action).type == :read do
+        route.type in [:index, :get_related] do
       refute route.derive_sort?, "#{inspect(resource)} #{route.name}"
     end
   end

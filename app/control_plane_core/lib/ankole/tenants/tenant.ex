@@ -152,7 +152,7 @@ defmodule Ankole.Tenants.Tenant do
       run(fn input, _context ->
         Ankole.Repo
         |> Ankole.Tenants.create_in_tx(input.arguments)
-        |> Ankole.Errors.wrap()
+        |> Ankole.Errors.wrap(&Ankole.Tenants.rejection/1)
       end)
     end
 
@@ -171,7 +171,7 @@ defmodule Ankole.Tenants.Tenant do
 
         Ankole.Repo
         |> Ankole.Tenants.change_profile_in_tx(id, attrs)
-        |> Ankole.Errors.wrap()
+        |> Ankole.Errors.wrap(&Ankole.Tenants.rejection/1)
       end)
     end
 
@@ -180,7 +180,10 @@ defmodule Ankole.Tenants.Tenant do
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
       run(fn input, _context ->
-        Ankole.Errors.wrap(Ankole.Tenants.suspend_in_tx(Ankole.Repo, input.arguments.id))
+        Ankole.Errors.wrap(
+          Ankole.Tenants.suspend_in_tx(Ankole.Repo, input.arguments.id),
+          &Ankole.Tenants.rejection/1
+        )
       end)
     end
 
@@ -189,7 +192,10 @@ defmodule Ankole.Tenants.Tenant do
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
       run(fn input, _context ->
-        Ankole.Errors.wrap(Ankole.Tenants.resume_in_tx(Ankole.Repo, input.arguments.id))
+        Ankole.Errors.wrap(
+          Ankole.Tenants.resume_in_tx(Ankole.Repo, input.arguments.id),
+          &Ankole.Tenants.rejection/1
+        )
       end)
     end
 
@@ -198,7 +204,10 @@ defmodule Ankole.Tenants.Tenant do
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
       run(fn input, _context ->
-        Ankole.Errors.wrap(Ankole.Tenants.begin_delete_in_tx(Ankole.Repo, input.arguments.id))
+        Ankole.Errors.wrap(
+          Ankole.Tenants.begin_delete_in_tx(Ankole.Repo, input.arguments.id),
+          &Ankole.Tenants.rejection/1
+        )
       end)
     end
 
@@ -214,7 +223,7 @@ defmodule Ankole.Tenants.Tenant do
           input.arguments.tenant_id,
           input.arguments.site_admin_uid
         )
-        |> Ankole.Errors.wrap()
+        |> Ankole.Errors.wrap(&Ankole.Tenants.rejection/1)
       end)
     end
   end

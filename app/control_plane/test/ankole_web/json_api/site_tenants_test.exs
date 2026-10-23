@@ -84,7 +84,7 @@ defmodule AnkoleWeb.JSONAPI.SiteTenantsTest do
     response =
       conn
       |> send_v2(:post, "/api/v2/site/tenants/#{privileged_id}/suspension")
-      |> json_response(422)
+      |> json_response(409)
 
     assert %{"errors" => [%{"code" => "privileged_tenant_protected"}]} = response
 
@@ -98,9 +98,16 @@ defmodule AnkoleWeb.JSONAPI.SiteTenantsTest do
       |> send_v2(:patch, "/api/v2/site/tenants/#{id}", %{
         data: %{type: "tenant", id: id, attributes: %{display_name: "Too late"}}
       })
-      |> json_response(422)
+      |> json_response(409)
 
     assert %{"errors" => [%{"code" => "tenant_deleting"}]} = response
+
+    missing = Ecto.UUID.generate()
+
+    response =
+      conn |> send_v2(:post, "/api/v2/site/tenants/#{missing}/suspension") |> json_response(404)
+
+    assert %{"errors" => [%{"code" => "not_found"}]} = response
   end
 
   test "a rejected tenant field names its attribute", %{conn: conn} do

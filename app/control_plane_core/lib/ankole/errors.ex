@@ -90,14 +90,30 @@ defmodule Ankole.Errors do
   one sentence for the operator and a list of maps, one for each rejected field
   (for example `%{path: "config", line: 3, message: "..."}`), or `nil` for a
   reason without text. The v2 JSON:API error of the rejection contains them.
+  `{status, detail, details}` also gives the HTTP status of a conflict (409).
+  An exception replaces the rejection, for example
+  `Ankole.Errors.Invalid.NotFound` for a missing target.
   """
-  @spec wrap(term(), (reason() -> {String.t(), [map()]} | nil)) :: term()
+  @spec wrap(
+          term(),
+          (reason() ->
+             {String.t(), [map()]} | {409 | 422, String.t(), [map()]} | Exception.t() | nil)
+        ) :: term()
   def wrap(result, describe) when is_function(describe, 1) do
     case wrap(result) do
       {:error, %Rejected{reason: reason} = rejected} ->
         case describe.(reason) do
-          {detail, details} -> {:error, %{rejected | detail: detail, details: details}}
-          nil -> {:error, rejected}
+          {detail, details} ->
+            {:error, %{rejected | detail: detail, details: details}}
+
+          {status, detail, details} ->
+            {:error, %{rejected | status: status, detail: detail, details: details}}
+
+          nil ->
+            {:error, rejected}
+
+          exception when is_exception(exception) ->
+            {:error, exception}
         end
 
       other ->

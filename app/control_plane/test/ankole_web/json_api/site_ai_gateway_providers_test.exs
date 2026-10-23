@@ -130,7 +130,7 @@ defmodule AnkoleWeb.JSONAPI.SiteAIGatewayProvidersTest do
     missing =
       conn
       |> send_v2(:post, "/api/v2/site/ai-gateway/providers/missing-provider/enable")
-      |> json_response(422)
+      |> json_response(404)
 
     assert %{"errors" => [%{"code" => "not_found"}]} = missing
 

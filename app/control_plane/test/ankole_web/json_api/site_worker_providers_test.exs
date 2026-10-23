@@ -98,9 +98,9 @@ defmodule AnkoleWeb.JSONAPI.SiteWorkerProvidersTest do
     refute Repo.get_by(Provider, provider_id: "local")
 
     response =
-      conn |> send_v2(:delete, "/api/v2/site/worker-providers/local") |> json_response(422)
+      conn |> send_v2(:delete, "/api/v2/site/worker-providers/local") |> json_response(404)
 
-    assert %{"errors" => [%{"code" => "worker_provider_not_found"}]} = response
+    assert %{"errors" => [%{"code" => "not_found"}]} = response
   end
 
   test "a missing required field names its attribute", %{conn: conn} do

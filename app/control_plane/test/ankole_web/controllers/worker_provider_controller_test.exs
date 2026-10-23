@@ -171,7 +171,13 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     |> Ecto.Changeset.change(state: :deleting)
     |> Repo.update!()
 
-    assert {:error, :worker_provider_in_use} = Providers.delete("local")
+    response =
+      conn
+      |> json_api()
+      |> delete(~p"/api/v2/site/worker-providers/local")
+      |> json_response(409)
+
+    assert [%{"code" => "worker_provider_in_use"}] = response["errors"]
     assert Enum.find(worker_providers(conn), &(&1["provider_id"] == "local"))["agent_count"] == 1
   end
 
@@ -247,11 +253,16 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     end
   end
 
-  defp worker_providers(conn) do
+  defp json_api(conn) do
     conn
     |> recycle_api()
     |> put_req_header("accept", "application/vnd.api+json")
     |> put_req_header("content-type", "application/vnd.api+json")
+  end
+
+  defp worker_providers(conn) do
+    conn
+    |> json_api()
     |> get(~p"/api/v2/site/worker-providers")
     |> json_response(200)
     |> Map.fetch!("data")

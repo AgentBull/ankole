@@ -208,7 +208,10 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   """
   @spec delete_provider(String.t()) :: provider_result()
   def delete_provider(provider_id) when is_binary(provider_id),
-    do: Ankole.Ash.run_action(Provider, :retire, %{provider_id: provider_id})
+    do:
+      Provider
+      |> Ankole.Ash.run_action(:retire, %{provider_id: provider_id})
+      |> Ankole.Errors.reason()
 
   @doc false
   # Runs the `:retire` action of the Provider resource.
@@ -229,7 +232,10 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   """
   @spec enable_provider(String.t()) :: provider_result()
   def enable_provider(provider_id) when is_binary(provider_id),
-    do: Ankole.Ash.run_action(Provider, :enable_provider, %{provider_id: provider_id})
+    do:
+      Provider
+      |> Ankole.Ash.run_action(:enable_provider, %{provider_id: provider_id})
+      |> Ankole.Errors.reason()
 
   @doc """
   Selects, decrypts, and refreshes one provider credential.
@@ -614,10 +620,13 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   @doc """
   Gives the operator text of a provider rejection: one sentence and the
-  details, or `nil` for a reason without text. `Ankole.Errors.wrap/2` and the
-  v1 credential routes use it.
+  details, or `nil` for a reason without text. A missing provider gives
+  `Ankole.Errors.Invalid.NotFound`. `Ankole.Errors.wrap/2` and the v1
+  credential routes use it.
   """
-  @spec rejection(term()) :: {String.t(), [map()]} | nil
+  @spec rejection(term()) :: {String.t(), [map()]} | Exception.t() | nil
+  def rejection(:not_found), do: Ankole.Errors.Invalid.NotFound.exception(resource: Provider)
+
   def rejection({:provider_in_use, references}),
     do: {"provider is referenced by active model profiles", [%{references: references}]}
 

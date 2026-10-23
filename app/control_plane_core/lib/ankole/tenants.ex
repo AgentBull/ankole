@@ -11,7 +11,7 @@ defmodule Ankole.Tenants do
 
   require Ash.Query
 
-  alias Ankole.{AppConfigure, Principals, Repo}
+  alias Ankole.{AppConfigure, Errors, Principals, Repo}
   alias Ankole.AuthZ.Grants
   alias Ankole.AuthZ.Root
   alias Ankole.AuthZ.Store
@@ -258,16 +258,16 @@ defmodule Ankole.Tenants do
   end
 
   def update(%Tenant{id: id}, attrs),
-    do:
-      Ankole.Ash.run_action(
-        Tenant,
-        :change_profile,
-        attrs |> Map.take([:slug, :display_name]) |> Map.put(:id, id)
-      )
+    do: lifecycle(:change_profile, attrs |> Map.take([:slug, :display_name]) |> Map.put(:id, id))
 
-  def suspend(%Tenant{id: id}), do: Ankole.Ash.run_action(Tenant, :suspend, %{id: id})
-  def resume(%Tenant{id: id}), do: Ankole.Ash.run_action(Tenant, :resume, %{id: id})
-  def delete(%Tenant{id: id}), do: Ankole.Ash.run_action(Tenant, :begin_delete, %{id: id})
+  def suspend(%Tenant{id: id}), do: lifecycle(:suspend, %{id: id})
+  def resume(%Tenant{id: id}), do: lifecycle(:resume, %{id: id})
+  def delete(%Tenant{id: id}), do: lifecycle(:begin_delete, %{id: id})
+
+  # A missing tenant is `Ankole.Errors.Invalid.NotFound` in the action (404 in
+  # the JSON:API); domain callers get `:not_found`.
+  defp lifecycle(action, arguments),
+    do: Tenant |> Ankole.Ash.run_action(action, arguments) |> Errors.reason()
 
   @doc false
   def change_profile_in_tx(repo, id, attrs) do
@@ -309,11 +309,7 @@ defmodule Ankole.Tenants do
   end
 
   def transfer_site_administration(%Tenant{id: id}, uid),
-    do:
-      Ankole.Ash.run_action(Tenant, :transfer_site_administration, %{
-        tenant_id: id,
-        site_admin_uid: uid
-      })
+    do: lifecycle(:transfer_site_administration, %{tenant_id: id, site_admin_uid: uid})
 
   @doc false
   def transfer_site_administration_in_tx(repo, id, uid) do
@@ -379,6 +375,15 @@ defmodule Ankole.Tenants do
   defp row_lock(:update), do: :for_update
   defp row_lock(:share), do: "FOR SHARE"
   defp row_lock(:key_share), do: "FOR KEY SHARE"
+
+  @doc """
+  Gives the v2 error of a lifecycle rejection for `Ankole.Errors.wrap/2`: a
+  missing tenant is not found, and a refused operation conflicts with the state
+  of the tenant or of the site administration.
+  """
+  def rejection(:not_found), do: Ankole.Errors.Invalid.NotFound.exception(resource: Tenant)
+  def rejection(reason) when is_atom(reason), do: {409, "The tenant operation was refused", []}
+  def rejection(_reason), do: nil
 
   defp not_deleting(%Tenant{deleting_at: nil}), do: :ok
   defp not_deleting(_), do: {:error, :tenant_deleting}
