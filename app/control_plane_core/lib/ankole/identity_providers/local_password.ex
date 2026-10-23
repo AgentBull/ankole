@@ -176,11 +176,25 @@ defmodule Ankole.IdentityProviders.LocalPassword do
   @spec complete_forced_password_change(String.t(), String.t(), non_neg_integer()) ::
           {:ok, LocalCredential.t()} | {:error, term()}
   def complete_forced_password_change(uid, new_password, credential_version) do
-    with {:ok, uid} <- Principals.normalize_uid(uid),
-         :ok <- validate_local_password(new_password),
-         {:ok, password_hash} <- hash_password(new_password) do
+    with {:ok, uid, password_hash} <- forced_password_hash(uid, new_password) do
       Principals.complete_forced_password_change(uid, password_hash, credential_version)
     end
+  end
+
+  @doc """
+  Checks and hashes a new password for a forced password change.
+
+  Call it before the transaction that runs
+  `Ankole.Principals.complete_forced_password_change_in_tx/4`, so that the
+  transaction does not hash.
+  """
+  @spec forced_password_hash(String.t(), String.t()) ::
+          {:ok, String.t(), String.t()} | {:error, term()}
+  def forced_password_hash(uid, new_password) do
+    with {:ok, uid} <- Principals.normalize_uid(uid),
+         :ok <- validate_local_password(new_password),
+         {:ok, password_hash} <- hash_password(new_password),
+         do: {:ok, uid, password_hash}
   end
 
   @doc """

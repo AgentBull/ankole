@@ -50,6 +50,10 @@ defmodule Ankole.AppConfigure.AppConfig do
   actions do
     defaults([:read])
 
+    read :across_tenants do
+      multitenancy(:allow_global)
+    end
+
     create :put do
       accept([:scope, :key])
       argument(:input, :term)

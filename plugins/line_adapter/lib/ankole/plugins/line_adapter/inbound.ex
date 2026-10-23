@@ -1,9 +1,7 @@
 defmodule Ankole.Plugins.LineAdapter.Inbound do
   @moduledoc false
 
-  import Ecto.Query, warn: false
-
-  alias Ankole.{Logging, Principals, Repo}
+  alias Ankole.{Logging, Principals}
   alias Ankole.Plugins.LineAdapter.Client
   alias Ankole.Plugins.LineAdapter.Config
   alias Ankole.Plugins.LineAdapter.Presentation
@@ -11,7 +9,6 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   alias Ankole.Plugins.UTF16Text
   alias Ankole.Conversations.AdapterContext
   alias Ankole.Conversations.{Attachments, Observe}
-  alias Ankole.Conversations.Delivery.Intent
   alias Ankole.Conversations.Delivery.ActionToken
 
   @download_limit_bytes 25 * 1024 * 1024
@@ -522,19 +519,12 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   defp bot_authored?(_consumer, nil), do: false
 
   defp bot_authored?(consumer, quoted_message_id) do
-    Intent
-    |> where(
-      [intent],
-      intent.agent_uid == ^consumer.context.agent_uid and
-        intent.binding_name == ^consumer.context.binding_name and
-        (intent.created_provider_message_id == ^quoted_message_id or
-           fragment(
-             "(? -> 'line_message_ids') @> to_jsonb(?::text)",
-             intent.payload,
-             ^quoted_message_id
-           ))
+    Ankole.Conversations.Delivery.sent_provider_message?(
+      consumer.context.agent_uid,
+      consumer.context.binding_name,
+      quoted_message_id,
+      "line_message_ids"
     )
-    |> Repo.exists?()
   end
 
   defp material_message?(text, attachments), do: is_binary(text) or attachments != []

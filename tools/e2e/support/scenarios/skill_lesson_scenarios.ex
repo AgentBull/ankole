@@ -27,7 +27,6 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
-  alias Ankole.Brain.Claims
   alias Ankole.Brain.SkillLessons
   alias Ankole.Repo
   alias Ankole.Signals.Signal
@@ -147,7 +146,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
     put_brain_model!("brain.embedding_model", provider_id, @real_embedding_model)
 
     assert {:ok, _claim} =
-             Claims.write_fact(
+             Ankole.Brain.write_fact(
                %{
                  claim: "The internal launch codename is #{@codename}.",
                  kind: "fact",

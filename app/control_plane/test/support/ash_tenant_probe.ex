@@ -114,19 +114,16 @@ defmodule TenantIsolationFixture.Probe do
 
     create :upsert_global do
       primary?(true)
-      transaction?(false)
       upsert?(true)
       upsert_identity(:global_key)
       upsert_fields([:value, :note])
     end
 
     create_if_absent :insert_once do
-      transaction?(false)
       upsert_identity(:global_key)
     end
 
     create_if_absent :insert_once_calculated, upsert_fields: [:value] do
-      transaction?(false)
       argument(:lookup_key, :string, allow_nil?: false)
       upsert_identity(:calculated_key)
 
@@ -139,20 +136,19 @@ defmodule TenantIsolationFixture.Probe do
     end
 
     create :upsert_id do
-      transaction?(false)
       upsert?(true)
       upsert_fields([:value])
     end
 
     create_if_absent :insert_once_id, upsert_fields: [:value] do
-      transaction?(false)
     end
 
-    in_tx_update :finish do
+    update :finish do
       change(transition_state(:done))
     end
 
-    atomic_in_tx_update :set_note do
+    update :set_note do
+      require_atomic?(true)
       accept([:note])
     end
 
@@ -223,19 +219,14 @@ defmodule TenantIsolationFixture.SiteProbe do
 
     create :create do
       accept([:value, :data])
-      transaction?(false)
     end
 
-    in_tx_update :rename do
+    update :rename do
       accept([:value])
       validate(string_length(:value, min: 3))
     end
 
-    destroy :remove do
-      transaction?(false)
-      require_atomic?(false)
-      atomic_upgrade?(false)
-    end
+    destroy(:remove)
   end
 end
 

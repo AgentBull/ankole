@@ -303,23 +303,21 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   def upsert_channel_projection(context, mirror, group_id) do
     fact = channel_fact(mirror, group_id)
 
-    Repo.transact(fn repo ->
-      External.observe_conversation_in_tx(
-        repo,
-        %{agent_uid: context.agent_uid, name: context.binding_name},
-        %{
-          provider_conversation_id: fact.provider_conversation_id,
-          external_kind: fact.channel_kind,
-          title: fact.channel_name,
-          reply_mode: fact.reply_mode,
-          visibility: fact.channel_visibility,
-          principal_group_id: group_id,
-          metadata: fact.channel_metadata,
-          raw_payload: fact.channel_raw_payload
-        },
-        DateTime.utc_now(:microsecond)
-      )
-    end)
+    Ankole.Conversations.observe_external_conversation(
+      %{agent_uid: context.agent_uid, name: context.binding_name},
+      %{
+        provider_conversation_id: fact.provider_conversation_id,
+        external_kind: fact.channel_kind,
+        title: fact.channel_name,
+        reply_mode: fact.reply_mode,
+        visibility: fact.channel_visibility,
+        principal_group_id: group_id,
+        metadata: fact.channel_metadata,
+        raw_payload: fact.channel_raw_payload
+      },
+      DateTime.utc_now(:microsecond)
+    )
+    |> Ankole.Errors.reason()
   end
 
   defp left_result({:ok, %{status: :all_left_members_cleared} = result}, status),

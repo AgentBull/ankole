@@ -90,13 +90,13 @@ defmodule Ankole.Repo do
   @impl true
   def transact(fun_or_multi, opts) do
     Ankole.LockOrder.with_transaction(fn -> super(fun_or_multi, opts) end)
-    |> Ankole.Errors.boundary_result()
+    |> Ankole.Errors.rollback_result()
   end
 
   @impl true
   def transaction(fun_or_multi, opts) do
     Ankole.LockOrder.with_transaction(fn -> super(fun_or_multi, opts) end)
-    |> Ankole.Errors.boundary_result()
+    |> Ankole.Errors.rollback_result()
   end
 
   @impl true

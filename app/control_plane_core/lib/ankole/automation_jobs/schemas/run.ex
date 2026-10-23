@@ -106,6 +106,10 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
   actions do
     defaults([:read])
 
+    read :across_tenants do
+      multitenancy(:allow_global)
+    end
+
     action :start_attempt, :term do
       argument(:run_id, :integer, allow_nil?: false)
       argument(:now, :utc_datetime_usec, allow_nil?: false)

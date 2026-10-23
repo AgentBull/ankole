@@ -89,7 +89,9 @@ defmodule Ankole.Principals.WorkCleanup do
           Ankole.Work.Owner.revoke_human_work_in_tx(repo, uid, version, now)
         end)
 
-      running = Repo.across_tenants(fn -> running_count(repo, uid, version) end)
+      running =
+        Ankole.Signals.count_admitted_attempts_for_human(uid, version) +
+          Ankole.AutomationJobs.count_running_runs_for_human(uid, version)
 
       with {:ok, _event} <-
              Ankole.Ash.create(AccessEvent, :record_once_in_tx, %{
@@ -106,37 +108,5 @@ defmodule Ankole.Principals.WorkCleanup do
         {:ok, %{running: running, stopped: results}}
       end
     end
-  end
-
-  defp running_count(repo, uid, version) do
-    events =
-      from e in Ankole.Signals.Signal,
-        where:
-          e.human_uid == ^uid and e.human_access_version < ^version and
-            e.status in [:queued, :running],
-        select: e.id
-
-    deliveries =
-      repo.aggregate(
-        from(e in Ankole.Signals.Signal,
-          where:
-            e.id in subquery(events) and not is_nil(e.last_attempt_at) and
-              e.status in [:queued, :running]
-        ),
-        :count
-      )
-
-    jobs =
-      from j in Ankole.AutomationJobs.Schemas.Job,
-        where: j.human_uid == ^uid and j.human_access_version < ^version,
-        select: j.id
-
-    deliveries +
-      repo.aggregate(
-        from(r in Ankole.AutomationJobs.Schemas.Run,
-          where: r.automation_job_id in subquery(jobs) and r.status == :running
-        ),
-        :count
-      )
   end
 end

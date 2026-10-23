@@ -1,5 +1,11 @@
 defmodule Mix.Tasks.Ankole.CompileCycles do
-  @moduledoc "Checks compile-connected cycles in the host and its local Mix dependencies."
+  @moduledoc """
+  Checks compile-connected cycles in the host and its local Mix dependencies.
+
+  Each local dependency is checked with the compile manifest in its build
+  directory of the host build (for example `_build/foss/test/lib/ankole_core`).
+  A missing manifest stops the check, so an empty graph cannot pass.
+  """
   @shortdoc "Check compile-connected cycles across the control-plane packages"
   use Mix.Task
 
@@ -7,29 +13,23 @@ defmodule Mix.Tasks.Ankole.CompileCycles do
   def run(_args) do
     Mix.Task.run("compile")
 
-    config = [
-      build_path: Mix.Project.build_path(),
-      build_per_environment: false,
-      deps_path: Mix.Project.deps_path(),
-      lockfile: Path.expand(Mix.Project.config()[:lockfile] || "mix.lock")
-    ]
-
-    projects =
-      Mix.Dep.cached()
-      |> Enum.filter(&Keyword.has_key?(&1.opts, :path))
-      |> Enum.map(&{&1.app, Keyword.fetch!(&1.opts, :path)})
-
     check(Mix.Project.config()[:app])
 
-    for {app, path} <- projects do
-      Mix.Project.in_project(app, path, config, fn _project -> check(app) end)
+    for %Mix.Dep{app: app, opts: opts} = dep <- Mix.Dep.cached(),
+        Keyword.has_key?(opts, :path) do
+      Mix.Dep.in_dependency(dep, fn _project -> check(app) end)
     end
   end
 
   defp check(app) do
+    manifest = Path.join(Mix.Project.manifest_path(), "compile.elixir")
+
+    unless File.exists?(manifest),
+      do: Mix.raise("#{app}: no compile manifest at #{manifest}")
+
     Mix.shell().info("#{app}: compile-connected cycles")
 
-    Mix.Task.run("xref", [
+    Mix.Task.rerun("xref", [
       "graph",
       "--no-compile",
       "--format",

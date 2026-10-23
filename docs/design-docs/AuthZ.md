@@ -82,11 +82,10 @@ the caller's transaction: another domain's action calls them, for example
 `Store.replace_static_group_members/4` or `Grants.upsert_permission_grant/2`.
 They protect the last administrator and distinguish operator groups from
 groups owned by directory and conversation synchronization. Grant writes
-hold the Pod tree lock. `AuthZ.create_permission_grant/1` and
-`ensure_synced_group_member/2` still open their own transaction, because
-callers of other subsystems call them in a transaction; they become generic
-actions when those callers use the `Grants` and `_in_tx` forms. Ash policies
-do not make permission decisions.
+hold the Pod tree lock. `AuthZ.add_synced_group_member/3` and
+`remove_synced_group_member/3` change one member of a synchronized group for
+an adapter that observes the change. Ash policies do not make permission
+decisions.
 
 `Ankole.AuthZ.Snapshot` assembles the decision snapshot for each check. It is a
 read model in the persistence boundary: it selects maps and values from

@@ -52,6 +52,16 @@ defmodule Ankole.Principals.MappingRequest do
 
     destroy(:delete_in_tx)
 
+    action :record_observation, :term do
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.Principals.MappingRequests.record_observation_in_tx(input.arguments.attrs)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
     action :bind_request, :map do
       argument(:id, :term, allow_nil?: false)
       argument(:principal_uid, :term, allow_nil?: false)

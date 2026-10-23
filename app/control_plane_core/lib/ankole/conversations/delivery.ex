@@ -187,7 +187,7 @@ defmodule Ankole.Conversations.Delivery do
     signal = routed_signal(signal, target)
 
     with {:ok, operation, operation_attrs} <-
-           final_reply_operation(repo, signal) do
+           final_reply_operation(signal) do
       outbound_key = "ai-reply:#{message.id}"
 
       commit_in_tx(
@@ -246,7 +246,7 @@ defmodule Ankole.Conversations.Delivery do
         routed = routed_signal(signal, target)
 
         with {:ok, operation, operation_attrs} <-
-               final_reply_operation_for_target(repo, routed, target) do
+               final_reply_operation_for_target(routed, target) do
           outbound_key =
             "#{outbound_key_prefix}:#{signal.id}" <>
               if(target.key, do: ":#{target.key}", else: "")
@@ -317,13 +317,32 @@ defmodule Ankole.Conversations.Delivery do
   owns that question under the row lock, where it can also degrade an operation
   the adapter cannot perform.
   """
-  @spec operation_for_signal(Signal.t(), module()) ::
-          {:ok, atom()} | {:error, term()}
-  def operation_for_signal(%Signal{} = signal, repo \\ nil) do
-    with {:ok, conversation} <- intent_route_channel(repo, signal),
-         {:ok, _binding} <- intent_route_binding(repo, signal) do
+  @spec operation_for_signal(Signal.t()) :: {:ok, atom()} | {:error, term()}
+  def operation_for_signal(%Signal{} = signal) do
+    with {:ok, conversation} <- intent_route_channel(signal),
+         {:ok, _binding} <- intent_route_binding(signal) do
       choose_intent_operation(conversation, signal)
     end
+  end
+
+  @doc """
+  Tells whether a delivery Intent of the Binding sent a provider message.
+
+  The Intent names the message as its created entry, or keeps the message in
+  the payload list `payload_key`: an adapter that sends one reply as several
+  provider messages keeps every sent ID there.
+  """
+  @spec sent_provider_message?(String.t(), String.t(), String.t(), String.t()) :: boolean()
+  def sent_provider_message?(agent_uid, binding_name, provider_message_id, payload_key) do
+    Intent
+    |> Ash.Query.filter(
+      agent_uid == ^agent_uid and binding_name == ^binding_name and
+        (created_provider_message_id == ^provider_message_id or
+           fragment("(? -> ?) @> to_jsonb(?::text)", payload, ^payload_key, ^provider_message_id))
+    )
+    |> Ash.Query.limit(1)
+    |> Ankole.Ash.read!()
+    |> Enum.any?()
   end
 
   @doc """
@@ -372,7 +391,7 @@ defmodule Ankole.Conversations.Delivery do
     routed_event = routed_signal(signal, target)
 
     with {:ok, operation, operation_attrs} <-
-           reply_attachment_operation(repo, routed_event, target) do
+           reply_attachment_operation(routed_event, target) do
       outbound_key = reply_attachment_outbound_key(ai_message_id, target, index)
 
       commit_in_tx(
@@ -417,7 +436,7 @@ defmodule Ankole.Conversations.Delivery do
     routed_event = routed_signal(signal, target)
 
     with {:ok, operation, operation_attrs} <-
-           final_reply_operation_for_target(repo, routed_event, target) do
+           final_reply_operation_for_target(routed_event, target) do
       outbound_key = final_reply_outbound_key(message.id, target)
 
       payload = %{
@@ -493,24 +512,24 @@ defmodule Ankole.Conversations.Delivery do
   # Every target resolves its own route through the same reader. The caller
   # already projected the target onto `routed_event`, so a single default target
   # is the one-element case of the same rule rather than a separate path.
-  defp reply_attachment_operation(repo, routed_event, %{key: nil}) do
-    with {:ok, operation} <- operation_for_signal(routed_event, repo) do
+  defp reply_attachment_operation(routed_event, %{key: nil}) do
+    with {:ok, operation} <- operation_for_signal(routed_event) do
       {:ok, operation, %{}}
     end
   end
 
-  defp reply_attachment_operation(repo, routed_event, %{key: key}) when is_binary(key) do
-    case operation_for_signal(routed_event, repo) do
+  defp reply_attachment_operation(routed_event, %{key: key}) when is_binary(key) do
+    case operation_for_signal(routed_event) do
       {:ok, operation} -> {:ok, operation, %{}}
       {:error, reason} -> unroutable_target_operation(reason, :post)
     end
   end
 
-  defp final_reply_operation_for_target(repo, routed_event, %{key: nil}),
-    do: final_reply_operation(repo, routed_event)
+  defp final_reply_operation_for_target(routed_event, %{key: nil}),
+    do: final_reply_operation(routed_event)
 
-  defp final_reply_operation_for_target(repo, routed_event, %{key: key}) when is_binary(key) do
-    case final_reply_operation(repo, routed_event) do
+  defp final_reply_operation_for_target(routed_event, %{key: key}) when is_binary(key) do
+    case final_reply_operation(routed_event) do
       {:ok, _operation, _attrs} = operation -> operation
       {:error, reason} -> unroutable_target_operation(reason, :post)
     end
@@ -578,13 +597,13 @@ defmodule Ankole.Conversations.Delivery do
   # reply. Without a preview it posts a fresh threaded reply or top-level message.
   # The same operation selection serves any Signal terminal state, so a
   # dead-letter notice finalizes the preview exactly like a successful reply.
-  defp final_reply_operation(repo, %Signal{} = signal) do
+  defp final_reply_operation(%Signal{} = signal) do
     case PreviewState.get(signal).provider_message_id do
       provider_message_id when is_binary(provider_message_id) ->
         {:ok, :edit, %{target_provider_message_id: provider_message_id}}
 
       nil ->
-        with {:ok, operation} <- operation_for_signal(signal, repo) do
+        with {:ok, operation} <- operation_for_signal(signal) do
           attrs =
             if operation == :reply do
               %{reply_to_provider_message_id: Signal.reply_anchor_provider_message_id(signal)}
@@ -647,17 +666,17 @@ defmodule Ankole.Conversations.Delivery do
   defp choose_intent_operation(%Conversation{reply_mode: :none}, _signal),
     do: {:error, :intent_reply_not_supported}
 
-  defp intent_route_channel(_repo, %Signal{conversation_id: nil}),
+  defp intent_route_channel(%Signal{conversation_id: nil}),
     do: {:error, :conversation_id_missing}
 
-  defp intent_route_channel(_repo, %Signal{conversation_id: conversation_id}) do
+  defp intent_route_channel(%Signal{conversation_id: conversation_id}) do
     case Conversation |> Ash.Query.filter(id == ^conversation_id) |> Ankole.Ash.read_one!() do
       %Conversation{} = conversation -> {:ok, conversation}
       nil -> {:error, {:signal_channel_not_found, conversation_id}}
     end
   end
 
-  defp intent_route_binding(_repo, %Signal{reply_binding_name: name} = signal) do
+  defp intent_route_binding(%Signal{reply_binding_name: name} = signal) do
     binding =
       if is_binary(name) and name != "",
         do: Ankole.Signals.get_binding!(signal.agent_uid, name)

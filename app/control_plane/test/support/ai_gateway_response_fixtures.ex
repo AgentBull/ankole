@@ -16,7 +16,7 @@ defmodule Ankole.AIGateway.ResponseFixtures do
     {:ok, _packs} = Ankole.Brain.SchemaPacks.install_packs([])
 
     {:ok, object} =
-      Ankole.Brain.Objects.create_object(
+      Ankole.Brain.create_object(
         %{
           slug: "concepts/wire-format",
           type: "concept",
@@ -27,7 +27,7 @@ defmodule Ankole.AIGateway.ResponseFixtures do
       )
 
     {:ok, _claim} =
-      Ankole.Brain.Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: object.slug,
           claim: "MEMORY_ORION",

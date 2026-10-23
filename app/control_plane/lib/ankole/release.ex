@@ -84,11 +84,11 @@ defmodule Ankole.Release do
       start_pubsub!()
       start_child!(Cache)
 
-      case Repo.get_by(Ankole.Tenants.Tenant, slug: slug) do
-        nil ->
+      case Ankole.Tenants.list_tenants!(query: [filter: [slug: slug]]) do
+        [] ->
           raise "tenant not found: #{slug}"
 
-        tenant ->
+        [tenant] ->
           case Ankole.Tenants.transfer_site_administration(tenant, uid) do
             {:ok, _} -> :ok
             {:error, reason} -> raise "site administration transfer failed: #{inspect(reason)}"
