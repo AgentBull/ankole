@@ -37,10 +37,10 @@ defmodule AnkoleWeb.JSONAPI.OpenAPI do
   defp datetimes(spec, domains) do
     schemas =
       for domain <- domains,
-          resource <- Ash.Domain.Info.resources(domain),
+          %{resource: resource} <- Spark.Dsl.Extension.get_entities(domain, [:resources]),
           AshJsonApi.Resource in Spark.extensions(resource),
-          attribute <- Ash.Resource.Info.public_attributes(resource),
-          attribute.type == Ash.Type.UtcDatetimeUsec,
+          attribute <- Spark.Dsl.Extension.get_entities(resource, [:attributes]),
+          attribute.public? and attribute.type == Ash.Type.UtcDatetimeUsec,
           reduce: spec.components.schemas do
         schemas ->
           type = AshJsonApi.Resource.Info.type(resource)

@@ -560,13 +560,13 @@ defmodule AnkoleWeb.Router do
   scope "/api/v2/site" do
     pipe_through [:session_api, :site_admin]
 
-    forward "/", AnkoleWeb.JSONAPI.SiteRouter
+    forward "/", AnkoleWeb.JSONAPI.Mount, :site
   end
 
   scope "/api/v2" do
     pipe_through [:session_api, :site_admin, :data_context]
 
-    forward "/", AnkoleWeb.JSONAPI.ConsoleRouter
+    forward "/", AnkoleWeb.JSONAPI.Mount, :console
   end
 
   scope "/api/v1/ai-gateway", AnkoleWeb do
