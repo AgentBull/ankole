@@ -816,8 +816,9 @@ Run `test:garfish` separately for sandbox effects and entry-style scoping.
 ### Console API and OpenAPI
 
 The Console JSON API uses `/api/v2` for tenant data and `/api/v2/site` for
-site administration. Both use the session, CSRF, and data context pipelines in
-`AnkoleWeb.Router` and JSON:API (`application/vnd.api+json`) through AshJsonApi.
+site administration. Both use the session and CSRF pipelines in
+`AnkoleWeb.Router`; the tenant API also selects the data context. Both use
+JSON:API (`application/vnd.api+json`) through AshJsonApi.
 The `json_api` section of an Ash domain declares its routes. The `json_api`
 section of a resource declares its type and default fields.
 `AnkoleWeb.JSONAPI.ConsoleRouter` and `AnkoleWeb.JSONAPI.SiteRouter` mount the
