@@ -54,16 +54,6 @@ import {
   ankoleWebAiGatewayProviderControllerPutCredential,
   ankoleWebAiGatewayProviderControllerPutCredentialStrategy,
   ankoleWebAiGatewayProviderControllerStartChatgptLogin,
-  ankoleWebAppConfigurationControllerDecrypt,
-  ankoleWebAppConfigurationControllerDecryptTenant,
-  ankoleWebAppConfigurationControllerDelete,
-  ankoleWebAppConfigurationControllerDeleteTenant,
-  ankoleWebAppConfigurationControllerIndex,
-  ankoleWebAppConfigurationControllerIndexTenant,
-  ankoleWebAppConfigurationControllerShow,
-  ankoleWebAppConfigurationControllerShowTenant,
-  ankoleWebAppConfigurationControllerUpdate,
-  ankoleWebAppConfigurationControllerUpdateTenant,
   ankoleWebAuthControllerDeleteSession,
   ankoleWebBackgroundAgentJobControllerHealth,
   ankoleWebBackgroundAgentJobControllerTurns,
@@ -100,20 +90,6 @@ import {
   ankoleWebSignalBindingControllerShow,
   ankoleWebSignalBindingControllerShowConversationStandingOrders,
   ankoleWebSignalBindingControllerUpdateBinding,
-  ankoleWebWorkerEnvControllerDecrypt,
-  ankoleWebWorkerEnvControllerDecryptForAgent,
-  ankoleWebWorkerEnvControllerDecryptTenant,
-  ankoleWebWorkerEnvControllerDelete,
-  ankoleWebWorkerEnvControllerDeleteForAgent,
-  ankoleWebWorkerEnvControllerDeleteTenant,
-  ankoleWebWorkerEnvControllerIndex,
-  ankoleWebWorkerEnvControllerIndexForAgent,
-  ankoleWebWorkerEnvControllerIndexTenant,
-  ankoleWebWorkerEnvControllerUpdate,
-  ankoleWebWorkerEnvControllerUpdateForAgent,
-  ankoleWebWorkerEnvControllerUpdateTenant,
-  ankoleWebWorkerProviderControllerCheck,
-  ankoleWebWorkerProviderControllerKinds,
   backgroundActivityAutomationRuns,
   backgroundActivityJobs,
   backgroundActivityWorkflow,
@@ -253,36 +229,6 @@ import type {
   AnkoleWebAiGatewayProviderControllerStartChatgptLoginData,
   AnkoleWebAiGatewayProviderControllerStartChatgptLoginError,
   AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponse,
-  AnkoleWebAppConfigurationControllerDecryptData,
-  AnkoleWebAppConfigurationControllerDecryptError,
-  AnkoleWebAppConfigurationControllerDecryptResponse,
-  AnkoleWebAppConfigurationControllerDecryptTenantData,
-  AnkoleWebAppConfigurationControllerDecryptTenantError,
-  AnkoleWebAppConfigurationControllerDecryptTenantResponse,
-  AnkoleWebAppConfigurationControllerDeleteData,
-  AnkoleWebAppConfigurationControllerDeleteError,
-  AnkoleWebAppConfigurationControllerDeleteResponse,
-  AnkoleWebAppConfigurationControllerDeleteTenantData,
-  AnkoleWebAppConfigurationControllerDeleteTenantError,
-  AnkoleWebAppConfigurationControllerDeleteTenantResponse,
-  AnkoleWebAppConfigurationControllerIndexData,
-  AnkoleWebAppConfigurationControllerIndexError,
-  AnkoleWebAppConfigurationControllerIndexResponse,
-  AnkoleWebAppConfigurationControllerIndexTenantData,
-  AnkoleWebAppConfigurationControllerIndexTenantError,
-  AnkoleWebAppConfigurationControllerIndexTenantResponse,
-  AnkoleWebAppConfigurationControllerShowData,
-  AnkoleWebAppConfigurationControllerShowError,
-  AnkoleWebAppConfigurationControllerShowResponse,
-  AnkoleWebAppConfigurationControllerShowTenantData,
-  AnkoleWebAppConfigurationControllerShowTenantError,
-  AnkoleWebAppConfigurationControllerShowTenantResponse,
-  AnkoleWebAppConfigurationControllerUpdateData,
-  AnkoleWebAppConfigurationControllerUpdateError,
-  AnkoleWebAppConfigurationControllerUpdateResponse,
-  AnkoleWebAppConfigurationControllerUpdateTenantData,
-  AnkoleWebAppConfigurationControllerUpdateTenantError,
-  AnkoleWebAppConfigurationControllerUpdateTenantResponse,
   AnkoleWebAuthControllerDeleteSessionData,
   AnkoleWebAuthControllerDeleteSessionResponse,
   AnkoleWebBackgroundAgentJobControllerHealthData,
@@ -379,48 +325,6 @@ import type {
   AnkoleWebSignalBindingControllerUpdateBindingData,
   AnkoleWebSignalBindingControllerUpdateBindingError,
   AnkoleWebSignalBindingControllerUpdateBindingResponse,
-  AnkoleWebWorkerEnvControllerDecryptData,
-  AnkoleWebWorkerEnvControllerDecryptError,
-  AnkoleWebWorkerEnvControllerDecryptForAgentData,
-  AnkoleWebWorkerEnvControllerDecryptForAgentError,
-  AnkoleWebWorkerEnvControllerDecryptForAgentResponse,
-  AnkoleWebWorkerEnvControllerDecryptResponse,
-  AnkoleWebWorkerEnvControllerDecryptTenantData,
-  AnkoleWebWorkerEnvControllerDecryptTenantError,
-  AnkoleWebWorkerEnvControllerDecryptTenantResponse,
-  AnkoleWebWorkerEnvControllerDeleteData,
-  AnkoleWebWorkerEnvControllerDeleteError,
-  AnkoleWebWorkerEnvControllerDeleteForAgentData,
-  AnkoleWebWorkerEnvControllerDeleteForAgentError,
-  AnkoleWebWorkerEnvControllerDeleteForAgentResponse,
-  AnkoleWebWorkerEnvControllerDeleteResponse,
-  AnkoleWebWorkerEnvControllerDeleteTenantData,
-  AnkoleWebWorkerEnvControllerDeleteTenantError,
-  AnkoleWebWorkerEnvControllerDeleteTenantResponse,
-  AnkoleWebWorkerEnvControllerIndexData,
-  AnkoleWebWorkerEnvControllerIndexError,
-  AnkoleWebWorkerEnvControllerIndexForAgentData,
-  AnkoleWebWorkerEnvControllerIndexForAgentError,
-  AnkoleWebWorkerEnvControllerIndexForAgentResponse,
-  AnkoleWebWorkerEnvControllerIndexResponse,
-  AnkoleWebWorkerEnvControllerIndexTenantData,
-  AnkoleWebWorkerEnvControllerIndexTenantError,
-  AnkoleWebWorkerEnvControllerIndexTenantResponse,
-  AnkoleWebWorkerEnvControllerUpdateData,
-  AnkoleWebWorkerEnvControllerUpdateError,
-  AnkoleWebWorkerEnvControllerUpdateForAgentData,
-  AnkoleWebWorkerEnvControllerUpdateForAgentError,
-  AnkoleWebWorkerEnvControllerUpdateForAgentResponse,
-  AnkoleWebWorkerEnvControllerUpdateResponse,
-  AnkoleWebWorkerEnvControllerUpdateTenantData,
-  AnkoleWebWorkerEnvControllerUpdateTenantError,
-  AnkoleWebWorkerEnvControllerUpdateTenantResponse,
-  AnkoleWebWorkerProviderControllerCheckData,
-  AnkoleWebWorkerProviderControllerCheckError,
-  AnkoleWebWorkerProviderControllerCheckResponse,
-  AnkoleWebWorkerProviderControllerKindsData,
-  AnkoleWebWorkerProviderControllerKindsError,
-  AnkoleWebWorkerProviderControllerKindsResponse,
   BackgroundActivityAutomationRunsData,
   BackgroundActivityAutomationRunsError,
   BackgroundActivityAutomationRunsResponse2,
@@ -638,61 +542,6 @@ export const ankoleWebAiGatewayFilesControllerShowOptions = (
   })
 
 /**
- * Reveal one encrypted installation-wide worker shell variable
- */
-export const ankoleWebWorkerEnvControllerDecryptMutation = (
-  options?: Partial<Options<AnkoleWebWorkerEnvControllerDecryptData>>
-): UseMutationOptions<
-  AnkoleWebWorkerEnvControllerDecryptResponse,
-  AnkoleWebWorkerEnvControllerDecryptError,
-  Options<AnkoleWebWorkerEnvControllerDecryptData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebWorkerEnvControllerDecryptResponse,
-    AnkoleWebWorkerEnvControllerDecryptError,
-    Options<AnkoleWebWorkerEnvControllerDecryptData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebWorkerEnvControllerDecrypt({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebAppConfigurationControllerIndexTenantQueryKey = (
-  options?: Options<AnkoleWebAppConfigurationControllerIndexTenantData>
-) => createQueryKey('ankoleWebAppConfigurationControllerIndexTenant', options)
-
-/**
- * List console-visible AppConfigure entries
- */
-export const ankoleWebAppConfigurationControllerIndexTenantOptions = (
-  options?: Options<AnkoleWebAppConfigurationControllerIndexTenantData>
-) =>
-  queryOptions<
-    AnkoleWebAppConfigurationControllerIndexTenantResponse,
-    AnkoleWebAppConfigurationControllerIndexTenantError,
-    AnkoleWebAppConfigurationControllerIndexTenantResponse,
-    ReturnType<typeof ankoleWebAppConfigurationControllerIndexTenantQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAppConfigurationControllerIndexTenant({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAppConfigurationControllerIndexTenantQueryKey(options)
-  })
-
-/**
  * Rename or move a file or folder in an Agent's drive
  */
 export const ankoleWebAgentFileControllerMoveMutation = (
@@ -772,34 +621,6 @@ export const ankoleWebAgentControllerResetTokenQuotaMutation = (
   }
   return mutationOptions
 }
-
-export const ankoleWebAppConfigurationControllerIndexQueryKey = (
-  options?: Options<AnkoleWebAppConfigurationControllerIndexData>
-) => createQueryKey('ankoleWebAppConfigurationControllerIndex', options)
-
-/**
- * List console-visible AppConfigure entries
- */
-export const ankoleWebAppConfigurationControllerIndexOptions = (
-  options?: Options<AnkoleWebAppConfigurationControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebAppConfigurationControllerIndexResponse,
-    AnkoleWebAppConfigurationControllerIndexError,
-    AnkoleWebAppConfigurationControllerIndexResponse,
-    ReturnType<typeof ankoleWebAppConfigurationControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAppConfigurationControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAppConfigurationControllerIndexQueryKey(options)
-  })
 
 /**
  * Add one credential-pool member
@@ -1343,34 +1164,6 @@ export const ankoleWebIdentityProviderControllerPutProviderMutation = (
   return mutationOptions
 }
 
-export const ankoleWebWorkerProviderControllerKindsQueryKey = (
-  options?: Options<AnkoleWebWorkerProviderControllerKindsData>
-) => createQueryKey('ankoleWebWorkerProviderControllerKinds', options)
-
-/**
- * List Worker provider kinds and YAML examples
- */
-export const ankoleWebWorkerProviderControllerKindsOptions = (
-  options?: Options<AnkoleWebWorkerProviderControllerKindsData>
-) =>
-  queryOptions<
-    AnkoleWebWorkerProviderControllerKindsResponse,
-    AnkoleWebWorkerProviderControllerKindsError,
-    AnkoleWebWorkerProviderControllerKindsResponse,
-    ReturnType<typeof ankoleWebWorkerProviderControllerKindsQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebWorkerProviderControllerKinds({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebWorkerProviderControllerKindsQueryKey(options)
-  })
-
 /**
  * Delete one credential-pool member
  */
@@ -1563,60 +1356,6 @@ export const ankoleWebOidcClientControllerRotateSecretMutation = (
 }
 
 /**
- * Reveal the encrypted worker shell variable effective for one agent
- */
-export const ankoleWebWorkerEnvControllerDecryptForAgentMutation = (
-  options?: Partial<Options<AnkoleWebWorkerEnvControllerDecryptForAgentData>>
-): UseMutationOptions<
-  AnkoleWebWorkerEnvControllerDecryptForAgentResponse,
-  AnkoleWebWorkerEnvControllerDecryptForAgentError,
-  Options<AnkoleWebWorkerEnvControllerDecryptForAgentData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebWorkerEnvControllerDecryptForAgentResponse,
-    AnkoleWebWorkerEnvControllerDecryptForAgentError,
-    Options<AnkoleWebWorkerEnvControllerDecryptForAgentData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebWorkerEnvControllerDecryptForAgent({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Reveal one encrypted tenant worker shell variable
- */
-export const ankoleWebWorkerEnvControllerDecryptTenantMutation = (
-  options?: Partial<Options<AnkoleWebWorkerEnvControllerDecryptTenantData>>
-): UseMutationOptions<
-  AnkoleWebWorkerEnvControllerDecryptTenantResponse,
-  AnkoleWebWorkerEnvControllerDecryptTenantError,
-  Options<AnkoleWebWorkerEnvControllerDecryptTenantData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebWorkerEnvControllerDecryptTenantResponse,
-    AnkoleWebWorkerEnvControllerDecryptTenantError,
-    Options<AnkoleWebWorkerEnvControllerDecryptTenantData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebWorkerEnvControllerDecryptTenant({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
  * Enqueue one identity-provider full directory sync
  */
 export const ankoleWebIdentityProviderControllerRunSyncMutation = (
@@ -1669,31 +1408,6 @@ export const ankoleWebSignalBindingControllerIndexOptions = (
       return data
     },
     queryKey: ankoleWebSignalBindingControllerIndexQueryKey(options)
-  })
-
-export const ankoleWebWorkerEnvControllerIndexQueryKey = (options?: Options<AnkoleWebWorkerEnvControllerIndexData>) =>
-  createQueryKey('ankoleWebWorkerEnvControllerIndex', options)
-
-/**
- * List installation-wide worker shell variables
- */
-export const ankoleWebWorkerEnvControllerIndexOptions = (options?: Options<AnkoleWebWorkerEnvControllerIndexData>) =>
-  queryOptions<
-    AnkoleWebWorkerEnvControllerIndexResponse,
-    AnkoleWebWorkerEnvControllerIndexError,
-    AnkoleWebWorkerEnvControllerIndexResponse,
-    ReturnType<typeof ankoleWebWorkerEnvControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebWorkerEnvControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebWorkerEnvControllerIndexQueryKey(options)
   })
 
 export const backgroundActivityJobsQueryKey = (options: Options<BackgroundActivityJobsData>) =>
@@ -1842,34 +1556,6 @@ export const ankoleWebControlPlanePluginControllerUpdateMutation = (
   }
   return mutationOptions
 }
-
-export const ankoleWebWorkerProviderControllerCheckQueryKey = (
-  options: Options<AnkoleWebWorkerProviderControllerCheckData>
-) => createQueryKey('ankoleWebWorkerProviderControllerCheck', options)
-
-/**
- * Check a Worker provider connection and permissions
- */
-export const ankoleWebWorkerProviderControllerCheckOptions = (
-  options: Options<AnkoleWebWorkerProviderControllerCheckData>
-) =>
-  queryOptions<
-    AnkoleWebWorkerProviderControllerCheckResponse,
-    AnkoleWebWorkerProviderControllerCheckError,
-    AnkoleWebWorkerProviderControllerCheckResponse,
-    ReturnType<typeof ankoleWebWorkerProviderControllerCheckQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebWorkerProviderControllerCheck({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebWorkerProviderControllerCheckQueryKey(options)
-  })
 
 export const ankoleWebHumanAccessControllerUnresolvedWorkQueryKey = (
   options?: Options<AnkoleWebHumanAccessControllerUnresolvedWorkData>
@@ -2483,60 +2169,6 @@ export const oidcLoginSourcesOptions = (options?: Options<OidcLoginSourcesData>)
     queryKey: oidcLoginSourcesQueryKey(options)
   })
 
-/**
- * Delete one tenant worker shell variable
- */
-export const ankoleWebWorkerEnvControllerDeleteTenantMutation = (
-  options?: Partial<Options<AnkoleWebWorkerEnvControllerDeleteTenantData>>
-): UseMutationOptions<
-  AnkoleWebWorkerEnvControllerDeleteTenantResponse,
-  AnkoleWebWorkerEnvControllerDeleteTenantError,
-  Options<AnkoleWebWorkerEnvControllerDeleteTenantData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebWorkerEnvControllerDeleteTenantResponse,
-    AnkoleWebWorkerEnvControllerDeleteTenantError,
-    Options<AnkoleWebWorkerEnvControllerDeleteTenantData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebWorkerEnvControllerDeleteTenant({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Store one tenant worker shell variable
- */
-export const ankoleWebWorkerEnvControllerUpdateTenantMutation = (
-  options?: Partial<Options<AnkoleWebWorkerEnvControllerUpdateTenantData>>
-): UseMutationOptions<
-  AnkoleWebWorkerEnvControllerUpdateTenantResponse,
-  AnkoleWebWorkerEnvControllerUpdateTenantError,
-  Options<AnkoleWebWorkerEnvControllerUpdateTenantData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebWorkerEnvControllerUpdateTenantResponse,
-    AnkoleWebWorkerEnvControllerUpdateTenantError,
-    Options<AnkoleWebWorkerEnvControllerUpdateTenantData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebWorkerEnvControllerUpdateTenant({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
 export const ankoleWebAiGatewayProviderControllerModelsQueryKey = (
   options?: Options<AnkoleWebAiGatewayProviderControllerModelsData>
 ) => createQueryKey('ankoleWebAiGatewayProviderControllerModels', options)
@@ -2691,143 +2323,6 @@ export const ankoleWebAiGatewayControllerRerankMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAiGatewayControllerRerank({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebWorkerEnvControllerIndexTenantQueryKey = (
-  options?: Options<AnkoleWebWorkerEnvControllerIndexTenantData>
-) => createQueryKey('ankoleWebWorkerEnvControllerIndexTenant', options)
-
-/**
- * List tenant worker shell variables
- */
-export const ankoleWebWorkerEnvControllerIndexTenantOptions = (
-  options?: Options<AnkoleWebWorkerEnvControllerIndexTenantData>
-) =>
-  queryOptions<
-    AnkoleWebWorkerEnvControllerIndexTenantResponse,
-    AnkoleWebWorkerEnvControllerIndexTenantError,
-    AnkoleWebWorkerEnvControllerIndexTenantResponse,
-    ReturnType<typeof ankoleWebWorkerEnvControllerIndexTenantQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebWorkerEnvControllerIndexTenant({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebWorkerEnvControllerIndexTenantQueryKey(options)
-  })
-
-/**
- * Reset one global AppConfigure value
- */
-export const ankoleWebAppConfigurationControllerDeleteMutation = (
-  options?: Partial<Options<AnkoleWebAppConfigurationControllerDeleteData>>
-): UseMutationOptions<
-  AnkoleWebAppConfigurationControllerDeleteResponse,
-  AnkoleWebAppConfigurationControllerDeleteError,
-  Options<AnkoleWebAppConfigurationControllerDeleteData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAppConfigurationControllerDeleteResponse,
-    AnkoleWebAppConfigurationControllerDeleteError,
-    Options<AnkoleWebAppConfigurationControllerDeleteData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAppConfigurationControllerDelete({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebAppConfigurationControllerShowQueryKey = (
-  options: Options<AnkoleWebAppConfigurationControllerShowData>
-) => createQueryKey('ankoleWebAppConfigurationControllerShow', options)
-
-/**
- * Read one console-visible AppConfigure entry
- */
-export const ankoleWebAppConfigurationControllerShowOptions = (
-  options: Options<AnkoleWebAppConfigurationControllerShowData>
-) =>
-  queryOptions<
-    AnkoleWebAppConfigurationControllerShowResponse,
-    AnkoleWebAppConfigurationControllerShowError,
-    AnkoleWebAppConfigurationControllerShowResponse,
-    ReturnType<typeof ankoleWebAppConfigurationControllerShowQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAppConfigurationControllerShow({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAppConfigurationControllerShowQueryKey(options)
-  })
-
-/**
- * Store one global AppConfigure value
- */
-export const ankoleWebAppConfigurationControllerUpdateMutation = (
-  options?: Partial<Options<AnkoleWebAppConfigurationControllerUpdateData>>
-): UseMutationOptions<
-  AnkoleWebAppConfigurationControllerUpdateResponse,
-  AnkoleWebAppConfigurationControllerUpdateError,
-  Options<AnkoleWebAppConfigurationControllerUpdateData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAppConfigurationControllerUpdateResponse,
-    AnkoleWebAppConfigurationControllerUpdateError,
-    Options<AnkoleWebAppConfigurationControllerUpdateData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAppConfigurationControllerUpdate({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Reveal one encrypted AppConfigure value on demand
- */
-export const ankoleWebAppConfigurationControllerDecryptTenantMutation = (
-  options?: Partial<Options<AnkoleWebAppConfigurationControllerDecryptTenantData>>
-): UseMutationOptions<
-  AnkoleWebAppConfigurationControllerDecryptTenantResponse,
-  AnkoleWebAppConfigurationControllerDecryptTenantError,
-  Options<AnkoleWebAppConfigurationControllerDecryptTenantData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAppConfigurationControllerDecryptTenantResponse,
-    AnkoleWebAppConfigurationControllerDecryptTenantError,
-    Options<AnkoleWebAppConfigurationControllerDecryptTenantData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAppConfigurationControllerDecryptTenant({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -3004,34 +2499,6 @@ export const ankoleWebAgentSessionControllerIndexOptions = (
     queryKey: ankoleWebAgentSessionControllerIndexQueryKey(options)
   })
 
-export const ankoleWebWorkerEnvControllerIndexForAgentQueryKey = (
-  options: Options<AnkoleWebWorkerEnvControllerIndexForAgentData>
-) => createQueryKey('ankoleWebWorkerEnvControllerIndexForAgent', options)
-
-/**
- * List effective worker shell variables for one agent
- */
-export const ankoleWebWorkerEnvControllerIndexForAgentOptions = (
-  options: Options<AnkoleWebWorkerEnvControllerIndexForAgentData>
-) =>
-  queryOptions<
-    AnkoleWebWorkerEnvControllerIndexForAgentResponse,
-    AnkoleWebWorkerEnvControllerIndexForAgentError,
-    AnkoleWebWorkerEnvControllerIndexForAgentResponse,
-    ReturnType<typeof ankoleWebWorkerEnvControllerIndexForAgentQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebWorkerEnvControllerIndexForAgent({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebWorkerEnvControllerIndexForAgentQueryKey(options)
-  })
-
 export const ankoleWebBackgroundAgentJobControllerHealthQueryKey = (
   options?: Options<AnkoleWebBackgroundAgentJobControllerHealthData>
 ) => createQueryKey('ankoleWebBackgroundAgentJobControllerHealth', options)
@@ -3194,88 +2661,6 @@ export const ankoleWebBrainControllerShowObjectOptions = (options: Options<Ankol
     queryKey: ankoleWebBrainControllerShowObjectQueryKey(options)
   })
 
-/**
- * Reset one tenant AppConfigure value
- */
-export const ankoleWebAppConfigurationControllerDeleteTenantMutation = (
-  options?: Partial<Options<AnkoleWebAppConfigurationControllerDeleteTenantData>>
-): UseMutationOptions<
-  AnkoleWebAppConfigurationControllerDeleteTenantResponse,
-  AnkoleWebAppConfigurationControllerDeleteTenantError,
-  Options<AnkoleWebAppConfigurationControllerDeleteTenantData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAppConfigurationControllerDeleteTenantResponse,
-    AnkoleWebAppConfigurationControllerDeleteTenantError,
-    Options<AnkoleWebAppConfigurationControllerDeleteTenantData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAppConfigurationControllerDeleteTenant({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebAppConfigurationControllerShowTenantQueryKey = (
-  options: Options<AnkoleWebAppConfigurationControllerShowTenantData>
-) => createQueryKey('ankoleWebAppConfigurationControllerShowTenant', options)
-
-/**
- * Read one console-visible AppConfigure entry
- */
-export const ankoleWebAppConfigurationControllerShowTenantOptions = (
-  options: Options<AnkoleWebAppConfigurationControllerShowTenantData>
-) =>
-  queryOptions<
-    AnkoleWebAppConfigurationControllerShowTenantResponse,
-    AnkoleWebAppConfigurationControllerShowTenantError,
-    AnkoleWebAppConfigurationControllerShowTenantResponse,
-    ReturnType<typeof ankoleWebAppConfigurationControllerShowTenantQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAppConfigurationControllerShowTenant({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAppConfigurationControllerShowTenantQueryKey(options)
-  })
-
-/**
- * Store one tenant AppConfigure value
- */
-export const ankoleWebAppConfigurationControllerUpdateTenantMutation = (
-  options?: Partial<Options<AnkoleWebAppConfigurationControllerUpdateTenantData>>
-): UseMutationOptions<
-  AnkoleWebAppConfigurationControllerUpdateTenantResponse,
-  AnkoleWebAppConfigurationControllerUpdateTenantError,
-  Options<AnkoleWebAppConfigurationControllerUpdateTenantData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAppConfigurationControllerUpdateTenantResponse,
-    AnkoleWebAppConfigurationControllerUpdateTenantError,
-    Options<AnkoleWebAppConfigurationControllerUpdateTenantData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAppConfigurationControllerUpdateTenant({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
 export const ankoleWebBackgroundAgentJobControllerTurnsQueryKey = (
   options: Options<AnkoleWebBackgroundAgentJobControllerTurnsData>
 ) => createQueryKey('ankoleWebBackgroundAgentJobControllerTurns', options)
@@ -3407,60 +2792,6 @@ export const ankoleWebSignalBindingControllerRequeueDeliveryMutation = (
   return mutationOptions
 }
 
-/**
- * Delete one installation-wide worker shell variable
- */
-export const ankoleWebWorkerEnvControllerDeleteMutation = (
-  options?: Partial<Options<AnkoleWebWorkerEnvControllerDeleteData>>
-): UseMutationOptions<
-  AnkoleWebWorkerEnvControllerDeleteResponse,
-  AnkoleWebWorkerEnvControllerDeleteError,
-  Options<AnkoleWebWorkerEnvControllerDeleteData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebWorkerEnvControllerDeleteResponse,
-    AnkoleWebWorkerEnvControllerDeleteError,
-    Options<AnkoleWebWorkerEnvControllerDeleteData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebWorkerEnvControllerDelete({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Store one installation-wide worker shell variable
- */
-export const ankoleWebWorkerEnvControllerUpdateMutation = (
-  options?: Partial<Options<AnkoleWebWorkerEnvControllerUpdateData>>
-): UseMutationOptions<
-  AnkoleWebWorkerEnvControllerUpdateResponse,
-  AnkoleWebWorkerEnvControllerUpdateError,
-  Options<AnkoleWebWorkerEnvControllerUpdateData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebWorkerEnvControllerUpdateResponse,
-    AnkoleWebWorkerEnvControllerUpdateError,
-    Options<AnkoleWebWorkerEnvControllerUpdateData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebWorkerEnvControllerUpdate({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
 export const ankoleWebAgentLibraryCapabilityControllerGlobalIndexQueryKey = (
   options?: Options<AnkoleWebAgentLibraryCapabilityControllerGlobalIndexData>
 ) => createQueryKey('ankoleWebAgentLibraryCapabilityControllerGlobalIndex', options)
@@ -3490,33 +2821,6 @@ export const ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions = (
   })
 
 /**
- * Reveal one encrypted AppConfigure value on demand
- */
-export const ankoleWebAppConfigurationControllerDecryptMutation = (
-  options?: Partial<Options<AnkoleWebAppConfigurationControllerDecryptData>>
-): UseMutationOptions<
-  AnkoleWebAppConfigurationControllerDecryptResponse,
-  AnkoleWebAppConfigurationControllerDecryptError,
-  Options<AnkoleWebAppConfigurationControllerDecryptData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAppConfigurationControllerDecryptResponse,
-    AnkoleWebAppConfigurationControllerDecryptError,
-    Options<AnkoleWebAppConfigurationControllerDecryptData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAppConfigurationControllerDecrypt({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
  * Restore Human access after identity and permission review
  */
 export const ankoleWebHumanAccessControllerRestoreMutation = (
@@ -3533,60 +2837,6 @@ export const ankoleWebHumanAccessControllerRestoreMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebHumanAccessControllerRestore({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Delete one agent-tier worker shell variable
- */
-export const ankoleWebWorkerEnvControllerDeleteForAgentMutation = (
-  options?: Partial<Options<AnkoleWebWorkerEnvControllerDeleteForAgentData>>
-): UseMutationOptions<
-  AnkoleWebWorkerEnvControllerDeleteForAgentResponse,
-  AnkoleWebWorkerEnvControllerDeleteForAgentError,
-  Options<AnkoleWebWorkerEnvControllerDeleteForAgentData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebWorkerEnvControllerDeleteForAgentResponse,
-    AnkoleWebWorkerEnvControllerDeleteForAgentError,
-    Options<AnkoleWebWorkerEnvControllerDeleteForAgentData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebWorkerEnvControllerDeleteForAgent({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Store one agent-tier worker shell variable
- */
-export const ankoleWebWorkerEnvControllerUpdateForAgentMutation = (
-  options?: Partial<Options<AnkoleWebWorkerEnvControllerUpdateForAgentData>>
-): UseMutationOptions<
-  AnkoleWebWorkerEnvControllerUpdateForAgentResponse,
-  AnkoleWebWorkerEnvControllerUpdateForAgentError,
-  Options<AnkoleWebWorkerEnvControllerUpdateForAgentData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebWorkerEnvControllerUpdateForAgentResponse,
-    AnkoleWebWorkerEnvControllerUpdateForAgentError,
-    Options<AnkoleWebWorkerEnvControllerUpdateForAgentData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebWorkerEnvControllerUpdateForAgent({
         ...options,
         ...fnOptions,
         throwOnError: true

@@ -131,6 +131,46 @@ export type Links = {
 }
 
 /**
+ * A "Resource object" representing a site_app_configuration_operation
+ */
+export type SiteAppConfigurationOperation = {
+  /**
+   * An attributes object for a site_app_configuration_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a site_app_configuration_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a site_worker_env_operation
+ */
+export type SiteWorkerEnvOperation = {
+  /**
+   * An attributes object for a site_worker_env_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a site_worker_env_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a tenant
  */
 export type Tenant = {
@@ -217,6 +257,26 @@ export type WorkerProvider = {
   id: string
   /**
    * A relationships object for a worker_provider
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a worker_provider_operation
+ */
+export type WorkerProviderOperation = {
+  /**
+   * An attributes object for a worker_provider_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a worker_provider_operation
    */
   relationships?: {
     [key: string]: never
@@ -490,6 +550,224 @@ export type EnableAiGatewayProviderResponses = {
 }
 
 export type EnableAiGatewayProviderResponse = EnableAiGatewayProviderResponses[keyof EnableAiGatewayProviderResponses]
+
+export type ListSiteAppConfigurationsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/site/app-configurations'
+}
+
+export type ListSiteAppConfigurationsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListSiteAppConfigurationsError = ListSiteAppConfigurationsErrors[keyof ListSiteAppConfigurationsErrors]
+
+export type ListSiteAppConfigurationsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    app_configurations: Array<{
+      default_present: boolean
+      description?: string | null
+      editable: boolean
+      encrypted: boolean
+      error?: string | null
+      key: string
+      kind: 'exact' | 'pattern' | 'pattern_concrete'
+      overridden: boolean
+      pattern?: string | null
+      pattern_id?: string | null
+      present: boolean
+      scope: 'global' | 'tenant'
+      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      value?: unknown | null
+    }>
+  }
+}
+
+export type ListSiteAppConfigurationsResponse =
+  ListSiteAppConfigurationsResponses[keyof ListSiteAppConfigurationsResponses]
+
+export type ResetSiteAppConfigurationData = {
+  body?: never
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v2/site/app-configurations/{key}'
+}
+
+export type ResetSiteAppConfigurationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResetSiteAppConfigurationError = ResetSiteAppConfigurationErrors[keyof ResetSiteAppConfigurationErrors]
+
+export type ResetSiteAppConfigurationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    app_configuration: {
+      default_present: boolean
+      description?: string | null
+      editable: boolean
+      encrypted: boolean
+      error?: string | null
+      key: string
+      kind: 'exact' | 'pattern' | 'pattern_concrete'
+      overridden: boolean
+      pattern?: string | null
+      pattern_id?: string | null
+      present: boolean
+      scope: 'global' | 'tenant'
+      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      value?: unknown | null
+    }
+  }
+}
+
+export type ResetSiteAppConfigurationResponse =
+  ResetSiteAppConfigurationResponses[keyof ResetSiteAppConfigurationResponses]
+
+export type GetSiteAppConfigurationData = {
+  body?: never
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v2/site/app-configurations/{key}'
+}
+
+export type GetSiteAppConfigurationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetSiteAppConfigurationError = GetSiteAppConfigurationErrors[keyof GetSiteAppConfigurationErrors]
+
+export type GetSiteAppConfigurationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    app_configuration: {
+      default_present: boolean
+      description?: string | null
+      editable: boolean
+      encrypted: boolean
+      error?: string | null
+      key: string
+      kind: 'exact' | 'pattern' | 'pattern_concrete'
+      overridden: boolean
+      pattern?: string | null
+      pattern_id?: string | null
+      present: boolean
+      scope: 'global' | 'tenant'
+      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      value?: unknown | null
+    }
+  }
+}
+
+export type GetSiteAppConfigurationResponse = GetSiteAppConfigurationResponses[keyof GetSiteAppConfigurationResponses]
+
+export type UpdateSiteAppConfigurationData = {
+  /**
+   * Request body for the update_site_app_configuration operation on site_app_configuration_operation resource
+   */
+  body?: {
+    data: {
+      value?: unknown | null
+    }
+  }
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v2/site/app-configurations/{key}'
+}
+
+export type UpdateSiteAppConfigurationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateSiteAppConfigurationError = UpdateSiteAppConfigurationErrors[keyof UpdateSiteAppConfigurationErrors]
+
+export type UpdateSiteAppConfigurationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    app_configuration: {
+      default_present: boolean
+      description?: string | null
+      editable: boolean
+      encrypted: boolean
+      error?: string | null
+      key: string
+      kind: 'exact' | 'pattern' | 'pattern_concrete'
+      overridden: boolean
+      pattern?: string | null
+      pattern_id?: string | null
+      present: boolean
+      scope: 'global' | 'tenant'
+      source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
+      value?: unknown | null
+    }
+  }
+}
+
+export type UpdateSiteAppConfigurationResponse =
+  UpdateSiteAppConfigurationResponses[keyof UpdateSiteAppConfigurationResponses]
+
+export type DecryptSiteAppConfigurationData = {
+  body?: never
+  path: {
+    key: string
+  }
+  query?: never
+  url: '/api/v2/site/app-configurations/{key}/decryptions'
+}
+
+export type DecryptSiteAppConfigurationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DecryptSiteAppConfigurationError =
+  DecryptSiteAppConfigurationErrors[keyof DecryptSiteAppConfigurationErrors]
+
+export type DecryptSiteAppConfigurationResponses = {
+  /**
+   * Success
+   */
+  201: {
+    decrypted_value: {
+      key: string
+      value?: unknown | null
+    }
+  }
+}
+
+export type DecryptSiteAppConfigurationResponse =
+  DecryptSiteAppConfigurationResponses[keyof DecryptSiteAppConfigurationResponses]
 
 export type GetPrivilegedTenantData = {
   body?: never
@@ -938,6 +1216,188 @@ export type SuspendTenantResponses = {
 
 export type SuspendTenantResponse = SuspendTenantResponses[keyof SuspendTenantResponses]
 
+export type ListSiteWorkerEnvsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/site/worker-envs'
+}
+
+export type ListSiteWorkerEnvsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListSiteWorkerEnvsError = ListSiteWorkerEnvsErrors[keyof ListSiteWorkerEnvsErrors]
+
+export type ListSiteWorkerEnvsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_envs: Array<{
+      description?: string | null
+      name: string
+      present: boolean
+      secret: boolean
+      source: 'global' | 'tenant' | 'agent' | 'missing'
+      value?: string | null
+    }>
+  }
+}
+
+export type ListSiteWorkerEnvsResponse = ListSiteWorkerEnvsResponses[keyof ListSiteWorkerEnvsResponses]
+
+export type DeleteSiteWorkerEnvData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v2/site/worker-envs/{name}'
+}
+
+export type DeleteSiteWorkerEnvErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteSiteWorkerEnvError = DeleteSiteWorkerEnvErrors[keyof DeleteSiteWorkerEnvErrors]
+
+export type DeleteSiteWorkerEnvResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_env: {
+      description?: string | null
+      name: string
+      present: boolean
+      secret: boolean
+      source: 'global' | 'tenant' | 'agent' | 'missing'
+      value?: string | null
+    }
+  }
+}
+
+export type DeleteSiteWorkerEnvResponse = DeleteSiteWorkerEnvResponses[keyof DeleteSiteWorkerEnvResponses]
+
+export type UpdateSiteWorkerEnvData = {
+  /**
+   * Request body for the update_site_worker_env operation on site_worker_env_operation resource
+   */
+  body?: {
+    data: {
+      description?: string | null
+      secret?: boolean | null
+      value?: string | null
+    }
+  }
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v2/site/worker-envs/{name}'
+}
+
+export type UpdateSiteWorkerEnvErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateSiteWorkerEnvError = UpdateSiteWorkerEnvErrors[keyof UpdateSiteWorkerEnvErrors]
+
+export type UpdateSiteWorkerEnvResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_env: {
+      description?: string | null
+      name: string
+      present: boolean
+      secret: boolean
+      source: 'global' | 'tenant' | 'agent' | 'missing'
+      value?: string | null
+    }
+  }
+}
+
+export type UpdateSiteWorkerEnvResponse = UpdateSiteWorkerEnvResponses[keyof UpdateSiteWorkerEnvResponses]
+
+export type DecryptSiteWorkerEnvData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v2/site/worker-envs/{name}/decryptions'
+}
+
+export type DecryptSiteWorkerEnvErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DecryptSiteWorkerEnvError = DecryptSiteWorkerEnvErrors[keyof DecryptSiteWorkerEnvErrors]
+
+export type DecryptSiteWorkerEnvResponses = {
+  /**
+   * Success
+   */
+  201: {
+    decrypted_value: {
+      name: string
+      value: string
+    }
+  }
+}
+
+export type DecryptSiteWorkerEnvResponse = DecryptSiteWorkerEnvResponses[keyof DecryptSiteWorkerEnvResponses]
+
+export type ListWorkerProviderKindsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/site/worker-provider-kinds'
+}
+
+export type ListWorkerProviderKindsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListWorkerProviderKindsError = ListWorkerProviderKindsErrors[keyof ListWorkerProviderKindsErrors]
+
+export type ListWorkerProviderKindsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    worker_provider_kinds: Array<{
+      credentials: {
+        [key: string]: {
+          required: boolean
+        }
+      }
+      example: string
+      kind: string
+    }>
+  }
+}
+
+export type ListWorkerProviderKindsResponse = ListWorkerProviderKindsResponses[keyof ListWorkerProviderKindsResponses]
+
 export type ListWorkerProvidersData = {
   body?: never
   path?: never
@@ -1160,3 +1620,32 @@ export type UpdateWorkerProviderResponses = {
 }
 
 export type UpdateWorkerProviderResponse = UpdateWorkerProviderResponses[keyof UpdateWorkerProviderResponses]
+
+export type CheckWorkerProviderData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/site/worker-providers/{provider_id}/check'
+}
+
+export type CheckWorkerProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CheckWorkerProviderError = CheckWorkerProviderErrors[keyof CheckWorkerProviderErrors]
+
+export type CheckWorkerProviderResponses = {
+  /**
+   * Success
+   */
+  200: {
+    available: boolean
+  }
+}
+
+export type CheckWorkerProviderResponse = CheckWorkerProviderResponses[keyof CheckWorkerProviderResponses]

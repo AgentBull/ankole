@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import type { WorkerProviderKind } from '../api/generated/types.gen'
+import type { WorkerProviderKind } from '../api/configuration-types'
 import { seedEditorDraft } from '../use-editor-draft'
 import { newWorkerProviderDraft, workerProviderDraft, WorkerProviderEditorModel } from './worker-provider-editor-model'
 

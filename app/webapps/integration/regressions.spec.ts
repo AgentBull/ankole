@@ -159,12 +159,15 @@ const setting = (key: string, value: unknown) => ({
 
 test('a rejected save notification does not cover the corrected Save action', async ({ page }) => {
   let attempts = 0
-  await page.route(/\/api\/v1\/(?:site\/)?app-configurations/, route => {
+  await page.route(/\/api\/v2\/(?:site\/)?app-configurations/, route => {
     const item = setting('worker.test_limit', 10)
     if (route.request().method() === 'PUT') {
       attempts++
       return attempts === 1
-        ? route.fulfill({ status: 422, json: { error: { code: 'invalid', message: 'Fixture rejected' } } })
+        ? route.fulfill({
+            status: 422,
+            json: { errors: [{ code: 'invalid', detail: 'Fixture rejected', status: '422' }] }
+          })
         : route.fulfill({ json: { app_configuration: setting(item.key, 20) } })
     }
     return route.fulfill({
@@ -265,7 +268,7 @@ test('a library save completed after leaving the editor supplies the next visit 
     }
     return route.fulfill({ json: { library_documents: documents } })
   })
-  await page.route(/\/api\/v1\/(?:site\/)?app-configurations/, route =>
+  await page.route(/\/api\/v2\/(?:site\/)?app-configurations/, route =>
     route.fulfill({ json: { app_configurations: [] } })
   )
   await page.goto('/library/agent-one')
@@ -295,11 +298,11 @@ test('saving a revealed Agent secret masks the old value and a later reveal load
 }) => {
   let value = 'old-fixture'
   const item = { name: 'QA_SECRET', source: 'agent', secret: true, value: null }
-  await page.route('**/api/v1/agents/agent-one/worker-envs**', route => {
+  await page.route('**/api/v2/agents/agent-one/worker-envs**', route => {
     const method = route.request().method()
     if (method === 'GET') return route.fulfill({ json: { worker_envs: [item] } })
     if (method === 'POST') return route.fulfill({ json: { decrypted_value: { name: item.name, value } } })
-    value = route.request().postDataJSON().value
+    value = route.request().postDataJSON().data.value
     return route.fulfill({ json: { worker_env: item } })
   })
   await page.goto('/worker-env')
@@ -319,10 +322,10 @@ test('compaction accepts domain-valid decimals and large integers, and rejects i
   page
 }) => {
   const writes: unknown[] = []
-  await page.route(/\/api\/v1\/(?:site\/)?app-configurations/, route => {
+  await page.route(/\/api\/v2\/(?:site\/)?app-configurations/, route => {
     const item = setting('ai_gateway.compaction', compaction)
     if (route.request().method() === 'PUT') {
-      const value = route.request().postDataJSON().value
+      const value = route.request().postDataJSON().data.value
       writes.push(value)
       return route.fulfill({ json: { app_configuration: setting(item.key, value) } })
     }
@@ -360,7 +363,7 @@ test('compaction accepts domain-valid decimals and large integers, and rejects i
 test('a setting reopened during a save waits for the persisted value', async ({ page }) => {
   let value = 10
   const writes: Route[] = []
-  await page.route(/\/api\/v1\/(?:site\/)?app-configurations/, route => {
+  await page.route(/\/api\/v2\/(?:site\/)?app-configurations/, route => {
     if (route.request().method() === 'PUT') {
       writes.push(route)
       return
@@ -477,7 +480,7 @@ test('schedule names reject whitespace and reopening waits for a completed updat
 test('a settings group reopened during a save does not reuse its old draft', async ({ page }) => {
   let endpoint = 'https://old.example.test'
   const writes: Route[] = []
-  await page.route(/\/api\/v1\/(?:site\/)?app-configurations/, route => {
+  await page.route(/\/api\/v2\/(?:site\/)?app-configurations/, route => {
     if (route.request().method() === 'PUT') {
       writes.push(route)
       return

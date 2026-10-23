@@ -726,14 +726,14 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/app-configurations/#{config_key}", %{
+      |> put_app_configuration(~p"/api/v2/app-configurations/#{config_key}", %{
         "value" => %{
           "appID" => "cli_shared_lark",
           "appSecret" => "secret-bypassed-lark"
         }
       })
 
-    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} = json_response(conn, 422)
 
     assert {:ok, %{"appID" => "cli_second_lark", "appSecret" => "secret-second-lark"}} =
              Bindings.binding_config(
@@ -741,8 +741,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
                LarkConfig
              )
 
-    conn = conn |> recycle_api() |> delete(~p"/api/v1/app-configurations/#{config_key}")
-    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    conn =
+      conn
+      |> recycle_api()
+      |> delete_app_configuration(~p"/api/v2/app-configurations/#{config_key}")
+
+    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} = json_response(conn, 422)
 
     assert {:ok, %{"appID" => "cli_second_lark"}} =
              Bindings.binding_config(
@@ -780,14 +784,14 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/app-configurations/#{config_key}", %{
+      |> put_app_configuration(~p"/api/v2/app-configurations/#{config_key}", %{
         "value" => %{
           "clientId" => "ding_shared",
           "clientSecret" => "secret-bypassed-dingtalk"
         }
       })
 
-    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} = json_response(conn, 422)
 
     assert {:ok,
             %{
@@ -799,8 +803,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
                DingTalkConfig
              )
 
-    conn = conn |> recycle_api() |> delete(~p"/api/v1/app-configurations/#{config_key}")
-    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    conn =
+      conn
+      |> recycle_api()
+      |> delete_app_configuration(~p"/api/v2/app-configurations/#{config_key}")
+
+    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} = json_response(conn, 422)
 
     assert {:ok, %{"clientId" => "ding_second"}} =
              Bindings.binding_config(
@@ -825,10 +833,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn = put_generic_config(conn, config_key, config)
 
       assert %{
-               "error" => %{
-                 "code" => "not_editable",
-                 "message" => "app configuration is managed through its owning API"
-               }
+               "errors" => [
+                 %{
+                   "code" => "key_managed_by_owner",
+                   "detail" => "Use the owning settings page to change this value"
+                 }
+               ]
              } = json_response(conn, 422)
 
       refute Repo.get_by(SiteConfig, scope: "global", key: config_key)
@@ -839,10 +849,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn = conn |> recycle_api() |> put_generic_config(config_key, config)
 
       assert %{
-               "error" => %{
-                 "code" => "not_editable",
-                 "message" => "app configuration is managed through its owning API"
-               }
+               "errors" => [
+                 %{
+                   "code" => "key_managed_by_owner",
+                   "detail" => "Use the owning settings page to change this value"
+                 }
+               ]
              } = json_response(conn, 422)
 
       assert %SiteConfig{value: ^invalid_envelope} =
@@ -1228,7 +1240,21 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   end
 
   defp put_generic_config(conn, config_key, config) do
-    put(conn, ~p"/api/v1/app-configurations/#{config_key}", %{"value" => config})
+    put_app_configuration(conn, ~p"/api/v2/app-configurations/#{config_key}", %{"value" => config})
+  end
+
+  defp put_app_configuration(conn, path, attrs) do
+    conn
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
+    |> put(path, Jason.encode!(%{data: attrs}))
+  end
+
+  defp delete_app_configuration(conn, path) do
+    conn
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
+    |> delete(path)
   end
 
   defp put_raw_global_config(key, envelope) do

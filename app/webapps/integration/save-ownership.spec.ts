@@ -17,7 +17,7 @@ test('a provider response preserves edits made while saving and the navigation g
     selectable: true
   }
   const writes: Route[] = []
-  await page.route('**/api/v1/site/worker-provider-kinds', route =>
+  await page.route('**/api/v2/site/worker-provider-kinds', route =>
     route.fulfill({
       json: {
         worker_provider_kinds: [{ kind: 'docker', example: 'before', credentials: { token: { required: false } } }]
@@ -31,7 +31,7 @@ test('a provider response preserves edits made while saving and the navigation g
     }
     return route.fulfill({ json: { data: [workerProvider(item)] } })
   })
-  await page.route('**/api/v1/site/app-configurations**', route => route.fulfill({ json: { app_configurations: [] } }))
+  await page.route('**/api/v2/site/app-configurations**', route => route.fulfill({ json: { app_configurations: [] } }))
   await page.goto('/worker-providers/fixture')
   const config = page.locator('textarea')
   await config.fill('sent')
@@ -88,7 +88,7 @@ test('suspending a tenant leaves its unsaved name dirty', async ({ page }) => {
 test('an old reveal does not replace a new Agent environment draft', async ({ page }) => {
   let reveal: Route | undefined
   const item = { name: 'QA_SECRET', source: 'agent', secret: true, value: null }
-  await page.route('**/api/v1/agents/agent-one/worker-envs**', route => {
+  await page.route('**/api/v2/agents/agent-one/worker-envs**', route => {
     if (route.request().method() === 'POST') {
       reveal = route
       return
@@ -118,7 +118,7 @@ test('a delayed delete acknowledgement cannot navigate away from the next editor
     agent_count: 0,
     selectable: true
   }
-  await page.route('**/api/v1/site/worker-provider-kinds', route =>
+  await page.route('**/api/v2/site/worker-provider-kinds', route =>
     route.fulfill({ json: { worker_provider_kinds: [{ kind: 'docker', example: 'before', credentials: {} }] } })
   )
   await page.route('**/api/v2/site/worker-providers**', route => {
@@ -128,7 +128,7 @@ test('a delayed delete acknowledgement cannot navigate away from the next editor
     }
     return route.fulfill({ json: { data: deleted ? [] : [workerProvider(item)] } })
   })
-  await page.route('**/api/v1/site/app-configurations**', route => route.fulfill({ json: { app_configurations: [] } }))
+  await page.route('**/api/v2/site/app-configurations**', route => route.fulfill({ json: { app_configurations: [] } }))
   await page.goto('/worker-providers/fixture')
   await page.getByRole('button', { name: 'Delete', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click()

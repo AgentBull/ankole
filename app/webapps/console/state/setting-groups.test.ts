@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import i18n, { loadLocale } from '../../common/i18n'
-import type { AppConfigurationItem } from '../api/generated/types.gen'
+import type { AppConfigurationItem } from '../api/configuration-types'
 import { settingDescription, settingGroup, settingGroupID, settingOwnerRoute, settingRows } from './setting-groups'
 
 beforeAll(() => loadLocale('zh-Hans-CN'))

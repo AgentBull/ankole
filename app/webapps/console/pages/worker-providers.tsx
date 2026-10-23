@@ -23,9 +23,9 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { requestErrorDetailList, requestErrorMessage } from '../../common/request-errors'
 import {
-  ankoleWebWorkerProviderControllerCheckOptions,
-  ankoleWebWorkerProviderControllerKindsOptions
-} from '../api/generated/@tanstack/react-query.gen'
+  checkWorkerProviderOptions,
+  listWorkerProviderKindsOptions
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
 import {
   createWorkerProviderMutation,
   deleteWorkerProviderMutation,
@@ -113,7 +113,7 @@ export function WorkerProvidersListPage() {
 function ProviderAvailability({ providerID }: { providerID: string }) {
   const { t } = useTranslation()
   const check = useQuery({
-    ...ankoleWebWorkerProviderControllerCheckOptions({ path: { provider_id: providerID } }),
+    ...checkWorkerProviderOptions({ path: { provider_id: providerID } }),
     retry: false
   })
   return (
@@ -149,7 +149,7 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
   const navigate = useNavigate()
   const model = useModel(WorkerProviderEditorModel)
   const providers = useQuery({ ...listWorkerProvidersOptions(), select: workerProviders })
-  const kinds = useQuery(ankoleWebWorkerProviderControllerKindsOptions())
+  const kinds = useQuery(listWorkerProviderKindsOptions())
   const selected = providers.data?.find(provider => provider.provider_id === providerID)
   const definitions = kinds.data?.worker_provider_kinds
   const source = useMemo(() => {

@@ -32,6 +32,30 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   # {resource, route type, action or relationship} => {AuthZ resource, AuthZ action}
   @rules %{
     site: %{
+      # K1 registry settings and operator Worker environment.
+      {Ankole.AppConfigure.SiteOperations, :route, :console_list} =>
+        {"app_configurations", "read"},
+      {Ankole.AppConfigure.SiteOperations, :route, :console_show} =>
+        {"app_configuration:{key}", "read"},
+      {Ankole.AppConfigure.SiteOperations, :route, :console_update} =>
+        {"app_configuration:{key}", "update"},
+      {Ankole.AppConfigure.SiteOperations, :route, :console_delete} =>
+        {"app_configuration:{key}", "reset"},
+      {Ankole.AppConfigure.SiteOperations, :route, :console_decrypt} =>
+        {"app_configuration:{key}", "decrypt"},
+      {Ankole.AgentWorkers.WorkerEnv.SiteOperations, :route, :console_list} =>
+        {"worker_envs", "read"},
+      {Ankole.AgentWorkers.WorkerEnv.SiteOperations, :route, :console_put} =>
+        {"worker_env:{name}", "update"},
+      {Ankole.AgentWorkers.WorkerEnv.SiteOperations, :route, :console_delete} =>
+        {"worker_env:{name}", "reset"},
+      {Ankole.AgentWorkers.WorkerEnv.SiteOperations, :route, :console_decrypt} =>
+        {"worker_env:{name}", "decrypt"},
+      {Ankole.AgentWorkers.Providers.ConsoleOperations, :route, :console_kinds} =>
+        {"worker_providers", "read"},
+      {Ankole.AgentWorkers.Providers.ConsoleOperations, :route, :console_check} =>
+        {"worker_provider:{provider_id}", "read"},
+
       # J1 site tenants (v1: tenant_controller.ex)
       {Ankole.Tenants.Tenant, :index, :list} => {"site:tenants", "read"},
       {Ankole.Tenants.Tenant, :route, :brain_packs} => {"site:tenants", "read"},
@@ -63,6 +87,34 @@ defmodule AnkoleWeb.JSONAPI.Policy do
         {"ai_gateway_provider:{provider_id}", "update"}
     },
     console: %{
+      # K1 registry settings and operator Worker environment.
+      {Ankole.AppConfigure.ConsoleOperations, :route, :console_list} =>
+        {"app_configurations", "read"},
+      {Ankole.AppConfigure.ConsoleOperations, :route, :console_show} =>
+        {"app_configuration:{key}", "read"},
+      {Ankole.AppConfigure.ConsoleOperations, :route, :console_update} =>
+        {"app_configuration:{key}", "update"},
+      {Ankole.AppConfigure.ConsoleOperations, :route, :console_delete} =>
+        {"app_configuration:{key}", "reset"},
+      {Ankole.AppConfigure.ConsoleOperations, :route, :console_decrypt} =>
+        {"app_configuration:{key}", "decrypt"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_list} =>
+        {"worker_envs", "read"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_put} =>
+        {"worker_env:{name}", "update"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_delete} =>
+        {"worker_env:{name}", "reset"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_decrypt} =>
+        {"worker_env:{name}", "decrypt"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_list_for_agent} =>
+        {"agent:{agent_uid}:worker_envs", "read"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_put_for_agent} =>
+        {"agent:{agent_uid}:worker_env:{name}", "update"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_delete_for_agent} =>
+        {"agent:{agent_uid}:worker_env:{name}", "reset"},
+      {Ankole.AgentWorkers.WorkerEnv.ConsoleOperations, :route, :console_decrypt_for_agent} =>
+        {"agent:{agent_uid}:worker_env:{name}", "decrypt"},
+
       # J4 background agent jobs (v1: background_agent_job_controller.ex)
       {Ankole.BackgroundAgentJobs.Schemas.Job, :index, :console_list} =>
         {"background_agent_jobs", "read"},

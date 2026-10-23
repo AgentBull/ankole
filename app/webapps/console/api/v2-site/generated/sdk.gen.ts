@@ -3,15 +3,27 @@
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client'
 import { client } from './client.gen'
 import type {
+  CheckWorkerProviderData,
+  CheckWorkerProviderErrors,
+  CheckWorkerProviderResponses,
   CreateTenantData,
   CreateTenantErrors,
   CreateTenantResponses,
   CreateWorkerProviderData,
   CreateWorkerProviderErrors,
   CreateWorkerProviderResponses,
+  DecryptSiteAppConfigurationData,
+  DecryptSiteAppConfigurationErrors,
+  DecryptSiteAppConfigurationResponses,
+  DecryptSiteWorkerEnvData,
+  DecryptSiteWorkerEnvErrors,
+  DecryptSiteWorkerEnvResponses,
   DeleteAiGatewayProviderData,
   DeleteAiGatewayProviderErrors,
   DeleteAiGatewayProviderResponses,
+  DeleteSiteWorkerEnvData,
+  DeleteSiteWorkerEnvErrors,
+  DeleteSiteWorkerEnvResponses,
   DeleteTenantData,
   DeleteTenantErrors,
   DeleteTenantResponses,
@@ -27,21 +39,36 @@ import type {
   GetPrivilegedTenantData,
   GetPrivilegedTenantErrors,
   GetPrivilegedTenantResponses,
+  GetSiteAppConfigurationData,
+  GetSiteAppConfigurationErrors,
+  GetSiteAppConfigurationResponses,
   ListAiGatewayProvidersData,
   ListAiGatewayProvidersErrors,
   ListAiGatewayProvidersResponses,
+  ListSiteAppConfigurationsData,
+  ListSiteAppConfigurationsErrors,
+  ListSiteAppConfigurationsResponses,
+  ListSiteWorkerEnvsData,
+  ListSiteWorkerEnvsErrors,
+  ListSiteWorkerEnvsResponses,
   ListTenantBrainPacksData,
   ListTenantBrainPacksErrors,
   ListTenantBrainPacksResponses,
   ListTenantsData,
   ListTenantsErrors,
   ListTenantsResponses,
+  ListWorkerProviderKindsData,
+  ListWorkerProviderKindsErrors,
+  ListWorkerProviderKindsResponses,
   ListWorkerProvidersData,
   ListWorkerProvidersErrors,
   ListWorkerProvidersResponses,
   PutAiGatewayProviderData,
   PutAiGatewayProviderErrors,
   PutAiGatewayProviderResponses,
+  ResetSiteAppConfigurationData,
+  ResetSiteAppConfigurationErrors,
+  ResetSiteAppConfigurationResponses,
   ResumeTenantData,
   ResumeTenantErrors,
   ResumeTenantResponses,
@@ -51,6 +78,12 @@ import type {
   TransferSiteAdministrationData,
   TransferSiteAdministrationErrors,
   TransferSiteAdministrationResponses,
+  UpdateSiteAppConfigurationData,
+  UpdateSiteAppConfigurationErrors,
+  UpdateSiteAppConfigurationResponses,
+  UpdateSiteWorkerEnvData,
+  UpdateSiteWorkerEnvErrors,
+  UpdateSiteWorkerEnvResponses,
   UpdateTenantData,
   UpdateTenantErrors,
   UpdateTenantResponses,
@@ -143,6 +176,74 @@ export const enableAiGatewayProvider = <ThrowOnError extends boolean = false>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * list_site_app_configurations operation on site_app_configuration_operation resource
+ */
+export const listSiteAppConfigurations = <ThrowOnError extends boolean = false>(
+  options?: Options<ListSiteAppConfigurationsData, ThrowOnError>
+): RequestResult<ListSiteAppConfigurationsResponses, ListSiteAppConfigurationsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListSiteAppConfigurationsResponses, ListSiteAppConfigurationsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/app-configurations',
+    ...options
+  })
+
+/**
+ * reset_site_app_configuration operation on site_app_configuration_operation resource
+ */
+export const resetSiteAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<ResetSiteAppConfigurationData, ThrowOnError>
+): RequestResult<ResetSiteAppConfigurationResponses, ResetSiteAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).delete<ResetSiteAppConfigurationResponses, ResetSiteAppConfigurationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/app-configurations/{key}',
+    ...options
+  })
+
+/**
+ * get_site_app_configuration operation on site_app_configuration_operation resource
+ */
+export const getSiteAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<GetSiteAppConfigurationData, ThrowOnError>
+): RequestResult<GetSiteAppConfigurationResponses, GetSiteAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetSiteAppConfigurationResponses, GetSiteAppConfigurationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/app-configurations/{key}',
+    ...options
+  })
+
+/**
+ * update_site_app_configuration operation on site_app_configuration_operation resource
+ */
+export const updateSiteAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateSiteAppConfigurationData, ThrowOnError>
+): RequestResult<UpdateSiteAppConfigurationResponses, UpdateSiteAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).put<UpdateSiteAppConfigurationResponses, UpdateSiteAppConfigurationErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/app-configurations/{key}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * decrypt_site_app_configuration operation on site_app_configuration_operation resource
+ */
+export const decryptSiteAppConfiguration = <ThrowOnError extends boolean = false>(
+  options: Options<DecryptSiteAppConfigurationData, ThrowOnError>
+): RequestResult<DecryptSiteAppConfigurationResponses, DecryptSiteAppConfigurationErrors, ThrowOnError> =>
+  (options.client ?? client).post<
+    DecryptSiteAppConfigurationResponses,
+    DecryptSiteAppConfigurationErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/app-configurations/{key}/decryptions',
+    ...options
   })
 
 /**
@@ -272,6 +373,70 @@ export const suspendTenant = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * list_site_worker_envs operation on site_worker_env_operation resource
+ */
+export const listSiteWorkerEnvs = <ThrowOnError extends boolean = false>(
+  options?: Options<ListSiteWorkerEnvsData, ThrowOnError>
+): RequestResult<ListSiteWorkerEnvsResponses, ListSiteWorkerEnvsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListSiteWorkerEnvsResponses, ListSiteWorkerEnvsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/worker-envs',
+    ...options
+  })
+
+/**
+ * delete_site_worker_env operation on site_worker_env_operation resource
+ */
+export const deleteSiteWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteSiteWorkerEnvData, ThrowOnError>
+): RequestResult<DeleteSiteWorkerEnvResponses, DeleteSiteWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteSiteWorkerEnvResponses, DeleteSiteWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/worker-envs/{name}',
+    ...options
+  })
+
+/**
+ * update_site_worker_env operation on site_worker_env_operation resource
+ */
+export const updateSiteWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<UpdateSiteWorkerEnvData, ThrowOnError>
+): RequestResult<UpdateSiteWorkerEnvResponses, UpdateSiteWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).put<UpdateSiteWorkerEnvResponses, UpdateSiteWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/worker-envs/{name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * decrypt_site_worker_env operation on site_worker_env_operation resource
+ */
+export const decryptSiteWorkerEnv = <ThrowOnError extends boolean = false>(
+  options: Options<DecryptSiteWorkerEnvData, ThrowOnError>
+): RequestResult<DecryptSiteWorkerEnvResponses, DecryptSiteWorkerEnvErrors, ThrowOnError> =>
+  (options.client ?? client).post<DecryptSiteWorkerEnvResponses, DecryptSiteWorkerEnvErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/worker-envs/{name}/decryptions',
+    ...options
+  })
+
+/**
+ * list_worker_provider_kinds operation on worker_provider_operation resource
+ */
+export const listWorkerProviderKinds = <ThrowOnError extends boolean = false>(
+  options?: Options<ListWorkerProviderKindsData, ThrowOnError>
+): RequestResult<ListWorkerProviderKindsResponses, ListWorkerProviderKindsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListWorkerProviderKindsResponses, ListWorkerProviderKindsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/worker-provider-kinds',
+    ...options
+  })
+
+/**
  * list_worker_providers operation on worker_provider resource
  */
 export const listWorkerProviders = <ThrowOnError extends boolean = false>(
@@ -325,4 +490,16 @@ export const updateWorkerProvider = <ThrowOnError extends boolean = false>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * check_worker_provider operation on worker_provider_operation resource
+ */
+export const checkWorkerProvider = <ThrowOnError extends boolean = false>(
+  options: Options<CheckWorkerProviderData, ThrowOnError>
+): RequestResult<CheckWorkerProviderResponses, CheckWorkerProviderErrors, ThrowOnError> =>
+  (options.client ?? client).get<CheckWorkerProviderResponses, CheckWorkerProviderErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/site/worker-providers/{provider_id}/check',
+    ...options
   })

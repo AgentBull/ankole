@@ -1,4 +1,4 @@
-import type { WorkerEnvItem } from '../api/generated/types.gen'
+import type { WorkerEnvItem } from '../api/configuration-types'
 
 /**
  * Lists only whether a value exists. Environment values may contain credentials

@@ -81,13 +81,6 @@ export type DirectoryEventReviewRequest = {
 }
 
 /**
- * AppConfigurationResponse
- */
-export type AppConfigurationResponse = {
-  app_configuration: AppConfigurationItem
-}
-
-/**
  * ConversationStandingOrdersItem
  */
 export type ConversationStandingOrdersItem = {
@@ -128,13 +121,6 @@ export type LocalizedText = {
  */
 export type AuthSessionDeleteResponse = {
   ok: boolean
-}
-
-/**
- * WorkerEnvDecryptionResponse
- */
-export type WorkerEnvDecryptionResponse = {
-  decrypted_value: WorkerEnvDecryptionValue
 }
 
 /**
@@ -220,13 +206,6 @@ export type BackgroundActivityAutomationRunsResponse = {
   next_cursor: string | null
   observed_at: string
   runs: Array<BackgroundActivityAutomationRun>
-}
-
-/**
- * WorkerEnvListResponse
- */
-export type WorkerEnvListResponse = {
-  worker_envs: Array<WorkerEnvItem>
 }
 
 /**
@@ -745,26 +724,6 @@ export type BrainSearchPreviewRequest = {
 }
 
 /**
- * AppConfigurationItem
- */
-export type AppConfigurationItem = {
-  default_present: boolean
-  description?: string | null
-  editable: boolean
-  encrypted: boolean
-  error?: string | null
-  key: string
-  kind: 'exact' | 'pattern' | 'pattern_concrete'
-  overridden: boolean
-  pattern?: string | null
-  pattern_id?: string | null
-  present: boolean
-  scope: 'global' | 'tenant'
-  source: 'tenant' | 'global' | 'default' | 'pattern' | 'missing' | 'error'
-  value?: JsonValue
-}
-
-/**
  * SignalBindingUpdateRequest
  */
 export type SignalBindingUpdateRequest = {
@@ -797,15 +756,6 @@ export type BrainPageLinks = {
     link_type: string
     to: string
   }>
-}
-
-/**
- * WorkerEnvUpdateRequest
- */
-export type WorkerEnvUpdateRequest = {
-  description?: string | null
-  secret?: boolean
-  value?: string
 }
 
 /**
@@ -1076,13 +1026,6 @@ export type SignalBindingWriteRequest = {
 }
 
 /**
- * WorkerProviderKindsResponse
- */
-export type WorkerProviderKindsResponse = {
-  worker_provider_kinds: Array<WorkerProviderKind>
-}
-
-/**
  * ConsoleReadinessAgent
  */
 export type ConsoleReadinessAgent = {
@@ -1204,20 +1147,6 @@ export type AiGatewayModelCatalogResponse = {
 }
 
 /**
- * WorkerProviderCheckResponse
- */
-export type WorkerProviderCheckResponse = {
-  available: boolean
-}
-
-/**
- * WorkerEnvResponse
- */
-export type WorkerEnvResponse = {
-  worker_env: WorkerEnvItem
-}
-
-/**
  * BackgroundActivityWorkflowResponse
  */
 export type BackgroundActivityWorkflowResponse = {
@@ -1263,13 +1192,6 @@ export type AiGatewayChatGptLoginResponse = {
  */
 export type AgentFileUploadResponse = {
   uploaded_file: AgentFileEntry
-}
-
-/**
- * AppConfigurationUpdateRequest
- */
-export type AppConfigurationUpdateRequest = {
-  value?: JsonValue
 }
 
 /**
@@ -1394,19 +1316,6 @@ export type DirectoryApproveRequest = {
 }
 
 /**
- * WorkerProviderKind
- */
-export type WorkerProviderKind = {
-  credentials: {
-    [key: string]: {
-      required: boolean
-    }
-  }
-  example: string
-  kind: string
-}
-
-/**
  * BrainClaim
  */
 export type BrainClaim = {
@@ -1477,26 +1386,6 @@ export type BrainPageTake = {
 }
 
 /**
- * WorkerEnvItem
- */
-export type WorkerEnvItem = {
-  description?: string | null
-  name: string
-  present: boolean
-  secret: boolean
-  source: 'global' | 'tenant' | 'agent' | 'missing'
-  value?: string
-}
-
-/**
- * WorkerEnvDecryptionValue
- */
-export type WorkerEnvDecryptionValue = {
-  name: string
-  value: string
-}
-
-/**
  * ConsoleReadinessSignalRoute
  */
 export type ConsoleReadinessSignalRoute = {
@@ -1538,13 +1427,6 @@ export type BackgroundAgentJobTurnUsageBreakdown = {
   output_tokens: number
   reasoning_output_tokens: number
   total_tokens: number
-}
-
-/**
- * AppConfigurationListResponse
- */
-export type AppConfigurationListResponse = {
-  app_configurations: Array<AppConfigurationItem>
 }
 
 /**
@@ -1747,13 +1629,6 @@ export type SignalBindingItem = {
 }
 
 /**
- * AppConfigurationDecryptionResponse
- */
-export type AppConfigurationDecryptionResponse = {
-  decrypted_value: AppConfigurationDecryptionValue
-}
-
-/**
  * AgentSession
  *
  * One Session surfaced from durable schedule, Signal, or job rows.
@@ -1894,14 +1769,6 @@ export type OidcClientItem = {
   scopes: Array<string>
   type: 'public' | 'confidential'
   updated_at: string
-}
-
-/**
- * AppConfigurationDecryptionValue
- */
-export type AppConfigurationDecryptionValue = {
-  key: string
-  value: JsonValue
 }
 
 /**
@@ -2146,62 +2013,6 @@ export type AnkoleWebAiGatewayFilesControllerShowResponses = {
 export type AnkoleWebAiGatewayFilesControllerShowResponse =
   AnkoleWebAiGatewayFilesControllerShowResponses[keyof AnkoleWebAiGatewayFilesControllerShowResponses]
 
-export type AnkoleWebWorkerEnvControllerDecryptData = {
-  body?: never
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/site/worker-envs/{name}/decryptions'
-}
-
-export type AnkoleWebWorkerEnvControllerDecryptErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerEnvControllerDecryptError =
-  AnkoleWebWorkerEnvControllerDecryptErrors[keyof AnkoleWebWorkerEnvControllerDecryptErrors]
-
-export type AnkoleWebWorkerEnvControllerDecryptResponses = {
-  /**
-   * Decrypted value
-   */
-  200: WorkerEnvDecryptionResponse
-}
-
-export type AnkoleWebWorkerEnvControllerDecryptResponse =
-  AnkoleWebWorkerEnvControllerDecryptResponses[keyof AnkoleWebWorkerEnvControllerDecryptResponses]
-
-export type AnkoleWebAppConfigurationControllerIndexTenantData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/app-configurations'
-}
-
-export type AnkoleWebAppConfigurationControllerIndexTenantErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAppConfigurationControllerIndexTenantError =
-  AnkoleWebAppConfigurationControllerIndexTenantErrors[keyof AnkoleWebAppConfigurationControllerIndexTenantErrors]
-
-export type AnkoleWebAppConfigurationControllerIndexTenantResponses = {
-  /**
-   * AppConfigure entries
-   */
-  200: AppConfigurationListResponse
-}
-
-export type AnkoleWebAppConfigurationControllerIndexTenantResponse =
-  AnkoleWebAppConfigurationControllerIndexTenantResponses[keyof AnkoleWebAppConfigurationControllerIndexTenantResponses]
-
 export type AnkoleWebAgentFileControllerMoveData = {
   /**
    * Move
@@ -2294,33 +2105,6 @@ export type AnkoleWebAgentControllerResetTokenQuotaResponses = {
 
 export type AnkoleWebAgentControllerResetTokenQuotaResponse =
   AnkoleWebAgentControllerResetTokenQuotaResponses[keyof AnkoleWebAgentControllerResetTokenQuotaResponses]
-
-export type AnkoleWebAppConfigurationControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/site/app-configurations'
-}
-
-export type AnkoleWebAppConfigurationControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAppConfigurationControllerIndexError =
-  AnkoleWebAppConfigurationControllerIndexErrors[keyof AnkoleWebAppConfigurationControllerIndexErrors]
-
-export type AnkoleWebAppConfigurationControllerIndexResponses = {
-  /**
-   * AppConfigure entries
-   */
-  200: AppConfigurationListResponse
-}
-
-export type AnkoleWebAppConfigurationControllerIndexResponse =
-  AnkoleWebAppConfigurationControllerIndexResponses[keyof AnkoleWebAppConfigurationControllerIndexResponses]
 
 export type AnkoleWebAiGatewayProviderControllerAddCredentialData = {
   /**
@@ -2919,33 +2703,6 @@ export type AnkoleWebIdentityProviderControllerPutProviderResponses = {
 export type AnkoleWebIdentityProviderControllerPutProviderResponse =
   AnkoleWebIdentityProviderControllerPutProviderResponses[keyof AnkoleWebIdentityProviderControllerPutProviderResponses]
 
-export type AnkoleWebWorkerProviderControllerKindsData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/site/worker-provider-kinds'
-}
-
-export type AnkoleWebWorkerProviderControllerKindsErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerProviderControllerKindsError =
-  AnkoleWebWorkerProviderControllerKindsErrors[keyof AnkoleWebWorkerProviderControllerKindsErrors]
-
-export type AnkoleWebWorkerProviderControllerKindsResponses = {
-  /**
-   * Worker provider kinds
-   */
-  200: WorkerProviderKindsResponse
-}
-
-export type AnkoleWebWorkerProviderControllerKindsResponse =
-  AnkoleWebWorkerProviderControllerKindsResponses[keyof AnkoleWebWorkerProviderControllerKindsResponses]
-
 export type AnkoleWebAiGatewayProviderControllerDeleteCredentialData = {
   body?: never
   path: {
@@ -3170,65 +2927,6 @@ export type AnkoleWebOidcClientControllerRotateSecretResponses = {
 export type AnkoleWebOidcClientControllerRotateSecretResponse =
   AnkoleWebOidcClientControllerRotateSecretResponses[keyof AnkoleWebOidcClientControllerRotateSecretResponses]
 
-export type AnkoleWebWorkerEnvControllerDecryptForAgentData = {
-  body?: never
-  path: {
-    agent_uid: string
-    name: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/worker-envs/{name}/decryptions'
-}
-
-export type AnkoleWebWorkerEnvControllerDecryptForAgentErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerEnvControllerDecryptForAgentError =
-  AnkoleWebWorkerEnvControllerDecryptForAgentErrors[keyof AnkoleWebWorkerEnvControllerDecryptForAgentErrors]
-
-export type AnkoleWebWorkerEnvControllerDecryptForAgentResponses = {
-  /**
-   * Decrypted value
-   */
-  200: WorkerEnvDecryptionResponse
-}
-
-export type AnkoleWebWorkerEnvControllerDecryptForAgentResponse =
-  AnkoleWebWorkerEnvControllerDecryptForAgentResponses[keyof AnkoleWebWorkerEnvControllerDecryptForAgentResponses]
-
-export type AnkoleWebWorkerEnvControllerDecryptTenantData = {
-  body?: never
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/worker-envs/{name}/decryptions'
-}
-
-export type AnkoleWebWorkerEnvControllerDecryptTenantErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerEnvControllerDecryptTenantError =
-  AnkoleWebWorkerEnvControllerDecryptTenantErrors[keyof AnkoleWebWorkerEnvControllerDecryptTenantErrors]
-
-export type AnkoleWebWorkerEnvControllerDecryptTenantResponses = {
-  /**
-   * Decrypted value
-   */
-  200: WorkerEnvDecryptionResponse
-}
-
-export type AnkoleWebWorkerEnvControllerDecryptTenantResponse =
-  AnkoleWebWorkerEnvControllerDecryptTenantResponses[keyof AnkoleWebWorkerEnvControllerDecryptTenantResponses]
-
 export type AnkoleWebIdentityProviderControllerRunSyncData = {
   body?: never
   path: {
@@ -3286,33 +2984,6 @@ export type AnkoleWebSignalBindingControllerIndexResponses = {
 
 export type AnkoleWebSignalBindingControllerIndexResponse =
   AnkoleWebSignalBindingControllerIndexResponses[keyof AnkoleWebSignalBindingControllerIndexResponses]
-
-export type AnkoleWebWorkerEnvControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/site/worker-envs'
-}
-
-export type AnkoleWebWorkerEnvControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerEnvControllerIndexError =
-  AnkoleWebWorkerEnvControllerIndexErrors[keyof AnkoleWebWorkerEnvControllerIndexErrors]
-
-export type AnkoleWebWorkerEnvControllerIndexResponses = {
-  /**
-   * Worker env entries
-   */
-  200: WorkerEnvListResponse
-}
-
-export type AnkoleWebWorkerEnvControllerIndexResponse =
-  AnkoleWebWorkerEnvControllerIndexResponses[keyof AnkoleWebWorkerEnvControllerIndexResponses]
 
 export type BackgroundActivityJobsData = {
   body?: never
@@ -3417,35 +3088,6 @@ export type AnkoleWebControlPlanePluginControllerUpdateResponses = {
 
 export type AnkoleWebControlPlanePluginControllerUpdateResponse =
   AnkoleWebControlPlanePluginControllerUpdateResponses[keyof AnkoleWebControlPlanePluginControllerUpdateResponses]
-
-export type AnkoleWebWorkerProviderControllerCheckData = {
-  body?: never
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/site/worker-providers/{provider_id}/check'
-}
-
-export type AnkoleWebWorkerProviderControllerCheckErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerProviderControllerCheckError =
-  AnkoleWebWorkerProviderControllerCheckErrors[keyof AnkoleWebWorkerProviderControllerCheckErrors]
-
-export type AnkoleWebWorkerProviderControllerCheckResponses = {
-  /**
-   * Provider available
-   */
-  200: WorkerProviderCheckResponse
-}
-
-export type AnkoleWebWorkerProviderControllerCheckResponse =
-  AnkoleWebWorkerProviderControllerCheckResponses[keyof AnkoleWebWorkerProviderControllerCheckResponses]
 
 export type AnkoleWebHumanAccessControllerUnresolvedWorkData = {
   body?: never
@@ -4073,67 +3715,6 @@ export type OidcLoginSourcesResponses = {
 
 export type OidcLoginSourcesResponse = OidcLoginSourcesResponses[keyof OidcLoginSourcesResponses]
 
-export type AnkoleWebWorkerEnvControllerDeleteTenantData = {
-  body?: never
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/worker-envs/{name}'
-}
-
-export type AnkoleWebWorkerEnvControllerDeleteTenantErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerEnvControllerDeleteTenantError =
-  AnkoleWebWorkerEnvControllerDeleteTenantErrors[keyof AnkoleWebWorkerEnvControllerDeleteTenantErrors]
-
-export type AnkoleWebWorkerEnvControllerDeleteTenantResponses = {
-  /**
-   * Worker env entry
-   */
-  200: WorkerEnvResponse
-}
-
-export type AnkoleWebWorkerEnvControllerDeleteTenantResponse =
-  AnkoleWebWorkerEnvControllerDeleteTenantResponses[keyof AnkoleWebWorkerEnvControllerDeleteTenantResponses]
-
-export type AnkoleWebWorkerEnvControllerUpdateTenantData = {
-  /**
-   * Worker env update
-   */
-  body: WorkerEnvUpdateRequest
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/worker-envs/{name}'
-}
-
-export type AnkoleWebWorkerEnvControllerUpdateTenantErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerEnvControllerUpdateTenantError =
-  AnkoleWebWorkerEnvControllerUpdateTenantErrors[keyof AnkoleWebWorkerEnvControllerUpdateTenantErrors]
-
-export type AnkoleWebWorkerEnvControllerUpdateTenantResponses = {
-  /**
-   * Worker env entry
-   */
-  200: WorkerEnvResponse
-}
-
-export type AnkoleWebWorkerEnvControllerUpdateTenantResponse =
-  AnkoleWebWorkerEnvControllerUpdateTenantResponses[keyof AnkoleWebWorkerEnvControllerUpdateTenantResponses]
-
 export type AnkoleWebAiGatewayProviderControllerModelsData = {
   body?: never
   path?: never
@@ -4303,152 +3884,6 @@ export type AnkoleWebAiGatewayControllerRerankResponses = {
 
 export type AnkoleWebAiGatewayControllerRerankResponse =
   AnkoleWebAiGatewayControllerRerankResponses[keyof AnkoleWebAiGatewayControllerRerankResponses]
-
-export type AnkoleWebWorkerEnvControllerIndexTenantData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/worker-envs'
-}
-
-export type AnkoleWebWorkerEnvControllerIndexTenantErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerEnvControllerIndexTenantError =
-  AnkoleWebWorkerEnvControllerIndexTenantErrors[keyof AnkoleWebWorkerEnvControllerIndexTenantErrors]
-
-export type AnkoleWebWorkerEnvControllerIndexTenantResponses = {
-  /**
-   * Worker env entries
-   */
-  200: WorkerEnvListResponse
-}
-
-export type AnkoleWebWorkerEnvControllerIndexTenantResponse =
-  AnkoleWebWorkerEnvControllerIndexTenantResponses[keyof AnkoleWebWorkerEnvControllerIndexTenantResponses]
-
-export type AnkoleWebAppConfigurationControllerDeleteData = {
-  body?: never
-  path: {
-    key: string
-  }
-  query?: never
-  url: '/api/v1/site/app-configurations/{key}'
-}
-
-export type AnkoleWebAppConfigurationControllerDeleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAppConfigurationControllerDeleteError =
-  AnkoleWebAppConfigurationControllerDeleteErrors[keyof AnkoleWebAppConfigurationControllerDeleteErrors]
-
-export type AnkoleWebAppConfigurationControllerDeleteResponses = {
-  /**
-   * AppConfigure entry
-   */
-  200: AppConfigurationResponse
-}
-
-export type AnkoleWebAppConfigurationControllerDeleteResponse =
-  AnkoleWebAppConfigurationControllerDeleteResponses[keyof AnkoleWebAppConfigurationControllerDeleteResponses]
-
-export type AnkoleWebAppConfigurationControllerShowData = {
-  body?: never
-  path: {
-    key: string
-  }
-  query?: never
-  url: '/api/v1/site/app-configurations/{key}'
-}
-
-export type AnkoleWebAppConfigurationControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAppConfigurationControllerShowError =
-  AnkoleWebAppConfigurationControllerShowErrors[keyof AnkoleWebAppConfigurationControllerShowErrors]
-
-export type AnkoleWebAppConfigurationControllerShowResponses = {
-  /**
-   * AppConfigure entry
-   */
-  200: AppConfigurationResponse
-}
-
-export type AnkoleWebAppConfigurationControllerShowResponse =
-  AnkoleWebAppConfigurationControllerShowResponses[keyof AnkoleWebAppConfigurationControllerShowResponses]
-
-export type AnkoleWebAppConfigurationControllerUpdateData = {
-  /**
-   * AppConfigure update
-   */
-  body: AppConfigurationUpdateRequest
-  path: {
-    key: string
-  }
-  query?: never
-  url: '/api/v1/site/app-configurations/{key}'
-}
-
-export type AnkoleWebAppConfigurationControllerUpdateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAppConfigurationControllerUpdateError =
-  AnkoleWebAppConfigurationControllerUpdateErrors[keyof AnkoleWebAppConfigurationControllerUpdateErrors]
-
-export type AnkoleWebAppConfigurationControllerUpdateResponses = {
-  /**
-   * AppConfigure entry
-   */
-  200: AppConfigurationResponse
-}
-
-export type AnkoleWebAppConfigurationControllerUpdateResponse =
-  AnkoleWebAppConfigurationControllerUpdateResponses[keyof AnkoleWebAppConfigurationControllerUpdateResponses]
-
-export type AnkoleWebAppConfigurationControllerDecryptTenantData = {
-  body?: never
-  path: {
-    key: string
-  }
-  query?: never
-  url: '/api/v1/app-configurations/{key}/decryptions'
-}
-
-export type AnkoleWebAppConfigurationControllerDecryptTenantErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAppConfigurationControllerDecryptTenantError =
-  AnkoleWebAppConfigurationControllerDecryptTenantErrors[keyof AnkoleWebAppConfigurationControllerDecryptTenantErrors]
-
-export type AnkoleWebAppConfigurationControllerDecryptTenantResponses = {
-  /**
-   * Decrypted value
-   */
-  200: AppConfigurationDecryptionResponse
-}
-
-export type AnkoleWebAppConfigurationControllerDecryptTenantResponse =
-  AnkoleWebAppConfigurationControllerDecryptTenantResponses[keyof AnkoleWebAppConfigurationControllerDecryptTenantResponses]
 
 export type AnkoleWebAiGatewayControllerEmbeddingsData = {
   /**
@@ -4620,35 +4055,6 @@ export type AnkoleWebAgentSessionControllerIndexResponses = {
 export type AnkoleWebAgentSessionControllerIndexResponse =
   AnkoleWebAgentSessionControllerIndexResponses[keyof AnkoleWebAgentSessionControllerIndexResponses]
 
-export type AnkoleWebWorkerEnvControllerIndexForAgentData = {
-  body?: never
-  path: {
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/worker-envs'
-}
-
-export type AnkoleWebWorkerEnvControllerIndexForAgentErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerEnvControllerIndexForAgentError =
-  AnkoleWebWorkerEnvControllerIndexForAgentErrors[keyof AnkoleWebWorkerEnvControllerIndexForAgentErrors]
-
-export type AnkoleWebWorkerEnvControllerIndexForAgentResponses = {
-  /**
-   * Worker env entries
-   */
-  200: WorkerEnvListResponse
-}
-
-export type AnkoleWebWorkerEnvControllerIndexForAgentResponse =
-  AnkoleWebWorkerEnvControllerIndexForAgentResponses[keyof AnkoleWebWorkerEnvControllerIndexForAgentResponses]
-
 export type AnkoleWebBackgroundAgentJobControllerHealthData = {
   body?: never
   path?: never
@@ -4802,96 +4208,6 @@ export type AnkoleWebBrainControllerShowObjectResponses = {
 export type AnkoleWebBrainControllerShowObjectResponse =
   AnkoleWebBrainControllerShowObjectResponses[keyof AnkoleWebBrainControllerShowObjectResponses]
 
-export type AnkoleWebAppConfigurationControllerDeleteTenantData = {
-  body?: never
-  path: {
-    key: string
-  }
-  query?: never
-  url: '/api/v1/app-configurations/{key}'
-}
-
-export type AnkoleWebAppConfigurationControllerDeleteTenantErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAppConfigurationControllerDeleteTenantError =
-  AnkoleWebAppConfigurationControllerDeleteTenantErrors[keyof AnkoleWebAppConfigurationControllerDeleteTenantErrors]
-
-export type AnkoleWebAppConfigurationControllerDeleteTenantResponses = {
-  /**
-   * AppConfigure entry
-   */
-  200: AppConfigurationResponse
-}
-
-export type AnkoleWebAppConfigurationControllerDeleteTenantResponse =
-  AnkoleWebAppConfigurationControllerDeleteTenantResponses[keyof AnkoleWebAppConfigurationControllerDeleteTenantResponses]
-
-export type AnkoleWebAppConfigurationControllerShowTenantData = {
-  body?: never
-  path: {
-    key: string
-  }
-  query?: never
-  url: '/api/v1/app-configurations/{key}'
-}
-
-export type AnkoleWebAppConfigurationControllerShowTenantErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAppConfigurationControllerShowTenantError =
-  AnkoleWebAppConfigurationControllerShowTenantErrors[keyof AnkoleWebAppConfigurationControllerShowTenantErrors]
-
-export type AnkoleWebAppConfigurationControllerShowTenantResponses = {
-  /**
-   * AppConfigure entry
-   */
-  200: AppConfigurationResponse
-}
-
-export type AnkoleWebAppConfigurationControllerShowTenantResponse =
-  AnkoleWebAppConfigurationControllerShowTenantResponses[keyof AnkoleWebAppConfigurationControllerShowTenantResponses]
-
-export type AnkoleWebAppConfigurationControllerUpdateTenantData = {
-  /**
-   * AppConfigure update
-   */
-  body: AppConfigurationUpdateRequest
-  path: {
-    key: string
-  }
-  query?: never
-  url: '/api/v1/app-configurations/{key}'
-}
-
-export type AnkoleWebAppConfigurationControllerUpdateTenantErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAppConfigurationControllerUpdateTenantError =
-  AnkoleWebAppConfigurationControllerUpdateTenantErrors[keyof AnkoleWebAppConfigurationControllerUpdateTenantErrors]
-
-export type AnkoleWebAppConfigurationControllerUpdateTenantResponses = {
-  /**
-   * AppConfigure entry
-   */
-  200: AppConfigurationResponse
-}
-
-export type AnkoleWebAppConfigurationControllerUpdateTenantResponse =
-  AnkoleWebAppConfigurationControllerUpdateTenantResponses[keyof AnkoleWebAppConfigurationControllerUpdateTenantResponses]
-
 export type AnkoleWebBackgroundAgentJobControllerTurnsData = {
   body?: never
   path: {
@@ -4990,67 +4306,6 @@ export type AnkoleWebSignalBindingControllerRequeueDeliveryResponses = {
 export type AnkoleWebSignalBindingControllerRequeueDeliveryResponse =
   AnkoleWebSignalBindingControllerRequeueDeliveryResponses[keyof AnkoleWebSignalBindingControllerRequeueDeliveryResponses]
 
-export type AnkoleWebWorkerEnvControllerDeleteData = {
-  body?: never
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/site/worker-envs/{name}'
-}
-
-export type AnkoleWebWorkerEnvControllerDeleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerEnvControllerDeleteError =
-  AnkoleWebWorkerEnvControllerDeleteErrors[keyof AnkoleWebWorkerEnvControllerDeleteErrors]
-
-export type AnkoleWebWorkerEnvControllerDeleteResponses = {
-  /**
-   * Worker env entry
-   */
-  200: WorkerEnvResponse
-}
-
-export type AnkoleWebWorkerEnvControllerDeleteResponse =
-  AnkoleWebWorkerEnvControllerDeleteResponses[keyof AnkoleWebWorkerEnvControllerDeleteResponses]
-
-export type AnkoleWebWorkerEnvControllerUpdateData = {
-  /**
-   * Worker env update
-   */
-  body: WorkerEnvUpdateRequest
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/site/worker-envs/{name}'
-}
-
-export type AnkoleWebWorkerEnvControllerUpdateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerEnvControllerUpdateError =
-  AnkoleWebWorkerEnvControllerUpdateErrors[keyof AnkoleWebWorkerEnvControllerUpdateErrors]
-
-export type AnkoleWebWorkerEnvControllerUpdateResponses = {
-  /**
-   * Worker env entry
-   */
-  200: WorkerEnvResponse
-}
-
-export type AnkoleWebWorkerEnvControllerUpdateResponse =
-  AnkoleWebWorkerEnvControllerUpdateResponses[keyof AnkoleWebWorkerEnvControllerUpdateResponses]
-
 export type AnkoleWebAgentLibraryCapabilityControllerGlobalIndexData = {
   body?: never
   path?: never
@@ -5077,35 +4332,6 @@ export type AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponses = {
 
 export type AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponse =
   AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponses[keyof AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponses]
-
-export type AnkoleWebAppConfigurationControllerDecryptData = {
-  body?: never
-  path: {
-    key: string
-  }
-  query?: never
-  url: '/api/v1/site/app-configurations/{key}/decryptions'
-}
-
-export type AnkoleWebAppConfigurationControllerDecryptErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAppConfigurationControllerDecryptError =
-  AnkoleWebAppConfigurationControllerDecryptErrors[keyof AnkoleWebAppConfigurationControllerDecryptErrors]
-
-export type AnkoleWebAppConfigurationControllerDecryptResponses = {
-  /**
-   * Decrypted value
-   */
-  200: AppConfigurationDecryptionResponse
-}
-
-export type AnkoleWebAppConfigurationControllerDecryptResponse =
-  AnkoleWebAppConfigurationControllerDecryptResponses[keyof AnkoleWebAppConfigurationControllerDecryptResponses]
 
 export type AnkoleWebHumanAccessControllerRestoreData = {
   /**
@@ -5138,69 +4364,6 @@ export type AnkoleWebHumanAccessControllerRestoreResponses = {
 
 export type AnkoleWebHumanAccessControllerRestoreResponse =
   AnkoleWebHumanAccessControllerRestoreResponses[keyof AnkoleWebHumanAccessControllerRestoreResponses]
-
-export type AnkoleWebWorkerEnvControllerDeleteForAgentData = {
-  body?: never
-  path: {
-    agent_uid: string
-    name: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/worker-envs/{name}'
-}
-
-export type AnkoleWebWorkerEnvControllerDeleteForAgentErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerEnvControllerDeleteForAgentError =
-  AnkoleWebWorkerEnvControllerDeleteForAgentErrors[keyof AnkoleWebWorkerEnvControllerDeleteForAgentErrors]
-
-export type AnkoleWebWorkerEnvControllerDeleteForAgentResponses = {
-  /**
-   * Worker env entry
-   */
-  200: WorkerEnvResponse
-}
-
-export type AnkoleWebWorkerEnvControllerDeleteForAgentResponse =
-  AnkoleWebWorkerEnvControllerDeleteForAgentResponses[keyof AnkoleWebWorkerEnvControllerDeleteForAgentResponses]
-
-export type AnkoleWebWorkerEnvControllerUpdateForAgentData = {
-  /**
-   * Worker env update
-   */
-  body: WorkerEnvUpdateRequest
-  path: {
-    agent_uid: string
-    name: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/worker-envs/{name}'
-}
-
-export type AnkoleWebWorkerEnvControllerUpdateForAgentErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWorkerEnvControllerUpdateForAgentError =
-  AnkoleWebWorkerEnvControllerUpdateForAgentErrors[keyof AnkoleWebWorkerEnvControllerUpdateForAgentErrors]
-
-export type AnkoleWebWorkerEnvControllerUpdateForAgentResponses = {
-  /**
-   * Worker env entry
-   */
-  200: WorkerEnvResponse
-}
-
-export type AnkoleWebWorkerEnvControllerUpdateForAgentResponse =
-  AnkoleWebWorkerEnvControllerUpdateForAgentResponses[keyof AnkoleWebWorkerEnvControllerUpdateForAgentResponses]
 
 export type AnkoleWebConsoleReadinessControllerShowData = {
   body?: never

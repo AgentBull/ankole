@@ -30,16 +30,18 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useSearchParams } from '../../common/router'
 import {
-  ankoleWebWorkerEnvControllerDecryptTenantMutation,
-  ankoleWebWorkerEnvControllerDecryptMutation,
-  ankoleWebWorkerEnvControllerDeleteTenantMutation,
-  ankoleWebWorkerEnvControllerDeleteMutation,
-  ankoleWebWorkerEnvControllerIndexTenantOptions,
-  ankoleWebWorkerEnvControllerIndexOptions,
-  ankoleWebWorkerEnvControllerUpdateTenantMutation,
-  ankoleWebWorkerEnvControllerUpdateMutation
-} from '../api/generated/@tanstack/react-query.gen'
-import type { WorkerEnvItem } from '../api/generated/types.gen'
+  decryptWorkerEnvMutation,
+  deleteWorkerEnvMutation,
+  listWorkerEnvsOptions,
+  updateWorkerEnvMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import {
+  decryptSiteWorkerEnvMutation,
+  deleteSiteWorkerEnvMutation,
+  listSiteWorkerEnvsOptions,
+  updateSiteWorkerEnvMutation
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
+import type { WorkerEnvItem } from '../api/configuration-types'
 import { requestErrorMessage } from '../../common/request-errors'
 import { blankToNull } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, EncryptedValueInput, isEncryptedValueMask } from '../encrypted-value-input'
@@ -54,16 +56,16 @@ export const WORKER_ENV_NAME_FORMAT = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 const WORKER_ENV_API = {
   global: {
-    index: ankoleWebWorkerEnvControllerIndexOptions,
-    update: ankoleWebWorkerEnvControllerUpdateMutation,
-    remove: ankoleWebWorkerEnvControllerDeleteMutation,
-    decrypt: ankoleWebWorkerEnvControllerDecryptMutation
+    index: listSiteWorkerEnvsOptions,
+    update: updateSiteWorkerEnvMutation,
+    remove: deleteSiteWorkerEnvMutation,
+    decrypt: decryptSiteWorkerEnvMutation
   },
   tenant: {
-    index: ankoleWebWorkerEnvControllerIndexTenantOptions,
-    update: ankoleWebWorkerEnvControllerUpdateTenantMutation,
-    remove: ankoleWebWorkerEnvControllerDeleteTenantMutation,
-    decrypt: ankoleWebWorkerEnvControllerDecryptTenantMutation
+    index: listWorkerEnvsOptions,
+    update: updateWorkerEnvMutation,
+    remove: deleteWorkerEnvMutation,
+    decrypt: decryptWorkerEnvMutation
   }
 } as const
 
@@ -122,8 +124,8 @@ export function WorkerEnvPlaintextConfirmDialog({
 
 export function WorkerEnvsListPage() {
   const { t } = useTranslation()
-  const globalList = useQuery(ankoleWebWorkerEnvControllerIndexOptions())
-  const tenantList = useQuery(ankoleWebWorkerEnvControllerIndexTenantOptions())
+  const globalList = useQuery(listSiteWorkerEnvsOptions())
+  const tenantList = useQuery(listWorkerEnvsOptions())
   const globalItems = new Map((globalList.data?.worker_envs ?? []).map(item => [item.name, item]))
   const tenantItems = new Map((tenantList.data?.worker_envs ?? []).map(item => [item.name, item]))
   const [query, setQuery] = useState('')
@@ -299,9 +301,11 @@ export function WorkerEnvEditorPage() {
   const saveCustom = (submittedName: string) => {
     update.mutate({
       body: {
-        ...(isEncryptedValueMask(model.value.value) ? {} : { value: model.value.value }),
-        secret: model.secret.value,
-        description: blankToNull(model.description.value)
+        data: {
+          ...(isEncryptedValueMask(model.value.value) ? {} : { value: model.value.value }),
+          secret: model.secret.value,
+          description: blankToNull(model.description.value)
+        }
       },
       path: { name: submittedName }
     })

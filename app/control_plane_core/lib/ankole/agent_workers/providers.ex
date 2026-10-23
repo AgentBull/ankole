@@ -29,6 +29,10 @@ defmodule Ankole.AgentWorkers.Providers do
   @write_keys ~w(provider_id kind display_name config credentials is_default)
 
   resources do
+    resource(Ankole.AgentWorkers.Providers.ConsoleOperations)
+
+    resource(Ankole.AgentWorkers.WorkerEnv.SiteOperations)
+
     resource Provider do
       define(:add_provider, action: :add)
       define(:configure_provider, action: :configure_provider, args: [:provider_id])
@@ -44,6 +48,21 @@ defmodule Ankole.AgentWorkers.Providers do
     show_raised_errors?(false)
 
     routes do
+      base_route "/worker-providers", Ankole.AgentWorkers.Providers.ConsoleOperations do
+        route(:get, "/:provider_id/check", :console_check, name: "check_worker_provider")
+      end
+
+      base_route "/worker-provider-kinds", Ankole.AgentWorkers.Providers.ConsoleOperations do
+        route(:get, "/", :console_kinds, name: "list_worker_provider_kinds")
+      end
+
+      base_route "/worker-envs", Ankole.AgentWorkers.WorkerEnv.SiteOperations do
+        route(:get, "/", :console_list, name: "list_site_worker_envs")
+        route(:put, "/:name", :console_put, name: "update_site_worker_env")
+        route(:delete, "/:name", :console_delete, name: "delete_site_worker_env")
+        route(:post, "/:name/decryptions", :console_decrypt, name: "decrypt_site_worker_env")
+      end
+
       base_route "/worker-providers", Provider do
         index(:list, name: "list_worker_providers", derive_sort?: false)
         post(:add, name: "create_worker_provider")
