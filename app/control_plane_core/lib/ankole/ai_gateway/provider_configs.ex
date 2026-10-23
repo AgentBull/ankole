@@ -9,7 +9,14 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   The writes that read the current row lock it first and run as the generic
   actions of `Ankole.AIGateway.ProviderConfigs.Provider`.
+
+  This module is also the Ash domain of the site `Provider` resource. It is a
+  domain separate from `Ankole.AIGateway` because a domain has one JSON:API
+  router: the providers are in the site API, and the conversations of a tenant
+  are in the Console API.
   """
+
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   require Ash.Query
 
@@ -26,6 +33,39 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   # profiles of every tenant.
   Module.register_attribute(__MODULE__, :raw_sql_scope, persist: true)
   @raw_sql_scope :site
+
+  resources do
+    resource(Provider)
+  end
+
+  # The site administration API at `/api/v2/site` (`AnkoleWeb.JSONAPI.SiteRouter`).
+  # The credential routes stay in the v1 API: they take plaintext credentials
+  # and run the ChatGPT login.
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/ai-gateway/providers", Provider do
+        index(:list, name: "list_ai_gateway_providers", derive_sort?: false)
+
+        get(:read,
+          route: "/:provider_id",
+          name: "get_ai_gateway_provider",
+          derive_sort?: false
+        )
+
+        patch(:put, route: "/:provider_id", name: "put_ai_gateway_provider")
+        delete(:retire, route: "/:provider_id", name: "delete_ai_gateway_provider")
+
+        post(:enable_provider,
+          route: "/:provider_id/enable",
+          name: "enable_ai_gateway_provider"
+        )
+      end
+    end
+  end
 
   @typedoc """
   Common result shape for provider-row writes and fetches.
@@ -146,25 +186,18 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   def update_provider(provider_id, attrs) when is_map(attrs),
     do: change(provider_id, :configure, %{input: attrs})
 
-  @doc "Applies a Console PUT to the provider named by the request path."
-  def put_provider(provider_id, attrs) when is_map(attrs) do
-    attrs = Attrs.normalize_external_attrs(attrs)
-    body_id = Map.get(attrs, "provider_id")
+  @doc false
+  # Runs the `:put` action of the Provider resource: it creates the provider
+  # named by the request path, or changes it.
+  def put(%{provider_id: provider_id} = arguments) do
+    input =
+      arguments
+      |> Attrs.normalize_external_attrs()
+      |> Map.put("provider_id", Provider.normalize_id(provider_id))
 
-    cond do
-      not is_nil(body_id) and (not is_binary(body_id) or Provider.normalize_id(body_id) == "") ->
-        {:error, :blank_id}
-
-      not is_nil(body_id) and Provider.normalize_id(body_id) != provider_id ->
-        {:error, :provider_id_mismatch}
-
-      true ->
-        attrs = Map.put(attrs, "provider_id", provider_id)
-
-        case fetch_provider(provider_id) do
-          {:ok, _provider} -> update_provider(provider_id, attrs)
-          {:error, :not_found} -> create_provider(attrs)
-        end
+    case lock_provider(provider_id) do
+      nil -> Ankole.Ash.create(Provider, :create, %{input: input})
+      provider -> Ankole.Ash.update(provider, :configure, %{input: input})
     end
   end
 
@@ -175,7 +208,10 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   """
   @spec delete_provider(String.t()) :: provider_result()
   def delete_provider(provider_id) when is_binary(provider_id),
-    do: Ankole.Ash.run_action(Provider, :retire, %{provider_id: provider_id})
+    do:
+      Provider
+      |> Ankole.Ash.run_action(:retire, %{provider_id: provider_id})
+      |> Ankole.Errors.reason()
 
   @doc false
   # Runs the `:retire` action of the Provider resource.
@@ -196,7 +232,10 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   """
   @spec enable_provider(String.t()) :: provider_result()
   def enable_provider(provider_id) when is_binary(provider_id),
-    do: change(provider_id, :enable, %{})
+    do:
+      Provider
+      |> Ankole.Ash.run_action(:enable_provider, %{provider_id: provider_id})
+      |> Ankole.Errors.reason()
 
   @doc """
   Selects, decrypts, and refreshes one provider credential.
@@ -517,7 +556,8 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   # API projections expose pool metadata, selected health, and a small set of
   # account facts. Token and API-key fields never leave this module.
-  defp credential_pool_projection(%Provider{} = provider) do
+  @doc false
+  def credential_pool_projection(%Provider{} = provider) do
     pool = Credentials.credential_pool(provider)
     entries = Map.get(pool, "entries", [])
     statuses = CredentialPool.statuses(provider.id, entries)
@@ -560,6 +600,46 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     }
   end
 
+  @config_reason_labels %{
+    unknown_ai_gateway_provider: "the provider kind is unknown",
+    provider_disabled: "the provider is disabled",
+    invalid_provider_id: "provider_id is invalid",
+    invalid_auth_issuer: "the configured auth issuer is not a valid URL",
+    provider_id_immutable: "provider_id cannot change after creation",
+    invalid_credential_pool: "the credential pool is invalid",
+    invalid_credential_pool_strategy: "the credential selection strategy is unknown",
+    invalid_credential_entry: "a credential entry is invalid",
+    invalid_credential_update: "the credential update is invalid",
+    invalid_credential_disabled_at: "disabled_at is not a valid timestamp",
+    duplicate_credential_id: "a credential with this id already exists",
+    credential_id_immutable: "a credential id cannot change",
+    credential_field_removed: "a stored credential field cannot be removed",
+    credential_fields_required: "the credential is missing required fields",
+    missing_base_url: "the provider has no base URL"
+  }
+
+  @doc """
+  Gives the operator text of a provider rejection: one sentence and the
+  details, or `nil` for a reason without text. A missing provider gives
+  `Ankole.Errors.Invalid.NotFound`. `Ankole.Errors.wrap/2` and the v1
+  credential routes use it.
+  """
+  @spec rejection(term()) :: {String.t(), [map()]} | Exception.t() | nil
+  def rejection(:not_found), do: Ankole.Errors.Invalid.NotFound.exception(resource: Provider)
+
+  def rejection({:provider_in_use, references}),
+    do: {"provider is referenced by active model profiles", [%{references: references}]}
+
+  def rejection({:credential_entry_unknown_keys, keys}),
+    do: config_rejection("a credential entry carries unknown keys: #{Enum.join(keys, ", ")}")
+
+  def rejection(reason) when is_map_key(@config_reason_labels, reason),
+    do: config_rejection(Map.fetch!(@config_reason_labels, reason))
+
+  def rejection(_reason), do: nil
+
+  defp config_rejection(label), do: {"AIGateway provider configuration is invalid: #{label}", []}
+
   defp context_value(ctx, key) when is_list(ctx), do: Keyword.get(ctx, key)
 
   defp context_value(ctx, key) when is_map(ctx) do
@@ -570,7 +650,8 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   # Provider metadata is attached to configured rows so Console can render the
   # accepted options and capabilities without querying the registry separately.
-  defp provider_metadata(provider_kind) do
+  @doc false
+  def provider_metadata(provider_kind) do
     case Providers.fetch(provider_kind) do
       {:ok, provider_kind} ->
         provider_kind

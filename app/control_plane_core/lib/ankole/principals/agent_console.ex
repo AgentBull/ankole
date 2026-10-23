@@ -34,20 +34,16 @@ defmodule Ankole.Principals.AgentConsole do
   def update_in_tx(arguments) do
     {uid, attrs} = Map.pop!(arguments, :uid)
 
-    case Principals.update_agent_in_tx(Repo, uid, attrs) do
-      {:ok, %{principal: principal, agent: agent}} -> {:ok, present(agent, principal)}
-      error -> not_found(error, uid)
+    with {:ok, %{principal: principal, agent: agent}} <-
+           Principals.update_agent_in_tx(Repo, uid, attrs) do
+      {:ok, present(agent, principal)}
     end
   end
 
   @doc false
   def enable_in_tx(uid) do
-    case Principals.enable_agent_in_tx(Repo, uid) do
-      {:ok, {principal, conversation_ids}} ->
-        {:ok, Principals.get_agent_record!(uid) |> present(principal, conversation_ids)}
-
-      error ->
-        not_found(error, uid)
+    with {:ok, {principal, conversation_ids}} <- Principals.enable_agent_in_tx(Repo, uid) do
+      {:ok, Principals.get_agent_record!(uid) |> present(principal, conversation_ids)}
     end
   end
 
@@ -58,8 +54,8 @@ defmodule Ankole.Principals.AgentConsole do
          {:ok, {principal, conversation_ids}} <- Principals.delete_agent_in_tx(Repo, uid) do
       {:ok, present(agent, principal, conversation_ids)}
     else
-      nil -> not_found({:error, :not_found}, uid)
-      error -> not_found(error, uid)
+      nil -> {:error, :not_found}
+      error -> error
     end
   end
 
@@ -81,7 +77,13 @@ defmodule Ankole.Principals.AgentConsole do
     end)
   end
 
-  @doc "Gives the operator text of a rejected Agent write for `Ankole.Errors.wrap/2`."
+  @doc """
+  Gives the answer of a rejected Agent write for `Ankole.Errors.wrap/2`: a
+  missing Agent is not found, as in the v1 Console API.
+  """
+  def rejection(reason) when reason in [:not_found, :not_agent],
+    do: NotFound.exception(resource: Agent)
+
   def rejection(:worker_provider_required),
     do: {"Select a Worker provider or set a default provider", []}
 
@@ -107,9 +109,4 @@ defmodule Ankole.Principals.AgentConsole do
     }
     |> Ash.Resource.put_metadata(:conversation_ids, conversation_ids)
   end
-
-  defp not_found({:error, reason}, uid) when reason in [:not_found, :not_agent],
-    do: {:error, NotFound.exception(resource: Agent, id: uid)}
-
-  defp not_found(error, _uid), do: error
 end

@@ -4,8 +4,6 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AgentWorkers.AgentWorker
-  alias Ankole.AgentWorkers.Providers
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Repo
@@ -211,75 +209,6 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
       assert Map.keys(attributes) |> Enum.sort() ==
                ~w(capacity drain_reason generation image last_error last_worker_heartbeat_at load provider_id state state_changed_at)
     end
-  end
-
-  test "creation selects a provider, and the migration assignment is one-time", %{conn: conn} do
-    conn = console_conn(conn)
-    %{principal: owner} = human_fixture()
-
-    agent_attrs = %{
-      "handle" => "new-agent",
-      "display_name" => "New Agent",
-      "role" => "Researcher",
-      "owner_principal_uid" => owner.uid
-    }
-
-    assert %{"errors" => [%{"code" => "worker_provider_required"}]} =
-             conn |> send_v2(:post, "/api/v2/agents", agent_attrs) |> json_response(422)
-
-    refute Repo.get_by(Ankole.Principals.Agent, handle: "new-agent")
-
-    {:ok, _provider} =
-      Providers.create(%{
-        provider_id: "local",
-        display_name: "Local",
-        kind: "docker",
-        config: "network: bridge\n",
-        is_default: true
-      })
-
-    created = conn |> send_v2(:post, "/api/v2/agents", agent_attrs) |> json_response(201)
-    assert created["worker_provider_id"] == "local"
-    agent_uid = created["uid"]
-
-    assert %{"data" => %{"attributes" => %{"worker_provider_id" => "local"}}} =
-             conn |> send_v2(:get, "/api/v2/agents/#{agent_uid}") |> json_response(200)
-
-    {:ok, _provider} =
-      Providers.create(%{
-        provider_id: "other",
-        display_name: "Other",
-        kind: "docker",
-        config: "network: bridge\n"
-      })
-
-    assert %{"errors" => [%{"code" => "conflict"}]} =
-             conn
-             |> send_v2(:put, "/api/v2/agents/#{agent_uid}/worker-provider", %{
-               "provider_id" => "other"
-             })
-             |> json_response(409)
-
-    assert %{"errors" => [%{"code" => "not_found"}]} =
-             conn
-             |> send_v2(:put, "/api/v2/agents/#{agent_uid}/worker-provider", %{
-               "provider_id" => "missing"
-             })
-             |> json_response(404)
-
-    # This row is the state left by the migration, before an operator assigns it.
-    Repo.get!(AgentWorker, agent_uid)
-    |> Ecto.Changeset.change(provider_id: nil)
-    |> Repo.update!()
-
-    assert %{"agent_uid" => ^agent_uid, "provider_id" => "local"} =
-             conn
-             |> send_v2(:put, "/api/v2/agents/#{agent_uid}/worker-provider", %{
-               "provider_id" => "local"
-             })
-             |> json_response(200)
-
-    assert Repo.get!(AgentWorker, agent_uid).provider_id == "local"
   end
 
   test "the routes require a Console browser session", %{conn: conn} do

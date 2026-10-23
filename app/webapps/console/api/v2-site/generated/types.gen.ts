@@ -4,6 +4,87 @@ export type ClientOptions = {
   baseUrl: `${string}://${string}` | (string & {})
 }
 
+/**
+ * A "Resource object" representing a ai_gateway_provider
+ */
+export type AiGatewayProvider = {
+  /**
+   * An attributes object for a ai_gateway_provider
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    base_url?: string | null
+    /**
+     * Field included by default.
+     */
+    connection_options: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    credential_pool?: {
+      entries: Array<{
+        account_id?: string | null
+        auth_type?: string | null
+        credential_present: boolean
+        disabled_at?: string | null
+        email?: string | null
+        id: string
+        label: string
+        last_error_code?: string | null
+        last_error_message?: string | null
+        last_error_reason?: string | null
+        last_refresh?: string | null
+        last_selected_at?: string | null
+        plan_type?: string | null
+        priority: number
+        provider_status?: number | null
+        rate_limits: {
+          [key: string]: unknown
+        }
+        reauth_required?: boolean | null
+        request_count: number
+        retry_at?: string | null
+        source: string
+        status: 'ok' | 'exhausted' | 'dead' | 'disabled'
+        usage: {
+          [key: string]: unknown
+        }
+      }>
+      strategy: 'fill_first' | 'round_robin' | 'least_used' | 'random'
+    } | null
+    /**
+     * Field included by default.
+     */
+    disabled_at?: string | null
+    /**
+     * Field included by default.
+     */
+    provider_id: string
+    /**
+     * Field included by default.
+     */
+    provider_kind: string
+    /**
+     * Field included by default.
+     */
+    provider_metadata?: {
+      [key: string]: unknown
+    } | null
+  }
+  id: string
+  /**
+   * A relationships object for a ai_gateway_provider
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
 export type Error = {
   /**
    * An application-specific error code, expressed as a string value.
@@ -48,3 +129,1034 @@ export type Link = string
 export type Links = {
   [key: string]: Link
 }
+
+/**
+ * A "Resource object" representing a tenant
+ */
+export type Tenant = {
+  /**
+   * An attributes object for a tenant
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    deleting_at?: string | null
+    /**
+     * Field included by default.
+     */
+    display_name: string
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    slug: string
+    /**
+     * Field included by default.
+     */
+    suspended_at?: string | null
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a tenant
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a worker_provider
+ */
+export type WorkerProvider = {
+  /**
+   * An attributes object for a worker_provider
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    agent_count?: number | null
+    /**
+     * Field included by default.
+     */
+    config: string
+    /**
+     * Field included by default.
+     */
+    display_name: string
+    /**
+     * Field included by default.
+     */
+    is_default: boolean
+    /**
+     * Field included by default.
+     */
+    kind: string
+    /**
+     * Field included by default.
+     */
+    provider_id: string
+    /**
+     * Field included by default.
+     */
+    selectable?: boolean | null
+    /**
+     * Field included by default.
+     */
+    stored_credentials?: Array<string> | null
+  }
+  id: string
+  /**
+   * A relationships object for a worker_provider
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type ListAiGatewayProvidersData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_provider
+       */
+      ai_gateway_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/ai-gateway/providers'
+}
+
+export type ListAiGatewayProvidersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAiGatewayProvidersError = ListAiGatewayProvidersErrors[keyof ListAiGatewayProvidersErrors]
+
+export type ListAiGatewayProvidersResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a ai_gateway_provider
+     */
+    data?: Array<AiGatewayProvider>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListAiGatewayProvidersResponse = ListAiGatewayProvidersResponses[keyof ListAiGatewayProvidersResponses]
+
+export type DeleteAiGatewayProviderData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_provider
+       */
+      ai_gateway_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}'
+}
+
+export type DeleteAiGatewayProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteAiGatewayProviderError = DeleteAiGatewayProviderErrors[keyof DeleteAiGatewayProviderErrors]
+
+export type DeleteAiGatewayProviderResponses = {
+  /**
+   * Deleted successfully
+   */
+  200: unknown
+}
+
+export type GetAiGatewayProviderData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_provider
+       */
+      ai_gateway_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}'
+}
+
+export type GetAiGatewayProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetAiGatewayProviderError = GetAiGatewayProviderErrors[keyof GetAiGatewayProviderErrors]
+
+export type GetAiGatewayProviderResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: AiGatewayProvider
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetAiGatewayProviderResponse = GetAiGatewayProviderResponses[keyof GetAiGatewayProviderResponses]
+
+export type PutAiGatewayProviderData = {
+  /**
+   * Request body for the put_ai_gateway_provider operation on ai_gateway_provider resource
+   */
+  body?: {
+    data: {
+      attributes?: {
+        base_url?: string | null
+        connection_options?: {
+          [key: string]: unknown
+        } | null
+        credential_pool?: {
+          [key: string]: unknown
+        } | null
+        provider_kind?: string | null
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'ai_gateway_provider'
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_provider
+       */
+      ai_gateway_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}'
+}
+
+export type PutAiGatewayProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutAiGatewayProviderError = PutAiGatewayProviderErrors[keyof PutAiGatewayProviderErrors]
+
+export type PutAiGatewayProviderResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: AiGatewayProvider
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type PutAiGatewayProviderResponse = PutAiGatewayProviderResponses[keyof PutAiGatewayProviderResponses]
+
+export type EnableAiGatewayProviderData = {
+  /**
+   * Request body for the enable_ai_gateway_provider operation on ai_gateway_provider resource
+   */
+  body?: {
+    data: {
+      attributes?: {
+        [key: string]: never
+      }
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'ai_gateway_provider'
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for ai_gateway_provider
+       */
+      ai_gateway_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/ai-gateway/providers/{provider_id}/enable'
+}
+
+export type EnableAiGatewayProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type EnableAiGatewayProviderError = EnableAiGatewayProviderErrors[keyof EnableAiGatewayProviderErrors]
+
+export type EnableAiGatewayProviderResponses = {
+  /**
+   * Success
+   */
+  201: {
+    data?: AiGatewayProvider
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type EnableAiGatewayProviderResponse = EnableAiGatewayProviderResponses[keyof EnableAiGatewayProviderResponses]
+
+export type GetPrivilegedTenantData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for tenant
+       */
+      tenant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/privileged-tenant'
+}
+
+export type GetPrivilegedTenantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetPrivilegedTenantError = GetPrivilegedTenantErrors[keyof GetPrivilegedTenantErrors]
+
+export type GetPrivilegedTenantResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: Tenant
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetPrivilegedTenantResponse = GetPrivilegedTenantResponses[keyof GetPrivilegedTenantResponses]
+
+export type TransferSiteAdministrationData = {
+  /**
+   * Request body for the transfer_site_administration operation on tenant resource
+   */
+  body: {
+    data: {
+      attributes?: {
+        site_admin_uid: string
+        tenant_id: string
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'tenant'
+    }
+  }
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for tenant
+       */
+      tenant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/privileged-tenant'
+}
+
+export type TransferSiteAdministrationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type TransferSiteAdministrationError = TransferSiteAdministrationErrors[keyof TransferSiteAdministrationErrors]
+
+export type TransferSiteAdministrationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: Tenant
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type TransferSiteAdministrationResponse =
+  TransferSiteAdministrationResponses[keyof TransferSiteAdministrationResponses]
+
+export type ListTenantsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for tenant
+       */
+      tenant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/tenants'
+}
+
+export type ListTenantsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListTenantsError = ListTenantsErrors[keyof ListTenantsErrors]
+
+export type ListTenantsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a tenant
+     */
+    data?: Array<Tenant>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListTenantsResponse = ListTenantsResponses[keyof ListTenantsResponses]
+
+export type CreateTenantData = {
+  /**
+   * Request body for the create_tenant operation on tenant resource
+   */
+  body: {
+    data: {
+      attributes?: {
+        brain_packs?: Array<string> | null
+        display_name: string
+        slug: string
+      }
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'tenant'
+    }
+  }
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for tenant
+       */
+      tenant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/tenants'
+}
+
+export type CreateTenantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateTenantError = CreateTenantErrors[keyof CreateTenantErrors]
+
+export type CreateTenantResponses = {
+  /**
+   * Success
+   */
+  201: {
+    data?: Tenant
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type CreateTenantResponse = CreateTenantResponses[keyof CreateTenantResponses]
+
+export type ListTenantBrainPacksData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/site/tenants/brain-packs'
+}
+
+export type ListTenantBrainPacksErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListTenantBrainPacksError = ListTenantBrainPacksErrors[keyof ListTenantBrainPacksErrors]
+
+export type ListTenantBrainPacksResponses = {
+  /**
+   * Success
+   */
+  200: Array<string>
+}
+
+export type ListTenantBrainPacksResponse = ListTenantBrainPacksResponses[keyof ListTenantBrainPacksResponses]
+
+export type DeleteTenantData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for tenant
+       */
+      tenant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/tenants/{id}'
+}
+
+export type DeleteTenantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteTenantError = DeleteTenantErrors[keyof DeleteTenantErrors]
+
+export type DeleteTenantResponses = {
+  /**
+   * Deleted successfully
+   */
+  200: unknown
+}
+
+export type UpdateTenantData = {
+  /**
+   * Request body for the update_tenant operation on tenant resource
+   */
+  body?: {
+    data: {
+      attributes?: {
+        display_name?: string | null
+        slug?: string | null
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'tenant'
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for tenant
+       */
+      tenant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/tenants/{id}'
+}
+
+export type UpdateTenantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateTenantError = UpdateTenantErrors[keyof UpdateTenantErrors]
+
+export type UpdateTenantResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: Tenant
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type UpdateTenantResponse = UpdateTenantResponses[keyof UpdateTenantResponses]
+
+export type ResumeTenantData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for tenant
+       */
+      tenant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/tenants/{id}/suspension'
+}
+
+export type ResumeTenantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResumeTenantError = ResumeTenantErrors[keyof ResumeTenantErrors]
+
+export type ResumeTenantResponses = {
+  /**
+   * Deleted successfully
+   */
+  200: unknown
+}
+
+export type SuspendTenantData = {
+  /**
+   * Request body for the suspend_tenant operation on tenant resource
+   */
+  body?: {
+    data: {
+      attributes?: {
+        [key: string]: never
+      }
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'tenant'
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for tenant
+       */
+      tenant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/tenants/{id}/suspension'
+}
+
+export type SuspendTenantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SuspendTenantError = SuspendTenantErrors[keyof SuspendTenantErrors]
+
+export type SuspendTenantResponses = {
+  /**
+   * Success
+   */
+  201: {
+    data?: Tenant
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type SuspendTenantResponse = SuspendTenantResponses[keyof SuspendTenantResponses]
+
+export type ListWorkerProvidersData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for worker_provider
+       */
+      worker_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/worker-providers'
+}
+
+export type ListWorkerProvidersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListWorkerProvidersError = ListWorkerProvidersErrors[keyof ListWorkerProvidersErrors]
+
+export type ListWorkerProvidersResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a worker_provider
+     */
+    data?: Array<WorkerProvider>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListWorkerProvidersResponse = ListWorkerProvidersResponses[keyof ListWorkerProvidersResponses]
+
+export type CreateWorkerProviderData = {
+  /**
+   * Request body for the create_worker_provider operation on worker_provider resource
+   */
+  body?: {
+    data: {
+      attributes?: {
+        config?: string | null
+        credentials?: {
+          [key: string]: unknown
+        } | null
+        display_name?: string | null
+        is_default?: boolean | null
+        kind?: string | null
+        provider_id?: string | null
+      }
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'worker_provider'
+    }
+  }
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for worker_provider
+       */
+      worker_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/worker-providers'
+}
+
+export type CreateWorkerProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateWorkerProviderError = CreateWorkerProviderErrors[keyof CreateWorkerProviderErrors]
+
+export type CreateWorkerProviderResponses = {
+  /**
+   * Success
+   */
+  201: {
+    data?: WorkerProvider
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type CreateWorkerProviderResponse = CreateWorkerProviderResponses[keyof CreateWorkerProviderResponses]
+
+export type DeleteWorkerProviderData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for worker_provider
+       */
+      worker_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/worker-providers/{provider_id}'
+}
+
+export type DeleteWorkerProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteWorkerProviderError = DeleteWorkerProviderErrors[keyof DeleteWorkerProviderErrors]
+
+export type DeleteWorkerProviderResponses = {
+  /**
+   * Deleted successfully
+   */
+  200: unknown
+}
+
+export type UpdateWorkerProviderData = {
+  /**
+   * Request body for the update_worker_provider operation on worker_provider resource
+   */
+  body?: {
+    data: {
+      attributes?: {
+        config?: string | null
+        credentials?: {
+          [key: string]: unknown
+        } | null
+        display_name?: string | null
+        is_default?: boolean | null
+        kind?: string | null
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'worker_provider'
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for worker_provider
+       */
+      worker_provider?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/site/worker-providers/{provider_id}'
+}
+
+export type UpdateWorkerProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateWorkerProviderError = UpdateWorkerProviderErrors[keyof UpdateWorkerProviderErrors]
+
+export type UpdateWorkerProviderResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: WorkerProvider
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type UpdateWorkerProviderResponse = UpdateWorkerProviderResponses[keyof UpdateWorkerProviderResponses]

@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type {
   AiGatewayModelCatalogEntry as AIGatewayModelCatalogEntry,
-  AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem
 } from '../api/generated/types.gen'
 import {
@@ -10,6 +9,7 @@ import {
   profileUsesConfigurableModel,
   providersForProfile
 } from '../pages/model-profile-options'
+import type { AIGatewayProviderItem } from './provider-settings'
 
 function provider(providerID: string, providerKind: string): AIGatewayProviderItem {
   return {

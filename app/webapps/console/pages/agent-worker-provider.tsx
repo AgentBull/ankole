@@ -5,8 +5,8 @@ import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
 import { ErrorBlock } from '../../common/error-block'
 import type { AgentItem } from '../api/agents'
-import type { WorkerProvider } from '../api/generated/types.gen'
 import { assignAgentWorkerProviderMutation } from '../api/v2/generated/@tanstack/react-query.gen'
+import type { WorkerProvider } from '../state/worker-provider-editor-model'
 import { FormSection, LabeledField, ReadOnlyValue } from '../console-form'
 
 export function WorkerProviderSelect({

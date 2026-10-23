@@ -111,7 +111,9 @@ rows stay unchanged.
 
 ## Console
 
-The Console lists every lesson of an Agent with its Skill enablement,
-evidence Job ids, lease state, and retirement. Operators create human
-lessons for enabled Skills and retire any lesson; a lesson content change is
-a retire plus a new row, never an edit.
+The Console lists every lesson of an Agent with its evidence Job ids, lease
+state, and retirement (the `console_list` read action of `AgentSkillLesson`,
+`GET /api/v2/agents/:agent_uid/skill-lessons`). Operators create human lessons
+for enabled Skills (`console_teach`, with the Console Principal as the author)
+and retire any lesson (`revoke`); a lesson content change is a retire plus a
+new row, never an edit. An unknown Skill or lesson is not found (404).

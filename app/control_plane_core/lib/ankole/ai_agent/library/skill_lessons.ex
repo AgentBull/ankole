@@ -118,8 +118,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
          |> Ash.Query.lock(:for_update)
          |> Ankole.Ash.read_one!() do
       nil ->
-        {:error,
-         Ankole.Errors.Invalid.NotFound.exception(resource: AgentSkillLesson, id: lesson_id)}
+        {:error, :skill_lesson_not_found}
 
       %AgentSkillLesson{retired_at: %DateTime{}} ->
         {:error, :skill_lesson_already_retired}
@@ -132,7 +131,16 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
     end
   end
 
-  @doc "Gives the operator text of a rejected lesson write for `Ankole.Errors.wrap/2`."
+  @doc """
+  Gives the answer of a rejected lesson write for `Ankole.Errors.wrap/2`: an
+  unknown skill or lesson is not found, as in the v1 Console API.
+  """
+  def rejection(:skill_not_found),
+    do: Ankole.Errors.Invalid.NotFound.exception(resource: AgentSkill)
+
+  def rejection(:skill_lesson_not_found),
+    do: Ankole.Errors.Invalid.NotFound.exception(resource: AgentSkillLesson)
+
   def rejection(:skill_lesson_already_retired), do: {"skill lesson is already retired", []}
   def rejection(:skill_not_enabled), do: {"skill is not enabled for this agent", []}
   def rejection(:blank_content), do: {"lesson content is required", []}

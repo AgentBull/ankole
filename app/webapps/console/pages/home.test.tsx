@@ -6,11 +6,11 @@ import { loadLocale } from '../../common/i18n'
 import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
 import {
   ankoleWebConsoleReadinessControllerShowQueryKey,
-  ankoleWebAiGatewayProviderControllerIndexQueryKey,
   ankoleWebBackgroundAgentJobControllerHealthQueryKey
 } from '../api/generated/@tanstack/react-query.gen'
 import { backgroundAgentJobsOptions } from '../api/background-agent-jobs'
 import type { ConsoleReadinessResponse } from '../api/generated/types.gen'
+import { listAiGatewayProvidersQueryKey } from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { HomePage } from './home'
 
 beforeAll(() => loadLocale('en-US'))
@@ -29,8 +29,14 @@ test('shows global job counts independently of the recent jobs page', async () =
 
 function providerClient(complete: boolean) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
-  client.setQueryData(ankoleWebAiGatewayProviderControllerIndexQueryKey(), {
-    ai_gateway_providers: [{ provider_id: 'search', provider_kind: 'jina_search', disabled_at: null }]
+  client.setQueryData(listAiGatewayProvidersQueryKey(), {
+    data: [
+      {
+        id: 'search-row',
+        type: 'ai_gateway_provider',
+        attributes: { provider_id: 'search', provider_kind: 'jina_search', disabled_at: null }
+      }
+    ]
   })
   const readiness: ConsoleReadinessResponse = {
     ready: complete,

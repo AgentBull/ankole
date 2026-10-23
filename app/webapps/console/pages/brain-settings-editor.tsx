@@ -18,7 +18,6 @@ import type { TFunction } from 'i18next'
 import { Link } from '@tanstack/react-router'
 import {
   ankoleWebAiGatewayProviderControllerModelsOptions,
-  ankoleWebAiGatewayProviderControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerProviderKindsOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import { agentListOptions } from '../api/agents'
@@ -44,6 +43,8 @@ import {
 } from '../state/brain-setting-editor'
 import { settingDescription } from '../state/setting-groups'
 import { SettingGroupField } from './setting-group-field'
+import { listAiGatewayProvidersOptions } from '../api/v2-site/generated/@tanstack/react-query.gen'
+import { aiGatewayProviders } from '../state/provider-settings'
 
 function cronEditorLabels(t: TFunction): CronEditorLabels {
   return {
@@ -94,11 +95,11 @@ export function BrainSettingsEditor({
   const { t } = useTranslation()
   const itemsByKey = new Map(items.map(item => [item.key, item]))
   const cronLabels = cronEditorLabels(t)
-  const providers = useQuery(ankoleWebAiGatewayProviderControllerIndexOptions())
+  const providers = useQuery({ ...listAiGatewayProvidersOptions(), select: aiGatewayProviders })
   const providerKinds = useQuery(ankoleWebAiGatewayProviderControllerProviderKindsOptions())
   const modelCatalog = useQuery(ankoleWebAiGatewayProviderControllerModelsOptions())
   const agents = useQuery(agentListOptions())
-  const providerList = providers.data?.ai_gateway_providers ?? []
+  const providerList = providers.data ?? []
   const kindList = providerKinds.data?.provider_kinds ?? []
   const providersLoading = providers.isLoading || providerKinds.isLoading
   const maintainerAgentUID = brainStringDraft(drafts[BRAIN_KEYS.maintainerAgentUID])

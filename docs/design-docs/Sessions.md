@@ -125,10 +125,15 @@ input, `{:ok, :settled}` rebuilds the queue, `{:ok, :deferred, signal}` waits
 until the retry time, and `{:error, reason}` follows the admission error path.
 
 The operator console lists model histories with the `console_list` read action
-of `AIGateway.Schemas.Conversation` (keyset pagination). Sessions owns that
-action, its preparation `Sessions.ConsoleQueries.Prepare`, and the relationships
-that it filters on: the public conversation, the direct-message peer, and the
-messages. `Sessions.ConsoleQueries` only normalizes parameters and projects rows.
+of `AIGateway.Schemas.Conversation` (keyset pagination) through the Console
+JSON:API (`/api/v2/ai-gateway/conversations`). Sessions owns that action, its
+preparation `Sessions.ConsoleQueries.Prepare`, and the relationships that it
+filters on: the public conversation, the direct-message peer, and the
+messages. The display facts are calculations of the conversation: `kind`,
+`display_name`, `channel_kind`, and `signal_adapter`
+(`Sessions.ConsoleQueries.Channel`, one batch for each page) and the
+`message_count` aggregate. The messages of one conversation are the
+`console_list` read action of `AIGateway.Schemas.Message`, oldest first.
 
 ## Turn Progression
 

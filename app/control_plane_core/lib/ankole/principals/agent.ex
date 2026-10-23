@@ -193,7 +193,9 @@ defmodule Ankole.Principals.Agent do
       after_commit({AgentConsole, :publish_enable})
 
       run(fn input, _context ->
-        input.arguments.uid |> AgentConsole.enable_in_tx() |> Ankole.Errors.wrap()
+        input.arguments.uid
+        |> AgentConsole.enable_in_tx()
+        |> Ankole.Errors.wrap(&AgentConsole.rejection/1)
       end)
     end
 
@@ -203,7 +205,9 @@ defmodule Ankole.Principals.Agent do
       after_commit({AgentConsole, :publish_delete})
 
       run(fn input, _context ->
-        input.arguments.uid |> AgentConsole.delete_in_tx() |> Ankole.Errors.wrap()
+        input.arguments.uid
+        |> AgentConsole.delete_in_tx()
+        |> Ankole.Errors.wrap(&AgentConsole.rejection/1)
       end)
     end
 

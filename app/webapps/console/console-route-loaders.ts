@@ -9,7 +9,6 @@ import {
   ankoleWebIdentityProviderControllerIndexOptions,
   ankoleWebPrincipalControllerIndexOptions,
   ankoleWebSignalBindingControllerIndexOptions,
-  ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerTurnsOptions,
   ankoleWebWorkerEnvControllerIndexOptions
 } from './api/generated/@tanstack/react-query.gen'
@@ -18,6 +17,7 @@ import { agentListOptions } from './api/agents'
 import { aiGatewayConversationsOptions } from './api/ai-gateway-conversations'
 import { backgroundAgentJobOptions, backgroundAgentJobsOptions } from './api/background-agent-jobs'
 import { listAgentSkillLessonsOptions, listOidcClientsOptions } from './api/v2/generated/@tanstack/react-query.gen'
+import { listAiGatewayProvidersOptions } from './api/v2-site/generated/@tanstack/react-query.gen'
 import { automationJobListOptions } from './pages/automation-jobs'
 import { backgroundAgentJobListOptions } from './pages/background-agent-jobs'
 import { conversationListOptions } from './pages/conversations'
@@ -47,7 +47,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       all(
         ensure(agentListOptions()),
         ensure(agentWorkerListOptions()),
-        ensure(ankoleWebAIGatewayProviderControllerIndexOptions()),
+        ensure(listAiGatewayProvidersOptions()),
         ensure(ankoleWebIdentityProviderControllerIndexOptions()),
         ensure(backgroundAgentJobsOptions({ limit: 20 })),
         ensure(aiGatewayConversationsOptions({ limit: 5, min_messages: 2 }))
@@ -69,7 +69,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
             ensure(listAgentSkillLessonsOptions({ path: { agent_uid: scope } }))
           )
     },
-    providers: () => ensure(ankoleWebAIGatewayProviderControllerIndexOptions()).then(() => null),
+    providers: () => ensure(listAiGatewayProvidersOptions()).then(() => null),
     identity: () => ensure(ankoleWebIdentityProviderControllerIndexOptions()).then(() => null),
     oidcClients: () => all(ensure(listOidcClientsOptions()), ensure(ankoleWebAuthZGroupControllerIndexOptions())),
     identityMappings: () =>

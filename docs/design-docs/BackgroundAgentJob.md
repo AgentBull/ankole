@@ -13,16 +13,28 @@ The Console Job board lists the newest matching Jobs in the selected tenant.
 Its optional Agent filter and search combine. Search matches an exact
 Job ID or a case-insensitive title fragment before the 100-row page limit is
 applied, so an older matching Job is not hidden by newer unrelated work.
-The board reads the `console_list` read action of the Job resource, ordered by
-queue time and then Job ID, with keyset pagination. The page cursor is opaque.
-It carries a version, the list parameters that it belongs to, and the keyset of
-the last row, so a cursor of another list or of an earlier format is rejected.
-The `list_background_jobs` tool reads the `list_for_agent` action the same way.
+The board reads the `console_list` read action of the Job resource through the
+Console JSON:API (`GET /api/v2/background-agent-jobs`, arguments `agent_uid`,
+`status`, and `search`), ordered by queue time and then Job ID, with keyset
+pagination (`page[limit]`, `page[after]`). The action reads only the board
+columns and the calculated `duration_seconds`. The Job detail is the JSON:API
+record (`GET /api/v2/background-agent-jobs/:id`). The generic actions
+`console_cancel` and `console_complete` (`POST …/:id/cancel`, `…/:id/complete`)
+record the Console Principal (the Ash actor) as the operator and stop the live
+Turn after the commit. A missing Job is not found (404); completing a failed or
+stopped Job is a conflict (409, `background_agent_job_terminal`).
+The background activity list keeps its opaque cursor: it carries a version, the
+list parameters that it belongs to, and the keyset of the last row, so a cursor
+of another list or of an earlier format is rejected. The
+`list_background_jobs` tool reads the `list_for_agent` action the same way.
 
-The Job detail shows the runtime Turn trajectory in bounded pages. The first
-page holds the newest Turns. Each page contains at most 20 semantic item groups
-within 24 KiB, and the pager walks back into the older history. A Turn that
-recorded no readable item still appears on its page with its status and error.
+The Job detail shows the runtime Turn trajectory in bounded pages. The
+trajectory is a read model of the Turns and their items, not a resource, so it
+stays a hand-written Console endpoint
+(`GET /api/v1/background-agent-jobs/:job_id/turns`). The first page holds the
+newest Turns. Each page contains at most 20 semantic item groups within 24 KiB,
+and the pager walks back into the older history. A Turn that recorded no
+readable item still appears on its page with its status and error.
 
 ## What the Main Agent Can Do
 

@@ -212,21 +212,9 @@ defmodule AnkoleWeb.Router do
     get "/control-plane-plugins", ControlPlanePluginController, :index
     put "/control-plane-plugins", ControlPlanePluginController, :update
     get "/worker-provider-kinds", WorkerProviderController, :kinds
-    get "/worker-providers", WorkerProviderController, :index
-    post "/worker-providers", WorkerProviderController, :create
-    patch "/worker-providers/:provider_id", WorkerProviderController, :update
     get "/worker-providers/:provider_id/check", WorkerProviderController, :check
-    delete "/worker-providers/:provider_id", WorkerProviderController, :delete
     get "/ai-gateway/models", AIGatewayProviderController, :models
     get "/ai-gateway/provider-kinds", AIGatewayProviderController, :provider_kinds
-    get "/ai-gateway/providers", AIGatewayProviderController, :index
-    get "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :show
-    put "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :put_provider
-    delete "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :delete_provider
-
-    post "/ai-gateway/providers/:provider_id/enable",
-         AIGatewayProviderController,
-         :enable_provider
 
     post "/ai-gateway/providers/:provider_id/credentials",
          AIGatewayProviderController,
@@ -259,15 +247,6 @@ defmodule AnkoleWeb.Router do
     post "/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials",
          AIGatewayProviderController,
          :add_chatgpt_enterprise_credential
-
-    get "/tenants", TenantController, :index
-    post "/tenants", TenantController, :create
-    patch "/tenants/:tenant_id", TenantController, :update
-    delete "/tenants/:tenant_id", TenantController, :delete
-    put "/tenants/:tenant_id/suspension", TenantController, :suspend
-    delete "/tenants/:tenant_id/suspension", TenantController, :resume
-    get "/privileged-tenant", TenantController, :privileged
-    put "/privileged-tenant", TenantController, :transfer
   end
 
   scope "/api/v1", AnkoleWeb do

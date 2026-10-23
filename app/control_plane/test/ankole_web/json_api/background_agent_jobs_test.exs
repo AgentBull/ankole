@@ -121,7 +121,7 @@ defmodule AnkoleWeb.JSONAPI.BackgroundAgentJobsTest do
     stopped = create_job!(agent.uid, "stopped-completion")
     {:ok, _} = BackgroundAgentJobs.request_stop(stopped.id, %{"agent_uid" => agent.uid})
 
-    assert %{"errors" => [%{"code" => "conflict"}]} =
+    assert %{"errors" => [%{"code" => "background_agent_job_terminal"}]} =
              conn
              |> send_v2(:post, "/api/v2/background-agent-jobs/#{stopped.id}/complete", %{
                "result_summary" => "late"

@@ -580,7 +580,8 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
             Ankole.Repo,
             input.arguments.id,
             context.actor
-          )
+          ),
+          &Ankole.BackgroundAgentJobs.Control.console_rejection/1
         )
       end)
     end
@@ -603,7 +604,8 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
             input.arguments.id,
             input.arguments.result_summary,
             context.actor
-          )
+          ),
+          &Ankole.BackgroundAgentJobs.Control.console_rejection/1
         )
       end)
     end

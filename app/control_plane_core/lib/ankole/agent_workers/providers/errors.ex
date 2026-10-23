@@ -133,15 +133,21 @@ defmodule Ankole.AgentWorkers.Providers.Errors do
 
   def describe(_reason), do: :unknown
 
-  @doc "Gives the operator text of a rejection for `Ankole.Errors.wrap/2`."
-  def rejection(:worker_provider_not_found), do: {"Worker provider was not found", []}
+  @doc """
+  Gives the v2 error of a rejection for `Ankole.Errors.wrap/2`: a missing
+  provider is not found, a provider in use is a conflict, and an invalid
+  provider names its fields.
+  """
+  def rejection(:worker_provider_not_found),
+    do: Ankole.Errors.Invalid.NotFound.exception(resource: Ankole.AgentWorkers.Providers.Provider)
 
   def rejection(:worker_provider_in_use),
-    do: {"Agents still use this provider, including Agents being deleted", []}
+    do: {:conflict, "Agents still use this provider, including Agents being deleted", []}
 
   def rejection(reason) do
     case describe(reason) do
-      {_kind, message, details} -> {message, details}
+      {:invalid, message, details} -> {message, details}
+      {:conflict, message, details} -> {:conflict, message, details}
       :unknown -> nil
     end
   end

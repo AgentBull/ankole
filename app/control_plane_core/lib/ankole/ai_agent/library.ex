@@ -308,15 +308,11 @@ defmodule Ankole.AIAgent.Library do
 
   @doc false
   # Runs the `:console_teach` action: an operator lesson from the Console.
-  # An unknown skill is not found (404), as in the v1 Console API.
   def console_teach(%{agent_uid: agent_uid} = arguments) do
-    with {:ok, agent_uid, sources, opts} <- prepare_skill_lesson_write(agent_uid, []),
-         {:error, :skill_not_found} <-
-           arguments
-           |> Map.merge(%{agent_uid: agent_uid, sources: sources, catalog_options: opts})
-           |> teach() do
-      {:error,
-       Ankole.Errors.Invalid.NotFound.exception(resource: AgentSkill, id: arguments.skill_name)}
+    with {:ok, agent_uid, sources, opts} <- prepare_skill_lesson_write(agent_uid, []) do
+      arguments
+      |> Map.merge(%{agent_uid: agent_uid, sources: sources, catalog_options: opts})
+      |> teach()
     end
   end
 

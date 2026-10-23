@@ -138,8 +138,6 @@ defmodule Ankole.BackgroundAgentJobs.Control do
              "reason" => "Cancelled from the operator console"
            }) do
       {:ok, Ash.Resource.put_metadata(job, :turn, turn)}
-    else
-      error -> console_error(error, job_id)
     end
   end
 
@@ -163,8 +161,6 @@ defmodule Ankole.BackgroundAgentJobs.Control do
              "result_summary" => result_summary
            }) do
       {:ok, Ash.Resource.put_metadata(job, :turn, turn)}
-    else
-      error -> console_error(error, job_id)
     end
   end
 
@@ -173,28 +169,25 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   def stop_console_turn(%Job{} = job),
     do: Ankole.Sessions.stop_job_turn(job, job.__metadata__[:turn])
 
+  @doc """
+  Gives the answer of a rejected Console operation for `Ankole.Errors.wrap/2`:
+  a missing Job is not found, and a Job that already failed or stopped is a
+  conflict, as in the v1 Console API.
+  """
+  def console_rejection(:job_not_found),
+    do: Ankole.Errors.Invalid.NotFound.exception(resource: Job)
+
+  def console_rejection(:background_agent_job_terminal),
+    do: {:conflict, "background Agent Job already failed or stopped", []}
+
+  def console_rejection(_reason), do: nil
+
   defp console_job(job_id) do
     case Queries.get(job_id) do
       %Job{} = job -> {:ok, job}
-      nil -> console_error({:error, :job_not_found}, job_id)
+      nil -> {:error, :job_not_found}
     end
   end
-
-  # A missing Job is not found (404); a Job that already failed or stopped
-  # cannot complete (409), as in the v1 Console API.
-  defp console_error({:error, :job_not_found}, job_id),
-    do: {:error, Ankole.Errors.Invalid.NotFound.exception(resource: Job, id: job_id)}
-
-  defp console_error({:error, :background_agent_job_terminal}, _job_id),
-    do:
-      {:error,
-       Ankole.Errors.Invalid.StatusTransition.exception(
-         resource: Job,
-         field: :status,
-         to: :succeeded
-       )}
-
-  defp console_error(error, _job_id), do: error
 
   defp operator(principal), do: principal |> Ankole.ActorRef.from_principal() |> to_string()
 
