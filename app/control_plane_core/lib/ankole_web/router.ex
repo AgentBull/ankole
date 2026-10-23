@@ -213,40 +213,6 @@ defmodule AnkoleWeb.Router do
     put "/control-plane-plugins", ControlPlanePluginController, :update
     get "/worker-provider-kinds", WorkerProviderController, :kinds
     get "/worker-providers/:provider_id/check", WorkerProviderController, :check
-    get "/ai-gateway/models", AIGatewayProviderController, :models
-    get "/ai-gateway/provider-kinds", AIGatewayProviderController, :provider_kinds
-
-    post "/ai-gateway/providers/:provider_id/credentials",
-         AIGatewayProviderController,
-         :add_credential
-
-    put "/ai-gateway/providers/:provider_id/credentials/:credential_id",
-        AIGatewayProviderController,
-        :put_credential
-
-    delete "/ai-gateway/providers/:provider_id/credentials/:credential_id",
-           AIGatewayProviderController,
-           :delete_credential
-
-    put "/ai-gateway/providers/:provider_id/credential-pool/strategy",
-        AIGatewayProviderController,
-        :put_credential_strategy
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-login",
-         AIGatewayProviderController,
-         :start_chatgpt_login
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-login/poll",
-         AIGatewayProviderController,
-         :poll_chatgpt_login
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback",
-         AIGatewayProviderController,
-         :complete_chatgpt_browser_login
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials",
-         AIGatewayProviderController,
-         :add_chatgpt_enterprise_credential
   end
 
   scope "/api/v1", AnkoleWeb do
@@ -351,8 +317,6 @@ defmodule AnkoleWeb.Router do
     post "/agents/:agent_uid/file-moves", AgentFileController, :move
     delete "/agents/:agent_uid/files", AgentFileController, :delete
 
-    get "/agents/:agent_uid/model-profiles", AgentController, :index_model_profiles
-
     get "/identity-provider-adapters", IdentityProviderController, :adapters
     get "/identity-providers/:provider_id/directory", DirectoryAccessController, :show
     post "/identity-providers/:provider_id/directory-reviews", DirectoryAccessController, :approve
@@ -364,21 +328,6 @@ defmodule AnkoleWeb.Router do
     get "/identity-providers", IdentityProviderController, :index
     put "/identity-providers/:provider_id", IdentityProviderController, :put_provider
     post "/identity-providers/:provider_id/sync-runs", IdentityProviderController, :run_sync
-
-    put "/agents/:agent_uid/provider-hosted", AgentController, :put_provider_hosted
-
-    put "/agents/:agent_uid/model-profiles/:profile",
-        AgentController,
-        :put_model_profile
-
-    delete "/agents/:agent_uid/model-profiles/:profile",
-           AgentController,
-           :delete_model_profile
-
-    get "/agents/:agent_uid/token-quota", AgentController, :show_token_quota
-    put "/agents/:agent_uid/token-quota", AgentController, :put_token_quota
-    delete "/agents/:agent_uid/token-quota", AgentController, :delete_token_quota
-    post "/agents/:agent_uid/token-quota/reset", AgentController, :reset_token_quota
 
     get "/signal-adapters", SignalBindingController, :adapters
 

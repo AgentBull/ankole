@@ -32,6 +32,27 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   # {resource, route type, action or relationship} => {AuthZ resource, AuthZ action}
   @rules %{
     site: %{
+      # K2 provider credentials and model catalog
+      {Ankole.AIGateway.ProviderConfigs.Console, :route, :models} =>
+        {"ai_gateway_providers", "read"},
+      {Ankole.AIGateway.ProviderConfigs.Console, :route, :provider_kinds} =>
+        {"ai_gateway_provider_kinds", "read"},
+      {Ankole.AIGateway.ProviderConfigs.Provider, :post, :console_add_credential} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
+      {Ankole.AIGateway.ProviderConfigs.Provider, :patch, :console_put_credential} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
+      {Ankole.AIGateway.ProviderConfigs.Provider, :delete, :console_delete_credential} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
+      {Ankole.AIGateway.ProviderConfigs.Provider, :patch, :console_credential_strategy} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
+      {Ankole.AIGateway.ProviderConfigs.Console, :route, :start} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
+      {Ankole.AIGateway.ProviderConfigs.Console, :route, :poll} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
+      {Ankole.AIGateway.ProviderConfigs.Console, :route, :complete} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
+      {Ankole.AIGateway.ProviderConfigs.Console, :route, :enterprise} =>
+        {"ai_gateway_provider:{provider_id}", "update"},
       # J1 site tenants (v1: tenant_controller.ex)
       {Ankole.Tenants.Tenant, :index, :list} => {"site:tenants", "read"},
       {Ankole.Tenants.Tenant, :route, :brain_packs} => {"site:tenants", "read"},
@@ -63,6 +84,22 @@ defmodule AnkoleWeb.JSONAPI.Policy do
         {"ai_gateway_provider:{provider_id}", "update"}
     },
     console: %{
+      # K2 Agent model configuration and token quotas
+      {Ankole.AIAgent.Console, :route, :model_profiles} =>
+        {"agent:{agent_uid}:model_profiles", "read"},
+      {Ankole.AIAgent.Console, :route, :put_model_profile} =>
+        {"agent:{agent_uid}:model_profile:{profile}", "update"},
+      {Ankole.AIAgent.Console, :route, :delete_model_profile} =>
+        {"agent:{agent_uid}:model_profile:{profile}", "delete"},
+      {Ankole.AIAgent.Console, :route, :put_provider_hosted} =>
+        {"agent:{agent_uid}:model_profiles", "update"},
+      {Ankole.AIAgent.Console, :route, :token_quota} => {"agent:{agent_uid}:token_quota", "read"},
+      {Ankole.AIAgent.Console, :route, :put_token_quota} =>
+        {"agent:{agent_uid}:token_quota", "update"},
+      {Ankole.AIAgent.Console, :route, :delete_token_quota} =>
+        {"agent:{agent_uid}:token_quota", "delete"},
+      {Ankole.AIAgent.Console, :route, :reset_token_quota} =>
+        {"agent:{agent_uid}:token_quota", "update"},
       # J4 background agent jobs (v1: background_agent_job_controller.ex)
       {Ankole.BackgroundAgentJobs.Schemas.Job, :index, :console_list} =>
         {"background_agent_jobs", "read"},

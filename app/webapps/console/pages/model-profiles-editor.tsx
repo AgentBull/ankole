@@ -1,4 +1,4 @@
-import type { AiGatewayModelCatalogEntry as AIGatewayModelCatalogEntry } from '../api/generated/types.gen'
+import type { AIGatewayModelCatalogEntry } from '../state/provider-settings'
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { Skeleton, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
@@ -8,17 +8,11 @@ import { useMemo, type ComponentProps } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
-import { ankoleWebAgentControllerPutProviderHostedMutation } from '../api/generated/@tanstack/react-query.gen'
-import {
-  ankoleWebAgentControllerDeleteModelProfile,
-  ankoleWebAgentControllerPutModelProfile
-} from '../api/generated/sdk.gen'
+import { putAgentProviderHostedMutation } from '../api/v2/generated/@tanstack/react-query.gen'
+import { deleteAgentModelProfile, putAgentModelProfile } from '../api/v2/generated/sdk.gen'
 import type { AgentItem } from '../api/agents'
-import type {
-  AiGatewayProviderKindItem as AIGatewayProviderKindItem,
-  ModelProfileWriteRequest,
-  ProviderHostedCapabilities
-} from '../api/generated/types.gen'
+import type { AIGatewayProviderKindItem } from '../state/provider-settings'
+import type { ModelProfileWriteRequest, ProviderHostedCapabilities } from '../state/model-profiles-model'
 import { ErrorBlock } from '../../common/error-block'
 import {
   draftFromProfile,
@@ -92,7 +86,7 @@ function AgentModelProfilesEditor({
   })
 
   const saveProviderHosted = useMutation({
-    ...ankoleWebAgentControllerPutProviderHostedMutation(),
+    ...putAgentProviderHostedMutation(),
     onError: () => void queryClient.invalidateQueries()
   })
 
@@ -114,7 +108,7 @@ function AgentModelProfilesEditor({
       onChange: (next: boolean) =>
         saveProviderHosted.mutate({
           path: { agent_uid: agent.uid },
-          body: { [capability]: next }
+          body: { data: { [capability]: next } }
         })
     }
   }
@@ -195,8 +189,8 @@ function ProfileEditor({
       const path = { agent_uid: agentUID, profile }
       const response =
         input.action === 'saved'
-          ? await ankoleWebAgentControllerPutModelProfile({ path, body: input.body, throwOnError: true })
-          : await ankoleWebAgentControllerDeleteModelProfile({ path, throwOnError: true })
+          ? await putAgentModelProfile({ path, body: { data: { attrs: input.body } }, throwOnError: true })
+          : await deleteAgentModelProfile({ path, throwOnError: true })
       return response.data
     }
   })

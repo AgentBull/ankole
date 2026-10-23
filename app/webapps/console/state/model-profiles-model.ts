@@ -1,3 +1,4 @@
+import type { PutAgentModelProfileData, ListAgentModelProfilesResponse } from '../api/v2/generated/types.gen'
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { batch, createModel, signal } from '@preact/signals-react'
 
@@ -243,3 +244,6 @@ function sameProfileValues(left: ProfileDraft, right: ProfileDraft): boolean {
     JSON.stringify(left.providerOptions) === JSON.stringify(right.providerOptions)
   )
 }
+
+export type ModelProfileWriteRequest = PutAgentModelProfileData['body']['data']['attrs']
+export type ProviderHostedCapabilities = ListAgentModelProfilesResponse['provider_hosted']

@@ -204,7 +204,7 @@ async function providers(page: Page) {
     type: 'ai_gateway_provider',
     attributes: { ...record, provider_metadata: {} }
   })
-  await page.route('**/api/v1/site/ai-gateway/provider-kinds', route =>
+  await page.route('**/api/v2/site/ai-gateway/provider-kinds', route =>
     route.fulfill({
       json: {
         provider_kinds: [

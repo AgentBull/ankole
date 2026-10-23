@@ -36,17 +36,22 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   resources do
     resource(Provider)
+    resource(Ankole.AIGateway.ProviderConfigs.Console)
   end
 
   # The site administration API at `/api/v2/site` (`AnkoleWeb.JSONAPI.SiteRouter`).
-  # The credential routes stay in the v1 API: they take plaintext credentials
-  # and run the ChatGPT login.
   json_api do
     authorize?(false)
     log_errors?(true)
     show_raised_errors?(false)
 
     routes do
+      base_route "/ai-gateway", Ankole.AIGateway.ProviderConfigs.Console do
+        route(:get, "/models", :models, name: "list_ai_gateway_models")
+
+        route(:get, "/provider-kinds", :provider_kinds, name: "list_ai_gateway_provider_kinds")
+      end
+
       base_route "/ai-gateway/providers", Provider do
         index(:list, name: "list_ai_gateway_providers", derive_sort?: false)
 
@@ -62,6 +67,39 @@ defmodule Ankole.AIGateway.ProviderConfigs do
         post(:enable_provider,
           route: "/:provider_id/enable",
           name: "enable_ai_gateway_provider"
+        )
+
+        post(:console_add_credential,
+          route: "/:provider_id/credentials",
+          name: "add_ai_gateway_credential"
+        )
+
+        patch(:console_put_credential,
+          route: "/:provider_id/credentials/:credential_id",
+          name: "put_ai_gateway_credential"
+        )
+
+        delete(:console_delete_credential,
+          route: "/:provider_id/credentials/:credential_id",
+          name: "delete_ai_gateway_credential"
+        )
+
+        patch(:console_credential_strategy,
+          route: "/:provider_id/credential-pool/strategy",
+          name: "put_ai_gateway_credential_strategy"
+        )
+      end
+
+      base_route "/ai-gateway/providers/:provider_id", Ankole.AIGateway.ProviderConfigs.Console do
+        route(:post, "/chatgpt-login", :start, name: "start_chatgpt_login")
+        route(:post, "/chatgpt-login/poll", :poll, name: "poll_chatgpt_login")
+
+        route(:post, "/chatgpt-login/browser-callback", :complete,
+          name: "complete_chatgpt_browser_login"
+        )
+
+        route(:post, "/chatgpt-enterprise-credentials", :enterprise,
+          name: "add_chatgpt_enterprise_credential"
         )
       end
     end
@@ -621,11 +659,29 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   @doc """
   Gives the operator text of a provider rejection: one sentence and the
   details, or `nil` for a reason without text. A missing provider gives
-  `Ankole.Errors.Invalid.NotFound`. `Ankole.Errors.wrap/2` and the v1
-  credential routes use it.
+  `Ankole.Errors.Invalid.NotFound`. `Ankole.Errors.wrap/2` uses it for
+  credential actions.
   """
   @spec rejection(term()) :: {String.t(), [map()]} | Exception.t() | nil
   def rejection(:not_found), do: Ankole.Errors.Invalid.NotFound.exception(resource: Provider)
+
+  def rejection(:credential_not_found),
+    do: Ankole.Errors.Invalid.NotFound.exception(resource: Provider)
+
+  def rejection({:invalid_credential_entry, credential_id}),
+    do:
+      {"a stored credential entry is invalid; sign in again to replace it",
+       [%{credential_id: credential_id}]}
+
+  def rejection({:invalid_credential_payload, credential_id}),
+    do:
+      {"a stored credential cannot be read; sign in again to replace it",
+       [%{credential_id: credential_id}]}
+
+  def rejection({:credential_decrypt_failed, credential_id, _reason}),
+    do:
+      {"a stored credential cannot be decrypted; sign in again to replace it",
+       [%{credential_id: credential_id}]}
 
   def rejection({:provider_in_use, references}),
     do: {"provider is referenced by active model profiles", [%{references: references}]}

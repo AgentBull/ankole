@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { configFieldRequired, configFieldValidationMessage, type ConfigFieldDefinition } from './config-fields'
+import {
+  configFieldRequired,
+  configFieldValidationMessage,
+  localizedText,
+  type ConfigFieldDefinition
+} from './config-fields'
 
 const field = (overrides: Partial<ConfigFieldDefinition>): ConfigFieldDefinition => ({
   path: 'credential',
@@ -81,4 +86,19 @@ describe('configFieldValidationMessage', () => {
 
     expect(configFieldValidationMessage(tokenField, '', 'en-US')).toBeUndefined()
   })
+})
+
+test('localized labels return selected text and reject non-text values', () => {
+  expect(localizedText({ default: 'Provider', 'zh-Hans-CN': '提供商' }, 'zh-Hans-CN')).toBe('提供商')
+  expect(localizedText({ default: 'Provider' }, 'zh-Hans-CN')).toBe('Provider')
+  for (const value of [
+    null,
+    [],
+    'Provider',
+    { default: 1 },
+    { default: {} },
+    { default: 'Provider', 'zh-Hans-CN': false }
+  ]) {
+    expect(localizedText(value, 'zh-Hans-CN')).toBeUndefined()
+  }
 })

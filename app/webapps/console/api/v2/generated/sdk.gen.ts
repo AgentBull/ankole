@@ -71,7 +71,13 @@ import type {
   DecideBrainContradictionResponses,
   DeleteAgentData,
   DeleteAgentErrors,
+  DeleteAgentModelProfileData,
+  DeleteAgentModelProfileErrors,
+  DeleteAgentModelProfileResponses,
   DeleteAgentResponses,
+  DeleteAgentTokenQuotaData,
+  DeleteAgentTokenQuotaErrors,
+  DeleteAgentTokenQuotaResponses,
   DeleteIdentityMappingRequestData,
   DeleteIdentityMappingRequestErrors,
   DeleteIdentityMappingRequestResponses,
@@ -102,6 +108,9 @@ import type {
   GetAgentData,
   GetAgentErrors,
   GetAgentResponses,
+  GetAgentTokenQuotaData,
+  GetAgentTokenQuotaErrors,
+  GetAgentTokenQuotaResponses,
   GetAiGatewayConversationData,
   GetAiGatewayConversationErrors,
   GetAiGatewayConversationResponses,
@@ -129,6 +138,9 @@ import type {
   LearnBrainSourceData,
   LearnBrainSourceErrors,
   LearnBrainSourceResponses,
+  ListAgentModelProfilesData,
+  ListAgentModelProfilesErrors,
+  ListAgentModelProfilesResponses,
   ListAgentsData,
   ListAgentsErrors,
   ListAgentSkillLessonsData,
@@ -219,6 +231,15 @@ import type {
   PreviewComputedPrincipalGroupMembersData,
   PreviewComputedPrincipalGroupMembersErrors,
   PreviewComputedPrincipalGroupMembersResponses,
+  PutAgentModelProfileData,
+  PutAgentModelProfileErrors,
+  PutAgentModelProfileResponses,
+  PutAgentProviderHostedData,
+  PutAgentProviderHostedErrors,
+  PutAgentProviderHostedResponses,
+  PutAgentTokenQuotaData,
+  PutAgentTokenQuotaErrors,
+  PutAgentTokenQuotaResponses,
   RejectBrainMergeSuggestionData,
   RejectBrainMergeSuggestionErrors,
   RejectBrainMergeSuggestionResponses,
@@ -231,6 +252,9 @@ import type {
   RemovePrincipalGroupMemberData,
   RemovePrincipalGroupMemberErrors,
   RemovePrincipalGroupMemberResponses,
+  ResetAgentTokenQuotaData,
+  ResetAgentTokenQuotaErrors,
+  ResetAgentTokenQuotaResponses,
   ResolveBrainTakeData,
   ResolveBrainTakeErrors,
   ResolveBrainTakeResponses,
@@ -708,6 +732,34 @@ export const listBrainClaims = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * delete_agent_model_profile operation on agent_model_configuration resource
+ */
+export const deleteAgentModelProfile = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAgentModelProfileData, ThrowOnError>
+): RequestResult<DeleteAgentModelProfileResponses, DeleteAgentModelProfileErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteAgentModelProfileResponses, DeleteAgentModelProfileErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/model-profiles/{profile}',
+    ...options
+  })
+
+/**
+ * put_agent_model_profile operation on agent_model_configuration resource
+ */
+export const putAgentModelProfile = <ThrowOnError extends boolean = false>(
+  options: Options<PutAgentModelProfileData, ThrowOnError>
+): RequestResult<PutAgentModelProfileResponses, PutAgentModelProfileErrors, ThrowOnError> =>
+  (options.client ?? client).put<PutAgentModelProfileResponses, PutAgentModelProfileErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/model-profiles/{profile}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * get_automation_job operation on automation_job resource
  */
 export const getAutomationJob = <ThrowOnError extends boolean = false>(
@@ -788,6 +840,18 @@ export const listAutomationJobs = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * list_agent_model_profiles operation on agent_model_configuration resource
+ */
+export const listAgentModelProfiles = <ThrowOnError extends boolean = false>(
+  options: Options<ListAgentModelProfilesData, ThrowOnError>
+): RequestResult<ListAgentModelProfilesResponses, ListAgentModelProfilesErrors, ThrowOnError> =>
+  (options.client ?? client).get<ListAgentModelProfilesResponses, ListAgentModelProfilesErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/model-profiles',
+    ...options
+  })
+
+/**
  * Lists the grants that one group owns.
  */
 export const listPrincipalGroupGrants = <ThrowOnError extends boolean = false>(
@@ -828,6 +892,18 @@ export const resolveBrainTake = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * reset_agent_token_quota operation on agent_model_configuration resource
+ */
+export const resetAgentTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<ResetAgentTokenQuotaData, ThrowOnError>
+): RequestResult<ResetAgentTokenQuotaResponses, ResetAgentTokenQuotaErrors, ThrowOnError> =>
+  (options.client ?? client).post<ResetAgentTokenQuotaResponses, ResetAgentTokenQuotaErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/token-quota/reset',
+    ...options
+  })
+
+/**
  * list_automation_job_runs operation on automation_job_run resource
  */
 export const listAutomationJobRuns = <ThrowOnError extends boolean = false>(
@@ -837,6 +913,46 @@ export const listAutomationJobRuns = <ThrowOnError extends boolean = false>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/agents/{agent_uid}/automation-jobs/{automation_job_id}/runs',
     ...options
+  })
+
+/**
+ * delete_agent_token_quota operation on agent_model_configuration resource
+ */
+export const deleteAgentTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<DeleteAgentTokenQuotaData, ThrowOnError>
+): RequestResult<DeleteAgentTokenQuotaResponses, DeleteAgentTokenQuotaErrors, ThrowOnError> =>
+  (options.client ?? client).delete<DeleteAgentTokenQuotaResponses, DeleteAgentTokenQuotaErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/token-quota',
+    ...options
+  })
+
+/**
+ * get_agent_token_quota operation on agent_model_configuration resource
+ */
+export const getAgentTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<GetAgentTokenQuotaData, ThrowOnError>
+): RequestResult<GetAgentTokenQuotaResponses, GetAgentTokenQuotaErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetAgentTokenQuotaResponses, GetAgentTokenQuotaErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/token-quota',
+    ...options
+  })
+
+/**
+ * put_agent_token_quota operation on agent_model_configuration resource
+ */
+export const putAgentTokenQuota = <ThrowOnError extends boolean = false>(
+  options: Options<PutAgentTokenQuotaData, ThrowOnError>
+): RequestResult<PutAgentTokenQuotaResponses, PutAgentTokenQuotaErrors, ThrowOnError> =>
+  (options.client ?? client).put<PutAgentTokenQuotaResponses, PutAgentTokenQuotaErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/token-quota',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -896,6 +1012,22 @@ export const createOidcClient = <ThrowOnError extends boolean = false>(
   (options.client ?? client).post<CreateOidcClientResponses, CreateOidcClientErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/oidc-clients',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * put_agent_provider_hosted operation on agent_model_configuration resource
+ */
+export const putAgentProviderHosted = <ThrowOnError extends boolean = false>(
+  options: Options<PutAgentProviderHostedData, ThrowOnError>
+): RequestResult<PutAgentProviderHostedResponses, PutAgentProviderHostedErrors, ThrowOnError> =>
+  (options.client ?? client).put<PutAgentProviderHostedResponses, PutAgentProviderHostedErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/agents/{agent_uid}/provider-hosted',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',

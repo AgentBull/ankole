@@ -27,6 +27,8 @@ import {
   createWebhookEndpoint,
   decideBrainContradiction,
   deleteAgent,
+  deleteAgentModelProfile,
+  deleteAgentTokenQuota,
   deleteIdentityMappingRequest,
   deleteOidcClient,
   deletePermissionGrant,
@@ -37,6 +39,7 @@ import {
   forgetBrainObject,
   forkBrainObject,
   getAgent,
+  getAgentTokenQuota,
   getAiGatewayConversation,
   getAutomationJob,
   getBackgroundAgentJob,
@@ -46,6 +49,7 @@ import {
   getPrincipal,
   getPrincipalGroup,
   learnBrainSource,
+  listAgentModelProfiles,
   listAgents,
   listAgentSkillLessons,
   listAgentWorkers,
@@ -77,10 +81,14 @@ import {
   type Options,
   pauseCronSchedule,
   previewComputedPrincipalGroupMembers,
+  putAgentModelProfile,
+  putAgentProviderHosted,
+  putAgentTokenQuota,
   rejectBrainMergeSuggestion,
   rejectBrainSuggestion,
   removeCronSchedule,
   removePrincipalGroupMember,
+  resetAgentTokenQuota,
   resolveBrainTake,
   restoreBrainObject,
   resumeCronSchedule,
@@ -167,7 +175,13 @@ import type {
   DecideBrainContradictionResponse,
   DeleteAgentData,
   DeleteAgentError,
+  DeleteAgentModelProfileData,
+  DeleteAgentModelProfileError,
+  DeleteAgentModelProfileResponse,
   DeleteAgentResponse,
+  DeleteAgentTokenQuotaData,
+  DeleteAgentTokenQuotaError,
+  DeleteAgentTokenQuotaResponse,
   DeleteIdentityMappingRequestData,
   DeleteIdentityMappingRequestError,
   DeleteOidcClientData,
@@ -195,6 +209,9 @@ import type {
   GetAgentData,
   GetAgentError,
   GetAgentResponse,
+  GetAgentTokenQuotaData,
+  GetAgentTokenQuotaError,
+  GetAgentTokenQuotaResponse,
   GetAiGatewayConversationData,
   GetAiGatewayConversationError,
   GetAiGatewayConversationResponse,
@@ -222,6 +239,9 @@ import type {
   LearnBrainSourceData,
   LearnBrainSourceError,
   LearnBrainSourceResponse,
+  ListAgentModelProfilesData,
+  ListAgentModelProfilesError,
+  ListAgentModelProfilesResponse,
   ListAgentsData,
   ListAgentsError,
   ListAgentSkillLessonsData,
@@ -312,6 +332,15 @@ import type {
   PreviewComputedPrincipalGroupMembersData,
   PreviewComputedPrincipalGroupMembersError,
   PreviewComputedPrincipalGroupMembersResponse,
+  PutAgentModelProfileData,
+  PutAgentModelProfileError,
+  PutAgentModelProfileResponse,
+  PutAgentProviderHostedData,
+  PutAgentProviderHostedError,
+  PutAgentProviderHostedResponse,
+  PutAgentTokenQuotaData,
+  PutAgentTokenQuotaError,
+  PutAgentTokenQuotaResponse,
   RejectBrainMergeSuggestionData,
   RejectBrainMergeSuggestionError,
   RejectBrainMergeSuggestionResponse,
@@ -324,6 +353,9 @@ import type {
   RemovePrincipalGroupMemberData,
   RemovePrincipalGroupMemberError,
   RemovePrincipalGroupMemberResponse,
+  ResetAgentTokenQuotaData,
+  ResetAgentTokenQuotaError,
+  ResetAgentTokenQuotaResponse,
   ResolveBrainTakeData,
   ResolveBrainTakeError,
   ResolveBrainTakeResponse,
@@ -1300,6 +1332,56 @@ export const listBrainClaimsOptions = (options?: Options<ListBrainClaimsData>) =
     queryKey: listBrainClaimsQueryKey(options)
   })
 
+/**
+ * delete_agent_model_profile operation on agent_model_configuration resource
+ */
+export const deleteAgentModelProfileMutation = (
+  options?: Partial<Options<DeleteAgentModelProfileData>>
+): UseMutationOptions<
+  DeleteAgentModelProfileResponse,
+  DeleteAgentModelProfileError,
+  Options<DeleteAgentModelProfileData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteAgentModelProfileResponse,
+    DeleteAgentModelProfileError,
+    Options<DeleteAgentModelProfileData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteAgentModelProfile({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * put_agent_model_profile operation on agent_model_configuration resource
+ */
+export const putAgentModelProfileMutation = (
+  options?: Partial<Options<PutAgentModelProfileData>>
+): UseMutationOptions<PutAgentModelProfileResponse, PutAgentModelProfileError, Options<PutAgentModelProfileData>> => {
+  const mutationOptions: UseMutationOptions<
+    PutAgentModelProfileResponse,
+    PutAgentModelProfileError,
+    Options<PutAgentModelProfileData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await putAgentModelProfile({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const getAutomationJobQueryKey = (options: Options<GetAutomationJobData>) =>
   createQueryKey('getAutomationJob', options)
 
@@ -1485,6 +1567,31 @@ export const listAutomationJobsInfiniteOptions = (options?: Options<ListAutomati
   return opts as Omit<typeof opts, 'initialData'>
 }
 
+export const listAgentModelProfilesQueryKey = (options: Options<ListAgentModelProfilesData>) =>
+  createQueryKey('listAgentModelProfiles', options)
+
+/**
+ * list_agent_model_profiles operation on agent_model_configuration resource
+ */
+export const listAgentModelProfilesOptions = (options: Options<ListAgentModelProfilesData>) =>
+  queryOptions<
+    ListAgentModelProfilesResponse,
+    ListAgentModelProfilesError,
+    ListAgentModelProfilesResponse,
+    ReturnType<typeof listAgentModelProfilesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAgentModelProfiles({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listAgentModelProfilesQueryKey(options)
+  })
+
 export const listPrincipalGroupGrantsQueryKey = (options: Options<ListPrincipalGroupGrantsData>) =>
   createQueryKey('listPrincipalGroupGrants', options)
 
@@ -1605,6 +1712,29 @@ export const resolveBrainTakeMutation = (
   return mutationOptions
 }
 
+/**
+ * reset_agent_token_quota operation on agent_model_configuration resource
+ */
+export const resetAgentTokenQuotaMutation = (
+  options?: Partial<Options<ResetAgentTokenQuotaData>>
+): UseMutationOptions<ResetAgentTokenQuotaResponse, ResetAgentTokenQuotaError, Options<ResetAgentTokenQuotaData>> => {
+  const mutationOptions: UseMutationOptions<
+    ResetAgentTokenQuotaResponse,
+    ResetAgentTokenQuotaError,
+    Options<ResetAgentTokenQuotaData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await resetAgentTokenQuota({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const listAutomationJobRunsQueryKey = (options: Options<ListAutomationJobRunsData>) =>
   createQueryKey('listAutomationJobRuns', options)
 
@@ -1675,6 +1805,81 @@ export const listAutomationJobRunsInfiniteOptions = (options: Options<ListAutoma
     }
   )
   return opts as Omit<typeof opts, 'initialData'>
+}
+
+/**
+ * delete_agent_token_quota operation on agent_model_configuration resource
+ */
+export const deleteAgentTokenQuotaMutation = (
+  options?: Partial<Options<DeleteAgentTokenQuotaData>>
+): UseMutationOptions<
+  DeleteAgentTokenQuotaResponse,
+  DeleteAgentTokenQuotaError,
+  Options<DeleteAgentTokenQuotaData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteAgentTokenQuotaResponse,
+    DeleteAgentTokenQuotaError,
+    Options<DeleteAgentTokenQuotaData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteAgentTokenQuota({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getAgentTokenQuotaQueryKey = (options: Options<GetAgentTokenQuotaData>) =>
+  createQueryKey('getAgentTokenQuota', options)
+
+/**
+ * get_agent_token_quota operation on agent_model_configuration resource
+ */
+export const getAgentTokenQuotaOptions = (options: Options<GetAgentTokenQuotaData>) =>
+  queryOptions<
+    GetAgentTokenQuotaResponse,
+    GetAgentTokenQuotaError,
+    GetAgentTokenQuotaResponse,
+    ReturnType<typeof getAgentTokenQuotaQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getAgentTokenQuota({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getAgentTokenQuotaQueryKey(options)
+  })
+
+/**
+ * put_agent_token_quota operation on agent_model_configuration resource
+ */
+export const putAgentTokenQuotaMutation = (
+  options?: Partial<Options<PutAgentTokenQuotaData>>
+): UseMutationOptions<PutAgentTokenQuotaResponse, PutAgentTokenQuotaError, Options<PutAgentTokenQuotaData>> => {
+  const mutationOptions: UseMutationOptions<
+    PutAgentTokenQuotaResponse,
+    PutAgentTokenQuotaError,
+    Options<PutAgentTokenQuotaData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await putAgentTokenQuota({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
 }
 
 /**
@@ -1782,6 +1987,33 @@ export const createOidcClientMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await createOidcClient({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * put_agent_provider_hosted operation on agent_model_configuration resource
+ */
+export const putAgentProviderHostedMutation = (
+  options?: Partial<Options<PutAgentProviderHostedData>>
+): UseMutationOptions<
+  PutAgentProviderHostedResponse,
+  PutAgentProviderHostedError,
+  Options<PutAgentProviderHostedData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    PutAgentProviderHostedResponse,
+    PutAgentProviderHostedError,
+    Options<PutAgentProviderHostedData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await putAgentProviderHosted({
         ...options,
         ...fnOptions,
         throwOnError: true
