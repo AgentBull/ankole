@@ -8,14 +8,48 @@ defmodule Ankole.Sessions do
   Ash error class; the calling module gives back the domain reason with
   `Ankole.Errors.reason/1`.
   """
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.Jobs.EnsureDriver
   alias Ankole.Signals.Signal
   alias Ankole.Repo
 
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      route(
+        Ankole.Sessions.ConsoleOperations,
+        :get,
+        "/agents/:agent_uid/sessions",
+        :console_sessions,
+        name: "list_agent_sessions"
+      )
+
+      route(
+        Ankole.Sessions.ConsoleOperations,
+        :get,
+        "/conversations/:conversation_id/standing-orders",
+        :console_standing_orders,
+        name: "get_conversation_standing_orders"
+      )
+
+      route(
+        Ankole.Sessions.ConsoleOperations,
+        :put,
+        "/conversations/:conversation_id/standing-orders",
+        :console_put_standing_orders,
+        name: "put_conversation_standing_orders"
+      )
+    end
+  end
+
   resources do
+    resource(Ankole.Sessions.ConsoleOperations)
+
     resource Ankole.Sessions.SessionWorkspace do
       define(:get_session_workspace, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_session_workspaces, action: :read)

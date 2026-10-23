@@ -55,16 +55,16 @@ import {
   type BackgroundAgentJobListItem
 } from '../api/background-agent-jobs'
 import {
-  ankoleWebBackgroundAgentJobControllerHealthOptions,
-  ankoleWebBackgroundAgentJobControllerTurnsOptions
-} from '../api/generated/@tanstack/react-query.gen'
+  getBackgroundAgentJobHealthOptions,
+  getBackgroundAgentJobTurnsOptions
+} from '../api/v2/generated/@tanstack/react-query.gen'
 import type {
   BackgroundAgentJobHealthResponse,
   BackgroundAgentJobTurnItem,
   BackgroundAgentJobTurnPageResponse,
   BackgroundAgentJobTurnPlanStep,
   BackgroundAgentJobTurnUsageBreakdown
-} from '../api/generated/types.gen'
+} from '../api/runtime-types'
 import {
   cancelBackgroundAgentJobMutation,
   completeBackgroundAgentJobMutation,
@@ -122,7 +122,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
   const [completeTargetID, setCompleteTargetID] = useState<number>()
   const [completeSummary, setCompleteSummary] = useState('')
   const health = useQuery({
-    ...ankoleWebBackgroundAgentJobControllerHealthOptions(),
+    ...getBackgroundAgentJobHealthOptions(),
     refetchInterval: LIST_REFRESH_MS
   })
 
@@ -142,7 +142,7 @@ function BackgroundAgentJobsForScope({ scope }: { scope: AgentScope }) {
   })
   // The Turn trajectory is a read model of its own; it pages newest first.
   const turns = useQuery({
-    ...ankoleWebBackgroundAgentJobControllerTurnsOptions({
+    ...getBackgroundAgentJobTurnsOptions({
       path: { job_id: selectedID ?? 1000 },
       query: { cursor: turnsCursor }
     }),
@@ -472,7 +472,7 @@ function JobHealthStrip({ health }: { health: BackgroundAgentJobHealthResponse }
   const cells: { key: string; value: string; hint: string }[] = [
     {
       key: 'oldest_queued',
-      value: health.oldest_queued_seconds === null ? '—' : formatDuration(health.oldest_queued_seconds),
+      value: health.oldest_queued_seconds == null ? '—' : formatDuration(health.oldest_queued_seconds),
       hint: t('console.background_agent_jobs.health_oldest_queued_hint', {
         queued: health.queued_count,
         running: health.running_count
@@ -978,7 +978,7 @@ function TokenUsage({ usage }: { usage: NonNullable<BackgroundAgentJobTurn['usag
           ))}
         </tbody>
       </table>
-      {usage.model_context_window === undefined ? null : (
+      {usage.model_context_window == null ? null : (
         <span className="font-mono text-xs text-muted-foreground tabular-nums">
           {t('console.background_agent_jobs.usage_context', {
             tokens: usage.model_context_window.toLocaleString()

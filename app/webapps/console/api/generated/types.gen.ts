@@ -81,17 +81,6 @@ export type DirectoryEventReviewRequest = {
 }
 
 /**
- * ConversationStandingOrdersItem
- */
-export type ConversationStandingOrdersItem = {
-  conversation_id: string
-  orders?: string | null
-  set_by?: string | null
-  title?: string | null
-  updated_at?: string | null
-}
-
-/**
  * AIGatewayCredentialStrategyWriteRequest
  */
 export type AiGatewayCredentialStrategyWriteRequest = {
@@ -129,14 +118,6 @@ export type AuthSessionDeleteResponse = {
 export type OidcClientSecretResponse = {
   client_secret: string | null
   oidc_client: OidcClientItem
-}
-
-/**
- * BackgroundAgentJobTurnPlanStep
- */
-export type BackgroundAgentJobTurnPlanStep = {
-  status: 'pending' | 'in_progress' | 'completed'
-  step: string
 }
 
 /**
@@ -178,34 +159,6 @@ export type HumanAccessResponse = {
   status: string
   uid: string
   work: Array<HumanWorkItem>
-}
-
-/**
- * BackgroundAgentJobHealthResponse
- */
-export type BackgroundAgentJobHealthResponse = {
-  agents_at_running_cap: number
-  claims_24h: number
-  dead_letter_notices_24h: number
-  execution_failures_24h: number
-  max_running_per_agent: number
-  oldest_queued_seconds: number | null
-  queued_behind_running_cap: number
-  queued_count: number
-  running_count: number
-  succeeded_24h: number
-  successor_seeded_24h: number
-  wakeups_24h: number
-  window_seconds: number
-}
-
-/**
- * BackgroundActivityAutomationRunsResponse
- */
-export type BackgroundActivityAutomationRunsResponse = {
-  next_cursor: string | null
-  observed_at: string
-  runs: Array<BackgroundActivityAutomationRun>
 }
 
 /**
@@ -252,14 +205,6 @@ export type DirectorySnapshot = {
 }
 
 /**
- * ConsoleReadinessProvider
- */
-export type ConsoleReadinessProvider = {
-  complete: boolean
-  provider_id: string | null
-}
-
-/**
  * AIGatewayModelCatalogEntry
  */
 export type AiGatewayModelCatalogEntry = {
@@ -269,84 +214,6 @@ export type AiGatewayModelCatalogEntry = {
   model: string
   name: string
   provider_id: string
-}
-
-/**
- * BackgroundAgentJobTurnItem
- */
-export type BackgroundAgentJobTurnItem = {
-  attempt: number
-  completed_at?: string | null
-  error: {
-    [key: string]: unknown
-  }
-  id: string
-  inserted_at: string
-  kind: 'agent' | 'compaction'
-  progress: BackgroundAgentJobTurnProgress
-  revision: number
-  runtime_thread_id: string
-  runtime_turn_id: string
-  started_at: string
-  status: 'in_progress' | 'completed' | 'failed' | 'interrupted'
-  trajectory: {
-    format: 'ankole_chatml'
-    messages: Array<
-      | {
-          content:
-            | string
-            | Array<{
-                type: string
-                [key: string]: unknown
-              }>
-          id?: string
-          metadata?: {
-            [key: string]: unknown
-          }
-          role: 'user' | 'developer'
-          [key: string]: unknown
-        }
-      | {
-          content: string
-          id?: string
-          metadata?: {
-            [key: string]: unknown
-          }
-          role: 'assistant'
-          tool_calls?: Array<{
-            function: {
-              arguments: string
-              name: string
-              namespace?: string
-              [key: string]: unknown
-            }
-            id: string
-            type: 'function'
-            [key: string]: unknown
-          }>
-          [key: string]: unknown
-        }
-      | {
-          content: string
-          id?: string
-          metadata?: {
-            [key: string]: unknown
-          }
-          name: string
-          namespace?: string
-          role: 'tool'
-          tool_call_id: string
-          [key: string]: unknown
-        }
-    >
-    metadata?: {
-      content_truncated?: boolean
-      redacted?: boolean
-    }
-    version: 1
-  }
-  updated_at: string
-  usage: BackgroundAgentJobTurnUsage | null
 }
 
 /**
@@ -472,15 +339,6 @@ export type AccessReviewPrincipal = {
 }
 
 /**
- * ConsoleReadinessModelProfiles
- */
-export type ConsoleReadinessModelProfiles = {
-  agent_uid: string | null
-  complete: boolean
-  missing_profiles: Array<string>
-}
-
-/**
  * OIDCLoginSources
  */
 export type OidcLoginSources = {
@@ -513,46 +371,6 @@ export type AgentLibraryDocumentWriteRequest = {
 }
 
 /**
- * AgentFileEntry
- */
-export type AgentFileEntry = {
-  content_type: string
-  conversation_id: string | null
-  message_id: string | null
-  path: string
-  size: number
-  source: 'inbound' | 'generated' | 'sent' | 'agent' | 'console' | 'pod'
-  updated_at: string
-}
-
-/**
- * BackgroundActivityWorkflowCall
- */
-export type BackgroundActivityWorkflowCall = {
-  agent_uid: string
-  attempts: number
-  attention: boolean
-  error_code: string | null
-  error_summary: string | null
-  id: number
-  label: string | null
-  owner_session_id: string
-  resource_kind: 'workflow_call'
-  run_counts: WorkflowActivityCounts
-  run_error_code: string | null
-  run_error_summary: string | null
-  run_id: number
-  run_status: string
-  run_title: string
-  sleep_note: string | null
-  status: 'queued' | 'running' | 'sleeping'
-  task_session_id: string
-  updated_at: string | null
-  wake_at: string | null
-  wake_kind: 'sleep' | 'agent_capacity' | null
-}
-
-/**
  * AccessReviewGroup
  */
 export type AccessReviewGroup = {
@@ -561,27 +379,6 @@ export type AccessReviewGroup = {
   id: string
   kind: string
   name: string
-}
-
-/**
- * BackgroundActivityAutomationRun
- */
-export type BackgroundActivityAutomationRun = {
-  agent_uid: string
-  attempt_id: string | null
-  attempts: number
-  automation_job_id: number
-  definition_status: 'active' | 'cancelled'
-  error: string | null
-  id: number
-  inserted_at: string | null
-  label: string | null
-  owner_session_id: string
-  resource_kind: 'automation_run'
-  scheduled_event_id: string | null
-  started_at: string | null
-  status: 'queued' | 'running'
-  updated_at: string | null
 }
 
 /**
@@ -601,29 +398,6 @@ export type BrainPageFact = {
   superseded_by?: string | null
   valid_from?: string | null
   valid_until?: string | null
-}
-
-/**
- * BackgroundAgentJobTurnActiveItem
- */
-export type BackgroundAgentJobTurnActiveItem = {
-  id: string
-  name: string
-  namespace?: string
-}
-
-/**
- * ConsoleReadinessResponse
- */
-export type ConsoleReadinessResponse = {
-  agent: ConsoleReadinessAgent
-  completed_core_steps: number
-  model_profiles: ConsoleReadinessModelProfiles
-  provider: ConsoleReadinessProvider
-  ready: boolean
-  signal_route: ConsoleReadinessSignalRoute
-  total_core_steps: number
-  worker: ConsoleReadinessWorker
 }
 
 /**
@@ -724,25 +498,6 @@ export type BrainSearchPreviewRequest = {
 }
 
 /**
- * SignalBindingUpdateRequest
- */
-export type SignalBindingUpdateRequest = {
-  config: JsonValue
-  filters?: JsonValue
-  group_message_mode?: 'addressed_only' | 'observe_all' | 'may_intervene'
-  target?: JsonValue
-  target_agent_uid: string
-  unmatched_sender_policy?: 'manual_review' | 'create_standalone'
-}
-
-/**
- * SignalAdapterListResponse
- */
-export type SignalAdapterListResponse = {
-  signal_adapters: Array<SignalAdapterItem>
-}
-
-/**
  * BrainPageLinks
  */
 export type BrainPageLinks = {
@@ -756,13 +511,6 @@ export type BrainPageLinks = {
     link_type: string
     to: string
   }>
-}
-
-/**
- * SignalBindingResponse
- */
-export type SignalBindingResponse = {
-  signal_binding: SignalBindingItem
 }
 
 /**
@@ -795,42 +543,6 @@ export type AccessHistoryItem = {
 }
 
 /**
- * BackgroundAgentJobTurnProgress
- */
-export type BackgroundAgentJobTurnProgress = {
-  active_item?: BackgroundAgentJobTurnActiveItem
-  completed_items: number
-  files_changed: Array<string>
-  plan?: BackgroundAgentJobTurnPlan
-  tool_calls: number
-  tool_execution_mechanisms?: Array<BackgroundAgentJobTurnToolExecutionMechanism>
-  tools_used: Array<BackgroundAgentJobTurnToolUsage>
-}
-
-/**
- * AgentFileFolder
- */
-export type AgentFileFolder = {
-  name: string
-  path: string
-}
-
-/**
- * AgentFileListResponse
- */
-export type AgentFileListResponse = {
-  file_listing: {
-    files: Array<AgentFileEntry>
-    folders: Array<AgentFileFolder>
-    path: string
-    /**
-     * True when the folder has more folders or files than the listing shows
-     */
-    truncated: boolean
-  }
-}
-
-/**
  * ModelProfilesResponse
  */
 export type ModelProfilesResponse = {
@@ -848,32 +560,6 @@ export type ModelProfilesResponse = {
 export type ProviderHostedCapabilities = {
   image_generate: boolean
   web_search: boolean
-}
-
-/**
- * WorkflowActivityCounts
- */
-export type WorkflowActivityCounts = {
-  cancelled: number
-  failed: number
-  queued: number
-  running: number
-  sleeping: number
-  succeeded: number
-  total: number
-}
-
-/**
- * SignalAdapterItem
- */
-export type SignalAdapterItem = {
-  adapter_category: 'enterprise_im' | 'consumer_im' | 'email' | 'event_source'
-  adapter_id: string
-  display_name?: LocalizedText
-  fields: Array<SignalAdapterField>
-  group_message_mode_field: SignalAdapterField | null
-  plugin_id?: string | null
-  unmatched_sender_policy_field: SignalAdapterField | null
 }
 
 /**
@@ -897,15 +583,6 @@ export type SignalAdapterField = {
 }
 
 /**
- * BackgroundAgentJobTurnToolUsage
- */
-export type BackgroundAgentJobTurnToolUsage = {
-  calls: number
-  name: string
-  namespace?: string
-}
-
-/**
  * AIGatewayCredentialWriteRequest
  */
 export type AiGatewayCredentialWriteRequest = {
@@ -921,25 +598,6 @@ export type AiGatewayCredentialWriteRequest = {
  */
 export type BrainClaimListResponse = {
   claims: Array<BrainClaim>
-}
-
-/**
- * BackgroundActivityJob
- */
-export type BackgroundActivityJob = {
-  agent_uid: string
-  attempts: number
-  error_code: string | null
-  error_summary: string | null
-  id: number
-  owner_session_id: string
-  queued_at: string | null
-  resource_kind: 'background_job'
-  source_signal_id: string | null
-  started_at: string | null
-  status: 'queued' | 'running' | 'waiting_on_user'
-  title: string
-  updated_at: string | null
 }
 
 /**
@@ -1000,55 +658,6 @@ export type AiGatewayChatGptLoginPollRequest = {
 }
 
 /**
- * AgentSessionListResponse
- */
-export type AgentSessionListResponse = {
-  sessions: Array<AgentSession>
-}
-
-/**
- * SignalBindingListResponse
- */
-export type SignalBindingListResponse = {
-  delivery_failures: Array<SignalDeliveryFailureItem>
-  signal_bindings: Array<SignalBindingItem>
-}
-
-/**
- * SignalBindingWriteRequest
- */
-export type SignalBindingWriteRequest = {
-  config: JsonValue
-  filters?: JsonValue
-  group_message_mode?: 'addressed_only' | 'observe_all' | 'may_intervene'
-  target?: JsonValue
-  unmatched_sender_policy?: 'manual_review' | 'create_standalone'
-}
-
-/**
- * ConsoleReadinessAgent
- */
-export type ConsoleReadinessAgent = {
-  complete: boolean
-  display_name: string | null
-  uid: string | null
-}
-
-/**
- * BackgroundAgentJobTurnPageResponse
- */
-export type BackgroundAgentJobTurnPageResponse = {
-  /**
-   * Opaque cursor for the page of older Turns; null on the last page.
-   */
-  next_cursor: string | null
-  /**
-   * One bounded page of runtime Turns, newest Turns first, in chronological order.
-   */
-  turns: Array<BackgroundAgentJobTurnItem>
-}
-
-/**
  * AgentPluginCapabilityItem
  */
 export type AgentPluginCapabilityItem = {
@@ -1073,23 +682,6 @@ export type AgentLibraryGlobalDefaultWriteRequest = {
  */
 export type ControlPlanePluginListResponse = {
   control_plane_plugins: Array<ControlPlanePluginItem>
-}
-
-/**
- * AgentFileUploadRequest
- */
-export type AgentFileUploadRequest = {
-  file: Blob | File
-  path: string
-}
-
-/**
- * BackgroundActivityJobsResponse
- */
-export type BackgroundActivityJobsResponse = {
-  jobs: Array<BackgroundActivityJob>
-  next_cursor: string | null
-  observed_at: string
 }
 
 /**
@@ -1147,17 +739,6 @@ export type AiGatewayModelCatalogResponse = {
 }
 
 /**
- * BackgroundActivityWorkflowResponse
- */
-export type BackgroundActivityWorkflowResponse = {
-  calls_next_cursor: string | null
-  live_calls: Array<BackgroundActivityWorkflowCall>
-  observed_at: string
-  runs: Array<BackgroundActivityWorkflowRun>
-  runs_next_cursor: string | null
-}
-
-/**
  * CleanupJobItem
  */
 export type CleanupJobItem = {
@@ -1185,13 +766,6 @@ export type AgentLibraryDocuments = {
  */
 export type AiGatewayChatGptLoginResponse = {
   [key: string]: unknown
-}
-
-/**
- * AgentFileUploadResponse
- */
-export type AgentFileUploadResponse = {
-  uploaded_file: AgentFileEntry
 }
 
 /**
@@ -1269,13 +843,6 @@ export type BrainRecallClaim = {
   valid_from?: string | null
   valid_until?: string | null
   weight?: number | null
-}
-
-/**
- * AgentFileMoveResponse
- */
-export type AgentFileMoveResponse = {
-  moved_files: number
 }
 
 /**
@@ -1386,47 +953,10 @@ export type BrainPageTake = {
 }
 
 /**
- * ConsoleReadinessSignalRoute
- */
-export type ConsoleReadinessSignalRoute = {
-  complete: boolean
-}
-
-/**
  * IdentityProviderAdapterListResponse
  */
 export type IdentityProviderAdapterListResponse = {
   identity_provider_adapters: Array<IdentityProviderAdapterItem>
-}
-
-/**
- * BackgroundAgentJobTurnUsage
- */
-export type BackgroundAgentJobTurnUsage = {
-  last_model_call: BackgroundAgentJobTurnUsageBreakdown
-  model_context_window?: number
-  thread_total: BackgroundAgentJobTurnUsageBreakdown
-}
-
-/**
- * BackgroundAgentJobTurnToolExecutionMechanism
- */
-export type BackgroundAgentJobTurnToolExecutionMechanism = {
-  calls: number
-  execution_mechanism: 'local_dynamic' | 'provider_hosted'
-  name: string
-  namespace?: string
-}
-
-/**
- * BackgroundAgentJobTurnUsageBreakdown
- */
-export type BackgroundAgentJobTurnUsageBreakdown = {
-  cached_input_tokens: number
-  input_tokens: number
-  output_tokens: number
-  reasoning_output_tokens: number
-  total_tokens: number
 }
 
 /**
@@ -1443,14 +973,6 @@ export type AccessReviewPermissions = {
   grants: Array<AccessReviewGrant>
   groups: Array<AccessReviewGroup>
   principal: AccessReviewPrincipal
-}
-
-/**
- * SignalDeliveryRequeueRequest
- */
-export type SignalDeliveryRequeueRequest = {
-  binding_name: string
-  outbound_key: string
 }
 
 /**
@@ -1487,13 +1009,6 @@ export type BrainModelStatus = {
 }
 
 /**
- * AgentFileDeleteResponse
- */
-export type AgentFileDeleteResponse = {
-  deleted_files: number
-}
-
-/**
  * AgentLibraryDocumentsResponse
  */
 export type AgentLibraryDocumentsResponse = {
@@ -1510,41 +1025,6 @@ export type IdentityProviderAdapterItem = {
   display_name?: LocalizedText
   fields: Array<SignalAdapterField>
   plugin_id?: string | null
-}
-
-/**
- * SignalBindingDetailResponse
- */
-export type SignalBindingDetailResponse = {
-  config: JsonValue
-  signal_binding: SignalBindingItem
-  stored_secret_paths: Array<string>
-}
-
-/**
- * ConversationStandingOrdersResponse
- */
-export type ConversationStandingOrdersResponse = {
-  standing_orders: ConversationStandingOrdersItem
-}
-
-/**
- * BackgroundActivityWorkflowRun
- */
-export type BackgroundActivityWorkflowRun = {
-  agent_uid: string
-  cleanup_pending: boolean
-  completed_at: string | null
-  counts: WorkflowActivityCounts
-  error_code: string | null
-  error_summary: string | null
-  id: number
-  inserted_at: string | null
-  owner_session_id: string
-  resource_kind: 'workflow_run'
-  status: string
-  title: string
-  updated_at: string | null
 }
 
 /**
@@ -1612,47 +1092,6 @@ export type TokenQuotaWriteRequest = {
 }
 
 /**
- * SignalBindingItem
- */
-export type SignalBindingItem = {
-  adapter: string
-  agent_uid: string
-  config_key: string | null
-  config_ref: string
-  enabled: boolean
-  filters?: JsonValue
-  name: string
-  target?: JsonValue
-  unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
-  unavailable_reason?: string | null
-  unmatched_sender_policy: 'manual_review' | 'create_standalone'
-}
-
-/**
- * AgentSession
- *
- * One Session surfaced from durable schedule, Signal, or job rows.
- */
-export type AgentSession = {
-  /**
-   * `job` marks a background-agent-job session (id `"job:<id>"`).
-   */
-  kind: 'job' | 'session'
-  last_activity_at?: string | null
-  session_id: string
-  status?: string | null
-  title?: string | null
-}
-
-/**
- * BackgroundAgentJobTurnPlan
- */
-export type BackgroundAgentJobTurnPlan = {
-  explanation?: string
-  steps: Array<BackgroundAgentJobTurnPlanStep>
-}
-
-/**
  * ControlPlanePluginItem
  */
 export type ControlPlanePluginItem = {
@@ -1690,22 +1129,6 @@ export type AccessRestoreRequest = {
 }
 
 /**
- * SignalDeliveryFailureItem
- */
-export type SignalDeliveryFailureItem = {
-  agent_uid: string
-  attempt_count: number
-  binding_name: string
-  can_retry: boolean
-  max_attempts: number
-  outbound_key: string
-  possible_duplicate: boolean
-  state: 'blocked' | 'permanent' | 'exhausted'
-  status: 'failed' | 'expired' | 'unknown'
-  updated_at: string
-}
-
-/**
  * ProviderHostedResponse
  */
 export type ProviderHostedResponse = {
@@ -1731,21 +1154,6 @@ export type IdentityProviderWriteRequest = {
   adapter_id: string
   config: JsonValue
   enabled?: boolean
-}
-
-/**
- * SignalDeliveryRequeueResponse
- */
-export type SignalDeliveryRequeueResponse = {
-  requeued: boolean
-}
-
-/**
- * ConsoleReadinessWorker
- */
-export type ConsoleReadinessWorker = {
-  complete: boolean
-  ready_count: number
 }
 
 /**
@@ -1778,24 +1186,6 @@ export type SignalAdapterPatternValidation = {
   kind: 'pattern'
   message: LocalizedText
   pattern: string
-}
-
-/**
- * AgentFileMoveRequest
- */
-export type AgentFileMoveRequest = {
-  from_path: string
-  to_path: string
-}
-
-/**
- * ConversationStandingOrdersWriteRequest
- */
-export type ConversationStandingOrdersWriteRequest = {
-  /**
-   * Full replacement standing-orders text; empty clears them.
-   */
-  orders: string
 }
 
 export type AnkoleWebAiGatewayFilesControllerContentData = {
@@ -1894,38 +1284,6 @@ export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses = {
 export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponse =
   AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses[keyof AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses]
 
-export type BackgroundActivityWorkflowData = {
-  body?: never
-  path: {
-    agent_uid: string
-  }
-  query?: {
-    limit?: number
-    calls_cursor?: string
-    runs_cursor?: string
-  }
-  url: '/api/v1/agents/{agent_uid}/background-activities/workflow'
-}
-
-export type BackgroundActivityWorkflowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type BackgroundActivityWorkflowError = BackgroundActivityWorkflowErrors[keyof BackgroundActivityWorkflowErrors]
-
-export type BackgroundActivityWorkflowResponses = {
-  /**
-   * Workflow activity
-   */
-  200: BackgroundActivityWorkflowResponse
-}
-
-export type BackgroundActivityWorkflowResponse2 =
-  BackgroundActivityWorkflowResponses[keyof BackgroundActivityWorkflowResponses]
-
 export type AnkoleWebAiGatewayFilesControllerDeleteData = {
   body?: never
   path: {
@@ -2012,38 +1370,6 @@ export type AnkoleWebAiGatewayFilesControllerShowResponses = {
 
 export type AnkoleWebAiGatewayFilesControllerShowResponse =
   AnkoleWebAiGatewayFilesControllerShowResponses[keyof AnkoleWebAiGatewayFilesControllerShowResponses]
-
-export type AnkoleWebAgentFileControllerMoveData = {
-  /**
-   * Move
-   */
-  body: AgentFileMoveRequest
-  path: {
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/file-moves'
-}
-
-export type AnkoleWebAgentFileControllerMoveErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentFileControllerMoveError =
-  AnkoleWebAgentFileControllerMoveErrors[keyof AnkoleWebAgentFileControllerMoveErrors]
-
-export type AnkoleWebAgentFileControllerMoveResponses = {
-  /**
-   * Moved files
-   */
-  200: AgentFileMoveResponse
-}
-
-export type AnkoleWebAgentFileControllerMoveResponse =
-  AnkoleWebAgentFileControllerMoveResponses[keyof AnkoleWebAgentFileControllerMoveResponses]
 
 export type AnkoleWebPrincipalControllerCreateLocalPasswordResetData = {
   /**
@@ -2308,101 +1634,6 @@ export type AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses = {
 
 export type AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponse =
   AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses[keyof AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses]
-
-export type AnkoleWebAgentFileControllerDownloadData = {
-  body?: never
-  path: {
-    agent_uid: string
-  }
-  query: {
-    /**
-     * File path
-     */
-    path: string
-  }
-  url: '/api/v1/agents/{agent_uid}/files/content'
-}
-
-export type AnkoleWebAgentFileControllerDownloadErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentFileControllerDownloadError =
-  AnkoleWebAgentFileControllerDownloadErrors[keyof AnkoleWebAgentFileControllerDownloadErrors]
-
-export type AnkoleWebAgentFileControllerDownloadResponses = {
-  /**
-   * File content
-   */
-  200: Blob | File
-}
-
-export type AnkoleWebAgentFileControllerDownloadResponse =
-  AnkoleWebAgentFileControllerDownloadResponses[keyof AnkoleWebAgentFileControllerDownloadResponses]
-
-export type AnkoleWebSignalBindingControllerShowConversationStandingOrdersData = {
-  body?: never
-  path: {
-    conversation_id: string
-  }
-  query?: never
-  url: '/api/v1/conversations/{conversation_id}/standing-orders'
-}
-
-export type AnkoleWebSignalBindingControllerShowConversationStandingOrdersErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebSignalBindingControllerShowConversationStandingOrdersError =
-  AnkoleWebSignalBindingControllerShowConversationStandingOrdersErrors[keyof AnkoleWebSignalBindingControllerShowConversationStandingOrdersErrors]
-
-export type AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponses = {
-  /**
-   * Standing orders
-   */
-  200: ConversationStandingOrdersResponse
-}
-
-export type AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponse =
-  AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponses[keyof AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponses]
-
-export type AnkoleWebSignalBindingControllerPutConversationStandingOrdersData = {
-  /**
-   * Standing orders
-   */
-  body: ConversationStandingOrdersWriteRequest
-  path: {
-    conversation_id: string
-  }
-  query?: never
-  url: '/api/v1/conversations/{conversation_id}/standing-orders'
-}
-
-export type AnkoleWebSignalBindingControllerPutConversationStandingOrdersErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebSignalBindingControllerPutConversationStandingOrdersError =
-  AnkoleWebSignalBindingControllerPutConversationStandingOrdersErrors[keyof AnkoleWebSignalBindingControllerPutConversationStandingOrdersErrors]
-
-export type AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponses = {
-  /**
-   * Standing orders
-   */
-  200: ConversationStandingOrdersResponse
-}
-
-export type AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponse =
-  AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponses[keyof AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponses]
 
 export type AnkoleWebAiGatewayFilesControllerIndexData = {
   body?: never
@@ -2956,65 +2187,6 @@ export type AnkoleWebIdentityProviderControllerRunSyncResponses = {
 export type AnkoleWebIdentityProviderControllerRunSyncResponse =
   AnkoleWebIdentityProviderControllerRunSyncResponses[keyof AnkoleWebIdentityProviderControllerRunSyncResponses]
 
-export type AnkoleWebSignalBindingControllerIndexData = {
-  body?: never
-  path?: never
-  query?: {
-    agent?: string
-  }
-  url: '/api/v1/signal-bindings'
-}
-
-export type AnkoleWebSignalBindingControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebSignalBindingControllerIndexError =
-  AnkoleWebSignalBindingControllerIndexErrors[keyof AnkoleWebSignalBindingControllerIndexErrors]
-
-export type AnkoleWebSignalBindingControllerIndexResponses = {
-  /**
-   * Signal bindings
-   */
-  200: SignalBindingListResponse
-}
-
-export type AnkoleWebSignalBindingControllerIndexResponse =
-  AnkoleWebSignalBindingControllerIndexResponses[keyof AnkoleWebSignalBindingControllerIndexResponses]
-
-export type BackgroundActivityJobsData = {
-  body?: never
-  path: {
-    agent_uid: string
-  }
-  query?: {
-    limit?: number
-    cursor?: string
-  }
-  url: '/api/v1/agents/{agent_uid}/background-activities/background-jobs'
-}
-
-export type BackgroundActivityJobsErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type BackgroundActivityJobsError = BackgroundActivityJobsErrors[keyof BackgroundActivityJobsErrors]
-
-export type BackgroundActivityJobsResponses = {
-  /**
-   * Background Jobs
-   */
-  200: BackgroundActivityJobsResponse
-}
-
-export type BackgroundActivityJobsResponse2 = BackgroundActivityJobsResponses[keyof BackgroundActivityJobsResponses]
-
 export type AnkoleWebBrainControllerHealthData = {
   body?: never
   path?: never
@@ -3165,33 +2337,6 @@ export type AnkoleWebAgentControllerIndexModelProfilesResponses = {
 export type AnkoleWebAgentControllerIndexModelProfilesResponse =
   AnkoleWebAgentControllerIndexModelProfilesResponses[keyof AnkoleWebAgentControllerIndexModelProfilesResponses]
 
-export type AnkoleWebSignalBindingControllerAdaptersData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/signal-adapters'
-}
-
-export type AnkoleWebSignalBindingControllerAdaptersErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebSignalBindingControllerAdaptersError =
-  AnkoleWebSignalBindingControllerAdaptersErrors[keyof AnkoleWebSignalBindingControllerAdaptersErrors]
-
-export type AnkoleWebSignalBindingControllerAdaptersResponses = {
-  /**
-   * Signal adapters
-   */
-  200: SignalAdapterListResponse
-}
-
-export type AnkoleWebSignalBindingControllerAdaptersResponse =
-  AnkoleWebSignalBindingControllerAdaptersResponses[keyof AnkoleWebSignalBindingControllerAdaptersResponses]
-
 export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginData = {
   /**
    * Login context
@@ -3223,69 +2368,6 @@ export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses = {
 
 export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponse =
   AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses[keyof AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses]
-
-export type AnkoleWebSignalBindingControllerShowData = {
-  body?: never
-  path: {
-    agent_uid: string
-    binding_name: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}'
-}
-
-export type AnkoleWebSignalBindingControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebSignalBindingControllerShowError =
-  AnkoleWebSignalBindingControllerShowErrors[keyof AnkoleWebSignalBindingControllerShowErrors]
-
-export type AnkoleWebSignalBindingControllerShowResponses = {
-  /**
-   * Signal binding
-   */
-  200: SignalBindingDetailResponse
-}
-
-export type AnkoleWebSignalBindingControllerShowResponse =
-  AnkoleWebSignalBindingControllerShowResponses[keyof AnkoleWebSignalBindingControllerShowResponses]
-
-export type AnkoleWebSignalBindingControllerUpdateBindingData = {
-  /**
-   * Signal binding update
-   */
-  body: SignalBindingUpdateRequest
-  path: {
-    agent_uid: string
-    binding_name: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}'
-}
-
-export type AnkoleWebSignalBindingControllerUpdateBindingErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebSignalBindingControllerUpdateBindingError =
-  AnkoleWebSignalBindingControllerUpdateBindingErrors[keyof AnkoleWebSignalBindingControllerUpdateBindingErrors]
-
-export type AnkoleWebSignalBindingControllerUpdateBindingResponses = {
-  /**
-   * Signal binding
-   */
-  200: SignalBindingResponse
-}
-
-export type AnkoleWebSignalBindingControllerUpdateBindingResponse =
-  AnkoleWebSignalBindingControllerUpdateBindingResponses[keyof AnkoleWebSignalBindingControllerUpdateBindingResponses]
 
 export type AnkoleWebHumanAccessControllerClearRestrictionData = {
   /**
@@ -3523,172 +2605,6 @@ export type AnkoleWebHumanAccessControllerShowResponses = {
 
 export type AnkoleWebHumanAccessControllerShowResponse =
   AnkoleWebHumanAccessControllerShowResponses[keyof AnkoleWebHumanAccessControllerShowResponses]
-
-export type BackgroundActivityAutomationRunsData = {
-  body?: never
-  path: {
-    agent_uid: string
-  }
-  query?: {
-    limit?: number
-    cursor?: string
-  }
-  url: '/api/v1/agents/{agent_uid}/background-activities/automation-runs'
-}
-
-export type BackgroundActivityAutomationRunsErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type BackgroundActivityAutomationRunsError =
-  BackgroundActivityAutomationRunsErrors[keyof BackgroundActivityAutomationRunsErrors]
-
-export type BackgroundActivityAutomationRunsResponses = {
-  /**
-   * Automation runs
-   */
-  200: BackgroundActivityAutomationRunsResponse
-}
-
-export type BackgroundActivityAutomationRunsResponse2 =
-  BackgroundActivityAutomationRunsResponses[keyof BackgroundActivityAutomationRunsResponses]
-
-export type AnkoleWebAgentFileControllerDeleteData = {
-  body?: never
-  path: {
-    agent_uid: string
-  }
-  query: {
-    /**
-     * File or folder path
-     */
-    path: string
-  }
-  url: '/api/v1/agents/{agent_uid}/files'
-}
-
-export type AnkoleWebAgentFileControllerDeleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentFileControllerDeleteError =
-  AnkoleWebAgentFileControllerDeleteErrors[keyof AnkoleWebAgentFileControllerDeleteErrors]
-
-export type AnkoleWebAgentFileControllerDeleteResponses = {
-  /**
-   * Deleted files
-   */
-  200: AgentFileDeleteResponse
-}
-
-export type AnkoleWebAgentFileControllerDeleteResponse =
-  AnkoleWebAgentFileControllerDeleteResponses[keyof AnkoleWebAgentFileControllerDeleteResponses]
-
-export type AnkoleWebAgentFileControllerIndexData = {
-  body?: never
-  path: {
-    agent_uid: string
-  }
-  query?: {
-    /**
-     * Folder path; empty lists the drive root
-     */
-    path?: string
-  }
-  url: '/api/v1/agents/{agent_uid}/files'
-}
-
-export type AnkoleWebAgentFileControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentFileControllerIndexError =
-  AnkoleWebAgentFileControllerIndexErrors[keyof AnkoleWebAgentFileControllerIndexErrors]
-
-export type AnkoleWebAgentFileControllerIndexResponses = {
-  /**
-   * Folder listing
-   */
-  200: AgentFileListResponse
-}
-
-export type AnkoleWebAgentFileControllerIndexResponse =
-  AnkoleWebAgentFileControllerIndexResponses[keyof AnkoleWebAgentFileControllerIndexResponses]
-
-export type AnkoleWebAgentFileControllerUploadData = {
-  /**
-   * multipart form
-   */
-  body: AgentFileUploadRequest
-  path: {
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/files'
-}
-
-export type AnkoleWebAgentFileControllerUploadErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentFileControllerUploadError =
-  AnkoleWebAgentFileControllerUploadErrors[keyof AnkoleWebAgentFileControllerUploadErrors]
-
-export type AnkoleWebAgentFileControllerUploadResponses = {
-  /**
-   * Uploaded file
-   */
-  200: AgentFileUploadResponse
-}
-
-export type AnkoleWebAgentFileControllerUploadResponse =
-  AnkoleWebAgentFileControllerUploadResponses[keyof AnkoleWebAgentFileControllerUploadResponses]
-
-export type AnkoleWebSignalBindingControllerPutBindingData = {
-  /**
-   * Signal binding
-   */
-  body: SignalBindingWriteRequest
-  path: {
-    agent_uid: string
-    adapter_id: string
-    binding_name: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}'
-}
-
-export type AnkoleWebSignalBindingControllerPutBindingErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebSignalBindingControllerPutBindingError =
-  AnkoleWebSignalBindingControllerPutBindingErrors[keyof AnkoleWebSignalBindingControllerPutBindingErrors]
-
-export type AnkoleWebSignalBindingControllerPutBindingResponses = {
-  /**
-   * Signal binding
-   */
-  200: SignalBindingResponse
-}
-
-export type AnkoleWebSignalBindingControllerPutBindingResponse =
-  AnkoleWebSignalBindingControllerPutBindingResponses[keyof AnkoleWebSignalBindingControllerPutBindingResponses]
 
 export type OidcLoginSourcesData = {
   body?: never
@@ -4026,62 +2942,6 @@ export type AnkoleWebBrainControllerObjectTypesResponses = {
 export type AnkoleWebBrainControllerObjectTypesResponse =
   AnkoleWebBrainControllerObjectTypesResponses[keyof AnkoleWebBrainControllerObjectTypesResponses]
 
-export type AnkoleWebAgentSessionControllerIndexData = {
-  body?: never
-  path: {
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/sessions'
-}
-
-export type AnkoleWebAgentSessionControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAgentSessionControllerIndexError =
-  AnkoleWebAgentSessionControllerIndexErrors[keyof AnkoleWebAgentSessionControllerIndexErrors]
-
-export type AnkoleWebAgentSessionControllerIndexResponses = {
-  /**
-   * Agent sessions
-   */
-  200: AgentSessionListResponse
-}
-
-export type AnkoleWebAgentSessionControllerIndexResponse =
-  AnkoleWebAgentSessionControllerIndexResponses[keyof AnkoleWebAgentSessionControllerIndexResponses]
-
-export type AnkoleWebBackgroundAgentJobControllerHealthData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/background-agent-jobs/health'
-}
-
-export type AnkoleWebBackgroundAgentJobControllerHealthErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebBackgroundAgentJobControllerHealthError =
-  AnkoleWebBackgroundAgentJobControllerHealthErrors[keyof AnkoleWebBackgroundAgentJobControllerHealthErrors]
-
-export type AnkoleWebBackgroundAgentJobControllerHealthResponses = {
-  /**
-   * Background Agent Job health
-   */
-  200: BackgroundAgentJobHealthResponse
-}
-
-export type AnkoleWebBackgroundAgentJobControllerHealthResponse =
-  AnkoleWebBackgroundAgentJobControllerHealthResponses[keyof AnkoleWebBackgroundAgentJobControllerHealthResponses]
-
 export type AnkoleWebDirectoryAccessControllerReviewEventData = {
   /**
    * Event review
@@ -4208,40 +3068,6 @@ export type AnkoleWebBrainControllerShowObjectResponses = {
 export type AnkoleWebBrainControllerShowObjectResponse =
   AnkoleWebBrainControllerShowObjectResponses[keyof AnkoleWebBrainControllerShowObjectResponses]
 
-export type AnkoleWebBackgroundAgentJobControllerTurnsData = {
-  body?: never
-  path: {
-    job_id: number
-  }
-  query?: {
-    /**
-     * The `next_cursor` of the preceding page; omit it for the newest Turns.
-     */
-    cursor?: string
-  }
-  url: '/api/v1/background-agent-jobs/{job_id}/turns'
-}
-
-export type AnkoleWebBackgroundAgentJobControllerTurnsErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebBackgroundAgentJobControllerTurnsError =
-  AnkoleWebBackgroundAgentJobControllerTurnsErrors[keyof AnkoleWebBackgroundAgentJobControllerTurnsErrors]
-
-export type AnkoleWebBackgroundAgentJobControllerTurnsResponses = {
-  /**
-   * Turn page
-   */
-  200: BackgroundAgentJobTurnPageResponse
-}
-
-export type AnkoleWebBackgroundAgentJobControllerTurnsResponse =
-  AnkoleWebBackgroundAgentJobControllerTurnsResponses[keyof AnkoleWebBackgroundAgentJobControllerTurnsResponses]
-
 export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginData = {
   /**
    * Agent Plugin default
@@ -4273,38 +3099,6 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginRespons
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponse =
   AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponses[keyof AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponses]
-
-export type AnkoleWebSignalBindingControllerRequeueDeliveryData = {
-  /**
-   * Stopped signal delivery
-   */
-  body: SignalDeliveryRequeueRequest
-  path: {
-    agent_uid: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/signal-deliveries/requeue'
-}
-
-export type AnkoleWebSignalBindingControllerRequeueDeliveryErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebSignalBindingControllerRequeueDeliveryError =
-  AnkoleWebSignalBindingControllerRequeueDeliveryErrors[keyof AnkoleWebSignalBindingControllerRequeueDeliveryErrors]
-
-export type AnkoleWebSignalBindingControllerRequeueDeliveryResponses = {
-  /**
-   * Delivery requeued
-   */
-  200: SignalDeliveryRequeueResponse
-}
-
-export type AnkoleWebSignalBindingControllerRequeueDeliveryResponse =
-  AnkoleWebSignalBindingControllerRequeueDeliveryResponses[keyof AnkoleWebSignalBindingControllerRequeueDeliveryResponses]
 
 export type AnkoleWebAgentLibraryCapabilityControllerGlobalIndexData = {
   body?: never
@@ -4364,30 +3158,3 @@ export type AnkoleWebHumanAccessControllerRestoreResponses = {
 
 export type AnkoleWebHumanAccessControllerRestoreResponse =
   AnkoleWebHumanAccessControllerRestoreResponses[keyof AnkoleWebHumanAccessControllerRestoreResponses]
-
-export type AnkoleWebConsoleReadinessControllerShowData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/console-readiness'
-}
-
-export type AnkoleWebConsoleReadinessControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebConsoleReadinessControllerShowError =
-  AnkoleWebConsoleReadinessControllerShowErrors[keyof AnkoleWebConsoleReadinessControllerShowErrors]
-
-export type AnkoleWebConsoleReadinessControllerShowResponses = {
-  /**
-   * Console readiness
-   */
-  200: ConsoleReadinessResponse
-}
-
-export type AnkoleWebConsoleReadinessControllerShowResponse =
-  AnkoleWebConsoleReadinessControllerShowResponses[keyof AnkoleWebConsoleReadinessControllerShowResponses]

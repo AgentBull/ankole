@@ -19,6 +19,46 @@ defmodule Ankole.Signals do
     show_raised_errors?(false)
 
     routes do
+      route(Ankole.Signals.ConsoleOperations, :get, "/signal-adapters", :console_adapters,
+        name: "list_signal_adapters"
+      )
+
+      route(Ankole.Signals.ConsoleOperations, :get, "/signal-bindings", :console_list_bindings,
+        name: "list_signal_bindings"
+      )
+
+      route(
+        Ankole.Signals.ConsoleOperations,
+        :get,
+        "/agents/:agent_uid/signal-bindings/:binding_name",
+        :console_get_binding,
+        name: "get_signal_binding"
+      )
+
+      route(
+        Ankole.Signals.ConsoleOperations,
+        :put,
+        "/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name",
+        :console_put_binding,
+        name: "put_signal_binding"
+      )
+
+      route(
+        Ankole.Signals.ConsoleOperations,
+        :patch,
+        "/agents/:agent_uid/signal-bindings/:binding_name",
+        :console_update_binding,
+        name: "update_signal_binding"
+      )
+
+      route(
+        Ankole.Signals.ConsoleOperations,
+        :post,
+        "/agents/:agent_uid/signal-deliveries/requeue",
+        :console_requeue,
+        name: "requeue_signal_delivery"
+      )
+
       base_route "/webhook-endpoints", WebhookEndpoint do
         index(:console_list, name: "list_webhook_endpoints", derive_sort?: false)
         route(:post, "/", :create_operator_endpoint, name: "create_webhook_endpoint")
@@ -32,6 +72,8 @@ defmodule Ankole.Signals do
   end
 
   resources do
+    resource(Ankole.Signals.ConsoleOperations)
+
     resource Ankole.Signals.Signal do
       define(:get_signal, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_signals, action: :read)

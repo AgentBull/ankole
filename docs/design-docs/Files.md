@@ -348,14 +348,17 @@ every file under a folder in one transaction, whatever the folder's size.
 
 | Route | Operation |
 | --- | --- |
-| `GET /api/v1/agents/:agent_uid/files?path=` | Folders and files of one folder |
+| `GET /api/v2/agents/:agent_uid/files?path=` | Folders and files of one folder |
 | `GET /api/v1/agents/:agent_uid/files/content?path=` | Download one file |
 | `POST /api/v1/agents/:agent_uid/files` | Upload one file (multipart: `path`, `file`) |
-| `POST /api/v1/agents/:agent_uid/file-moves` | Move or rename a file or folder |
-| `DELETE /api/v1/agents/:agent_uid/files?path=` | Delete a file, or a folder and every file in it |
+| `POST /api/v2/agents/:agent_uid/file-moves` | Move or rename a file or folder |
+| `DELETE /api/v2/agents/:agent_uid/files?path=` | Delete a file, or a folder and every file in it |
 
-Moves reject an existing target file with `already_exists`; the API has no
-overwrite option.
+The JSON operations use the Files Ash domain and JSON:API. Multipart uploads
+and byte downloads use the two byte-transfer routes above. The Console uses
+one configured HTTP client for both paths, including its session, CSRF, and
+tenant context. A move rejects an existing target file and leaves both paths
+unchanged. The API has no overwrite option.
 
 The AuthZ resource is `agent:<uid>:files` with the actions `read`, `update`,
 and `delete`.

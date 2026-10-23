@@ -87,6 +87,44 @@ defmodule AnkoleWeb.JSONAPI.Policy do
         {"ai_gateway_provider:{provider_id}", "update"}
     },
     console: %{
+      # K5 runtime views, Signal configuration, and Agent drive operations.
+      {Ankole.Signals.ConsoleOperations, :route, :console_adapters} =>
+        {"signals_adapters", "read"},
+      {Ankole.Signals.ConsoleOperations, :route, :console_list_bindings} =>
+        {"signal_bindings", "read"},
+      {Ankole.Signals.ConsoleOperations, :route, :console_get_binding} =>
+        {"agent:{agent_uid}:signal_bindings", "update"},
+      {Ankole.Signals.ConsoleOperations, :route, :console_put_binding} =>
+        {"agent:{agent_uid}:signal_bindings", "update"},
+      {Ankole.Signals.ConsoleOperations, :route, :console_update_binding} =>
+        {"agent:{agent_uid}:signal_bindings", "update"},
+      {Ankole.Signals.ConsoleOperations, :route, :console_requeue} =>
+        {"agent:{agent_uid}:signal_bindings", "update"},
+      {Ankole.Sessions.ConsoleOperations, :route, :console_sessions} =>
+        {"agent:{agent_uid}:sessions", "read"},
+      {Ankole.Sessions.ConsoleOperations, :route, :console_standing_orders} =>
+        {"conversations", "read"},
+      {Ankole.Sessions.ConsoleOperations, :route, :console_put_standing_orders} =>
+        {"conversations", "update"},
+      {Ankole.BackgroundAgentJobs.ConsoleOperations, :route, :console_health} =>
+        {"background_agent_jobs", "read"},
+      {Ankole.BackgroundAgentJobs.ConsoleOperations, :route, :console_turns} =>
+        {"background_agent_jobs", "read"},
+      {Ankole.BackgroundActivities.ConsoleOperations, :route, :console_jobs} =>
+        {"background_agent_jobs", "read"},
+      {Ankole.BackgroundActivities.ConsoleOperations, :route, :console_workflow} =>
+        {"agent:{agent_uid}:workflow", "read"},
+      {Ankole.BackgroundActivities.ConsoleOperations, :route, :console_automation_runs} =>
+        {"agent:{agent_uid}:automation_jobs", "read"},
+      {Ankole.Files.ConsoleOperations, :route, :console_list} =>
+        {"agent:{agent_uid}:files", "read"},
+      {Ankole.Files.ConsoleOperations, :route, :console_move} =>
+        {"agent:{agent_uid}:files", "update"},
+      {Ankole.Files.ConsoleOperations, :route, :console_delete} =>
+        {"agent:{agent_uid}:files", "delete"},
+      {Ankole.ConsoleReadiness.ConsoleOperations, :route, :console_snapshot} =>
+        {"console_readiness", "read"},
+
       # K1 registry settings and operator Worker environment.
       {Ankole.AppConfigure.ConsoleOperations, :route, :console_list} =>
         {"app_configurations", "read"},
@@ -288,7 +326,8 @@ defmodule AnkoleWeb.JSONAPI.Policy do
       ) do
     with {:ok, {authz_resource, action}} <-
            Map.fetch(rules || rules(scope), rule_key(resource, route)),
-         :ok <- ConsolePolicy.authorize(conn, expand(authz_resource, params), action) do
+         :ok <-
+           authorize_route(conn, resource, route, params, expand(authz_resource, params), action) do
       conn
       |> Ash.PlugHelpers.set_tenant(tenant(scope))
       |> Ash.PlugHelpers.set_actor(conn.assigns[:current_principal])
@@ -306,6 +345,29 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   catch
     {__MODULE__, %Plug.Conn{} = refused} -> refused
   end
+
+  defp authorize_route(
+         conn,
+         Ankole.Signals.ConsoleOperations,
+         %{action: :console_update_binding},
+         params,
+         resource,
+         action
+       ) do
+    source = Map.fetch!(params, "agent_uid")
+    target = get_in(conn.body_params, ["data", "target_agent_uid"])
+
+    if is_binary(target) and target != source do
+      with :ok <- ConsolePolicy.authorize(conn, "agent:#{source}:signal_bindings", "delete"),
+           :ok <- ConsolePolicy.authorize(conn, "agent:#{target}:signal_bindings", "update"),
+           do: :ok
+    else
+      ConsolePolicy.authorize(conn, resource, action)
+    end
+  end
+
+  defp authorize_route(conn, _resource, _route, _params, authz_resource, action),
+    do: ConsolePolicy.authorize(conn, authz_resource, action)
 
   defp tenant(:site), do: nil
   defp tenant(:console), do: Ankole.Repo.tenant_id()

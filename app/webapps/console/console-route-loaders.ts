@@ -3,10 +3,12 @@ import {
   ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions,
   ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions,
   ankoleWebControlPlanePluginControllerIndexOptions,
-  ankoleWebIdentityProviderControllerIndexOptions,
-  ankoleWebSignalBindingControllerIndexOptions,
-  ankoleWebBackgroundAgentJobControllerTurnsOptions
+  ankoleWebIdentityProviderControllerIndexOptions
 } from './api/generated/@tanstack/react-query.gen'
+import {
+  listSignalBindingsOptions,
+  getBackgroundAgentJobTurnsOptions
+} from './api/v2/generated/@tanstack/react-query.gen'
 import {
   listSiteAppConfigurationsOptions,
   listSiteWorkerEnvsOptions
@@ -81,10 +83,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
     principalGroups: () => ensure(listPrincipalGroupsOptions()).then(() => null),
     principals: () => ensure(listPrincipalsOptions()).then(() => null),
     signals: ({ location }: ConsoleRouteLoaderContext) =>
-      all(
-        ensure(agentListOptions()),
-        ensure(ankoleWebSignalBindingControllerIndexOptions({ query: { agent: agentFilter(location) } }))
-      ),
+      all(ensure(agentListOptions()), ensure(listSignalBindingsOptions({ query: { agent: agentFilter(location) } }))),
     schedules: ({ location }: ConsoleRouteLoaderContext) =>
       all(ensure(agentListOptions()), ensure(cronScheduleListOptions(agentFilter(location)))),
     scheduleCheckbacks: ({ location }: ConsoleRouteLoaderContext) =>
@@ -108,7 +107,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
             list,
             ensure(backgroundAgentJobOptions(selectedID)),
             ensure(
-              ankoleWebBackgroundAgentJobControllerTurnsOptions({
+              getBackgroundAgentJobTurnsOptions({
                 path: { job_id: selectedID },
                 query: { cursor: searchParams.get('cursor') ?? undefined }
               })

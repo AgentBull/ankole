@@ -34,21 +34,6 @@ import type {
   AnkoleWebAgentControllerShowTokenQuotaData,
   AnkoleWebAgentControllerShowTokenQuotaErrors,
   AnkoleWebAgentControllerShowTokenQuotaResponses,
-  AnkoleWebAgentFileControllerDeleteData,
-  AnkoleWebAgentFileControllerDeleteErrors,
-  AnkoleWebAgentFileControllerDeleteResponses,
-  AnkoleWebAgentFileControllerDownloadData,
-  AnkoleWebAgentFileControllerDownloadErrors,
-  AnkoleWebAgentFileControllerDownloadResponses,
-  AnkoleWebAgentFileControllerIndexData,
-  AnkoleWebAgentFileControllerIndexErrors,
-  AnkoleWebAgentFileControllerIndexResponses,
-  AnkoleWebAgentFileControllerMoveData,
-  AnkoleWebAgentFileControllerMoveErrors,
-  AnkoleWebAgentFileControllerMoveResponses,
-  AnkoleWebAgentFileControllerUploadData,
-  AnkoleWebAgentFileControllerUploadErrors,
-  AnkoleWebAgentFileControllerUploadResponses,
   AnkoleWebAgentLibraryCapabilityControllerAgentIndexData,
   AnkoleWebAgentLibraryCapabilityControllerAgentIndexErrors,
   AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses,
@@ -73,9 +58,6 @@ import type {
   AnkoleWebAgentLibraryControllerUpdateData,
   AnkoleWebAgentLibraryControllerUpdateErrors,
   AnkoleWebAgentLibraryControllerUpdateResponses,
-  AnkoleWebAgentSessionControllerIndexData,
-  AnkoleWebAgentSessionControllerIndexErrors,
-  AnkoleWebAgentSessionControllerIndexResponses,
   AnkoleWebAiGatewayControllerEmbeddingsData,
   AnkoleWebAiGatewayControllerEmbeddingsErrors,
   AnkoleWebAiGatewayControllerEmbeddingsResponses,
@@ -144,12 +126,6 @@ import type {
   AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses,
   AnkoleWebAuthControllerDeleteSessionData,
   AnkoleWebAuthControllerDeleteSessionResponses,
-  AnkoleWebBackgroundAgentJobControllerHealthData,
-  AnkoleWebBackgroundAgentJobControllerHealthErrors,
-  AnkoleWebBackgroundAgentJobControllerHealthResponses,
-  AnkoleWebBackgroundAgentJobControllerTurnsData,
-  AnkoleWebBackgroundAgentJobControllerTurnsErrors,
-  AnkoleWebBackgroundAgentJobControllerTurnsResponses,
   AnkoleWebBrainControllerDreamData,
   AnkoleWebBrainControllerDreamResponses,
   AnkoleWebBrainControllerHealthData,
@@ -162,9 +138,6 @@ import type {
   AnkoleWebBrainControllerSearchPreviewResponses,
   AnkoleWebBrainControllerShowObjectData,
   AnkoleWebBrainControllerShowObjectResponses,
-  AnkoleWebConsoleReadinessControllerShowData,
-  AnkoleWebConsoleReadinessControllerShowErrors,
-  AnkoleWebConsoleReadinessControllerShowResponses,
   AnkoleWebControlPlanePluginControllerIndexData,
   AnkoleWebControlPlanePluginControllerIndexErrors,
   AnkoleWebControlPlanePluginControllerIndexResponses,
@@ -214,39 +187,6 @@ import type {
   AnkoleWebPrincipalControllerCreateLocalPasswordResetData,
   AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors,
   AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses,
-  AnkoleWebSignalBindingControllerAdaptersData,
-  AnkoleWebSignalBindingControllerAdaptersErrors,
-  AnkoleWebSignalBindingControllerAdaptersResponses,
-  AnkoleWebSignalBindingControllerIndexData,
-  AnkoleWebSignalBindingControllerIndexErrors,
-  AnkoleWebSignalBindingControllerIndexResponses,
-  AnkoleWebSignalBindingControllerPutBindingData,
-  AnkoleWebSignalBindingControllerPutBindingErrors,
-  AnkoleWebSignalBindingControllerPutBindingResponses,
-  AnkoleWebSignalBindingControllerPutConversationStandingOrdersData,
-  AnkoleWebSignalBindingControllerPutConversationStandingOrdersErrors,
-  AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponses,
-  AnkoleWebSignalBindingControllerRequeueDeliveryData,
-  AnkoleWebSignalBindingControllerRequeueDeliveryErrors,
-  AnkoleWebSignalBindingControllerRequeueDeliveryResponses,
-  AnkoleWebSignalBindingControllerShowConversationStandingOrdersData,
-  AnkoleWebSignalBindingControllerShowConversationStandingOrdersErrors,
-  AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponses,
-  AnkoleWebSignalBindingControllerShowData,
-  AnkoleWebSignalBindingControllerShowErrors,
-  AnkoleWebSignalBindingControllerShowResponses,
-  AnkoleWebSignalBindingControllerUpdateBindingData,
-  AnkoleWebSignalBindingControllerUpdateBindingErrors,
-  AnkoleWebSignalBindingControllerUpdateBindingResponses,
-  BackgroundActivityAutomationRunsData,
-  BackgroundActivityAutomationRunsErrors,
-  BackgroundActivityAutomationRunsResponses,
-  BackgroundActivityJobsData,
-  BackgroundActivityJobsErrors,
-  BackgroundActivityJobsResponses,
-  BackgroundActivityWorkflowData,
-  BackgroundActivityWorkflowErrors,
-  BackgroundActivityWorkflowResponses,
   OidcLoginSourcesData,
   OidcLoginSourcesErrors,
   OidcLoginSourcesResponses
@@ -335,18 +275,6 @@ export const ankoleWebAiGatewayProviderControllerStartChatgptLogin = <ThrowOnErr
   })
 
 /**
- * Read live Workflow calls and runs awaiting execution or terminal cleanup
- */
-export const backgroundActivityWorkflow = <ThrowOnError extends boolean = false>(
-  options: Options<BackgroundActivityWorkflowData, ThrowOnError>
-): RequestResult<BackgroundActivityWorkflowResponses, BackgroundActivityWorkflowErrors, ThrowOnError> =>
-  (options.client ?? client).get<BackgroundActivityWorkflowResponses, BackgroundActivityWorkflowErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/background-activities/workflow',
-    ...options
-  })
-
-/**
  * Delete an AIGateway vision file
  */
 export const ankoleWebAiGatewayFilesControllerDelete = <ThrowOnError extends boolean = false>(
@@ -384,26 +312,6 @@ export const ankoleWebAiGatewayFilesControllerShow = <ThrowOnError extends boole
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/api/v1/ai-gateway/files/{file_id}',
     ...options
-  })
-
-/**
- * Rename or move a file or folder in an Agent's drive
- */
-export const ankoleWebAgentFileControllerMove = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentFileControllerMoveData, ThrowOnError>
-): RequestResult<AnkoleWebAgentFileControllerMoveResponses, AnkoleWebAgentFileControllerMoveErrors, ThrowOnError> =>
-  (options.client ?? client).post<
-    AnkoleWebAgentFileControllerMoveResponses,
-    AnkoleWebAgentFileControllerMoveErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/file-moves',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -592,70 +500,6 @@ export const ankoleWebAgentLibraryCapabilityControllerAgentIndex = <ThrowOnError
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/agents/{agent_uid}/library-capabilities',
     ...options
-  })
-
-/**
- * Download one file from an Agent's drive
- */
-export const ankoleWebAgentFileControllerDownload = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentFileControllerDownloadData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentFileControllerDownloadResponses,
-  AnkoleWebAgentFileControllerDownloadErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAgentFileControllerDownloadResponses,
-    AnkoleWebAgentFileControllerDownloadErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/files/content',
-    ...options
-  })
-
-/**
- * Read the standing orders of one conversation
- */
-export const ankoleWebSignalBindingControllerShowConversationStandingOrders = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebSignalBindingControllerShowConversationStandingOrdersData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponses,
-  AnkoleWebSignalBindingControllerShowConversationStandingOrdersErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponses,
-    AnkoleWebSignalBindingControllerShowConversationStandingOrdersErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/conversations/{conversation_id}/standing-orders',
-    ...options
-  })
-
-/**
- * Replace the standing orders of one conversation
- */
-export const ankoleWebSignalBindingControllerPutConversationStandingOrders = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebSignalBindingControllerPutConversationStandingOrdersData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponses,
-  AnkoleWebSignalBindingControllerPutConversationStandingOrdersErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponses,
-    AnkoleWebSignalBindingControllerPutConversationStandingOrdersErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/conversations/{conversation_id}/standing-orders',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -976,38 +820,6 @@ export const ankoleWebIdentityProviderControllerRunSync = <ThrowOnError extends 
   })
 
 /**
- * List signal bindings
- */
-export const ankoleWebSignalBindingControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebSignalBindingControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSignalBindingControllerIndexResponses,
-  AnkoleWebSignalBindingControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebSignalBindingControllerIndexResponses,
-    AnkoleWebSignalBindingControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/signal-bindings',
-    ...options
-  })
-
-/**
- * Read this Agent's queued, running and waiting background Jobs
- */
-export const backgroundActivityJobs = <ThrowOnError extends boolean = false>(
-  options: Options<BackgroundActivityJobsData, ThrowOnError>
-): RequestResult<BackgroundActivityJobsResponses, BackgroundActivityJobsErrors, ThrowOnError> =>
-  (options.client ?? client).get<BackgroundActivityJobsResponses, BackgroundActivityJobsErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/background-activities/background-jobs',
-    ...options
-  })
-
-/**
  * Read the Brain health snapshot
  */
 export const ankoleWebBrainControllerHealth = <ThrowOnError extends boolean = false>(
@@ -1120,26 +932,6 @@ export const ankoleWebAgentControllerIndexModelProfiles = <ThrowOnError extends 
   })
 
 /**
- * List signal adapters available for bindings
- */
-export const ankoleWebSignalBindingControllerAdapters = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebSignalBindingControllerAdaptersData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSignalBindingControllerAdaptersResponses,
-  AnkoleWebSignalBindingControllerAdaptersErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebSignalBindingControllerAdaptersResponses,
-    AnkoleWebSignalBindingControllerAdaptersErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/signal-adapters',
-    ...options
-  })
-
-/**
  * Poll one ChatGPT device login once
  */
 export const ankoleWebAiGatewayProviderControllerPollChatgptLogin = <ThrowOnError extends boolean = false>(
@@ -1156,50 +948,6 @@ export const ankoleWebAiGatewayProviderControllerPollChatgptLogin = <ThrowOnErro
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/site/ai-gateway/providers/{provider_id}/chatgpt-login/poll',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Read one signal binding for editing
- */
-export const ankoleWebSignalBindingControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebSignalBindingControllerShowData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSignalBindingControllerShowResponses,
-  AnkoleWebSignalBindingControllerShowErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebSignalBindingControllerShowResponses,
-    AnkoleWebSignalBindingControllerShowErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}',
-    ...options
-  })
-
-/**
- * Edit or move one signal binding
- */
-export const ankoleWebSignalBindingControllerUpdateBinding = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebSignalBindingControllerUpdateBindingData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSignalBindingControllerUpdateBindingResponses,
-  AnkoleWebSignalBindingControllerUpdateBindingErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).patch<
-    AnkoleWebSignalBindingControllerUpdateBindingResponses,
-    AnkoleWebSignalBindingControllerUpdateBindingErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -1367,99 +1115,6 @@ export const ankoleWebHumanAccessControllerShow = <ThrowOnError extends boolean 
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/principals/{uid}/access',
     ...options
-  })
-
-/**
- * Read live automation runs, including runs of cancelled definitions
- */
-export const backgroundActivityAutomationRuns = <ThrowOnError extends boolean = false>(
-  options: Options<BackgroundActivityAutomationRunsData, ThrowOnError>
-): RequestResult<BackgroundActivityAutomationRunsResponses, BackgroundActivityAutomationRunsErrors, ThrowOnError> =>
-  (options.client ?? client).get<
-    BackgroundActivityAutomationRunsResponses,
-    BackgroundActivityAutomationRunsErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/background-activities/automation-runs',
-    ...options
-  })
-
-/**
- * Delete a file, or a folder and every file in it, from an Agent's drive
- */
-export const ankoleWebAgentFileControllerDelete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentFileControllerDeleteData, ThrowOnError>
-): RequestResult<AnkoleWebAgentFileControllerDeleteResponses, AnkoleWebAgentFileControllerDeleteErrors, ThrowOnError> =>
-  (options.client ?? client).delete<
-    AnkoleWebAgentFileControllerDeleteResponses,
-    AnkoleWebAgentFileControllerDeleteErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/files',
-    ...options
-  })
-
-/**
- * List the files and subfolders of one folder in an Agent's drive
- */
-export const ankoleWebAgentFileControllerIndex = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentFileControllerIndexData, ThrowOnError>
-): RequestResult<AnkoleWebAgentFileControllerIndexResponses, AnkoleWebAgentFileControllerIndexErrors, ThrowOnError> =>
-  (options.client ?? client).get<
-    AnkoleWebAgentFileControllerIndexResponses,
-    AnkoleWebAgentFileControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/files',
-    ...options
-  })
-
-/**
- * Upload one file into an Agent's drive
- */
-export const ankoleWebAgentFileControllerUpload = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentFileControllerUploadData, ThrowOnError>
-): RequestResult<AnkoleWebAgentFileControllerUploadResponses, AnkoleWebAgentFileControllerUploadErrors, ThrowOnError> =>
-  (options.client ?? client).post<
-    AnkoleWebAgentFileControllerUploadResponses,
-    AnkoleWebAgentFileControllerUploadErrors,
-    ThrowOnError
-  >({
-    ...formDataBodySerializer,
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/files',
-    ...options,
-    headers: {
-      'Content-Type': null,
-      ...options.headers
-    }
-  })
-
-/**
- * Create or update one signal binding for an agent
- */
-export const ankoleWebSignalBindingControllerPutBinding = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebSignalBindingControllerPutBindingData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSignalBindingControllerPutBindingResponses,
-  AnkoleWebSignalBindingControllerPutBindingErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebSignalBindingControllerPutBindingResponses,
-    AnkoleWebSignalBindingControllerPutBindingErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -1690,46 +1345,6 @@ export const ankoleWebBrainControllerObjectTypes = <ThrowOnError extends boolean
   })
 
 /**
- * List sessions for one agent
- */
-export const ankoleWebAgentSessionControllerIndex = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAgentSessionControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAgentSessionControllerIndexResponses,
-  AnkoleWebAgentSessionControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAgentSessionControllerIndexResponses,
-    AnkoleWebAgentSessionControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/sessions',
-    ...options
-  })
-
-/**
- * Read installation-wide background Agent Job reliability metrics
- */
-export const ankoleWebBackgroundAgentJobControllerHealth = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebBackgroundAgentJobControllerHealthData, ThrowOnError>
-): RequestResult<
-  AnkoleWebBackgroundAgentJobControllerHealthResponses,
-  AnkoleWebBackgroundAgentJobControllerHealthErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebBackgroundAgentJobControllerHealthResponses,
-    AnkoleWebBackgroundAgentJobControllerHealthErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/background-agent-jobs/health',
-    ...options
-  })
-
-/**
  * Retry or dismiss an unresolved provider event
  */
 export const ankoleWebDirectoryAccessControllerReviewEvent = <ThrowOnError extends boolean = false>(
@@ -1818,26 +1433,6 @@ export const ankoleWebBrainControllerShowObject = <ThrowOnError extends boolean 
   })
 
 /**
- * Read one page of the runtime Turn trajectory of one background Agent Job
- */
-export const ankoleWebBackgroundAgentJobControllerTurns = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBackgroundAgentJobControllerTurnsData, ThrowOnError>
-): RequestResult<
-  AnkoleWebBackgroundAgentJobControllerTurnsResponses,
-  AnkoleWebBackgroundAgentJobControllerTurnsErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebBackgroundAgentJobControllerTurnsResponses,
-    AnkoleWebBackgroundAgentJobControllerTurnsErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/background-agent-jobs/{job_id}/turns',
-    ...options
-  })
-
-/**
  * Set one global Agent Plugin default
  */
 export const ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPlugin = <ThrowOnError extends boolean = false>(
@@ -1854,30 +1449,6 @@ export const ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPlugin = <Th
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/agent-library/agent-plugins/{id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Retry one stopped signal delivery
- */
-export const ankoleWebSignalBindingControllerRequeueDelivery = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebSignalBindingControllerRequeueDeliveryData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSignalBindingControllerRequeueDeliveryResponses,
-  AnkoleWebSignalBindingControllerRequeueDeliveryErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebSignalBindingControllerRequeueDeliveryResponses,
-    AnkoleWebSignalBindingControllerRequeueDeliveryErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/agents/{agent_uid}/signal-deliveries/requeue',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -1927,24 +1498,4 @@ export const ankoleWebHumanAccessControllerRestore = <ThrowOnError extends boole
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * Read the console readiness snapshot
- */
-export const ankoleWebConsoleReadinessControllerShow = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebConsoleReadinessControllerShowData, ThrowOnError>
-): RequestResult<
-  AnkoleWebConsoleReadinessControllerShowResponses,
-  AnkoleWebConsoleReadinessControllerShowErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebConsoleReadinessControllerShowResponses,
-    AnkoleWebConsoleReadinessControllerShowErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/console-readiness',
-    ...options
   })

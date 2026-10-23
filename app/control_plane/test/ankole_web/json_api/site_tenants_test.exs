@@ -232,7 +232,7 @@ defmodule AnkoleWeb.JSONAPI.SiteTenantsTest do
       auth
       |> recycle_api()
       |> put_req_header("x-ankole-tenant", "not-a-uuid")
-      |> get("/api/v1/console-readiness")
+      |> get("/api/v2/console-readiness")
 
     assert %{"error" => %{"code" => "data_tenant_unavailable"}} = json_response(response, 404)
 

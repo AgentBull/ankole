@@ -229,6 +229,18 @@ routing. The ten messaging adapters declare `enterprise_im`, `consumer_im`,
 or `email`. The built-in `cloudevents` source uses `event_source` and has no
 IM group-message or sender-mapping policy.
 
+The Console catalog and binding list use `GET /api/v2/signal-adapters` and
+`GET /api/v2/signal-bindings`. The Agent binding routes are
+`/api/v2/agents/:agent_uid/signal-bindings/:binding_name` for read, edit, and
+delete, and `PUT /api/v2/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name`
+for create or enable. These JSON:API actions call the existing Bindings
+owner; it keeps commit and adapter-hook authority. An edit on the same Agent
+requires its binding update permission. A move requires binding delete on the
+source Agent and binding update on the target Agent. A refusal changes neither
+binding. The edit response omits secrets. Delivery requeue uses
+`POST /api/v2/agents/:agent_uid/signal-deliveries/requeue` and the
+existing durable Outbox admission rules.
+
 ### Filters
 
 `filters` is empty or contains exactly one `cel` expression. An empty filter

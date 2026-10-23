@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import type { BackgroundActivityWorkflowCall } from '../console/api/generated'
+import type { BackgroundActivityWorkflowCall } from '../console/api/runtime-types'
 
 const observed_at = '2026-10-16T00:00:00Z'
 const counts = { total: 1, queued: 0, running: 1, sleeping: 0, succeeded: 0, failed: 0, cancelled: 0 }
@@ -74,104 +74,115 @@ const automation = {
 async function home(page: Page, failures = false) {
   const requests: string[] = []
   let workflowDenied = failures
-  await page.route('**/api/v1/**', async route => {
-    const url = new URL(route.request().url())
-    const path = url.pathname
-    requests.push(path + url.search)
-    if (path.includes('/background-activities/')) {
-      if (path.endsWith('/background-jobs')) {
-        return route.fulfill({
-          json: {
-            observed_at,
-            jobs: failures
-              ? []
-              : url.searchParams.has('cursor')
-                ? [{ ...job, id: 72, title: 'Older live job' }]
-                : [job],
-            next_cursor: !failures && !url.searchParams.has('cursor') ? 'next-page' : null
-          }
-        })
-      }
-      if (path.endsWith('/workflow')) {
-        if (workflowDenied) {
-          return route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'access denied' } } })
-        }
-        return route.fulfill({
-          json: {
-            observed_at,
-            live_calls: [
-              call,
-              {
-                ...call,
-                id: 82,
-                label: 'Sleeping approval call',
-                status: 'sleeping',
-                sleep_note: 'Waiting for operator confirmation',
-                wake_kind: 'sleep',
-                wake_at: observed_at,
-                attention: true
-              },
-              {
-                ...call,
-                id: 83,
-                label: 'Queued for Agent capacity',
-                run_id: 94,
-                run_status: 'running',
-                run_title: 'Waiting for capacity',
-                status: 'queued',
-                wake_kind: 'agent_capacity',
-                wake_at: observed_at,
-                run_counts: { ...counts, queued: 1, running: 0 }
-              }
-            ],
-            calls_next_cursor: null,
-            runs: [
-              run,
-              {
-                ...run,
-                id: 93,
-                title: 'Terminal run with cleanup work',
-                status: 'cancelled',
-                cleanup_pending: true,
-                completed_at: observed_at
-              }
-            ],
-            runs_next_cursor: null
-          }
-        })
-      }
-      if (failures) {
-        return route.fulfill({
-          status: 503,
-          json: { error: { code: 'temporarily_unavailable', message: 'Read service unavailable' } }
-        })
-      }
-      return route.fulfill({ json: { observed_at, runs: [automation], next_cursor: null } })
-    }
-    if (path.includes('readiness')) return route.fulfill({ json: { ready: true, provider: { complete: true } } })
-    return route.fulfill({ json: { identity_providers: [{ enabled: true }], running_count: 0, queued_count: 0 } })
-  })
-  // A URL predicate, because the glob `**/api/v2/**` also matches the source modules of the v2 clients.
+  await page.route('**/api/v1/**', route => route.fulfill({ json: { identity_providers: [{ enabled: true }] } }))
+  // A URL predicate avoids matching the source modules of the v2 clients.
   await page.route(
     url => url.pathname.startsWith('/api/v2/'),
     async route => {
-      if (new URL(route.request().url()).pathname !== '/api/v2/agents') return route.fulfill({ json: { data: [] } })
-      return route.fulfill({
-        json: {
-          data: [
-            {
-              id: 'agent-one',
-              type: 'agent',
-              attributes: { display_name: 'Research Agent', handle: 'research', status: 'active' }
-            },
-            {
-              id: 'agent-two',
-              type: 'agent',
-              attributes: { display_name: 'Operations Agent', handle: 'operations', status: 'active' }
+      const url = new URL(route.request().url())
+      const path = url.pathname
+      requests.push(path + url.search)
+      if (path.includes('/background-activities/')) {
+        if (path.endsWith('/background-jobs')) {
+          return route.fulfill({
+            json: {
+              observed_at,
+              jobs: failures
+                ? []
+                : url.searchParams.has('cursor')
+                  ? [{ ...job, id: 72, title: 'Older live job' }]
+                  : [job],
+              next_cursor: !failures && !url.searchParams.has('cursor') ? 'next-page' : null
             }
-          ]
+          })
         }
-      })
+        if (path.endsWith('/workflow')) {
+          if (workflowDenied) {
+            return route.fulfill({ status: 403, json: { errors: [{ code: 'forbidden', detail: 'access denied' }] } })
+          }
+          return route.fulfill({
+            json: {
+              observed_at,
+              live_calls: [
+                call,
+                {
+                  ...call,
+                  id: 82,
+                  label: 'Sleeping approval call',
+                  status: 'sleeping',
+                  sleep_note: 'Waiting for operator confirmation',
+                  wake_kind: 'sleep',
+                  wake_at: observed_at,
+                  attention: true
+                },
+                {
+                  ...call,
+                  id: 83,
+                  label: 'Queued for Agent capacity',
+                  run_id: 94,
+                  run_status: 'running',
+                  run_title: 'Waiting for capacity',
+                  status: 'queued',
+                  wake_kind: 'agent_capacity',
+                  wake_at: observed_at,
+                  run_counts: { ...counts, queued: 1, running: 0 }
+                }
+              ],
+              calls_next_cursor: null,
+              runs: [
+                run,
+                {
+                  ...run,
+                  id: 93,
+                  title: 'Terminal run with cleanup work',
+                  status: 'cancelled',
+                  cleanup_pending: true,
+                  completed_at: observed_at
+                }
+              ],
+              runs_next_cursor: null
+            }
+          })
+        }
+        if (failures) {
+          return route.fulfill({
+            status: 503,
+            json: { errors: [{ code: 'temporarily_unavailable', detail: 'Read service unavailable' }] }
+          })
+        }
+        return route.fulfill({ json: { observed_at, runs: [automation], next_cursor: null } })
+      }
+      if (path.includes('readiness'))
+        return route.fulfill({
+          json: {
+            ready: true,
+            completed_core_steps: 5,
+            total_core_steps: 5,
+            provider: { complete: true, provider_id: 'fixture' },
+            agent: { complete: true, uid: 'agent-one', display_name: 'Research Agent' },
+            model_profiles: { complete: true, agent_uid: 'agent-one', missing_profiles: [] },
+            signal_route: { complete: true },
+            worker: { complete: true, ready_count: 1 }
+          }
+        })
+      if (path === '/api/v2/agents')
+        return route.fulfill({
+          json: {
+            data: [
+              {
+                id: 'agent-one',
+                type: 'agent',
+                attributes: { display_name: 'Research Agent', handle: 'research', status: 'active' }
+              },
+              {
+                id: 'agent-two',
+                type: 'agent',
+                attributes: { display_name: 'Operations Agent', handle: 'operations', status: 'active' }
+              }
+            ]
+          }
+        })
+      return route.fulfill({ json: { running_count: 0, queued_count: 0 } })
     }
   )
   return {

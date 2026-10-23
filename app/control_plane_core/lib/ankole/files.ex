@@ -31,7 +31,7 @@ defmodule Ankole.Files do
   `DriveFile`, which owns the transaction. Another domain that names files in
   its own transaction calls `commit/4`.
   """
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   require Ash.Query
   require Ash.Sort
@@ -42,7 +42,30 @@ defmodule Ankole.Files do
   alias Ankole.Principals
   alias Ankole.Repo
 
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      route(Ankole.Files.ConsoleOperations, :get, "/agents/:agent_uid/files", :console_list,
+        name: "list_agent_files"
+      )
+
+      route(Ankole.Files.ConsoleOperations, :post, "/agents/:agent_uid/file-moves", :console_move,
+        name: "move_agent_files"
+      )
+
+      route(Ankole.Files.ConsoleOperations, :delete, "/agents/:agent_uid/files", :console_delete,
+        name: "delete_agent_files",
+        query_params: [:path]
+      )
+    end
+  end
+
   resources do
+    resource(Ankole.Files.ConsoleOperations)
+
     resource(Blob)
 
     resource DriveFile do

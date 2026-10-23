@@ -18,11 +18,6 @@ import {
   ankoleWebAgentControllerPutTokenQuota,
   ankoleWebAgentControllerResetTokenQuota,
   ankoleWebAgentControllerShowTokenQuota,
-  ankoleWebAgentFileControllerDelete,
-  ankoleWebAgentFileControllerDownload,
-  ankoleWebAgentFileControllerIndex,
-  ankoleWebAgentFileControllerMove,
-  ankoleWebAgentFileControllerUpload,
   ankoleWebAgentLibraryCapabilityControllerAgentIndex,
   ankoleWebAgentLibraryCapabilityControllerGlobalIndex,
   ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverride,
@@ -31,7 +26,6 @@ import {
   ankoleWebAgentLibraryCapabilityControllerPutGlobalSkill,
   ankoleWebAgentLibraryControllerIndex,
   ankoleWebAgentLibraryControllerUpdate,
-  ankoleWebAgentSessionControllerIndex,
   ankoleWebAiGatewayControllerEmbeddings,
   ankoleWebAiGatewayControllerModels,
   ankoleWebAiGatewayControllerRerank,
@@ -55,15 +49,12 @@ import {
   ankoleWebAiGatewayProviderControllerPutCredentialStrategy,
   ankoleWebAiGatewayProviderControllerStartChatgptLogin,
   ankoleWebAuthControllerDeleteSession,
-  ankoleWebBackgroundAgentJobControllerHealth,
-  ankoleWebBackgroundAgentJobControllerTurns,
   ankoleWebBrainControllerDream,
   ankoleWebBrainControllerHealth,
   ankoleWebBrainControllerObjectTypes,
   ankoleWebBrainControllerPrincipalKnowledge,
   ankoleWebBrainControllerSearchPreview,
   ankoleWebBrainControllerShowObject,
-  ankoleWebConsoleReadinessControllerShow,
   ankoleWebControlPlanePluginControllerIndex,
   ankoleWebControlPlanePluginControllerUpdate,
   ankoleWebDirectoryAccessControllerApprove,
@@ -82,17 +73,6 @@ import {
   ankoleWebIdentityProviderControllerRunSync,
   ankoleWebOidcClientControllerRotateSecret,
   ankoleWebPrincipalControllerCreateLocalPasswordReset,
-  ankoleWebSignalBindingControllerAdapters,
-  ankoleWebSignalBindingControllerIndex,
-  ankoleWebSignalBindingControllerPutBinding,
-  ankoleWebSignalBindingControllerPutConversationStandingOrders,
-  ankoleWebSignalBindingControllerRequeueDelivery,
-  ankoleWebSignalBindingControllerShow,
-  ankoleWebSignalBindingControllerShowConversationStandingOrders,
-  ankoleWebSignalBindingControllerUpdateBinding,
-  backgroundActivityAutomationRuns,
-  backgroundActivityJobs,
-  backgroundActivityWorkflow,
   oidcLoginSources,
   type Options
 } from '../sdk.gen'
@@ -121,21 +101,6 @@ import type {
   AnkoleWebAgentControllerShowTokenQuotaData,
   AnkoleWebAgentControllerShowTokenQuotaError,
   AnkoleWebAgentControllerShowTokenQuotaResponse,
-  AnkoleWebAgentFileControllerDeleteData,
-  AnkoleWebAgentFileControllerDeleteError,
-  AnkoleWebAgentFileControllerDeleteResponse,
-  AnkoleWebAgentFileControllerDownloadData,
-  AnkoleWebAgentFileControllerDownloadError,
-  AnkoleWebAgentFileControllerDownloadResponse,
-  AnkoleWebAgentFileControllerIndexData,
-  AnkoleWebAgentFileControllerIndexError,
-  AnkoleWebAgentFileControllerIndexResponse,
-  AnkoleWebAgentFileControllerMoveData,
-  AnkoleWebAgentFileControllerMoveError,
-  AnkoleWebAgentFileControllerMoveResponse,
-  AnkoleWebAgentFileControllerUploadData,
-  AnkoleWebAgentFileControllerUploadError,
-  AnkoleWebAgentFileControllerUploadResponse,
   AnkoleWebAgentLibraryCapabilityControllerAgentIndexData,
   AnkoleWebAgentLibraryCapabilityControllerAgentIndexError,
   AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponse,
@@ -160,9 +125,6 @@ import type {
   AnkoleWebAgentLibraryControllerUpdateData,
   AnkoleWebAgentLibraryControllerUpdateError,
   AnkoleWebAgentLibraryControllerUpdateResponse,
-  AnkoleWebAgentSessionControllerIndexData,
-  AnkoleWebAgentSessionControllerIndexError,
-  AnkoleWebAgentSessionControllerIndexResponse,
   AnkoleWebAiGatewayControllerEmbeddingsData,
   AnkoleWebAiGatewayControllerEmbeddingsError,
   AnkoleWebAiGatewayControllerEmbeddingsResponse,
@@ -231,12 +193,6 @@ import type {
   AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponse,
   AnkoleWebAuthControllerDeleteSessionData,
   AnkoleWebAuthControllerDeleteSessionResponse,
-  AnkoleWebBackgroundAgentJobControllerHealthData,
-  AnkoleWebBackgroundAgentJobControllerHealthError,
-  AnkoleWebBackgroundAgentJobControllerHealthResponse,
-  AnkoleWebBackgroundAgentJobControllerTurnsData,
-  AnkoleWebBackgroundAgentJobControllerTurnsError,
-  AnkoleWebBackgroundAgentJobControllerTurnsResponse,
   AnkoleWebBrainControllerDreamData,
   AnkoleWebBrainControllerDreamResponse,
   AnkoleWebBrainControllerHealthData,
@@ -249,9 +205,6 @@ import type {
   AnkoleWebBrainControllerSearchPreviewResponse,
   AnkoleWebBrainControllerShowObjectData,
   AnkoleWebBrainControllerShowObjectResponse,
-  AnkoleWebConsoleReadinessControllerShowData,
-  AnkoleWebConsoleReadinessControllerShowError,
-  AnkoleWebConsoleReadinessControllerShowResponse,
   AnkoleWebControlPlanePluginControllerIndexData,
   AnkoleWebControlPlanePluginControllerIndexError,
   AnkoleWebControlPlanePluginControllerIndexResponse,
@@ -301,39 +254,6 @@ import type {
   AnkoleWebPrincipalControllerCreateLocalPasswordResetData,
   AnkoleWebPrincipalControllerCreateLocalPasswordResetError,
   AnkoleWebPrincipalControllerCreateLocalPasswordResetResponse,
-  AnkoleWebSignalBindingControllerAdaptersData,
-  AnkoleWebSignalBindingControllerAdaptersError,
-  AnkoleWebSignalBindingControllerAdaptersResponse,
-  AnkoleWebSignalBindingControllerIndexData,
-  AnkoleWebSignalBindingControllerIndexError,
-  AnkoleWebSignalBindingControllerIndexResponse,
-  AnkoleWebSignalBindingControllerPutBindingData,
-  AnkoleWebSignalBindingControllerPutBindingError,
-  AnkoleWebSignalBindingControllerPutBindingResponse,
-  AnkoleWebSignalBindingControllerPutConversationStandingOrdersData,
-  AnkoleWebSignalBindingControllerPutConversationStandingOrdersError,
-  AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponse,
-  AnkoleWebSignalBindingControllerRequeueDeliveryData,
-  AnkoleWebSignalBindingControllerRequeueDeliveryError,
-  AnkoleWebSignalBindingControllerRequeueDeliveryResponse,
-  AnkoleWebSignalBindingControllerShowConversationStandingOrdersData,
-  AnkoleWebSignalBindingControllerShowConversationStandingOrdersError,
-  AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponse,
-  AnkoleWebSignalBindingControllerShowData,
-  AnkoleWebSignalBindingControllerShowError,
-  AnkoleWebSignalBindingControllerShowResponse,
-  AnkoleWebSignalBindingControllerUpdateBindingData,
-  AnkoleWebSignalBindingControllerUpdateBindingError,
-  AnkoleWebSignalBindingControllerUpdateBindingResponse,
-  BackgroundActivityAutomationRunsData,
-  BackgroundActivityAutomationRunsError,
-  BackgroundActivityAutomationRunsResponse2,
-  BackgroundActivityJobsData,
-  BackgroundActivityJobsError,
-  BackgroundActivityJobsResponse2,
-  BackgroundActivityWorkflowData,
-  BackgroundActivityWorkflowError,
-  BackgroundActivityWorkflowResponse2,
   OidcLoginSourcesData,
   OidcLoginSourcesError,
   OidcLoginSourcesResponse
@@ -461,31 +381,6 @@ export const ankoleWebAiGatewayProviderControllerStartChatgptLoginMutation = (
   return mutationOptions
 }
 
-export const backgroundActivityWorkflowQueryKey = (options: Options<BackgroundActivityWorkflowData>) =>
-  createQueryKey('backgroundActivityWorkflow', options)
-
-/**
- * Read live Workflow calls and runs awaiting execution or terminal cleanup
- */
-export const backgroundActivityWorkflowOptions = (options: Options<BackgroundActivityWorkflowData>) =>
-  queryOptions<
-    BackgroundActivityWorkflowResponse2,
-    BackgroundActivityWorkflowError,
-    BackgroundActivityWorkflowResponse2,
-    ReturnType<typeof backgroundActivityWorkflowQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await backgroundActivityWorkflow({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: backgroundActivityWorkflowQueryKey(options)
-  })
-
 /**
  * Delete an AIGateway vision file
  */
@@ -540,33 +435,6 @@ export const ankoleWebAiGatewayFilesControllerShowOptions = (
     },
     queryKey: ankoleWebAiGatewayFilesControllerShowQueryKey(options)
   })
-
-/**
- * Rename or move a file or folder in an Agent's drive
- */
-export const ankoleWebAgentFileControllerMoveMutation = (
-  options?: Partial<Options<AnkoleWebAgentFileControllerMoveData>>
-): UseMutationOptions<
-  AnkoleWebAgentFileControllerMoveResponse,
-  AnkoleWebAgentFileControllerMoveError,
-  Options<AnkoleWebAgentFileControllerMoveData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentFileControllerMoveResponse,
-    AnkoleWebAgentFileControllerMoveError,
-    Options<AnkoleWebAgentFileControllerMoveData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentFileControllerMove({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
 
 /**
  * Replace one user's local password with a new one-time password
@@ -811,89 +679,6 @@ export const ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions = (
     },
     queryKey: ankoleWebAgentLibraryCapabilityControllerAgentIndexQueryKey(options)
   })
-
-export const ankoleWebAgentFileControllerDownloadQueryKey = (
-  options: Options<AnkoleWebAgentFileControllerDownloadData>
-) => createQueryKey('ankoleWebAgentFileControllerDownload', options)
-
-/**
- * Download one file from an Agent's drive
- */
-export const ankoleWebAgentFileControllerDownloadOptions = (
-  options: Options<AnkoleWebAgentFileControllerDownloadData>
-) =>
-  queryOptions<
-    AnkoleWebAgentFileControllerDownloadResponse,
-    AnkoleWebAgentFileControllerDownloadError,
-    AnkoleWebAgentFileControllerDownloadResponse,
-    ReturnType<typeof ankoleWebAgentFileControllerDownloadQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAgentFileControllerDownload({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAgentFileControllerDownloadQueryKey(options)
-  })
-
-export const ankoleWebSignalBindingControllerShowConversationStandingOrdersQueryKey = (
-  options: Options<AnkoleWebSignalBindingControllerShowConversationStandingOrdersData>
-) => createQueryKey('ankoleWebSignalBindingControllerShowConversationStandingOrders', options)
-
-/**
- * Read the standing orders of one conversation
- */
-export const ankoleWebSignalBindingControllerShowConversationStandingOrdersOptions = (
-  options: Options<AnkoleWebSignalBindingControllerShowConversationStandingOrdersData>
-) =>
-  queryOptions<
-    AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponse,
-    AnkoleWebSignalBindingControllerShowConversationStandingOrdersError,
-    AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponse,
-    ReturnType<typeof ankoleWebSignalBindingControllerShowConversationStandingOrdersQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebSignalBindingControllerShowConversationStandingOrders({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebSignalBindingControllerShowConversationStandingOrdersQueryKey(options)
-  })
-
-/**
- * Replace the standing orders of one conversation
- */
-export const ankoleWebSignalBindingControllerPutConversationStandingOrdersMutation = (
-  options?: Partial<Options<AnkoleWebSignalBindingControllerPutConversationStandingOrdersData>>
-): UseMutationOptions<
-  AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponse,
-  AnkoleWebSignalBindingControllerPutConversationStandingOrdersError,
-  Options<AnkoleWebSignalBindingControllerPutConversationStandingOrdersData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponse,
-    AnkoleWebSignalBindingControllerPutConversationStandingOrdersError,
-    Options<AnkoleWebSignalBindingControllerPutConversationStandingOrdersData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebSignalBindingControllerPutConversationStandingOrders({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
 
 export const ankoleWebAiGatewayFilesControllerIndexQueryKey = (
   options?: Options<AnkoleWebAiGatewayFilesControllerIndexData>
@@ -1382,101 +1167,6 @@ export const ankoleWebIdentityProviderControllerRunSyncMutation = (
   return mutationOptions
 }
 
-export const ankoleWebSignalBindingControllerIndexQueryKey = (
-  options?: Options<AnkoleWebSignalBindingControllerIndexData>
-) => createQueryKey('ankoleWebSignalBindingControllerIndex', options)
-
-/**
- * List signal bindings
- */
-export const ankoleWebSignalBindingControllerIndexOptions = (
-  options?: Options<AnkoleWebSignalBindingControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebSignalBindingControllerIndexResponse,
-    AnkoleWebSignalBindingControllerIndexError,
-    AnkoleWebSignalBindingControllerIndexResponse,
-    ReturnType<typeof ankoleWebSignalBindingControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebSignalBindingControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebSignalBindingControllerIndexQueryKey(options)
-  })
-
-export const backgroundActivityJobsQueryKey = (options: Options<BackgroundActivityJobsData>) =>
-  createQueryKey('backgroundActivityJobs', options)
-
-/**
- * Read this Agent's queued, running and waiting background Jobs
- */
-export const backgroundActivityJobsOptions = (options: Options<BackgroundActivityJobsData>) =>
-  queryOptions<
-    BackgroundActivityJobsResponse2,
-    BackgroundActivityJobsError,
-    BackgroundActivityJobsResponse2,
-    ReturnType<typeof backgroundActivityJobsQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await backgroundActivityJobs({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: backgroundActivityJobsQueryKey(options)
-  })
-
-export const backgroundActivityJobsInfiniteQueryKey = (
-  options: Options<BackgroundActivityJobsData>
-): QueryKey<Options<BackgroundActivityJobsData>> => createQueryKey('backgroundActivityJobs', options, true)
-
-/**
- * Read this Agent's queued, running and waiting background Jobs
- */
-export const backgroundActivityJobsInfiniteOptions = (options: Options<BackgroundActivityJobsData>) => {
-  const opts = infiniteQueryOptions<
-    BackgroundActivityJobsResponse2,
-    BackgroundActivityJobsError,
-    InfiniteData<BackgroundActivityJobsResponse2>,
-    QueryKey<Options<BackgroundActivityJobsData>>,
-    string | Pick<QueryKey<Options<BackgroundActivityJobsData>>[0], 'body' | 'headers' | 'path' | 'query'>
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<QueryKey<Options<BackgroundActivityJobsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  cursor: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await backgroundActivityJobs({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: backgroundActivityJobsInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
-}
-
 export const ankoleWebBrainControllerHealthQueryKey = (options?: Options<AnkoleWebBrainControllerHealthData>) =>
   createQueryKey('ankoleWebBrainControllerHealth', options)
 
@@ -1640,34 +1330,6 @@ export const ankoleWebAgentControllerIndexModelProfilesOptions = (
     queryKey: ankoleWebAgentControllerIndexModelProfilesQueryKey(options)
   })
 
-export const ankoleWebSignalBindingControllerAdaptersQueryKey = (
-  options?: Options<AnkoleWebSignalBindingControllerAdaptersData>
-) => createQueryKey('ankoleWebSignalBindingControllerAdapters', options)
-
-/**
- * List signal adapters available for bindings
- */
-export const ankoleWebSignalBindingControllerAdaptersOptions = (
-  options?: Options<AnkoleWebSignalBindingControllerAdaptersData>
-) =>
-  queryOptions<
-    AnkoleWebSignalBindingControllerAdaptersResponse,
-    AnkoleWebSignalBindingControllerAdaptersError,
-    AnkoleWebSignalBindingControllerAdaptersResponse,
-    ReturnType<typeof ankoleWebSignalBindingControllerAdaptersQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebSignalBindingControllerAdapters({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebSignalBindingControllerAdaptersQueryKey(options)
-  })
-
 /**
  * Poll one ChatGPT device login once
  */
@@ -1685,61 +1347,6 @@ export const ankoleWebAiGatewayProviderControllerPollChatgptLoginMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAiGatewayProviderControllerPollChatgptLogin({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebSignalBindingControllerShowQueryKey = (
-  options: Options<AnkoleWebSignalBindingControllerShowData>
-) => createQueryKey('ankoleWebSignalBindingControllerShow', options)
-
-/**
- * Read one signal binding for editing
- */
-export const ankoleWebSignalBindingControllerShowOptions = (
-  options: Options<AnkoleWebSignalBindingControllerShowData>
-) =>
-  queryOptions<
-    AnkoleWebSignalBindingControllerShowResponse,
-    AnkoleWebSignalBindingControllerShowError,
-    AnkoleWebSignalBindingControllerShowResponse,
-    ReturnType<typeof ankoleWebSignalBindingControllerShowQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebSignalBindingControllerShow({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebSignalBindingControllerShowQueryKey(options)
-  })
-
-/**
- * Edit or move one signal binding
- */
-export const ankoleWebSignalBindingControllerUpdateBindingMutation = (
-  options?: Partial<Options<AnkoleWebSignalBindingControllerUpdateBindingData>>
-): UseMutationOptions<
-  AnkoleWebSignalBindingControllerUpdateBindingResponse,
-  AnkoleWebSignalBindingControllerUpdateBindingError,
-  Options<AnkoleWebSignalBindingControllerUpdateBindingData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebSignalBindingControllerUpdateBindingResponse,
-    AnkoleWebSignalBindingControllerUpdateBindingError,
-    Options<AnkoleWebSignalBindingControllerUpdateBindingData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebSignalBindingControllerUpdateBinding({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1964,185 +1571,6 @@ export const ankoleWebHumanAccessControllerShowOptions = (options: Options<Ankol
     },
     queryKey: ankoleWebHumanAccessControllerShowQueryKey(options)
   })
-
-export const backgroundActivityAutomationRunsQueryKey = (options: Options<BackgroundActivityAutomationRunsData>) =>
-  createQueryKey('backgroundActivityAutomationRuns', options)
-
-/**
- * Read live automation runs, including runs of cancelled definitions
- */
-export const backgroundActivityAutomationRunsOptions = (options: Options<BackgroundActivityAutomationRunsData>) =>
-  queryOptions<
-    BackgroundActivityAutomationRunsResponse2,
-    BackgroundActivityAutomationRunsError,
-    BackgroundActivityAutomationRunsResponse2,
-    ReturnType<typeof backgroundActivityAutomationRunsQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await backgroundActivityAutomationRuns({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: backgroundActivityAutomationRunsQueryKey(options)
-  })
-
-export const backgroundActivityAutomationRunsInfiniteQueryKey = (
-  options: Options<BackgroundActivityAutomationRunsData>
-): QueryKey<Options<BackgroundActivityAutomationRunsData>> =>
-  createQueryKey('backgroundActivityAutomationRuns', options, true)
-
-/**
- * Read live automation runs, including runs of cancelled definitions
- */
-export const backgroundActivityAutomationRunsInfiniteOptions = (
-  options: Options<BackgroundActivityAutomationRunsData>
-) => {
-  const opts = infiniteQueryOptions<
-    BackgroundActivityAutomationRunsResponse2,
-    BackgroundActivityAutomationRunsError,
-    InfiniteData<BackgroundActivityAutomationRunsResponse2>,
-    QueryKey<Options<BackgroundActivityAutomationRunsData>>,
-    string | Pick<QueryKey<Options<BackgroundActivityAutomationRunsData>>[0], 'body' | 'headers' | 'path' | 'query'>
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<
-          QueryKey<Options<BackgroundActivityAutomationRunsData>>[0],
-          'body' | 'headers' | 'path' | 'query'
-        > =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  cursor: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await backgroundActivityAutomationRuns({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: backgroundActivityAutomationRunsInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
-}
-
-/**
- * Delete a file, or a folder and every file in it, from an Agent's drive
- */
-export const ankoleWebAgentFileControllerDeleteMutation = (
-  options?: Partial<Options<AnkoleWebAgentFileControllerDeleteData>>
-): UseMutationOptions<
-  AnkoleWebAgentFileControllerDeleteResponse,
-  AnkoleWebAgentFileControllerDeleteError,
-  Options<AnkoleWebAgentFileControllerDeleteData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentFileControllerDeleteResponse,
-    AnkoleWebAgentFileControllerDeleteError,
-    Options<AnkoleWebAgentFileControllerDeleteData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentFileControllerDelete({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebAgentFileControllerIndexQueryKey = (options: Options<AnkoleWebAgentFileControllerIndexData>) =>
-  createQueryKey('ankoleWebAgentFileControllerIndex', options)
-
-/**
- * List the files and subfolders of one folder in an Agent's drive
- */
-export const ankoleWebAgentFileControllerIndexOptions = (options: Options<AnkoleWebAgentFileControllerIndexData>) =>
-  queryOptions<
-    AnkoleWebAgentFileControllerIndexResponse,
-    AnkoleWebAgentFileControllerIndexError,
-    AnkoleWebAgentFileControllerIndexResponse,
-    ReturnType<typeof ankoleWebAgentFileControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAgentFileControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAgentFileControllerIndexQueryKey(options)
-  })
-
-/**
- * Upload one file into an Agent's drive
- */
-export const ankoleWebAgentFileControllerUploadMutation = (
-  options?: Partial<Options<AnkoleWebAgentFileControllerUploadData>>
-): UseMutationOptions<
-  AnkoleWebAgentFileControllerUploadResponse,
-  AnkoleWebAgentFileControllerUploadError,
-  Options<AnkoleWebAgentFileControllerUploadData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebAgentFileControllerUploadResponse,
-    AnkoleWebAgentFileControllerUploadError,
-    Options<AnkoleWebAgentFileControllerUploadData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebAgentFileControllerUpload({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Create or update one signal binding for an agent
- */
-export const ankoleWebSignalBindingControllerPutBindingMutation = (
-  options?: Partial<Options<AnkoleWebSignalBindingControllerPutBindingData>>
-): UseMutationOptions<
-  AnkoleWebSignalBindingControllerPutBindingResponse,
-  AnkoleWebSignalBindingControllerPutBindingError,
-  Options<AnkoleWebSignalBindingControllerPutBindingData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebSignalBindingControllerPutBindingResponse,
-    AnkoleWebSignalBindingControllerPutBindingError,
-    Options<AnkoleWebSignalBindingControllerPutBindingData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebSignalBindingControllerPutBinding({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
 
 export const oidcLoginSourcesQueryKey = (options?: Options<OidcLoginSourcesData>) =>
   createQueryKey('oidcLoginSources', options)
@@ -2471,62 +1899,6 @@ export const ankoleWebBrainControllerObjectTypesOptions = (
     queryKey: ankoleWebBrainControllerObjectTypesQueryKey(options)
   })
 
-export const ankoleWebAgentSessionControllerIndexQueryKey = (
-  options: Options<AnkoleWebAgentSessionControllerIndexData>
-) => createQueryKey('ankoleWebAgentSessionControllerIndex', options)
-
-/**
- * List sessions for one agent
- */
-export const ankoleWebAgentSessionControllerIndexOptions = (
-  options: Options<AnkoleWebAgentSessionControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebAgentSessionControllerIndexResponse,
-    AnkoleWebAgentSessionControllerIndexError,
-    AnkoleWebAgentSessionControllerIndexResponse,
-    ReturnType<typeof ankoleWebAgentSessionControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAgentSessionControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAgentSessionControllerIndexQueryKey(options)
-  })
-
-export const ankoleWebBackgroundAgentJobControllerHealthQueryKey = (
-  options?: Options<AnkoleWebBackgroundAgentJobControllerHealthData>
-) => createQueryKey('ankoleWebBackgroundAgentJobControllerHealth', options)
-
-/**
- * Read installation-wide background Agent Job reliability metrics
- */
-export const ankoleWebBackgroundAgentJobControllerHealthOptions = (
-  options?: Options<AnkoleWebBackgroundAgentJobControllerHealthData>
-) =>
-  queryOptions<
-    AnkoleWebBackgroundAgentJobControllerHealthResponse,
-    AnkoleWebBackgroundAgentJobControllerHealthError,
-    AnkoleWebBackgroundAgentJobControllerHealthResponse,
-    ReturnType<typeof ankoleWebBackgroundAgentJobControllerHealthQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebBackgroundAgentJobControllerHealth({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebBackgroundAgentJobControllerHealthQueryKey(options)
-  })
-
 /**
  * Retry or dismiss an unresolved provider event
  */
@@ -2661,83 +2033,6 @@ export const ankoleWebBrainControllerShowObjectOptions = (options: Options<Ankol
     queryKey: ankoleWebBrainControllerShowObjectQueryKey(options)
   })
 
-export const ankoleWebBackgroundAgentJobControllerTurnsQueryKey = (
-  options: Options<AnkoleWebBackgroundAgentJobControllerTurnsData>
-) => createQueryKey('ankoleWebBackgroundAgentJobControllerTurns', options)
-
-/**
- * Read one page of the runtime Turn trajectory of one background Agent Job
- */
-export const ankoleWebBackgroundAgentJobControllerTurnsOptions = (
-  options: Options<AnkoleWebBackgroundAgentJobControllerTurnsData>
-) =>
-  queryOptions<
-    AnkoleWebBackgroundAgentJobControllerTurnsResponse,
-    AnkoleWebBackgroundAgentJobControllerTurnsError,
-    AnkoleWebBackgroundAgentJobControllerTurnsResponse,
-    ReturnType<typeof ankoleWebBackgroundAgentJobControllerTurnsQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebBackgroundAgentJobControllerTurns({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebBackgroundAgentJobControllerTurnsQueryKey(options)
-  })
-
-export const ankoleWebBackgroundAgentJobControllerTurnsInfiniteQueryKey = (
-  options: Options<AnkoleWebBackgroundAgentJobControllerTurnsData>
-): QueryKey<Options<AnkoleWebBackgroundAgentJobControllerTurnsData>> =>
-  createQueryKey('ankoleWebBackgroundAgentJobControllerTurns', options, true)
-
-/**
- * Read one page of the runtime Turn trajectory of one background Agent Job
- */
-export const ankoleWebBackgroundAgentJobControllerTurnsInfiniteOptions = (
-  options: Options<AnkoleWebBackgroundAgentJobControllerTurnsData>
-) => {
-  const opts = infiniteQueryOptions<
-    AnkoleWebBackgroundAgentJobControllerTurnsResponse,
-    AnkoleWebBackgroundAgentJobControllerTurnsError,
-    InfiniteData<AnkoleWebBackgroundAgentJobControllerTurnsResponse>,
-    QueryKey<Options<AnkoleWebBackgroundAgentJobControllerTurnsData>>,
-    | string
-    | Pick<QueryKey<Options<AnkoleWebBackgroundAgentJobControllerTurnsData>>[0], 'body' | 'headers' | 'path' | 'query'>
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<
-          QueryKey<Options<AnkoleWebBackgroundAgentJobControllerTurnsData>>[0],
-          'body' | 'headers' | 'path' | 'query'
-        > =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  cursor: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await ankoleWebBackgroundAgentJobControllerTurns({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: ankoleWebBackgroundAgentJobControllerTurnsInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
-}
-
 /**
  * Set one global Agent Plugin default
  */
@@ -2755,33 +2050,6 @@ export const ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginMutati
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPlugin({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Retry one stopped signal delivery
- */
-export const ankoleWebSignalBindingControllerRequeueDeliveryMutation = (
-  options?: Partial<Options<AnkoleWebSignalBindingControllerRequeueDeliveryData>>
-): UseMutationOptions<
-  AnkoleWebSignalBindingControllerRequeueDeliveryResponse,
-  AnkoleWebSignalBindingControllerRequeueDeliveryError,
-  Options<AnkoleWebSignalBindingControllerRequeueDeliveryData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebSignalBindingControllerRequeueDeliveryResponse,
-    AnkoleWebSignalBindingControllerRequeueDeliveryError,
-    Options<AnkoleWebSignalBindingControllerRequeueDeliveryData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebSignalBindingControllerRequeueDelivery({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -2846,31 +2114,3 @@ export const ankoleWebHumanAccessControllerRestoreMutation = (
   }
   return mutationOptions
 }
-
-export const ankoleWebConsoleReadinessControllerShowQueryKey = (
-  options?: Options<AnkoleWebConsoleReadinessControllerShowData>
-) => createQueryKey('ankoleWebConsoleReadinessControllerShow', options)
-
-/**
- * Read the console readiness snapshot
- */
-export const ankoleWebConsoleReadinessControllerShowOptions = (
-  options?: Options<AnkoleWebConsoleReadinessControllerShowData>
-) =>
-  queryOptions<
-    AnkoleWebConsoleReadinessControllerShowResponse,
-    AnkoleWebConsoleReadinessControllerShowError,
-    AnkoleWebConsoleReadinessControllerShowResponse,
-    ReturnType<typeof ankoleWebConsoleReadinessControllerShowQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebConsoleReadinessControllerShow({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebConsoleReadinessControllerShowQueryKey(options)
-  })

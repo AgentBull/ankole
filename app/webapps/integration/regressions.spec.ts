@@ -97,7 +97,7 @@ async function files(page: Page) {
   await page.route('**/api/v2/agents/agent-one', route =>
     route.fulfill({ json: { data: { id: 'agent-one', type: 'agent', attributes: { display_name: 'Files Agent' } } } })
   )
-  await page.route('**/api/v1/agents/agent-one/files**', route =>
+  await page.route('**/api/v2/agents/agent-one/files**', route =>
     route.fulfill({
       json: {
         file_listing: { folders: [{ name: 'Folder', path: 'Folder' }], files: [], truncated: false }

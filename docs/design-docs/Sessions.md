@@ -136,6 +136,15 @@ messages. The display facts are calculations of the conversation: `kind`,
 `message_count` aggregate. The messages of one conversation are the
 `console_list` read action of `AIGateway.Schemas.Message`, oldest first.
 
+The Session picker reads `GET /api/v2/agents/:agent_uid/sessions`. It shows
+only the selected Agent's persisted Sessions in the active tenant. The
+Conversation standing-order routes are
+`GET` and `PUT /api/v2/conversations/:conversation_id/standing-orders`.
+`Sessions.AmbientCuration` validates and persists each edit with the current
+Principal as its actor. The next Signal snapshot reads the stored order;
+clearing the order excludes it from later snapshots. The transport action
+adds no outer transaction around the owning domain operation.
+
 ## Turn Progression
 
 `Sessions.Turn.step/2` owns the next execution step. It takes the current Turn

@@ -18,11 +18,11 @@ import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from '@tanstack/react-router'
 import { requestErrorMessage } from '../../common/request-errors'
 import { linkTarget } from '../../common/router'
+import { ankoleWebIdentityProviderControllerIndexOptions } from '../api/generated/@tanstack/react-query.gen'
 import {
-  ankoleWebBackgroundAgentJobControllerHealthOptions,
-  ankoleWebConsoleReadinessControllerShowOptions,
-  ankoleWebIdentityProviderControllerIndexOptions
-} from '../api/generated/@tanstack/react-query.gen'
+  getBackgroundAgentJobHealthOptions,
+  getConsoleReadinessOptions
+} from '../api/v2/generated/@tanstack/react-query.gen'
 import { agentWorkerListOptions } from '../api/agent-workers'
 import { agentListOptions } from '../api/agents'
 import { aiGatewayConversationsOptions } from '../api/ai-gateway-conversations'
@@ -70,12 +70,12 @@ export function HomePage() {
     refetchInterval: LIST_REFRESH_MS
   })
   const jobHealth = useQuery({
-    ...ankoleWebBackgroundAgentJobControllerHealthOptions(),
+    ...getBackgroundAgentJobHealthOptions(),
     refetchInterval: LIST_REFRESH_MS
   })
   // Use the header readiness query key so both views share cached data.
   const readiness = useQuery({
-    ...ankoleWebConsoleReadinessControllerShowOptions(),
+    ...getConsoleReadinessOptions(),
     refetchInterval: IDLE_REFRESH_MS
   })
   // `min_messages: 2` matches the conversation list's own default. Without it the

@@ -1,10 +1,7 @@
 defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
-  alias OpenApiSpex, as: OpenAPISpex
-
   import Ankole.AIGatewayCase, only: [background_agent_fixture: 0]
-  import OpenAPISpex.TestAssertions
 
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
@@ -26,23 +23,16 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     :ok
   end
 
-  test "the turn page schema follows the Turn state machine", %{conn: conn} do
-    schemas = AnkoleWeb.APISpec.spec().components.schemas
-
-    assert schemas["BackgroundAgentJobTurnItem"].properties.status.enum ==
-             Turn
-             |> AshStateMachine.Info.state_machine_all_states()
-             |> Enum.map(&Atom.to_string/1)
-
-    assert %{"error" => %{"code" => "not_found"}} =
+  test "a missing Job has no Turn page", %{conn: conn} do
+    assert %{"errors" => [%{"code" => "not_found"}]} =
              conn
              |> console_conn()
-             |> get(~p"/api/v1/background-agent-jobs/1000000/turns")
+             |> api_get("/api/v2/background-agent-jobs/1000000/turns")
              |> json_response(404)
   end
 
   test "missing browser session is rejected", %{conn: conn} do
-    assert conn |> get(~p"/api/v1/background-agent-jobs/health") |> json_response(401)
+    assert conn |> api_get(~p"/api/v2/background-agent-jobs/health") |> json_response(401)
   end
 
   test "Deep Research detail exposes the same semantic Turn trajectory without raw protocol frames",
@@ -74,10 +64,9 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     page =
       conn
       |> console_conn()
-      |> get(~p"/api/v1/background-agent-jobs/#{job.id}/turns")
+      |> api_get(~p"/api/v2/background-agent-jobs/#{job.id}/turns")
       |> json_response(200)
 
-    assert_schema(page, "BackgroundAgentJobTurnPageResponse", AnkoleWeb.APISpec.spec())
     assert [%{"trajectory" => trajectory}] = page["turns"]
 
     assert trajectory["messages"] == [
@@ -112,7 +101,8 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     conn = console_conn(conn)
 
-    first = conn |> get(~p"/api/v1/background-agent-jobs/#{job.id}/turns") |> json_response(200)
+    first =
+      conn |> api_get(~p"/api/v2/background-agent-jobs/#{job.id}/turns") |> json_response(200)
 
     assert Enum.map(first["turns"], &{&1["id"], length(&1["trajectory"]["messages"])}) == [
              {older.id, 5},
@@ -124,7 +114,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     second =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/background-agent-jobs/#{job.id}/turns?cursor=#{first["next_cursor"]}")
+      |> api_get(~p"/api/v2/background-agent-jobs/#{job.id}/turns?cursor=#{first["next_cursor"]}")
       |> json_response(200)
 
     assert Enum.map(second["turns"], &{&1["id"], length(&1["trajectory"]["messages"])}) == [
@@ -134,11 +124,35 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     assert second["next_cursor"] == nil
 
-    assert %{"error" => %{"code" => "invalid_background_agent_job_request"}} =
+    assert %{"errors" => [%{"code" => "invalid_background_agent_job_trajectory_cursor"}]} =
              conn
              |> recycle_api()
-             |> get(~p"/api/v1/background-agent-jobs/#{job.id}/turns?cursor=not-a-cursor")
+             |> api_get(~p"/api/v2/background-agent-jobs/#{job.id}/turns?cursor=not-a-cursor")
              |> json_response(422)
+  end
+
+  test "the Agent Session picker exposes durable Job sessions only for this Agent", %{conn: conn} do
+    agent = background_agent_fixture().principal
+    other = background_agent_fixture().principal
+    job = create_job!(agent.uid, "session-picker")
+    other_job = create_job!(other.uid, "other-picker")
+
+    %{"sessions" => sessions} =
+      conn
+      |> console_conn()
+      |> api_get("/api/v2/agents/#{agent.uid}/sessions")
+      |> json_response(200)
+
+    assert Enum.any?(
+             sessions,
+             &(&1["session_id"] == BackgroundAgentJobs.job_session_id(job.id) and
+                 &1["title"] == job.title)
+           )
+
+    refute Enum.any?(
+             sessions,
+             &(&1["session_id"] == BackgroundAgentJobs.job_session_id(other_job.id))
+           )
   end
 
   defp create_job!(agent_uid, suffix, title \\ nil) do
@@ -235,4 +249,33 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     turn
   end
+
+  defp api_request(conn, method, path, body \\ nil) do
+    if String.starts_with?(path, "/api/v2/") do
+      body =
+        case body do
+          nil ->
+            nil
+
+          value when is_binary(value) ->
+            value
+
+          value ->
+            Jason.encode!(
+              if Map.has_key?(value, :data) or Map.has_key?(value, "data"),
+                do: value,
+                else: %{data: value}
+            )
+        end
+
+      conn
+      |> put_req_header("accept", "application/vnd.api+json")
+      |> put_req_header("content-type", "application/vnd.api+json")
+      |> dispatch(@endpoint, method, path, body)
+    else
+      conn |> dispatch(@endpoint, method, path, body)
+    end
+  end
+
+  defp api_get(conn, path), do: api_request(conn, :get, path)
 end

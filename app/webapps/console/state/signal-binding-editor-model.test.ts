@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { SignalAdapterItem } from '../api/generated/types.gen'
+import type { SignalAdapterItem } from '../api/runtime-types'
 import {
   groupMessageModeFromPolicy,
   groupSignalAdapters,

@@ -9,6 +9,9 @@ import {
   approveBrainSuggestion,
   archiveBrainSource,
   assignAgentWorkerProvider,
+  backgroundActivityAutomationRuns,
+  backgroundActivityJobs,
+  backgroundActivityWorkflow,
   bindIdentityMappingRequest,
   cancelBackgroundAgentJob,
   cancelCheckback,
@@ -30,6 +33,7 @@ import {
   decryptAppConfiguration,
   decryptWorkerEnv,
   deleteAgent,
+  deleteAgentFiles,
   deleteAgentWorkerEnv,
   deleteIdentityMappingRequest,
   deleteOidcClient,
@@ -46,13 +50,20 @@ import {
   getAppConfiguration,
   getAutomationJob,
   getBackgroundAgentJob,
+  getBackgroundAgentJobHealth,
+  getBackgroundAgentJobTurns,
+  getConsoleReadiness,
+  getConversationStandingOrders,
   getCronSchedule,
   getOidcClient,
   getPermissionGrant,
   getPrincipal,
   getPrincipalGroup,
+  getSignalBinding,
   learnBrainSource,
+  listAgentFiles,
   listAgents,
+  listAgentSessions,
   listAgentSkillLessons,
   listAgentWorkerEnvs,
   listAgentWorkers,
@@ -81,15 +92,21 @@ import {
   listPrincipalGroupMembers,
   listPrincipalGroups,
   listPrincipals,
+  listSignalAdapters,
+  listSignalBindings,
   listWebhookEndpoints,
   listWorkerEnvs,
+  moveAgentFiles,
   type Options,
   pauseCronSchedule,
   previewComputedPrincipalGroupMembers,
+  putConversationStandingOrders,
+  putSignalBinding,
   rejectBrainMergeSuggestion,
   rejectBrainSuggestion,
   removeCronSchedule,
   removePrincipalGroupMember,
+  requeueSignalDelivery,
   resetAppConfiguration,
   resolveBrainTake,
   restoreBrainObject,
@@ -109,6 +126,7 @@ import {
   updateOidcClient,
   updatePermissionGrant,
   updatePrincipalGroup,
+  updateSignalBinding,
   updateWorkerEnv
 } from '../sdk.gen'
 import type {
@@ -127,6 +145,15 @@ import type {
   AssignAgentWorkerProviderData,
   AssignAgentWorkerProviderError,
   AssignAgentWorkerProviderResponse,
+  BackgroundActivityAutomationRunsData,
+  BackgroundActivityAutomationRunsError,
+  BackgroundActivityAutomationRunsResponse,
+  BackgroundActivityJobsData,
+  BackgroundActivityJobsError,
+  BackgroundActivityJobsResponse,
+  BackgroundActivityWorkflowData,
+  BackgroundActivityWorkflowError,
+  BackgroundActivityWorkflowResponse,
   BindIdentityMappingRequestData,
   BindIdentityMappingRequestError,
   BindIdentityMappingRequestResponse,
@@ -189,6 +216,9 @@ import type {
   DecryptWorkerEnvResponse,
   DeleteAgentData,
   DeleteAgentError,
+  DeleteAgentFilesData,
+  DeleteAgentFilesError,
+  DeleteAgentFilesResponse,
   DeleteAgentResponse,
   DeleteAgentWorkerEnvData,
   DeleteAgentWorkerEnvError,
@@ -234,7 +264,19 @@ import type {
   GetAutomationJobResponse,
   GetBackgroundAgentJobData,
   GetBackgroundAgentJobError,
+  GetBackgroundAgentJobHealthData,
+  GetBackgroundAgentJobHealthError,
+  GetBackgroundAgentJobHealthResponse,
   GetBackgroundAgentJobResponse,
+  GetBackgroundAgentJobTurnsData,
+  GetBackgroundAgentJobTurnsError,
+  GetBackgroundAgentJobTurnsResponse,
+  GetConsoleReadinessData,
+  GetConsoleReadinessError,
+  GetConsoleReadinessResponse,
+  GetConversationStandingOrdersData,
+  GetConversationStandingOrdersError,
+  GetConversationStandingOrdersResponse,
   GetCronScheduleData,
   GetCronScheduleError,
   GetCronScheduleResponse,
@@ -250,11 +292,20 @@ import type {
   GetPrincipalGroupError,
   GetPrincipalGroupResponse,
   GetPrincipalResponse,
+  GetSignalBindingData,
+  GetSignalBindingError,
+  GetSignalBindingResponse,
   LearnBrainSourceData,
   LearnBrainSourceError,
   LearnBrainSourceResponse,
+  ListAgentFilesData,
+  ListAgentFilesError,
+  ListAgentFilesResponse,
   ListAgentsData,
   ListAgentsError,
+  ListAgentSessionsData,
+  ListAgentSessionsError,
+  ListAgentSessionsResponse,
   ListAgentSkillLessonsData,
   ListAgentSkillLessonsError,
   ListAgentSkillLessonsResponse,
@@ -340,18 +391,33 @@ import type {
   ListPrincipalsData,
   ListPrincipalsError,
   ListPrincipalsResponse,
+  ListSignalAdaptersData,
+  ListSignalAdaptersError,
+  ListSignalAdaptersResponse,
+  ListSignalBindingsData,
+  ListSignalBindingsError,
+  ListSignalBindingsResponse,
   ListWebhookEndpointsData,
   ListWebhookEndpointsError,
   ListWebhookEndpointsResponse,
   ListWorkerEnvsData,
   ListWorkerEnvsError,
   ListWorkerEnvsResponse,
+  MoveAgentFilesData,
+  MoveAgentFilesError,
+  MoveAgentFilesResponse,
   PauseCronScheduleData,
   PauseCronScheduleError,
   PauseCronScheduleResponse,
   PreviewComputedPrincipalGroupMembersData,
   PreviewComputedPrincipalGroupMembersError,
   PreviewComputedPrincipalGroupMembersResponse,
+  PutConversationStandingOrdersData,
+  PutConversationStandingOrdersError,
+  PutConversationStandingOrdersResponse,
+  PutSignalBindingData,
+  PutSignalBindingError,
+  PutSignalBindingResponse,
   RejectBrainMergeSuggestionData,
   RejectBrainMergeSuggestionError,
   RejectBrainMergeSuggestionResponse,
@@ -364,6 +430,9 @@ import type {
   RemovePrincipalGroupMemberData,
   RemovePrincipalGroupMemberError,
   RemovePrincipalGroupMemberResponse,
+  RequeueSignalDeliveryData,
+  RequeueSignalDeliveryError,
+  RequeueSignalDeliveryResponse,
   ResetAppConfigurationData,
   ResetAppConfigurationError,
   ResetAppConfigurationResponse,
@@ -421,6 +490,9 @@ import type {
   UpdatePrincipalGroupData,
   UpdatePrincipalGroupError,
   UpdatePrincipalGroupResponse,
+  UpdateSignalBindingData,
+  UpdateSignalBindingError,
+  UpdateSignalBindingResponse,
   UpdateWorkerEnvData,
   UpdateWorkerEnvError,
   UpdateWorkerEnvResponse
@@ -513,6 +585,31 @@ export const getAiGatewayConversationOptions = (options: Options<GetAiGatewayCon
     queryKey: getAiGatewayConversationQueryKey(options)
   })
 
+export const getBackgroundAgentJobHealthQueryKey = (options?: Options<GetBackgroundAgentJobHealthData>) =>
+  createQueryKey('getBackgroundAgentJobHealth', options)
+
+/**
+ * get_background_agent_job_health operation on background_agent_jobs_operation resource
+ */
+export const getBackgroundAgentJobHealthOptions = (options?: Options<GetBackgroundAgentJobHealthData>) =>
+  queryOptions<
+    GetBackgroundAgentJobHealthResponse,
+    GetBackgroundAgentJobHealthError,
+    GetBackgroundAgentJobHealthResponse,
+    ReturnType<typeof getBackgroundAgentJobHealthQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getBackgroundAgentJobHealth({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getBackgroundAgentJobHealthQueryKey(options)
+  })
+
 export const listOidcLogoutDeliveriesQueryKey = (options: Options<ListOidcLogoutDeliveriesData>) =>
   createQueryKey('listOidcLogoutDeliveries', options)
 
@@ -538,21 +635,21 @@ export const listOidcLogoutDeliveriesOptions = (options: Options<ListOidcLogoutD
     queryKey: listOidcLogoutDeliveriesQueryKey(options)
   })
 
-export const listBackgroundAgentJobsQueryKey = (options?: Options<ListBackgroundAgentJobsData>) =>
-  createQueryKey('listBackgroundAgentJobs', options)
+export const getBackgroundAgentJobTurnsQueryKey = (options: Options<GetBackgroundAgentJobTurnsData>) =>
+  createQueryKey('getBackgroundAgentJobTurns', options)
 
 /**
- * list_background_agent_jobs operation on background_agent_job resource
+ * get_background_agent_job_turns operation on background_agent_jobs_operation resource
  */
-export const listBackgroundAgentJobsOptions = (options?: Options<ListBackgroundAgentJobsData>) =>
+export const getBackgroundAgentJobTurnsOptions = (options: Options<GetBackgroundAgentJobTurnsData>) =>
   queryOptions<
-    ListBackgroundAgentJobsResponse,
-    ListBackgroundAgentJobsError,
-    ListBackgroundAgentJobsResponse,
-    ReturnType<typeof listBackgroundAgentJobsQueryKey>
+    GetBackgroundAgentJobTurnsResponse,
+    GetBackgroundAgentJobTurnsError,
+    GetBackgroundAgentJobTurnsResponse,
+    ReturnType<typeof getBackgroundAgentJobTurnsQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await listBackgroundAgentJobs({
+      const { data } = await getBackgroundAgentJobTurns({
         ...options,
         ...queryKey[0],
         signal,
@@ -560,7 +657,7 @@ export const listBackgroundAgentJobsOptions = (options?: Options<ListBackgroundA
       })
       return data
     },
-    queryKey: listBackgroundAgentJobsQueryKey(options)
+    queryKey: getBackgroundAgentJobTurnsQueryKey(options)
   })
 
 const createInfiniteParams = <K extends Pick<QueryKey<Options>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -594,6 +691,73 @@ const createInfiniteParams = <K extends Pick<QueryKey<Options>[0], 'body' | 'hea
   }
   return params as unknown as typeof page
 }
+
+export const getBackgroundAgentJobTurnsInfiniteQueryKey = (
+  options: Options<GetBackgroundAgentJobTurnsData>
+): QueryKey<Options<GetBackgroundAgentJobTurnsData>> => createQueryKey('getBackgroundAgentJobTurns', options, true)
+
+/**
+ * get_background_agent_job_turns operation on background_agent_jobs_operation resource
+ */
+export const getBackgroundAgentJobTurnsInfiniteOptions = (options: Options<GetBackgroundAgentJobTurnsData>) => {
+  const opts = infiniteQueryOptions<
+    GetBackgroundAgentJobTurnsResponse,
+    GetBackgroundAgentJobTurnsError,
+    InfiniteData<GetBackgroundAgentJobTurnsResponse>,
+    QueryKey<Options<GetBackgroundAgentJobTurnsData>>,
+    string | Pick<QueryKey<Options<GetBackgroundAgentJobTurnsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<GetBackgroundAgentJobTurnsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  cursor: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await getBackgroundAgentJobTurns({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: getBackgroundAgentJobTurnsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
+export const listBackgroundAgentJobsQueryKey = (options?: Options<ListBackgroundAgentJobsData>) =>
+  createQueryKey('listBackgroundAgentJobs', options)
+
+/**
+ * list_background_agent_jobs operation on background_agent_job resource
+ */
+export const listBackgroundAgentJobsOptions = (options?: Options<ListBackgroundAgentJobsData>) =>
+  queryOptions<
+    ListBackgroundAgentJobsResponse,
+    ListBackgroundAgentJobsError,
+    ListBackgroundAgentJobsResponse,
+    ReturnType<typeof listBackgroundAgentJobsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listBackgroundAgentJobs({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listBackgroundAgentJobsQueryKey(options)
+  })
 
 export const listBackgroundAgentJobsInfiniteQueryKey = (
   options?: Options<ListBackgroundAgentJobsData>
@@ -1020,6 +1184,33 @@ export const decryptAgentWorkerEnvMutation = (
 }
 
 /**
+ * requeue_signal_delivery operation on signals_operation resource
+ */
+export const requeueSignalDeliveryMutation = (
+  options?: Partial<Options<RequeueSignalDeliveryData>>
+): UseMutationOptions<
+  RequeueSignalDeliveryResponse,
+  RequeueSignalDeliveryError,
+  Options<RequeueSignalDeliveryData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RequeueSignalDeliveryResponse,
+    RequeueSignalDeliveryError,
+    Options<RequeueSignalDeliveryData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await requeueSignalDelivery({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * supersede_brain_claim operation on brain_claim resource
  */
 export const supersedeBrainClaimMutation = (
@@ -1180,6 +1371,73 @@ export const updatePrincipalGroupMutation = (
     }
   }
   return mutationOptions
+}
+
+export const backgroundActivityJobsQueryKey = (options: Options<BackgroundActivityJobsData>) =>
+  createQueryKey('backgroundActivityJobs', options)
+
+/**
+ * background_activity_jobs operation on background_activities_operation resource
+ */
+export const backgroundActivityJobsOptions = (options: Options<BackgroundActivityJobsData>) =>
+  queryOptions<
+    BackgroundActivityJobsResponse,
+    BackgroundActivityJobsError,
+    BackgroundActivityJobsResponse,
+    ReturnType<typeof backgroundActivityJobsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await backgroundActivityJobs({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: backgroundActivityJobsQueryKey(options)
+  })
+
+export const backgroundActivityJobsInfiniteQueryKey = (
+  options: Options<BackgroundActivityJobsData>
+): QueryKey<Options<BackgroundActivityJobsData>> => createQueryKey('backgroundActivityJobs', options, true)
+
+/**
+ * background_activity_jobs operation on background_activities_operation resource
+ */
+export const backgroundActivityJobsInfiniteOptions = (options: Options<BackgroundActivityJobsData>) => {
+  const opts = infiniteQueryOptions<
+    BackgroundActivityJobsResponse,
+    BackgroundActivityJobsError,
+    InfiniteData<BackgroundActivityJobsResponse>,
+    QueryKey<Options<BackgroundActivityJobsData>>,
+    string | Pick<QueryKey<Options<BackgroundActivityJobsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<BackgroundActivityJobsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  cursor: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await backgroundActivityJobs({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: backgroundActivityJobsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
 }
 
 /**
@@ -1425,6 +1683,31 @@ export const listBrainClaimsOptions = (options?: Options<ListBrainClaimsData>) =
     queryKey: listBrainClaimsQueryKey(options)
   })
 
+export const listSignalBindingsQueryKey = (options?: Options<ListSignalBindingsData>) =>
+  createQueryKey('listSignalBindings', options)
+
+/**
+ * list_signal_bindings operation on signals_operation resource
+ */
+export const listSignalBindingsOptions = (options?: Options<ListSignalBindingsData>) =>
+  queryOptions<
+    ListSignalBindingsResponse,
+    ListSignalBindingsError,
+    ListSignalBindingsResponse,
+    ReturnType<typeof listSignalBindingsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listSignalBindings({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listSignalBindingsQueryKey(options)
+  })
+
 export const getAutomationJobQueryKey = (options: Options<GetAutomationJobData>) =>
   createQueryKey('getAutomationJob', options)
 
@@ -1505,6 +1788,54 @@ export const updateHumanMutation = (
   const mutationOptions: UseMutationOptions<UpdateHumanResponse, UpdateHumanError, Options<UpdateHumanData>> = {
     mutationFn: async fnOptions => {
       const { data } = await updateHuman({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getSignalBindingQueryKey = (options: Options<GetSignalBindingData>) =>
+  createQueryKey('getSignalBinding', options)
+
+/**
+ * get_signal_binding operation on signals_operation resource
+ */
+export const getSignalBindingOptions = (options: Options<GetSignalBindingData>) =>
+  queryOptions<
+    GetSignalBindingResponse,
+    GetSignalBindingError,
+    GetSignalBindingResponse,
+    ReturnType<typeof getSignalBindingQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getSignalBinding({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getSignalBindingQueryKey(options)
+  })
+
+/**
+ * update_signal_binding operation on signals_operation resource
+ */
+export const updateSignalBindingMutation = (
+  options?: Partial<Options<UpdateSignalBindingData>>
+): UseMutationOptions<UpdateSignalBindingResponse, UpdateSignalBindingError, Options<UpdateSignalBindingData>> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateSignalBindingResponse,
+    UpdateSignalBindingError,
+    Options<UpdateSignalBindingData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateSignalBinding({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1634,6 +1965,79 @@ export const listPrincipalGroupGrantsOptions = (options: Options<ListPrincipalGr
     },
     queryKey: listPrincipalGroupGrantsQueryKey(options)
   })
+
+export const backgroundActivityAutomationRunsQueryKey = (options: Options<BackgroundActivityAutomationRunsData>) =>
+  createQueryKey('backgroundActivityAutomationRuns', options)
+
+/**
+ * background_activity_automation_runs operation on background_activities_operation resource
+ */
+export const backgroundActivityAutomationRunsOptions = (options: Options<BackgroundActivityAutomationRunsData>) =>
+  queryOptions<
+    BackgroundActivityAutomationRunsResponse,
+    BackgroundActivityAutomationRunsError,
+    BackgroundActivityAutomationRunsResponse,
+    ReturnType<typeof backgroundActivityAutomationRunsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await backgroundActivityAutomationRuns({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: backgroundActivityAutomationRunsQueryKey(options)
+  })
+
+export const backgroundActivityAutomationRunsInfiniteQueryKey = (
+  options: Options<BackgroundActivityAutomationRunsData>
+): QueryKey<Options<BackgroundActivityAutomationRunsData>> =>
+  createQueryKey('backgroundActivityAutomationRuns', options, true)
+
+/**
+ * background_activity_automation_runs operation on background_activities_operation resource
+ */
+export const backgroundActivityAutomationRunsInfiniteOptions = (
+  options: Options<BackgroundActivityAutomationRunsData>
+) => {
+  const opts = infiniteQueryOptions<
+    BackgroundActivityAutomationRunsResponse,
+    BackgroundActivityAutomationRunsError,
+    InfiniteData<BackgroundActivityAutomationRunsResponse>,
+    QueryKey<Options<BackgroundActivityAutomationRunsData>>,
+    string | Pick<QueryKey<Options<BackgroundActivityAutomationRunsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<
+          QueryKey<Options<BackgroundActivityAutomationRunsData>>[0],
+          'body' | 'headers' | 'path' | 'query'
+        > =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  cursor: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await backgroundActivityAutomationRuns({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: backgroundActivityAutomationRunsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
 
 export const listCheckbacksQueryKey = (options?: Options<ListCheckbacksData>) =>
   createQueryKey('listCheckbacks', options)
@@ -1898,6 +2302,29 @@ export const resumeCronScheduleMutation = (
   return mutationOptions
 }
 
+/**
+ * put_signal_binding operation on signals_operation resource
+ */
+export const putSignalBindingMutation = (
+  options?: Partial<Options<PutSignalBindingData>>
+): UseMutationOptions<PutSignalBindingResponse, PutSignalBindingError, Options<PutSignalBindingData>> => {
+  const mutationOptions: UseMutationOptions<
+    PutSignalBindingResponse,
+    PutSignalBindingError,
+    Options<PutSignalBindingData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await putSignalBinding({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const listGrantsOfPrincipalQueryKey = (options: Options<ListGrantsOfPrincipalData>) =>
   createQueryKey('listGrantsOfPrincipal', options)
 
@@ -2115,6 +2542,31 @@ export const rejectBrainSuggestionMutation = (
   return mutationOptions
 }
 
+export const getConsoleReadinessQueryKey = (options?: Options<GetConsoleReadinessData>) =>
+  createQueryKey('getConsoleReadiness', options)
+
+/**
+ * get_console_readiness operation on console_readiness_operation resource
+ */
+export const getConsoleReadinessOptions = (options?: Options<GetConsoleReadinessData>) =>
+  queryOptions<
+    GetConsoleReadinessResponse,
+    GetConsoleReadinessError,
+    GetConsoleReadinessResponse,
+    ReturnType<typeof getConsoleReadinessQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getConsoleReadiness({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getConsoleReadinessQueryKey(options)
+  })
+
 export const listBrainObjectsQueryKey = (options?: Options<ListBrainObjectsData>) =>
   createQueryKey('listBrainObjects', options)
 
@@ -2277,6 +2729,31 @@ export const archiveBrainSourceMutation = (
   }
   return mutationOptions
 }
+
+export const listAgentSessionsQueryKey = (options: Options<ListAgentSessionsData>) =>
+  createQueryKey('listAgentSessions', options)
+
+/**
+ * list_agent_sessions operation on sessions_operation resource
+ */
+export const listAgentSessionsOptions = (options: Options<ListAgentSessionsData>) =>
+  queryOptions<
+    ListAgentSessionsResponse,
+    ListAgentSessionsError,
+    ListAgentSessionsResponse,
+    ReturnType<typeof listAgentSessionsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAgentSessions({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listAgentSessionsQueryKey(options)
+  })
 
 export const listAgentWorkersQueryKey = (options?: Options<ListAgentWorkersData>) =>
   createQueryKey('listAgentWorkers', options)
@@ -2501,6 +2978,29 @@ export const updateOidcClientMutation = (
 }
 
 /**
+ * move_agent_files operation on files_operation resource
+ */
+export const moveAgentFilesMutation = (
+  options?: Partial<Options<MoveAgentFilesData>>
+): UseMutationOptions<MoveAgentFilesResponse, MoveAgentFilesError, Options<MoveAgentFilesData>> => {
+  const mutationOptions: UseMutationOptions<
+    MoveAgentFilesResponse,
+    MoveAgentFilesError,
+    Options<MoveAgentFilesData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await moveAgentFiles({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * update_brain_source operation on brain_source resource
  */
 export const updateBrainSourceMutation = (
@@ -2522,6 +3022,31 @@ export const updateBrainSourceMutation = (
   }
   return mutationOptions
 }
+
+export const backgroundActivityWorkflowQueryKey = (options: Options<BackgroundActivityWorkflowData>) =>
+  createQueryKey('backgroundActivityWorkflow', options)
+
+/**
+ * background_activity_workflow operation on background_activities_operation resource
+ */
+export const backgroundActivityWorkflowOptions = (options: Options<BackgroundActivityWorkflowData>) =>
+  queryOptions<
+    BackgroundActivityWorkflowResponse,
+    BackgroundActivityWorkflowError,
+    BackgroundActivityWorkflowResponse,
+    ReturnType<typeof backgroundActivityWorkflowQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await backgroundActivityWorkflow({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: backgroundActivityWorkflowQueryKey(options)
+  })
 
 /**
  * Binds a pending request to a Human and removes the request.
@@ -2769,6 +3294,31 @@ export const listWorkerEnvsOptions = (options?: Options<ListWorkerEnvsData>) =>
       return data
     },
     queryKey: listWorkerEnvsQueryKey(options)
+  })
+
+export const listSignalAdaptersQueryKey = (options?: Options<ListSignalAdaptersData>) =>
+  createQueryKey('listSignalAdapters', options)
+
+/**
+ * list_signal_adapters operation on signals_operation resource
+ */
+export const listSignalAdaptersOptions = (options?: Options<ListSignalAdaptersData>) =>
+  queryOptions<
+    ListSignalAdaptersResponse,
+    ListSignalAdaptersError,
+    ListSignalAdaptersResponse,
+    ReturnType<typeof listSignalAdaptersQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listSignalAdapters({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listSignalAdaptersQueryKey(options)
   })
 
 /**
@@ -3107,6 +3657,58 @@ export const listBrainMergeSuggestionsOptions = (options?: Options<ListBrainMerg
     queryKey: listBrainMergeSuggestionsQueryKey(options)
   })
 
+export const getConversationStandingOrdersQueryKey = (options: Options<GetConversationStandingOrdersData>) =>
+  createQueryKey('getConversationStandingOrders', options)
+
+/**
+ * get_conversation_standing_orders operation on sessions_operation resource
+ */
+export const getConversationStandingOrdersOptions = (options: Options<GetConversationStandingOrdersData>) =>
+  queryOptions<
+    GetConversationStandingOrdersResponse,
+    GetConversationStandingOrdersError,
+    GetConversationStandingOrdersResponse,
+    ReturnType<typeof getConversationStandingOrdersQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getConversationStandingOrders({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getConversationStandingOrdersQueryKey(options)
+  })
+
+/**
+ * put_conversation_standing_orders operation on sessions_operation resource
+ */
+export const putConversationStandingOrdersMutation = (
+  options?: Partial<Options<PutConversationStandingOrdersData>>
+): UseMutationOptions<
+  PutConversationStandingOrdersResponse,
+  PutConversationStandingOrdersError,
+  Options<PutConversationStandingOrdersData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    PutConversationStandingOrdersResponse,
+    PutConversationStandingOrdersError,
+    Options<PutConversationStandingOrdersData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await putConversationStandingOrders({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 /**
  * approve_brain_suggestion operation on brain_schema_suggestion resource
  */
@@ -3187,6 +3789,54 @@ export const createIdentityMappingMutation = (
   }
   return mutationOptions
 }
+
+/**
+ * delete_agent_files operation on files_operation resource
+ */
+export const deleteAgentFilesMutation = (
+  options?: Partial<Options<DeleteAgentFilesData>>
+): UseMutationOptions<DeleteAgentFilesResponse, DeleteAgentFilesError, Options<DeleteAgentFilesData>> => {
+  const mutationOptions: UseMutationOptions<
+    DeleteAgentFilesResponse,
+    DeleteAgentFilesError,
+    Options<DeleteAgentFilesData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteAgentFiles({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listAgentFilesQueryKey = (options: Options<ListAgentFilesData>) =>
+  createQueryKey('listAgentFiles', options)
+
+/**
+ * list_agent_files operation on files_operation resource
+ */
+export const listAgentFilesOptions = (options: Options<ListAgentFilesData>) =>
+  queryOptions<
+    ListAgentFilesResponse,
+    ListAgentFilesError,
+    ListAgentFilesResponse,
+    ReturnType<typeof listAgentFilesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listAgentFiles({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listAgentFilesQueryKey(options)
+  })
 
 export const listAgentsQueryKey = (options?: Options<ListAgentsData>) => createQueryKey('listAgents', options)
 

@@ -1,7 +1,7 @@
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { setPath } from '../../common/config-fields'
-import type { SignalAdapterItem, SignalBindingItem, SignalBindingWriteRequest } from '../api/generated/types.gen'
+import type { SignalAdapterItem, SignalBindingItem, SignalBindingWriteRequest } from '../api/runtime-types'
 
 export type GroupMessageMode = NonNullable<SignalBindingWriteRequest['group_message_mode']>
 

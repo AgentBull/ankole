@@ -2,7 +2,6 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
   import Ankole.PrincipalsFixtures
-  import OpenApiSpex.TestAssertions
 
   alias Ankole.AppConfigure.{Cache, Registry}
   alias Ankole.Setup.Config, as: SetupConfig
@@ -23,11 +22,10 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
   test "operator creates a source endpoint, subscribes an Agent, and cancels the credential",
        %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    spec = AnkoleWeb.APISpec.spec()
     conn = console_conn(conn)
 
-    catalog = conn |> get(~p"/api/v1/signal-adapters") |> json_response(200)
-    assert_schema(catalog, "SignalAdapterListResponse", spec)
+    catalog = conn |> json_api(:get, "/api/v2/signal-adapters") |> json_response(200)
+
     source = Enum.find(catalog["signal_adapters"], &(&1["adapter_id"] == "cloudevents"))
     assert source["adapter_category"] == "event_source"
     assert is_nil(source["group_message_mode_field"])
@@ -60,7 +58,7 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
     saved =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/cloudevents/issues", %{
+      |> json_api(:put, "/api/v2/agents/#{agent.uid}/signal-bindings/cloudevents/issues", %{
         "config" => %{
           "webhook_endpoint_id" => id,
           "target_kind" => "session",
@@ -70,7 +68,6 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
       })
       |> json_response(200)
 
-    assert_schema(saved, "SignalBindingResponse", spec)
     assert saved["signal_binding"]["target"] == %{"session_id" => "issue-triage"}
     assert Repo.get_by!(Binding, agent_uid: agent.uid, name: "issues").adapter == "cloudevents"
 
@@ -116,7 +113,7 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
     saved =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/cloudevents/issues", %{
+      |> json_api(:put, "/api/v2/agents/#{agent.uid}/signal-bindings/cloudevents/issues", %{
         "config" => %{
           "webhook_endpoint_id" => created["webhook_endpoint"]["id"],
           "target_kind" => "session",

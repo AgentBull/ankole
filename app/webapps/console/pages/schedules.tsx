@@ -35,10 +35,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { linkTarget, useSearchParams } from '../../common/router'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
-import {
-  ankoleWebAgentSessionControllerIndexOptions,
-  ankoleWebSignalBindingControllerIndexOptions
-} from '../api/generated/@tanstack/react-query.gen'
+import { listAgentSessionsOptions, listSignalBindingsOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import { agentListOptions } from '../api/agents'
 import { fromDocument } from '../api/json-api'
 import {
@@ -455,7 +452,7 @@ export function ScheduleCronEditorPage() {
   }
 
   const bindings = useQuery({
-    ...ankoleWebSignalBindingControllerIndexOptions({ query: { agent: agentUID } }),
+    ...listSignalBindingsOptions({ query: { agent: agentUID } }),
     enabled: Boolean(agentUID)
   })
   const bindingList = bindings.data?.signal_bindings ?? []
@@ -463,7 +460,7 @@ export function ScheduleCronEditorPage() {
   // Session ids are opaque caller-chosen strings, so a new schedule needs one
   // typed in. The enumerated list is a convenience, not the full set.
   const sessions = useQuery({
-    ...ankoleWebAgentSessionControllerIndexOptions({ path: { agent_uid: agentUID } }),
+    ...listAgentSessionsOptions({ path: { agent_uid: agentUID } }),
     enabled: !editing && Boolean(agentUID)
   })
   const sessionList = sessions.data?.sessions ?? []

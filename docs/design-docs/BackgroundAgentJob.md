@@ -29,9 +29,9 @@ of another list or of an earlier format is rejected. The
 `list_background_jobs` tool reads the `list_for_agent` action the same way.
 
 The Job detail shows the runtime Turn trajectory in bounded pages. The
-trajectory is a read model of the Turns and their items, not a resource, so it
-stays a hand-written Console endpoint
-(`GET /api/v1/background-agent-jobs/:job_id/turns`). The first page holds the
+trajectory is a typed read model of the Turns and their items. The Job Ash
+domain exposes it through JSON:API
+(`GET /api/v2/background-agent-jobs/:job_id/turns`). The first page holds the
 newest Turns. Each page contains at most 20 semantic item groups within 24 KiB,
 and the pager walks back into the older history. A Turn that recorded no
 readable item still appears on its page with its status and error.
@@ -1253,7 +1253,14 @@ inspection surface for those facts. An absent error summary stays unknown.
 The Background Job health metrics describe this domain only. The
 activity area separately displays [Workflow](Workflow.md#console-activity-inspection)
 and [Automation runs](AutomationJobs.md#live-activity-in-console-home), with their
-own permissions, observation times and page cursors. It does not total parent
+own permissions, observation times and page cursors. The three JSON:API reads
+are under `/api/v2/agents/:agent_uid/background-activities`: `background-jobs`,
+`workflow`, and `automation-runs`. The aggregation action calls each owning
+domain query in the active tenant. Job health uses
+`GET /api/v2/background-agent-jobs/health`. Console readiness uses
+`GET /api/v2/console-readiness` and reports the existing runtime prerequisites.
+These transport reads keep the domain's admission and observation rules.
+The area does not total parent
 Workflow rows, child calls and delegated Jobs as execution slots, and it does not
 cover all conversation Turns, Worker processes or resource utilization.
 

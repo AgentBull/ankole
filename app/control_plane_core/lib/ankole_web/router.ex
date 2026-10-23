@@ -298,28 +298,8 @@ defmodule AnkoleWeb.Router do
         AgentLibraryController,
         :update
 
-    get "/console-readiness", ConsoleReadinessController, :show
-
-    get "/agents/:agent_uid/background-activities/background-jobs",
-        BackgroundActivityController,
-        :jobs
-
-    get "/agents/:agent_uid/background-activities/workflow",
-        BackgroundActivityController,
-        :workflow
-
-    get "/agents/:agent_uid/background-activities/automation-runs",
-        BackgroundActivityController,
-        :automation_runs
-
-    get "/background-agent-jobs/health", BackgroundAgentJobController, :health
-    get "/background-agent-jobs/:job_id/turns", BackgroundAgentJobController, :turns
-
-    get "/agents/:agent_uid/files", AgentFileController, :index
     get "/agents/:agent_uid/files/content", AgentFileController, :download
     post "/agents/:agent_uid/files", AgentFileController, :upload
-    post "/agents/:agent_uid/file-moves", AgentFileController, :move
-    delete "/agents/:agent_uid/files", AgentFileController, :delete
 
     get "/agents/:agent_uid/model-profiles", AgentController, :index_model_profiles
 
@@ -349,36 +329,6 @@ defmodule AnkoleWeb.Router do
     put "/agents/:agent_uid/token-quota", AgentController, :put_token_quota
     delete "/agents/:agent_uid/token-quota", AgentController, :delete_token_quota
     post "/agents/:agent_uid/token-quota/reset", AgentController, :reset_token_quota
-
-    get "/signal-adapters", SignalBindingController, :adapters
-
-    get "/signal-bindings", SignalBindingController, :index
-
-    get "/agents/:agent_uid/signal-bindings/:binding_name",
-        SignalBindingController,
-        :show
-
-    put "/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name",
-        SignalBindingController,
-        :put_binding
-
-    patch "/agents/:agent_uid/signal-bindings/:binding_name",
-          SignalBindingController,
-          :update_binding
-
-    post "/agents/:agent_uid/signal-deliveries/requeue",
-         SignalBindingController,
-         :requeue_delivery
-
-    get "/conversations/:conversation_id/standing-orders",
-        SignalBindingController,
-        :show_conversation_standing_orders
-
-    put "/conversations/:conversation_id/standing-orders",
-        SignalBindingController,
-        :put_conversation_standing_orders
-
-    get "/agents/:agent_uid/sessions", AgentSessionController, :index
   end
 
   # The JSON:API routers serve the routes that the Ash domains declare. The site

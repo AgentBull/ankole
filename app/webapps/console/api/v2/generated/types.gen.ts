@@ -198,6 +198,26 @@ export type BrainContradictionType = {
 }
 
 /**
+ * A "Resource object" representing a background_activities_operation
+ */
+export type BackgroundActivitiesOperation = {
+  /**
+   * An attributes object for a background_activities_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a background_activities_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a automation_job
  */
 export type AutomationJob = {
@@ -818,6 +838,26 @@ export type BrainContradiction = {
   id: string
   /**
    * A relationships object for a brain_contradiction
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a files_operation
+ */
+export type FilesOperation = {
+  /**
+   * An attributes object for a files_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a files_operation
    */
   relationships?: {
     [key: string]: never
@@ -1524,6 +1564,26 @@ export type BrainSourceType = {
   upstream_revision?: string | null
 }
 
+/**
+ * A "Resource object" representing a sessions_operation
+ */
+export type SessionsOperation = {
+  /**
+   * An attributes object for a sessions_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a sessions_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
 export type AgentSkillLessonType = {
   /**
    * Field included by default.
@@ -1615,6 +1675,26 @@ export type BrainObjectType = {
    * Field included by default.
    */
   updated_at: string
+}
+
+/**
+ * A "Resource object" representing a console_readiness_operation
+ */
+export type ConsoleReadinessOperation = {
+  /**
+   * An attributes object for a console_readiness_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a console_readiness_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
 }
 
 export type WebhookEndpointType = {
@@ -2691,6 +2771,26 @@ export type ScheduledEvent = {
   type: string
 }
 
+/**
+ * A "Resource object" representing a signals_operation
+ */
+export type SignalsOperation = {
+  /**
+   * An attributes object for a signals_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a signals_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
 export type PrincipalGroupMembershipType = {
   /**
    * Field included by default.
@@ -2820,6 +2920,26 @@ export type OidcLogoutDeliveryType = {
    * Field included by default.
    */
   status: 'pending' | 'delivering' | 'failed' | 'delivered'
+}
+
+/**
+ * A "Resource object" representing a background_agent_jobs_operation
+ */
+export type BackgroundAgentJobsOperation = {
+  /**
+   * An attributes object for a background_agent_jobs_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a background_agent_jobs_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
 }
 
 export type BrainSchemaSuggestionType = {
@@ -3063,6 +3183,47 @@ export type GetAiGatewayConversationResponses = {
 export type GetAiGatewayConversationResponse =
   GetAiGatewayConversationResponses[keyof GetAiGatewayConversationResponses]
 
+export type GetBackgroundAgentJobHealthData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/background-agent-jobs/health'
+}
+
+export type GetBackgroundAgentJobHealthErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetBackgroundAgentJobHealthError =
+  GetBackgroundAgentJobHealthErrors[keyof GetBackgroundAgentJobHealthErrors]
+
+export type GetBackgroundAgentJobHealthResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agents_at_running_cap: number
+    claims_24h: number
+    dead_letter_notices_24h: number
+    execution_failures_24h: number
+    max_running_per_agent: number
+    oldest_queued_seconds?: number | null
+    queued_behind_running_cap: number
+    queued_count: number
+    running_count: number
+    succeeded_24h: number
+    successor_seeded_24h: number
+    wakeups_24h: number
+    window_seconds: number
+  }
+}
+
+export type GetBackgroundAgentJobHealthResponse =
+  GetBackgroundAgentJobHealthResponses[keyof GetBackgroundAgentJobHealthResponses]
+
 export type ListOidcLogoutDeliveriesData = {
   body?: never
   path: {
@@ -3114,6 +3275,155 @@ export type ListOidcLogoutDeliveriesResponses = {
 
 export type ListOidcLogoutDeliveriesResponse =
   ListOidcLogoutDeliveriesResponses[keyof ListOidcLogoutDeliveriesResponses]
+
+export type GetBackgroundAgentJobTurnsData = {
+  body?: never
+  path: {
+    job_id: number
+  }
+  query?: {
+    cursor?: string
+  }
+  url: '/api/v2/background-agent-jobs/{job_id}/turns'
+}
+
+export type GetBackgroundAgentJobTurnsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetBackgroundAgentJobTurnsError = GetBackgroundAgentJobTurnsErrors[keyof GetBackgroundAgentJobTurnsErrors]
+
+export type GetBackgroundAgentJobTurnsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    next_cursor?: string | null
+    turns: Array<{
+      attempt: number
+      completed_at?: string | null
+      error: {
+        [key: string]: unknown
+      }
+      id: string
+      inserted_at: string
+      kind: 'agent' | 'compaction'
+      progress: {
+        active_item?: {
+          id: string
+          name: string
+          namespace?: string | null
+        } | null
+        completed_items: number
+        files_changed: Array<string>
+        plan?: {
+          explanation?: string | null
+          steps: Array<{
+            status: 'pending' | 'in_progress' | 'completed'
+            step: string
+          }>
+        } | null
+        tool_calls: number
+        tool_execution_mechanisms?: Array<{
+          calls: number
+          execution_mechanism: 'local_dynamic' | 'provider_hosted'
+          name: string
+          namespace?: string | null
+        }> | null
+        tools_used: Array<{
+          calls: number
+          name: string
+          namespace?: string | null
+        }>
+      }
+      revision: number
+      runtime_thread_id: string
+      runtime_turn_id: string
+      started_at: string
+      status: 'in_progress' | 'completed' | 'failed' | 'interrupted'
+      trajectory: {
+        format: 'ankole_chatml'
+        messages: Array<
+          | {
+              content:
+                | string
+                | Array<{
+                    type: string
+                    [key: string]: unknown
+                  }>
+              id?: string
+              metadata?: {
+                [key: string]: unknown
+              }
+              role: 'user' | 'developer'
+              [key: string]: unknown
+            }
+          | {
+              content: string
+              id?: string
+              metadata?: {
+                [key: string]: unknown
+              }
+              role: 'assistant'
+              tool_calls?: Array<{
+                function: {
+                  arguments: string
+                  name: string
+                  namespace?: string
+                  [key: string]: unknown
+                }
+                id: string
+                type: 'function'
+                [key: string]: unknown
+              }>
+              [key: string]: unknown
+            }
+          | {
+              content: string
+              id?: string
+              metadata?: {
+                [key: string]: unknown
+              }
+              name: string
+              namespace?: string
+              role: 'tool'
+              tool_call_id: string
+              [key: string]: unknown
+            }
+        >
+        metadata?: {
+          content_truncated?: boolean | null
+          redacted?: boolean | null
+        } | null
+        version: number
+      }
+      updated_at: string
+      usage?: {
+        last_model_call: {
+          cached_input_tokens: number
+          input_tokens: number
+          output_tokens: number
+          reasoning_output_tokens: number
+          total_tokens: number
+        }
+        model_context_window?: number | null
+        thread_total: {
+          cached_input_tokens: number
+          input_tokens: number
+          output_tokens: number
+          reasoning_output_tokens: number
+          total_tokens: number
+        }
+      } | null
+    }>
+  }
+}
+
+export type GetBackgroundAgentJobTurnsResponse =
+  GetBackgroundAgentJobTurnsResponses[keyof GetBackgroundAgentJobTurnsResponses]
 
 export type ListBackgroundAgentJobsData = {
   body?: never
@@ -3825,6 +4135,43 @@ export type DecryptAgentWorkerEnvResponses = {
 
 export type DecryptAgentWorkerEnvResponse = DecryptAgentWorkerEnvResponses[keyof DecryptAgentWorkerEnvResponses]
 
+export type RequeueSignalDeliveryData = {
+  /**
+   * Request body for the requeue_signal_delivery operation on signals_operation resource
+   */
+  body: {
+    data: {
+      binding_name: string
+      outbound_key: string
+    }
+  }
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/signal-deliveries/requeue'
+}
+
+export type RequeueSignalDeliveryErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RequeueSignalDeliveryError = RequeueSignalDeliveryErrors[keyof RequeueSignalDeliveryErrors]
+
+export type RequeueSignalDeliveryResponses = {
+  /**
+   * Success
+   */
+  201: {
+    requeued: boolean
+  }
+}
+
+export type RequeueSignalDeliveryResponse = RequeueSignalDeliveryResponses[keyof RequeueSignalDeliveryResponses]
+
 export type SupersedeBrainClaimData = {
   /**
    * Request body for the supersede_brain_claim operation on brain_claim resource
@@ -4133,6 +4480,54 @@ export type UpdatePrincipalGroupResponses = {
 }
 
 export type UpdatePrincipalGroupResponse = UpdatePrincipalGroupResponses[keyof UpdatePrincipalGroupResponses]
+
+export type BackgroundActivityJobsData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: {
+    cursor?: string
+    limit?: number
+  }
+  url: '/api/v2/agents/{agent_uid}/background-activities/background-jobs'
+}
+
+export type BackgroundActivityJobsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type BackgroundActivityJobsError = BackgroundActivityJobsErrors[keyof BackgroundActivityJobsErrors]
+
+export type BackgroundActivityJobsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    jobs: Array<{
+      agent_uid: string
+      attempts: number
+      error_code?: string | null
+      error_summary?: string | null
+      id: number
+      owner_session_id: string
+      queued_at?: string | null
+      resource_kind: 'background_job'
+      source_signal_id?: string | null
+      started_at?: string | null
+      status: 'queued' | 'running' | 'waiting_on_user'
+      title: string
+      updated_at?: string | null
+    }>
+    next_cursor?: string | null
+    observed_at: string
+  }
+}
+
+export type BackgroundActivityJobsResponse = BackgroundActivityJobsResponses[keyof BackgroundActivityJobsResponses]
 
 export type LearnBrainSourceData = {
   body?: never
@@ -4468,6 +4863,59 @@ export type ListBrainClaimsResponses = {
 
 export type ListBrainClaimsResponse = ListBrainClaimsResponses[keyof ListBrainClaimsResponses]
 
+export type ListSignalBindingsData = {
+  body?: never
+  path?: never
+  query?: {
+    agent?: string
+  }
+  url: '/api/v2/signal-bindings'
+}
+
+export type ListSignalBindingsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListSignalBindingsError = ListSignalBindingsErrors[keyof ListSignalBindingsErrors]
+
+export type ListSignalBindingsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    delivery_failures: Array<{
+      agent_uid: string
+      attempt_count: number
+      binding_name: string
+      can_retry: boolean
+      max_attempts: number
+      outbound_key: string
+      possible_duplicate: boolean
+      state: 'blocked' | 'permanent' | 'exhausted'
+      status: 'failed' | 'expired' | 'unknown'
+      updated_at: string
+    }>
+    signal_bindings: Array<{
+      adapter: string
+      agent_uid: string
+      config_key?: string | null
+      config_ref: string
+      enabled: boolean
+      filters?: unknown | null
+      name: string
+      target?: unknown | null
+      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+      unavailable_reason?: string | null
+      unmatched_sender_policy: 'manual_review' | 'create_standalone'
+    }>
+  }
+}
+
+export type ListSignalBindingsResponse = ListSignalBindingsResponses[keyof ListSignalBindingsResponses]
+
 export type GetAutomationJobData = {
   body?: never
   path: {
@@ -4656,6 +5104,106 @@ export type UpdateHumanResponses = {
 
 export type UpdateHumanResponse = UpdateHumanResponses[keyof UpdateHumanResponses]
 
+export type GetSignalBindingData = {
+  body?: never
+  path: {
+    binding_name: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/signal-bindings/{binding_name}'
+}
+
+export type GetSignalBindingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetSignalBindingError = GetSignalBindingErrors[keyof GetSignalBindingErrors]
+
+export type GetSignalBindingResponses = {
+  /**
+   * Success
+   */
+  200: {
+    config: unknown
+    signal_binding: {
+      adapter: string
+      agent_uid: string
+      config_key?: string | null
+      config_ref: string
+      enabled: boolean
+      filters?: unknown | null
+      name: string
+      target?: unknown | null
+      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+      unavailable_reason?: string | null
+      unmatched_sender_policy: 'manual_review' | 'create_standalone'
+    }
+    stored_secret_paths: Array<string>
+  }
+}
+
+export type GetSignalBindingResponse = GetSignalBindingResponses[keyof GetSignalBindingResponses]
+
+export type UpdateSignalBindingData = {
+  /**
+   * Request body for the update_signal_binding operation on signals_operation resource
+   */
+  body: {
+    data: {
+      config: {
+        [key: string]: unknown
+      }
+      filters?: unknown | null
+      group_message_mode?: string | null
+      target?: unknown | null
+      target_agent_uid: string
+      unmatched_sender_policy?: string | null
+    }
+  }
+  path: {
+    binding_name: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/signal-bindings/{binding_name}'
+}
+
+export type UpdateSignalBindingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateSignalBindingError = UpdateSignalBindingErrors[keyof UpdateSignalBindingErrors]
+
+export type UpdateSignalBindingResponses = {
+  /**
+   * Success
+   */
+  200: {
+    signal_binding: {
+      adapter: string
+      agent_uid: string
+      config_key?: string | null
+      config_ref: string
+      enabled: boolean
+      filters?: unknown | null
+      name: string
+      target?: unknown | null
+      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+      unavailable_reason?: string | null
+      unmatched_sender_policy: 'manual_review' | 'create_standalone'
+    }
+  }
+}
+
+export type UpdateSignalBindingResponse = UpdateSignalBindingResponses[keyof UpdateSignalBindingResponses]
+
 export type RestoreBrainObjectData = {
   /**
    * Request body for the restore_brain_object operation on brain_object resource
@@ -4797,6 +5345,58 @@ export type ListPrincipalGroupGrantsResponses = {
 
 export type ListPrincipalGroupGrantsResponse =
   ListPrincipalGroupGrantsResponses[keyof ListPrincipalGroupGrantsResponses]
+
+export type BackgroundActivityAutomationRunsData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: {
+    cursor?: string
+    limit?: number
+  }
+  url: '/api/v2/agents/{agent_uid}/background-activities/automation-runs'
+}
+
+export type BackgroundActivityAutomationRunsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type BackgroundActivityAutomationRunsError =
+  BackgroundActivityAutomationRunsErrors[keyof BackgroundActivityAutomationRunsErrors]
+
+export type BackgroundActivityAutomationRunsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    next_cursor?: string | null
+    observed_at: string
+    runs: Array<{
+      agent_uid: string
+      attempt_id?: string | null
+      attempts: number
+      automation_job_id: number
+      definition_status: 'active' | 'cancelled'
+      error?: string | null
+      id: number
+      inserted_at?: string | null
+      label?: string | null
+      owner_session_id: string
+      resource_kind: 'automation_run'
+      scheduled_event_id?: string | null
+      started_at?: string | null
+      status: 'queued' | 'running'
+      updated_at?: string | null
+    }>
+  }
+}
+
+export type BackgroundActivityAutomationRunsResponse =
+  BackgroundActivityAutomationRunsResponses[keyof BackgroundActivityAutomationRunsResponses]
 
 export type ListCheckbacksData = {
   body?: never
@@ -5094,6 +5694,62 @@ export type ResumeCronScheduleResponses = {
 }
 
 export type ResumeCronScheduleResponse = ResumeCronScheduleResponses[keyof ResumeCronScheduleResponses]
+
+export type PutSignalBindingData = {
+  /**
+   * Request body for the put_signal_binding operation on signals_operation resource
+   */
+  body: {
+    data: {
+      config: {
+        [key: string]: unknown
+      }
+      filters?: unknown | null
+      group_message_mode?: string | null
+      target?: unknown | null
+      unmatched_sender_policy?: string | null
+    }
+  }
+  path: {
+    binding_name: string
+    adapter_id: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}'
+}
+
+export type PutSignalBindingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutSignalBindingError = PutSignalBindingErrors[keyof PutSignalBindingErrors]
+
+export type PutSignalBindingResponses = {
+  /**
+   * Success
+   */
+  200: {
+    signal_binding: {
+      adapter: string
+      agent_uid: string
+      config_key?: string | null
+      config_ref: string
+      enabled: boolean
+      filters?: unknown | null
+      name: string
+      target?: unknown | null
+      unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+      unavailable_reason?: string | null
+      unmatched_sender_policy: 'manual_review' | 'create_standalone'
+    }
+  }
+}
+
+export type PutSignalBindingResponse = PutSignalBindingResponses[keyof PutSignalBindingResponses]
 
 export type ListGrantsOfPrincipalData = {
   body?: never
@@ -5504,6 +6160,56 @@ export type RejectBrainSuggestionResponses = {
 
 export type RejectBrainSuggestionResponse = RejectBrainSuggestionResponses[keyof RejectBrainSuggestionResponses]
 
+export type GetConsoleReadinessData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/console-readiness'
+}
+
+export type GetConsoleReadinessErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetConsoleReadinessError = GetConsoleReadinessErrors[keyof GetConsoleReadinessErrors]
+
+export type GetConsoleReadinessResponses = {
+  /**
+   * Success
+   */
+  200: {
+    agent: {
+      complete: boolean
+      display_name?: string | null
+      uid?: string | null
+    }
+    completed_core_steps: number
+    model_profiles: {
+      agent_uid?: string | null
+      complete: boolean
+      missing_profiles: Array<string>
+    }
+    provider: {
+      complete: boolean
+      provider_id?: string | null
+    }
+    ready: boolean
+    signal_route: {
+      complete: boolean
+    }
+    total_core_steps: number
+    worker: {
+      complete: boolean
+      ready_count: number
+    }
+  }
+}
+
+export type GetConsoleReadinessResponse = GetConsoleReadinessResponses[keyof GetConsoleReadinessResponses]
+
 export type ListBrainObjectsData = {
   body?: never
   path?: never
@@ -5763,6 +6469,41 @@ export type ArchiveBrainSourceResponses = {
 }
 
 export type ArchiveBrainSourceResponse = ArchiveBrainSourceResponses[keyof ArchiveBrainSourceResponses]
+
+export type ListAgentSessionsData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/sessions'
+}
+
+export type ListAgentSessionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAgentSessionsError = ListAgentSessionsErrors[keyof ListAgentSessionsErrors]
+
+export type ListAgentSessionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    sessions: Array<{
+      kind: 'job' | 'session'
+      last_activity_at?: string | null
+      session_id: string
+      status?: string | null
+      title?: string | null
+    }>
+  }
+}
+
+export type ListAgentSessionsResponse = ListAgentSessionsResponses[keyof ListAgentSessionsResponses]
 
 export type ListAgentWorkersData = {
   body?: never
@@ -6137,6 +6878,43 @@ export type UpdateOidcClientResponses = {
 
 export type UpdateOidcClientResponse = UpdateOidcClientResponses[keyof UpdateOidcClientResponses]
 
+export type MoveAgentFilesData = {
+  /**
+   * Request body for the move_agent_files operation on files_operation resource
+   */
+  body: {
+    data: {
+      from_path: string
+      to_path: string
+    }
+  }
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/file-moves'
+}
+
+export type MoveAgentFilesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type MoveAgentFilesError = MoveAgentFilesErrors[keyof MoveAgentFilesErrors]
+
+export type MoveAgentFilesResponses = {
+  /**
+   * Success
+   */
+  201: {
+    moved_files: number
+  }
+}
+
+export type MoveAgentFilesResponse = MoveAgentFilesResponses[keyof MoveAgentFilesResponses]
+
 export type UpdateBrainSourceData = {
   /**
    * Request body for the update_brain_source operation on brain_source resource
@@ -6170,6 +6948,96 @@ export type UpdateBrainSourceResponses = {
 }
 
 export type UpdateBrainSourceResponse = UpdateBrainSourceResponses[keyof UpdateBrainSourceResponses]
+
+export type BackgroundActivityWorkflowData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: {
+    calls_cursor?: string
+    limit?: number
+    runs_cursor?: string
+  }
+  url: '/api/v2/agents/{agent_uid}/background-activities/workflow'
+}
+
+export type BackgroundActivityWorkflowErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type BackgroundActivityWorkflowError = BackgroundActivityWorkflowErrors[keyof BackgroundActivityWorkflowErrors]
+
+export type BackgroundActivityWorkflowResponses = {
+  /**
+   * Success
+   */
+  200: {
+    calls_next_cursor?: string | null
+    live_calls: Array<{
+      agent_uid: string
+      attempts: number
+      attention: boolean
+      error_code?: string | null
+      error_summary?: string | null
+      id: number
+      label?: string | null
+      owner_session_id: string
+      resource_kind: 'workflow_call'
+      run_counts: {
+        cancelled: number
+        failed: number
+        queued: number
+        running: number
+        sleeping: number
+        succeeded: number
+        total: number
+      }
+      run_error_code?: string | null
+      run_error_summary?: string | null
+      run_id: number
+      run_status: string
+      run_title: string
+      sleep_note?: string | null
+      status: 'queued' | 'running' | 'sleeping'
+      task_session_id: string
+      updated_at?: string | null
+      wake_at?: string | null
+      wake_kind?: 'sleep' | 'agent_capacity' | 'null' | null
+    }>
+    observed_at: string
+    runs: Array<{
+      agent_uid: string
+      cleanup_pending: boolean
+      completed_at?: string | null
+      counts: {
+        cancelled: number
+        failed: number
+        queued: number
+        running: number
+        sleeping: number
+        succeeded: number
+        total: number
+      }
+      error_code?: string | null
+      error_summary?: string | null
+      id: number
+      inserted_at?: string | null
+      owner_session_id: string
+      resource_kind: 'workflow_run'
+      status: string
+      title: string
+      updated_at?: string | null
+    }>
+    runs_next_cursor?: string | null
+  }
+}
+
+export type BackgroundActivityWorkflowResponse =
+  BackgroundActivityWorkflowResponses[keyof BackgroundActivityWorkflowResponses]
 
 export type BindIdentityMappingRequestData = {
   /**
@@ -6569,6 +7437,47 @@ export type ListWorkerEnvsResponses = {
 }
 
 export type ListWorkerEnvsResponse = ListWorkerEnvsResponses[keyof ListWorkerEnvsResponses]
+
+export type ListSignalAdaptersData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/signal-adapters'
+}
+
+export type ListSignalAdaptersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListSignalAdaptersError = ListSignalAdaptersErrors[keyof ListSignalAdaptersErrors]
+
+export type ListSignalAdaptersResponses = {
+  /**
+   * Success
+   */
+  200: {
+    signal_adapters: Array<{
+      adapter_category: 'enterprise_im' | 'consumer_im' | 'email' | 'event_source'
+      adapter_id: string
+      display_name?: unknown | null
+      fields: Array<{
+        [key: string]: unknown
+      }>
+      group_message_mode_field?: {
+        [key: string]: unknown
+      } | null
+      plugin_id?: string | null
+      unmatched_sender_policy_field?: {
+        [key: string]: unknown
+      } | null
+    }>
+  }
+}
+
+export type ListSignalAdaptersResponse = ListSignalAdaptersResponses[keyof ListSignalAdaptersResponses]
 
 export type DeleteAgentData = {
   body?: never
@@ -7091,6 +8000,87 @@ export type ListBrainMergeSuggestionsResponses = {
 export type ListBrainMergeSuggestionsResponse =
   ListBrainMergeSuggestionsResponses[keyof ListBrainMergeSuggestionsResponses]
 
+export type GetConversationStandingOrdersData = {
+  body?: never
+  path: {
+    conversation_id: string
+  }
+  query?: never
+  url: '/api/v2/conversations/{conversation_id}/standing-orders'
+}
+
+export type GetConversationStandingOrdersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetConversationStandingOrdersError =
+  GetConversationStandingOrdersErrors[keyof GetConversationStandingOrdersErrors]
+
+export type GetConversationStandingOrdersResponses = {
+  /**
+   * Success
+   */
+  200: {
+    standing_orders: {
+      conversation_id: string
+      orders?: string | null
+      set_by?: string | null
+      title?: string | null
+      updated_at?: string | null
+    }
+  }
+}
+
+export type GetConversationStandingOrdersResponse =
+  GetConversationStandingOrdersResponses[keyof GetConversationStandingOrdersResponses]
+
+export type PutConversationStandingOrdersData = {
+  /**
+   * Request body for the put_conversation_standing_orders operation on sessions_operation resource
+   */
+  body?: {
+    data: {
+      orders?: string | null
+    }
+  }
+  path: {
+    conversation_id: string
+  }
+  query?: never
+  url: '/api/v2/conversations/{conversation_id}/standing-orders'
+}
+
+export type PutConversationStandingOrdersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PutConversationStandingOrdersError =
+  PutConversationStandingOrdersErrors[keyof PutConversationStandingOrdersErrors]
+
+export type PutConversationStandingOrdersResponses = {
+  /**
+   * Success
+   */
+  200: {
+    standing_orders: {
+      conversation_id: string
+      orders?: string | null
+      set_by?: string | null
+      title?: string | null
+      updated_at?: string | null
+    }
+  }
+}
+
+export type PutConversationStandingOrdersResponse =
+  PutConversationStandingOrdersResponses[keyof PutConversationStandingOrdersResponses]
+
 export type ApproveBrainSuggestionData = {
   /**
    * Request body for the approve_brain_suggestion operation on brain_schema_suggestion resource
@@ -7191,6 +8181,84 @@ export type CreateIdentityMappingResponses = {
 }
 
 export type CreateIdentityMappingResponse = CreateIdentityMappingResponses[keyof CreateIdentityMappingResponses]
+
+export type DeleteAgentFilesData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query: {
+    path: string
+  }
+  url: '/api/v2/agents/{agent_uid}/files'
+}
+
+export type DeleteAgentFilesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteAgentFilesError = DeleteAgentFilesErrors[keyof DeleteAgentFilesErrors]
+
+export type DeleteAgentFilesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    deleted_files: number
+  }
+}
+
+export type DeleteAgentFilesResponse = DeleteAgentFilesResponses[keyof DeleteAgentFilesResponses]
+
+export type ListAgentFilesData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: {
+    path?: string
+  }
+  url: '/api/v2/agents/{agent_uid}/files'
+}
+
+export type ListAgentFilesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAgentFilesError = ListAgentFilesErrors[keyof ListAgentFilesErrors]
+
+export type ListAgentFilesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    file_listing: {
+      files: Array<{
+        content_type: string
+        conversation_id?: string | null
+        message_id?: string | null
+        path: string
+        size: number
+        source: 'inbound' | 'generated' | 'sent' | 'agent' | 'console' | 'pod'
+        updated_at: string
+      }>
+      folders: Array<{
+        name: string
+        path: string
+      }>
+      path: string
+      truncated: boolean
+    }
+  }
+}
+
+export type ListAgentFilesResponse = ListAgentFilesResponses[keyof ListAgentFilesResponses]
 
 export type ListAgentsData = {
   body?: never

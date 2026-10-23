@@ -28,6 +28,8 @@ defmodule Ankole.BackgroundAgentJobs do
   alias Ankole.Sessions.TurnErrorClassifier
 
   resources do
+    resource(Ankole.BackgroundAgentJobs.ConsoleOperations)
+
     resource Ankole.BackgroundAgentJobs.Schemas.Job do
       define(:list_jobs, action: :read)
       define(:record_lessons_applied_job, action: :record_lessons_applied)
@@ -44,6 +46,22 @@ defmodule Ankole.BackgroundAgentJobs do
     show_raised_errors?(false)
 
     routes do
+      route(
+        Ankole.BackgroundAgentJobs.ConsoleOperations,
+        :get,
+        "/background-agent-jobs/health",
+        :console_health,
+        name: "get_background_agent_job_health"
+      )
+
+      route(
+        Ankole.BackgroundAgentJobs.ConsoleOperations,
+        :get,
+        "/background-agent-jobs/:job_id/turns",
+        :console_turns,
+        name: "get_background_agent_job_turns"
+      )
+
       base_route "/background-agent-jobs", Ankole.BackgroundAgentJobs.Schemas.Job do
         # The list reads only the columns that the board shows.
         index(:console_list,
