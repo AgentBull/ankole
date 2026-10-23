@@ -354,6 +354,11 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   end
 
   # The older Signals of the session whose preview has a pending interaction.
+  # Queue sequences start at 1, so the first Signal of a Session has no older
+  # Signal.
+  defp older_reply_interaction_events(%Signal{queue_sequence: sequence}) when sequence <= 1,
+    do: []
+
   defp older_reply_interaction_events(%Signal{} = newer_event) do
     signal_ids =
       PreviewState
@@ -386,12 +391,16 @@ defmodule Ankole.Conversations.Delivery.Interactions do
       |> Ankole.Ash.read!()
       |> Enum.map(& &1.signal_id)
 
-    Ankole.Signals.lock_signals_in_tx(Ankole.Repo,
-      id: [in: signal_ids],
-      agent_uid: newer_event.agent_uid,
-      session_id: newer_event.session_id,
-      queue_sequence: [less_than: newer_event.queue_sequence]
-    )
+    if signal_ids == [] do
+      []
+    else
+      Ankole.Signals.lock_signals_in_tx(Ankole.Repo,
+        id: [in: signal_ids],
+        agent_uid: newer_event.agent_uid,
+        session_id: newer_event.session_id,
+        queue_sequence: [less_than: newer_event.queue_sequence]
+      )
+    end
   end
 
   defp supersede_events_in_tx(events, repo, newer_event, now) do

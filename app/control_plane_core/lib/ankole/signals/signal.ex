@@ -291,6 +291,17 @@ defmodule Ankole.Signals.Signal do
       end)
     end
 
+    action :intake_all, :term do
+      argument(:attrs_list, {:array, :map}, allow_nil?: false)
+      after_commit({Ankole.Signals, :publish_committed})
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.Signals.Intake.accept_all(input.arguments.attrs_list)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
     update :revoke_unstarted do
       require_atomic?(true)
       require_attributes([:dead_letter_at, :dead_letter_reason])
