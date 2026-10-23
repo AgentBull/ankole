@@ -124,8 +124,8 @@ function BrainObjectEditor({ slug }: { slug: string }) {
           // content hash and the normalized tags from the page.
           onSuccess: async response => {
             const saved = await detail.refetch()
-            if (!active.current) return
-            if (saved.data?.object) model.markSaved(saved.data.object)
+            if (!active.current || !saved.isSuccess || !saved.data?.object) return
+            model.markSaved(saved.data.object)
             setLatest(undefined)
             toast.success(t('console.brain.object_saved', { slug: response.slug }))
           }
@@ -136,7 +136,7 @@ function BrainObjectEditor({ slug }: { slug: string }) {
 
   const loadLatest = async () => {
     const result = await detail.refetch()
-    if (active.current && result.data?.object) {
+    if (active.current && result.isSuccess && result.data?.object) {
       setLatest(result.data.object)
       model.useLatestContentHash(result.data.object.content_hash)
     }
@@ -168,7 +168,7 @@ function BrainObjectEditor({ slug }: { slug: string }) {
   const validationError = model.validationError.value
     ? draftErrorText(model.validationError.value, t)
     : writeErrorText(writeError, t)
-  const editorError = validationError || diagnostic || conflict ? undefined : writeError
+  const editorError = validationError || diagnostic || conflict ? undefined : writeError || detail.error
   const title = mode === 'new' ? t('console.brain.object_create_title') : t('console.brain.object_edit_title')
   const description = readOnly
     ? editBlockText(page?.edit_block_reason, t)

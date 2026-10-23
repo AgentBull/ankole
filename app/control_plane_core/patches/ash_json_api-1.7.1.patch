@@ -1,9 +1,6 @@
 --- a/lib/ash_json_api/json_schema/open_api.ex
 +++ b/lib/ash_json_api/json_schema/open_api.ex
-@@ -867,6 +867,13 @@
-        }, acc}
-     end
- 
+@@ -869,0 +870,7 @@
 +    defp resource_attribute_type(%{type: Ash.Type.UtcDatetimeUsec}, _resource, acc, _format) do
 +      {%Schema{
 +         type: :string,
@@ -11,6 +8,3 @@
 +       }, acc}
 +    end
 +
-     defp resource_attribute_type(%{type: Ash.Type.NaiveDatetime}, _resource, acc, _format) do
-       {%Schema{
-          type: :string,

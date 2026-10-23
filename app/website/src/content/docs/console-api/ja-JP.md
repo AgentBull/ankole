@@ -9,7 +9,7 @@ Console REST API は browser session cookie を使用します。`RequireSiteAdm
 
 表には各 route の完全なパスを示します。Console API には 2 つの version があります。
 
-- `/api/v2` の route は JSON:API（`application/vnd.api+json`）を使用します。一覧 route は `page[limit]` と `page[after]` による keyset pagination を使用します。フィールドのエラーは `400` を返します。レコードが存在しない場合は `404` と `not_found` を返します。現在の状態と競合する場合は `409`、その他の domain による拒否は `422` を返します。エラーの `code` は理由の名前です。
+- `/api/v2` の route は JSON:API（`application/vnd.api+json`）を使用します。ページ分割する一覧 route は `page[limit]` と `page[after]` による keyset pagination を使用します。フィールドのエラーは `400` を返します。レコードが存在しない場合は `404` と `not_found` を返します。現在の状態と競合する場合は `409`、その他の domain による拒否は `422` を返します。エラーの `code` は理由の名前です。
 - `/api/v1` の route は `application/json` を使用します。集約ビュー、secret、プロトコル操作、ファイル転送、stream を提供します。
 
 site 管理 route は `/api/v2/site` と `/api/v1/site` にあり、`:session_api` + `:site_admin` pipeline を使用します。tenant データ route は `/api/v2` と `/api/v1` にあり、 `:session_api` + `:site_admin` + `:data_context` pipeline と `PutDataContext` を使用します。tenant route では `x-ankole-tenant: <tenant UUID>` でデータの tenant を選択します。ヘッダを省略すると呼び出し元の tenant を使用します。無効、利用不可、または削除中の tenant は `404` と `data_tenant_unavailable` を返します。このヘッダは呼び出し元の identity や site 管理権限を変更せず、site route の scope も選択しません。

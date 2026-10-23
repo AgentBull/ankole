@@ -47,6 +47,7 @@ async function brain(page: Page) {
   const heldReads: Route[] = []
   const reads = new Map<string, number>()
   let holdSlug: string | undefined
+  let failReads = false
   // Object writes, the list, and the versions are JSON:API v2 routes; the
   // object page and the type list are v1 read models.
   await page.route('**/api/v2/brain/**', async route => {
@@ -72,6 +73,12 @@ async function brain(page: Page) {
     if (url.pathname.endsWith('/show')) {
       const slug = url.searchParams.get('slug')!
       reads.set(slug, (reads.get(slug) ?? 0) + 1)
+      if (failReads) {
+        return route.fulfill({
+          status: 500,
+          json: { error: { code: 'read_failed', message: 'Latest content unavailable' } }
+        })
+      }
       if (holdSlug === slug) {
         holdSlug = undefined
         heldReads.push(route)
@@ -85,6 +92,9 @@ async function brain(page: Page) {
     writes,
     heldReads,
     reads,
+    failReads: () => {
+      failReads = true
+    },
     holdNextRead: (slug: string) => {
       holdSlug = slug
     },
@@ -219,6 +229,24 @@ test('a save on the current editor acknowledges the draft and uses its new hash'
     expected_content_hash: 'saved-0'
   })
   await server.complete(1)
+})
+
+test('a saved write with a failed refresh keeps the draft and shows the read error', async ({ page }) => {
+  const server = await brain(page)
+  await page.goto('/brain/objects/A/edit')
+  await title(page).fill('Keep this title')
+  await source(page).fill('Keep this body')
+  await save(page).click()
+  await expect.poll(() => server.writes.length).toBe(1)
+  server.failReads()
+  await server.complete(0)
+  await settled(page, 'success')
+  await expect(page.getByText('Latest content unavailable', { exact: true })).toBeVisible({ timeout: 15_000 })
+  await expect(title(page)).toHaveValue('Keep this title')
+  await expect(source(page)).toHaveValue('Keep this body')
+  await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible()
+  await expect(page.locator('[data-sonner-toast]')).toHaveCount(0)
+  await expect(save(page)).toBeEnabled()
 })
 
 test('a current create still navigates to its saved object', async ({ page }) => {

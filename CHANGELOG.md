@@ -8,17 +8,18 @@
   cannot be read, instead of replacing it. To recover, remove the value with
   `Ankole.AppConfigure.delete_global_by_key("plugins.enabled_ids")` in a release
   remote console, then select the Plugins again.
-- Commit the task dispatch and the terminal stop requests of a Workflow run in
-  batches. A run with hundreds of Agent calls does not risk a database timeout.
-- Move the Console and site administration API to JSON:API
+- Reduce database timeouts when a Workflow run dispatches or stops hundreds of
+  Agent calls.
+- Move the Console and site administration resource endpoints listed below to
+  JSON:API
   (`application/vnd.api+json`): site resources are at `/api/v2/site`, and
   tenant Console resources are at `/api/v2`. The `/api/v1` routes of the moved
   resources are removed; change each external caller of these routes. Send
   request bodies with `Content-Type: application/vnd.api+json`. A field error
   returns 400. A missing record returns 404 `not_found`. A conflict with the
   current state returns 409, and another domain rejection returns 422; the
-  error `code` is the name of the reason. Lists use keyset pagination with
-  `page[limit]` and `page[after]`.
+  error `code` is the name of the reason. Paginated lists use keyset pagination
+  with `page[limit]` and `page[after]`.
 - Site API v2: tenants, the privileged tenant, Worker providers, and AIGateway
   providers. Suspend a tenant with `POST /api/v2/site/tenants/:id/suspension`,
   transfer site administration with `PATCH /api/v2/site/privileged-tenant`, and

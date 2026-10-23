@@ -142,7 +142,10 @@ JSON:API v2（`Ankole.Brain` 的 `json_api` 路由，请求和响应使用
 | `PATCH /api/v2/brain/objects` | 更新租户自有 Object（`:console_update`） | slug、可变字段、`expected_content_hash` |
 | `GET /api/v2/brain/object-versions?slug=...` | 版本历史 | author、body、meta、tags、snapshot_at |
 
-写入响应是 Object 摘要；编辑器保存后重新读取详情，取新的 content hash 和规范化标签。
+A write returns an Object summary. The editor reads the detail after a save to
+get the new content hash and normalized tags. If this read fails, the editor
+keeps the draft and shows the error. It updates the save baseline only from a
+successful read.
 
 创建和更新在 `brain:update` 权限下接受可选的 `tags` 数组。更新时省略该字段会保留当前标签；显式传入空数组会清空所有标签。编辑器为每个标签提供独立输入框，支持包含换行的标签。标签计入并发保存基线（compare-and-swap），更新前的标签集合随带作者归属的版本快照一同保存。版本回滚仅恢复 `body` 和 `meta`。
 

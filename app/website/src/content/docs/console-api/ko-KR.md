@@ -9,7 +9,7 @@ Console REST API는 browser session cookie를 사용합니다. `RequireSiteAdmin
 
 표에는 각 라우트의 전체 경로를 표시합니다. Console API에는 두 버전이 있습니다.
 
-- `/api/v2` 라우트는 JSON:API(`application/vnd.api+json`)를 사용합니다. 목록 라우트는 `page[limit]`와 `page[after]`로 keyset 페이지네이션을 사용합니다. 필드 오류는 `400`을 반환합니다. 레코드가 없으면 `404`와 `not_found`를 반환합니다. 현재 상태와 충돌하면 `409`, 그 밖의 도메인 거부는 `422`를 반환합니다. 오류 `code`는 사유의 이름입니다.
+- `/api/v2` 라우트는 JSON:API(`application/vnd.api+json`)를 사용합니다. 페이지를 나누는 목록 라우트는 `page[limit]`와 `page[after]`로 keyset 페이지네이션을 사용합니다. 필드 오류는 `400`을 반환합니다. 레코드가 없으면 `404`와 `not_found`를 반환합니다. 현재 상태와 충돌하면 `409`, 그 밖의 도메인 거부는 `422`를 반환합니다. 오류 `code`는 사유의 이름입니다.
 - `/api/v1` 라우트는 `application/json`을 사용합니다. 집계 보기, 비밀 값, 프로토콜 작업, 파일 전송, 스트림을 제공합니다.
 
 사이트 관리 라우트는 `/api/v2/site`와 `/api/v1/site` 아래에서 `:session_api` + `:site_admin` 파이프라인을 사용합니다. 테넌트 데이터 라우트는 `/api/v2`와 `/api/v1` 아래에서 `:session_api` + `:site_admin` + `:data_context` 파이프라인과 `PutDataContext`를 사용합니다. 테넌트 라우트에서는 `x-ankole-tenant: <테넌트 UUID>`로 데이터 테넌트를 선택합니다. 헤더가 없으면 호출자의 테넌트를 사용합니다. 유효하지 않거나 사용할 수 없거나 삭제 중인 테넌트는 `404`와 `data_tenant_unavailable`을 반환합니다. 이 헤더는 호출자의 신원이나 사이트 관리 권한을 바꾸지 않으며 사이트 라우트의 범위도 선택하지 않습니다.

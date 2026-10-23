@@ -821,9 +821,9 @@ and data context pipelines in `AnkoleWeb.Router`.
   exposes a read, create, update, or destroy action of a resource, or a generic
   action of a domain.
 - `/api/v1` and `/api/v1/site` are hand-written Phoenix controllers with
-  OpenApiSpex `operation` declarations. Keep an endpoint in v1 when no resource
-  action gives its response: an aggregate or read-model view, a plaintext
-  secret or credential, a protocol or OAuth flow, a file transfer, or a stream.
+  OpenApiSpex `operation` declarations. These routes include configuration
+  registries, aggregate views, secrets and credentials, protocol and OAuth
+  flows, file transfers, and streams.
 
 Each v2 route has these properties:
 

@@ -9,7 +9,7 @@ Console REST API 使用浏览器会话 cookie。`RequireSiteAdminSession` 每次
 
 表中给出每条路由的完整路径。Console API 有两个版本：
 
-- `/api/v2` 路由使用 JSON:API（`application/vnd.api+json`）。列表路由用 `page[limit]` 与 `page[after]` 做 keyset 分页。字段错误返回 `400`；记录不存在返回 `404`，错误为 `not_found`；与当前状态冲突返回 `409`，其他领域拒绝返回 `422`。错误 `code` 是理由名。
+- `/api/v2` 路由使用 JSON:API（`application/vnd.api+json`）。分页列表用 `page[limit]` 与 `page[after]` 做 keyset 分页。字段错误返回 `400`；记录不存在返回 `404`，错误为 `not_found`；与当前状态冲突返回 `409`，其他领域拒绝返回 `422`。错误 `code` 是理由名。
 - `/api/v1` 路由使用 `application/json`，提供聚合视图、密文、协议操作、文件传输和流。
 
 站点管理路由位于 `/api/v2/site` 与 `/api/v1/site`，使用 `:session_api` + `:site_admin` 管线。租户数据路由位于 `/api/v2` 与 `/api/v1`，使用 `:session_api` + `:site_admin` + `:data_context` 管线和 `PutDataContext`。调用租户路由时，`x-ankole-tenant: <租户 UUID>` 指定数据租户；不传该请求头时使用调用方所属租户。无效、不可用或正在删除的租户返回 `404`，错误为 `data_tenant_unavailable`。请求头不会改变调用方身份或站点管理权限，也不为站点路由选择作用域。

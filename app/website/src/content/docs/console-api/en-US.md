@@ -9,7 +9,7 @@ The Console REST API uses the browser session cookie. `RequireSiteAdminSession` 
 
 The tables give the full path of each route. The Console API has two versions:
 
-- `/api/v2` routes use JSON:API (`application/vnd.api+json`). A list route uses keyset pagination with `page[limit]` and `page[after]`. A field error returns `400`. A missing record returns `404` with `not_found`. A conflict with the current state returns `409`, and another domain rejection returns `422`. The error `code` is the name of the reason.
+- `/api/v2` routes use JSON:API (`application/vnd.api+json`). A paginated list route uses keyset pagination with `page[limit]` and `page[after]`. A field error returns `400`. A missing record returns `404` with `not_found`. A conflict with the current state returns `409`, and another domain rejection returns `422`. The error `code` is the name of the reason.
 - `/api/v1` routes use `application/json`. They serve aggregate views, secrets, protocol operations, file transfer, and streams.
 
 Site administration routes are under `/api/v2/site` and `/api/v1/site` and use the `:session_api` + `:site_admin` pipeline. Tenant data routes are under `/api/v2` and `/api/v1` and use the `:session_api` + `:site_admin` + `:data_context` pipeline and `PutDataContext`. For tenant routes, `x-ankole-tenant: <tenant UUID>` selects the data tenant. Without this header, the caller's tenant is used. An invalid, unavailable, or deleting tenant returns `404` with `data_tenant_unavailable`. The header does not change the caller's identity or site administration permission, and does not select a scope for site routes.
