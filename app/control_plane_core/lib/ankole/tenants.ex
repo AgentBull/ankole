@@ -382,7 +382,10 @@ defmodule Ankole.Tenants do
   of the tenant or of the site administration.
   """
   def rejection(:not_found), do: Ankole.Errors.Invalid.NotFound.exception(resource: Tenant)
-  def rejection(reason) when is_atom(reason), do: {409, "The tenant operation was refused", []}
+
+  def rejection(reason) when is_atom(reason),
+    do: {:conflict, "The tenant operation was refused", []}
+
   def rejection(_reason), do: nil
 
   defp not_deleting(%Tenant{deleting_at: nil}), do: :ok

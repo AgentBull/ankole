@@ -4,6 +4,324 @@ export type ClientOptions = {
   baseUrl: `${string}://${string}` | (string & {})
 }
 
+/**
+ * A "Resource object" representing a automation_job
+ */
+export type AutomationJob = {
+  /**
+   * An attributes object for a automation_job
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    agent_uid: unknown
+    authorization_kind?: string | null
+    /**
+     * Field included by default.
+     */
+    cancelled_at?: string | null
+    /**
+     * Field included by default.
+     */
+    drive_prefix: string
+    human_access_version?: number | null
+    human_uid?: unknown | null
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    label: string
+    legacy_directory_path?: string | null
+    /**
+     * Field included by default.
+     */
+    owner_session_id: string
+    /**
+     * Field included by default.
+     */
+    provider_message_id?: string | null
+    /**
+     * Field included by default.
+     */
+    reply_route: unknown
+    /**
+     * Field included by default.
+     */
+    source_provenance: unknown
+    /**
+     * Field included by default.
+     */
+    source_signal_id?: string | null
+    /**
+     * Field included by default.
+     */
+    status: 'active' | 'cancelled'
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+    /**
+     * Field included by default.
+     */
+    wake_on_failure: boolean
+  }
+  id: string
+  /**
+   * A relationships object for a automation_job
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a automation_job_run
+ */
+export type AutomationJobRun = {
+  /**
+   * An attributes object for a automation_job_run
+   */
+  attributes?: {
+    attempt_id?: string | null
+    /**
+     * Field included by default.
+     */
+    attempts: number
+    /**
+     * Field included by default.
+     */
+    automation_job_id: number
+    /**
+     * Field included by default.
+     */
+    error?: string | null
+    event: unknown
+    /**
+     * Field included by default.
+     */
+    exit_code?: number | null
+    /**
+     * Field included by default.
+     */
+    finished_at?: string | null
+    /**
+     * Field included by default.
+     */
+    started_at?: string | null
+    /**
+     * Field included by default.
+     */
+    status: 'queued' | 'running' | 'failed' | 'succeeded' | 'cancelled'
+    /**
+     * Field included by default.
+     */
+    stderr?: string | null
+    /**
+     * Field included by default.
+     */
+    stderr_truncated: boolean
+    /**
+     * Field included by default.
+     */
+    stdout?: string | null
+    /**
+     * Field included by default.
+     */
+    stdout_truncated: boolean
+    worker_wait_started_at?: string | null
+  }
+  id: string
+  /**
+   * A relationships object for a automation_job_run
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a cron_schedule
+ */
+export type CronSchedule = {
+  /**
+   * An attributes object for a cron_schedule
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    agent_uid: unknown
+    authorization_kind?: string | null
+    /**
+     * Field included by default.
+     */
+    automation_job_id?: number | null
+    /**
+     * Field included by default.
+     */
+    binding_name?: string | null
+    /**
+     * Field included by default.
+     */
+    created_by: unknown
+    /**
+     * Field included by default.
+     */
+    delivery?: unknown | null
+    /**
+     * Field included by default.
+     */
+    execution_session_id?: string | null
+    human_access_version?: number | null
+    human_uid?: unknown | null
+    /**
+     * Field included by default.
+     */
+    idempotency_key: string
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    last_fire_at?: string | null
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    next_fire_at?: string | null
+    /**
+     * Field included by default.
+     */
+    owner_session_id: string
+    /**
+     * Field included by default.
+     */
+    payload: unknown
+    /**
+     * Field included by default.
+     */
+    schedule: unknown
+    /**
+     * Field included by default.
+     */
+    status: 'active' | 'paused' | 'completed' | 'deleted'
+    /**
+     * Field included by default.
+     */
+    timezone: string
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a cron_schedule
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type CronScheduleType = {
+  /**
+   * Field included by default.
+   */
+  agent_uid: unknown
+  /**
+   * Field included by default.
+   */
+  authorization_kind?: string | null
+  /**
+   * Field included by default.
+   */
+  automation_job_id?: number | null
+  /**
+   * Field included by default.
+   */
+  binding_name?: string | null
+  /**
+   * Field included by default.
+   */
+  created_by: unknown
+  /**
+   * Field included by default.
+   */
+  delivery?: unknown | null
+  /**
+   * Field included by default.
+   */
+  execution_session_id?: string | null
+  /**
+   * Field included by default.
+   */
+  human_access_version?: number | null
+  /**
+   * Field included by default.
+   */
+  human_uid?: unknown | null
+  /**
+   * Field included by default.
+   */
+  id?: string | null
+  /**
+   * Field included by default.
+   */
+  idempotency_key: string
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  last_fire_at?: string | null
+  /**
+   * Field included by default.
+   */
+  name: string
+  /**
+   * Field included by default.
+   */
+  next_fire_at?: string | null
+  /**
+   * Field included by default.
+   */
+  owner_session_id: string
+  /**
+   * Field included by default.
+   */
+  payload: unknown
+  /**
+   * Field included by default.
+   */
+  schedule: unknown
+  /**
+   * Field included by default.
+   */
+  status: 'active' | 'paused' | 'completed' | 'deleted'
+  /**
+   * Field included by default.
+   */
+  timezone: string
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+}
+
 export type Error = {
   /**
    * An application-specific error code, expressed as a string value.
@@ -48,3 +366,1844 @@ export type Link = string
 export type Links = {
   [key: string]: Link
 }
+
+/**
+ * A "Resource object" representing a oidc_client
+ */
+export type OidcClient = {
+  /**
+   * An attributes object for a oidc_client
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    allow_insecure_local_logout: boolean
+    /**
+     * Field included by default.
+     */
+    allowed_group_ids?: Array<string> | null
+    /**
+     * Field included by default.
+     */
+    allowed_identity_provider_ids: Array<string>
+    /**
+     * Field included by default.
+     */
+    backchannel_logout_session_required: boolean
+    /**
+     * Field included by default.
+     */
+    backchannel_logout_uri?: string | null
+    /**
+     * Field included by default.
+     */
+    client_type: 'public' | 'confidential'
+    /**
+     * Field included by default.
+     */
+    enabled: boolean
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    model_aliases: unknown
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    post_logout_redirect_uris: Array<string>
+    /**
+     * Field included by default.
+     */
+    redirect_uris: Array<string>
+    /**
+     * Field included by default.
+     */
+    scopes: Array<string>
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a oidc_client
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type OidcClientType = {
+  /**
+   * Field included by default.
+   */
+  allow_insecure_local_logout: boolean
+  /**
+   * Field included by default.
+   */
+  allowed_group_ids?: Array<string> | null
+  /**
+   * Field included by default.
+   */
+  allowed_identity_provider_ids: Array<string>
+  /**
+   * Field included by default.
+   */
+  backchannel_logout_session_required: boolean
+  /**
+   * Field included by default.
+   */
+  backchannel_logout_uri?: string | null
+  /**
+   * Field included by default.
+   */
+  client_type: 'public' | 'confidential'
+  /**
+   * Field included by default.
+   */
+  enabled: boolean
+  /**
+   * Field included by default.
+   */
+  id?: string | null
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  model_aliases: unknown
+  /**
+   * Field included by default.
+   */
+  name: string
+  /**
+   * Field included by default.
+   */
+  post_logout_redirect_uris: Array<string>
+  /**
+   * Field included by default.
+   */
+  redirect_uris: Array<string>
+  /**
+   * Field included by default.
+   */
+  scopes: Array<string>
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+}
+
+/**
+ * A "Resource object" representing a oidc_logout_delivery
+ */
+export type OidcLogoutDelivery = {
+  /**
+   * An attributes object for a oidc_logout_delivery
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    attempt_count: number
+    /**
+     * Field included by default.
+     */
+    deadline: string
+    /**
+     * Field included by default.
+     */
+    delivered_at?: string | null
+    endpoint: string
+    /**
+     * Field included by default.
+     */
+    last_attempt_at?: string | null
+    /**
+     * Field included by default.
+     */
+    last_error?: string | null
+    /**
+     * Field included by default.
+     */
+    next_attempt_at?: string | null
+    /**
+     * Field included by default.
+     */
+    principal_uid?: string | null
+    /**
+     * Field included by default.
+     */
+    session_id: string
+    /**
+     * Field included by default.
+     */
+    status: 'pending' | 'delivering' | 'failed' | 'delivered'
+  }
+  id: string
+  /**
+   * A relationships object for a oidc_logout_delivery
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type OidcLogoutDeliveryType = {
+  /**
+   * Field included by default.
+   */
+  attempt_count: number
+  /**
+   * Field included by default.
+   */
+  deadline: string
+  /**
+   * Field included by default.
+   */
+  delivered_at?: string | null
+  /**
+   * Field included by default.
+   */
+  endpoint: string
+  /**
+   * Field included by default.
+   */
+  id?: string | null
+  /**
+   * Field included by default.
+   */
+  last_attempt_at?: string | null
+  /**
+   * Field included by default.
+   */
+  last_error?: string | null
+  /**
+   * Field included by default.
+   */
+  next_attempt_at?: string | null
+  /**
+   * Field included by default.
+   */
+  principal_uid?: string | null
+  /**
+   * Field included by default.
+   */
+  session_id: string
+  /**
+   * Field included by default.
+   */
+  status: 'pending' | 'delivering' | 'failed' | 'delivered'
+}
+
+/**
+ * A "Resource object" representing a scheduled_event
+ */
+export type ScheduledEvent = {
+  /**
+   * An attributes object for a scheduled_event
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    agent_uid: unknown
+    authorization_kind?: string | null
+    /**
+     * Field included by default.
+     */
+    automation_job_id?: number | null
+    /**
+     * Field included by default.
+     */
+    automation_job_run_id?: number | null
+    /**
+     * Field included by default.
+     */
+    binding_name?: string | null
+    /**
+     * Field included by default.
+     */
+    cancelled_at?: string | null
+    /**
+     * Field included by default.
+     */
+    conversation_id?: string | null
+    /**
+     * Field included by default.
+     */
+    cron_fire_slot_at?: string | null
+    /**
+     * Field included by default.
+     */
+    cron_schedule_id?: string | null
+    /**
+     * Field included by default.
+     */
+    due_at: string
+    /**
+     * Field included by default.
+     */
+    fired_at?: string | null
+    human_access_version?: number | null
+    human_uid?: unknown | null
+    /**
+     * Field included by default.
+     */
+    idempotency_key: string
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    kind: string
+    /**
+     * Field included by default.
+     */
+    last_fire_error: unknown
+    /**
+     * Field included by default.
+     */
+    origin_ai_message_id?: string | null
+    /**
+     * Field included by default.
+     */
+    provider_message_id?: string | null
+    /**
+     * Field included by default.
+     */
+    provider_thread_id?: string | null
+    /**
+     * Field included by default.
+     */
+    requested_at: string
+    /**
+     * Field included by default.
+     */
+    session_id: string
+    /**
+     * Field included by default.
+     */
+    signal_id?: string | null
+    /**
+     * Field included by default.
+     */
+    source_provenance: unknown
+    /**
+     * Field included by default.
+     */
+    source_signal_id?: string | null
+    /**
+     * Field included by default.
+     */
+    status: 'scheduled' | 'fired' | 'cancelled' | 'failed'
+    /**
+     * Field included by default.
+     */
+    timezone: string
+    /**
+     * Field included by default.
+     */
+    tool_call_id?: string | null
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+    /**
+     * Field included by default.
+     */
+    wake_payload: unknown
+  }
+  id: string
+  /**
+   * A relationships object for a scheduled_event
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type ScheduledEventType = {
+  /**
+   * Field included by default.
+   */
+  agent_uid: unknown
+  /**
+   * Field included by default.
+   */
+  authorization_kind?: string | null
+  /**
+   * Field included by default.
+   */
+  automation_job_id?: number | null
+  /**
+   * Field included by default.
+   */
+  automation_job_run_id?: number | null
+  /**
+   * Field included by default.
+   */
+  binding_name?: string | null
+  /**
+   * Field included by default.
+   */
+  cancelled_at?: string | null
+  /**
+   * Field included by default.
+   */
+  conversation_id?: string | null
+  /**
+   * Field included by default.
+   */
+  cron_fire_slot_at?: string | null
+  /**
+   * Field included by default.
+   */
+  cron_schedule_id?: string | null
+  /**
+   * Field included by default.
+   */
+  due_at: string
+  /**
+   * Field included by default.
+   */
+  fired_at?: string | null
+  /**
+   * Field included by default.
+   */
+  human_access_version?: number | null
+  /**
+   * Field included by default.
+   */
+  human_uid?: unknown | null
+  /**
+   * Field included by default.
+   */
+  id?: number | null
+  /**
+   * Field included by default.
+   */
+  idempotency_key: string
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  kind: string
+  /**
+   * Field included by default.
+   */
+  last_fire_error: unknown
+  /**
+   * Field included by default.
+   */
+  origin_ai_message_id?: string | null
+  /**
+   * Field included by default.
+   */
+  provider_message_id?: string | null
+  /**
+   * Field included by default.
+   */
+  provider_thread_id?: string | null
+  /**
+   * Field included by default.
+   */
+  requested_at: string
+  /**
+   * Field included by default.
+   */
+  session_id: string
+  /**
+   * Field included by default.
+   */
+  signal_id?: string | null
+  /**
+   * Field included by default.
+   */
+  source_provenance: unknown
+  /**
+   * Field included by default.
+   */
+  source_signal_id?: string | null
+  /**
+   * Field included by default.
+   */
+  status: 'scheduled' | 'fired' | 'cancelled' | 'failed'
+  /**
+   * Field included by default.
+   */
+  timezone: string
+  /**
+   * Field included by default.
+   */
+  tool_call_id?: string | null
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+  /**
+   * Field included by default.
+   */
+  wake_payload: unknown
+}
+
+/**
+ * A "Resource object" representing a signal_binding
+ */
+export type SignalBinding = {
+  /**
+   * An attributes object for a signal_binding
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    adapter: string
+    /**
+     * Field included by default.
+     */
+    agent_uid: unknown
+    /**
+     * Field included by default.
+     */
+    config_ref: string
+    /**
+     * Field included by default.
+     */
+    enabled: boolean
+    /**
+     * Field included by default.
+     */
+    filters: unknown
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    target: unknown
+    /**
+     * Field included by default.
+     */
+    unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+    /**
+     * Field included by default.
+     */
+    unavailable_reason?: string | null
+    /**
+     * Field included by default.
+     */
+    unmatched_sender_policy: 'manual_review' | 'create_standalone'
+  }
+  id: string
+  /**
+   * A relationships object for a signal_binding
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type SignalBindingType = {
+  /**
+   * Field included by default.
+   */
+  adapter: string
+  /**
+   * Field included by default.
+   */
+  agent_uid: unknown
+  /**
+   * Field included by default.
+   */
+  config_ref: string
+  /**
+   * Field included by default.
+   */
+  enabled: boolean
+  /**
+   * Field included by default.
+   */
+  filters: unknown
+  /**
+   * Field included by default.
+   */
+  name: string
+  /**
+   * Field included by default.
+   */
+  target: unknown
+  /**
+   * Field included by default.
+   */
+  unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+  /**
+   * Field included by default.
+   */
+  unavailable_reason?: string | null
+  /**
+   * Field included by default.
+   */
+  unmatched_sender_policy: 'manual_review' | 'create_standalone'
+}
+
+/**
+ * A "Resource object" representing a webhook_endpoint
+ */
+export type WebhookEndpoint = {
+  /**
+   * An attributes object for a webhook_endpoint
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    agent_uid?: unknown | null
+    /**
+     * Field included by default.
+     */
+    automation_job_id?: number | null
+    /**
+     * Field included by default.
+     */
+    binding_name?: string | null
+    /**
+     * Field included by default.
+     */
+    cancelled_at?: string | null
+    /**
+     * Field included by default.
+     */
+    conversation_id?: string | null
+    /**
+     * Field included by default.
+     */
+    event_format: string
+    /**
+     * Field included by default.
+     */
+    expires_at: string
+    /**
+     * Field included by default.
+     */
+    fired_at?: string | null
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    label: string
+    /**
+     * Field included by default.
+     */
+    mode: string
+    /**
+     * Field included by default.
+     */
+    provider_message_id?: string | null
+    /**
+     * Field included by default.
+     */
+    provider_thread_id?: string | null
+    /**
+     * Field included by default.
+     */
+    session_id?: string | null
+    /**
+     * Field included by default.
+     */
+    source_provenance: unknown
+    /**
+     * Field included by default.
+     */
+    source_signal_id?: string | null
+    /**
+     * Field included by default.
+     */
+    status: 'armed' | 'fired' | 'active' | 'cancelled' | 'expired'
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a webhook_endpoint
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type WebhookEndpointType = {
+  /**
+   * Field included by default.
+   */
+  agent_uid?: unknown | null
+  /**
+   * Field included by default.
+   */
+  automation_job_id?: number | null
+  /**
+   * Field included by default.
+   */
+  binding_name?: string | null
+  /**
+   * Field included by default.
+   */
+  cancelled_at?: string | null
+  /**
+   * Field included by default.
+   */
+  conversation_id?: string | null
+  /**
+   * Field included by default.
+   */
+  event_format: string
+  /**
+   * Field included by default.
+   */
+  expires_at: string
+  /**
+   * Field included by default.
+   */
+  fired_at?: string | null
+  /**
+   * Field included by default.
+   */
+  id?: string | null
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  label: string
+  /**
+   * Field included by default.
+   */
+  mode: string
+  /**
+   * Field included by default.
+   */
+  provider_message_id?: string | null
+  /**
+   * Field included by default.
+   */
+  provider_thread_id?: string | null
+  /**
+   * Field included by default.
+   */
+  session_id?: string | null
+  /**
+   * Field included by default.
+   */
+  source_provenance: unknown
+  /**
+   * Field included by default.
+   */
+  source_signal_id?: string | null
+  /**
+   * Field included by default.
+   */
+  status: 'armed' | 'fired' | 'active' | 'cancelled' | 'expired'
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+}
+
+export type ListAutomationJobRunsData = {
+  body?: never
+  path: {
+    agent_uid: unknown
+    automation_job_id: number
+  }
+  query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for automation_job_run
+       */
+      automation_job_run?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/agents/{agent_uid}/automation-jobs/{automation_job_id}/runs'
+}
+
+export type ListAutomationJobRunsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAutomationJobRunsError = ListAutomationJobRunsErrors[keyof ListAutomationJobRunsErrors]
+
+export type ListAutomationJobRunsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a automation_job_run
+     */
+    data?: Array<AutomationJobRun>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListAutomationJobRunsResponse = ListAutomationJobRunsResponses[keyof ListAutomationJobRunsResponses]
+
+export type GetAutomationJobData = {
+  body?: never
+  path: {
+    id: string
+    agent_uid: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for automation_job
+       */
+      automation_job?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/agents/{agent_uid}/automation-jobs/{id}'
+}
+
+export type GetAutomationJobErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetAutomationJobError = GetAutomationJobErrors[keyof GetAutomationJobErrors]
+
+export type GetAutomationJobResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: AutomationJob
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetAutomationJobResponse = GetAutomationJobResponses[keyof GetAutomationJobResponses]
+
+export type CancelCheckbackData = {
+  body?: never
+  path: {
+    id: number
+    agent_uid: unknown
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/checkbacks/{id}'
+}
+
+export type CancelCheckbackErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CancelCheckbackError = CancelCheckbackErrors[keyof CancelCheckbackErrors]
+
+export type CancelCheckbackResponses = {
+  /**
+   * Success
+   */
+  200: ScheduledEventType
+}
+
+export type CancelCheckbackResponse = CancelCheckbackResponses[keyof CancelCheckbackResponses]
+
+export type CreateCronScheduleData = {
+  /**
+   * Request body for the create_cron_schedule operation on cron_schedule resource
+   */
+  body: {
+    data: {
+      binding_name?: string | null
+      delivery: {
+        [key: string]: unknown
+      }
+      idempotency_key: string
+      name: string
+      owner_session_id: string
+      payload?: {
+        [key: string]: unknown
+      } | null
+      schedule: {
+        [key: string]: unknown
+      }
+      status?: string | null
+      timezone?: string | null
+    }
+  }
+  path: {
+    agent_uid: unknown
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/cron-schedules'
+}
+
+export type CreateCronScheduleErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateCronScheduleError = CreateCronScheduleErrors[keyof CreateCronScheduleErrors]
+
+export type CreateCronScheduleResponses = {
+  /**
+   * Success
+   */
+  201: CronScheduleType
+}
+
+export type CreateCronScheduleResponse = CreateCronScheduleResponses[keyof CreateCronScheduleResponses]
+
+export type ListCronScheduleRunsData = {
+  body?: never
+  path: {
+    agent_uid: unknown
+    cron_schedule_id: string
+  }
+  query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for scheduled_event
+       */
+      scheduled_event?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs'
+}
+
+export type ListCronScheduleRunsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListCronScheduleRunsError = ListCronScheduleRunsErrors[keyof ListCronScheduleRunsErrors]
+
+export type ListCronScheduleRunsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a scheduled_event
+     */
+    data?: Array<ScheduledEvent>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListCronScheduleRunsResponse = ListCronScheduleRunsResponses[keyof ListCronScheduleRunsResponses]
+
+export type RemoveCronScheduleData = {
+  body?: never
+  path: {
+    id: string
+    agent_uid: unknown
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}'
+}
+
+export type RemoveCronScheduleErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RemoveCronScheduleError = RemoveCronScheduleErrors[keyof RemoveCronScheduleErrors]
+
+export type RemoveCronScheduleResponses = {
+  /**
+   * Success
+   */
+  200: CronScheduleType
+}
+
+export type RemoveCronScheduleResponse = RemoveCronScheduleResponses[keyof RemoveCronScheduleResponses]
+
+export type GetCronScheduleData = {
+  body?: never
+  path: {
+    id: string
+    agent_uid: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for cron_schedule
+       */
+      cron_schedule?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}'
+}
+
+export type GetCronScheduleErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetCronScheduleError = GetCronScheduleErrors[keyof GetCronScheduleErrors]
+
+export type GetCronScheduleResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: CronSchedule
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetCronScheduleResponse = GetCronScheduleResponses[keyof GetCronScheduleResponses]
+
+export type UpdateCronScheduleData = {
+  /**
+   * Request body for the update_cron_schedule operation on cron_schedule resource
+   */
+  body?: {
+    data: {
+      delivery?: {
+        [key: string]: unknown
+      } | null
+      name?: string | null
+      payload?: {
+        [key: string]: unknown
+      } | null
+      schedule?: {
+        [key: string]: unknown
+      } | null
+      timezone?: string | null
+    }
+  }
+  path: {
+    id: string
+    agent_uid: unknown
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}'
+}
+
+export type UpdateCronScheduleErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateCronScheduleError = UpdateCronScheduleErrors[keyof UpdateCronScheduleErrors]
+
+export type UpdateCronScheduleResponses = {
+  /**
+   * Success
+   */
+  200: CronScheduleType
+}
+
+export type UpdateCronScheduleResponse = UpdateCronScheduleResponses[keyof UpdateCronScheduleResponses]
+
+export type PauseCronScheduleData = {
+  body?: never
+  path: {
+    id: string
+    agent_uid: unknown
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/pause'
+}
+
+export type PauseCronScheduleErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PauseCronScheduleError = PauseCronScheduleErrors[keyof PauseCronScheduleErrors]
+
+export type PauseCronScheduleResponses = {
+  /**
+   * Success
+   */
+  201: CronScheduleType
+}
+
+export type PauseCronScheduleResponse = PauseCronScheduleResponses[keyof PauseCronScheduleResponses]
+
+export type ResumeCronScheduleData = {
+  body?: never
+  path: {
+    id: string
+    agent_uid: unknown
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/resume'
+}
+
+export type ResumeCronScheduleErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResumeCronScheduleError = ResumeCronScheduleErrors[keyof ResumeCronScheduleErrors]
+
+export type ResumeCronScheduleResponses = {
+  /**
+   * Success
+   */
+  201: CronScheduleType
+}
+
+export type ResumeCronScheduleResponse = ResumeCronScheduleResponses[keyof ResumeCronScheduleResponses]
+
+export type RunCronScheduleData = {
+  /**
+   * Request body for the run_cron_schedule operation on cron_schedule resource
+   */
+  body: {
+    data: {
+      idempotency_key: string
+    }
+  }
+  path: {
+    id: string
+    agent_uid: unknown
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/runs'
+}
+
+export type RunCronScheduleErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RunCronScheduleError = RunCronScheduleErrors[keyof RunCronScheduleErrors]
+
+export type RunCronScheduleResponses = {
+  /**
+   * Success
+   */
+  201: ScheduledEventType
+}
+
+export type RunCronScheduleResponse = RunCronScheduleResponses[keyof RunCronScheduleResponses]
+
+export type DisableSignalBindingData = {
+  body?: never
+  path: {
+    name: string
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v2/agents/{agent_uid}/signal-bindings/{name}'
+}
+
+export type DisableSignalBindingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DisableSignalBindingError = DisableSignalBindingErrors[keyof DisableSignalBindingErrors]
+
+export type DisableSignalBindingResponses = {
+  /**
+   * Success
+   */
+  200: SignalBindingType
+}
+
+export type DisableSignalBindingResponse = DisableSignalBindingResponses[keyof DisableSignalBindingResponses]
+
+export type ListAutomationJobsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for automation_job
+       */
+      automation_job?: string
+      [key: string]: unknown
+    }
+    agent?: unknown
+  }
+  url: '/api/v2/automation-jobs'
+}
+
+export type ListAutomationJobsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListAutomationJobsError = ListAutomationJobsErrors[keyof ListAutomationJobsErrors]
+
+export type ListAutomationJobsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a automation_job
+     */
+    data?: Array<AutomationJob>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListAutomationJobsResponse = ListAutomationJobsResponses[keyof ListAutomationJobsResponses]
+
+export type ListCheckbacksData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for scheduled_event
+       */
+      scheduled_event?: string
+      [key: string]: unknown
+    }
+    agent?: unknown
+  }
+  url: '/api/v2/checkbacks'
+}
+
+export type ListCheckbacksErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListCheckbacksError = ListCheckbacksErrors[keyof ListCheckbacksErrors]
+
+export type ListCheckbacksResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a scheduled_event
+     */
+    data?: Array<ScheduledEvent>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListCheckbacksResponse = ListCheckbacksResponses[keyof ListCheckbacksResponses]
+
+export type ListCronSchedulesData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for cron_schedule
+       */
+      cron_schedule?: string
+      [key: string]: unknown
+    }
+    agent?: unknown
+  }
+  url: '/api/v2/cron-schedules'
+}
+
+export type ListCronSchedulesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListCronSchedulesError = ListCronSchedulesErrors[keyof ListCronSchedulesErrors]
+
+export type ListCronSchedulesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a cron_schedule
+     */
+    data?: Array<CronSchedule>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListCronSchedulesResponse = ListCronSchedulesResponses[keyof ListCronSchedulesResponses]
+
+export type ListOidcClientsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for oidc_client
+       */
+      oidc_client?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/oidc-clients'
+}
+
+export type ListOidcClientsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListOidcClientsError = ListOidcClientsErrors[keyof ListOidcClientsErrors]
+
+export type ListOidcClientsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a oidc_client
+     */
+    data?: Array<OidcClient>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListOidcClientsResponse = ListOidcClientsResponses[keyof ListOidcClientsResponses]
+
+export type CreateOidcClientData = {
+  /**
+   * Request body for the create_oidc_client operation on oidc_client resource
+   */
+  body: {
+    data: {
+      allow_insecure_local_logout?: boolean | null
+      allowed_group_ids?: Array<string> | null
+      allowed_identity_provider_ids?: Array<string> | null
+      backchannel_logout_session_required?: boolean | null
+      backchannel_logout_uri?: string | null
+      client_type: 'public' | 'confidential'
+      enabled?: boolean | null
+      model_aliases?: {
+        [key: string]: unknown
+      } | null
+      name: string
+      post_logout_redirect_uris?: Array<string> | null
+      redirect_uris?: Array<string> | null
+      scopes?: Array<string> | null
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/oidc-clients'
+}
+
+export type CreateOidcClientErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateOidcClientError = CreateOidcClientErrors[keyof CreateOidcClientErrors]
+
+export type CreateOidcClientResponses = {
+  /**
+   * Success
+   */
+  201: {
+    client_secret?: string | null
+    oidc_client: OidcClientType
+  }
+}
+
+export type CreateOidcClientResponse = CreateOidcClientResponses[keyof CreateOidcClientResponses]
+
+export type ListOidcLogoutDeliveriesData = {
+  body?: never
+  path: {
+    client_id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for oidc_logout_delivery
+       */
+      oidc_logout_delivery?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/oidc-clients/{client_id}/logout-deliveries'
+}
+
+export type ListOidcLogoutDeliveriesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListOidcLogoutDeliveriesError = ListOidcLogoutDeliveriesErrors[keyof ListOidcLogoutDeliveriesErrors]
+
+export type ListOidcLogoutDeliveriesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a oidc_logout_delivery
+     */
+    data?: Array<OidcLogoutDelivery>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListOidcLogoutDeliveriesResponse =
+  ListOidcLogoutDeliveriesResponses[keyof ListOidcLogoutDeliveriesResponses]
+
+export type RetryOidcLogoutDeliveryData = {
+  body?: never
+  path: {
+    id: string
+    client_id: string
+  }
+  query?: never
+  url: '/api/v2/oidc-clients/{client_id}/logout-deliveries/{id}/retries'
+}
+
+export type RetryOidcLogoutDeliveryErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RetryOidcLogoutDeliveryError = RetryOidcLogoutDeliveryErrors[keyof RetryOidcLogoutDeliveryErrors]
+
+export type RetryOidcLogoutDeliveryResponses = {
+  /**
+   * Success
+   */
+  201: OidcLogoutDeliveryType
+}
+
+export type RetryOidcLogoutDeliveryResponse = RetryOidcLogoutDeliveryResponses[keyof RetryOidcLogoutDeliveryResponses]
+
+export type DeleteOidcClientData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/oidc-clients/{id}'
+}
+
+export type DeleteOidcClientErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteOidcClientError = DeleteOidcClientErrors[keyof DeleteOidcClientErrors]
+
+export type DeleteOidcClientResponses = {
+  /**
+   * Success
+   */
+  200: OidcClientType
+}
+
+export type DeleteOidcClientResponse = DeleteOidcClientResponses[keyof DeleteOidcClientResponses]
+
+export type GetOidcClientData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for oidc_client
+       */
+      oidc_client?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/oidc-clients/{id}'
+}
+
+export type GetOidcClientErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetOidcClientError = GetOidcClientErrors[keyof GetOidcClientErrors]
+
+export type GetOidcClientResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: OidcClient
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetOidcClientResponse = GetOidcClientResponses[keyof GetOidcClientResponses]
+
+export type UpdateOidcClientData = {
+  /**
+   * Request body for the update_oidc_client operation on oidc_client resource
+   */
+  body?: {
+    data: {
+      allow_insecure_local_logout?: boolean | null
+      allowed_group_ids?: Array<string> | null
+      allowed_identity_provider_ids?: Array<string> | null
+      backchannel_logout_session_required?: boolean | null
+      backchannel_logout_uri?: string | null
+      enabled?: boolean | null
+      model_aliases?: {
+        [key: string]: unknown
+      } | null
+      name?: string | null
+      post_logout_redirect_uris?: Array<string> | null
+      redirect_uris?: Array<string> | null
+      scopes?: Array<string> | null
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/oidc-clients/{id}'
+}
+
+export type UpdateOidcClientErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateOidcClientError = UpdateOidcClientErrors[keyof UpdateOidcClientErrors]
+
+export type UpdateOidcClientResponses = {
+  /**
+   * Success
+   */
+  200: OidcClientType
+}
+
+export type UpdateOidcClientResponse = UpdateOidcClientResponses[keyof UpdateOidcClientResponses]
+
+export type ListWebhookEndpointsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Paginates the response with the limit and offset or keyset pagination.
+     */
+    page?: {
+      after?: string
+      before?: string
+      limit?: number
+    }
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for webhook_endpoint
+       */
+      webhook_endpoint?: string
+      [key: string]: unknown
+    }
+    agent?: unknown
+  }
+  url: '/api/v2/webhook-endpoints'
+}
+
+export type ListWebhookEndpointsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListWebhookEndpointsError = ListWebhookEndpointsErrors[keyof ListWebhookEndpointsErrors]
+
+export type ListWebhookEndpointsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a webhook_endpoint
+     */
+    data?: Array<WebhookEndpoint>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListWebhookEndpointsResponse = ListWebhookEndpointsResponses[keyof ListWebhookEndpointsResponses]
+
+export type CreateWebhookEndpointData = {
+  /**
+   * Request body for the create_webhook_endpoint operation on webhook_endpoint resource
+   */
+  body: {
+    data: {
+      expires_at: unknown
+      label: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/webhook-endpoints'
+}
+
+export type CreateWebhookEndpointErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateWebhookEndpointError = CreateWebhookEndpointErrors[keyof CreateWebhookEndpointErrors]
+
+export type CreateWebhookEndpointResponses = {
+  /**
+   * Success
+   */
+  201: {
+    token: string
+    webhook_endpoint: WebhookEndpointType
+  }
+}
+
+export type CreateWebhookEndpointResponse = CreateWebhookEndpointResponses[keyof CreateWebhookEndpointResponses]
+
+export type CancelWebhookEndpointData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/webhook-endpoints/{id}'
+}
+
+export type CancelWebhookEndpointErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CancelWebhookEndpointError = CancelWebhookEndpointErrors[keyof CancelWebhookEndpointErrors]
+
+export type CancelWebhookEndpointResponses = {
+  /**
+   * Success
+   */
+  200: WebhookEndpointType
+}
+
+export type CancelWebhookEndpointResponse = CancelWebhookEndpointResponses[keyof CancelWebhookEndpointResponses]

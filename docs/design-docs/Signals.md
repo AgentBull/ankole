@@ -253,7 +253,7 @@ separate persisted Channel or Entry records.
 ## CloudEvents HTTP Intake
 
 An operator creates an Endpoint with `event_format: "cloudevents"`, a label,
-mode, and future expiry through `POST /api/v1/webhook-endpoints`. The
+mode, and future expiry through `POST /api/v2/webhook-endpoints` (JSON:API). The
 Console webhook permission controls creation. Creation returns the capability
 URL once. The Console and safe list API keep the Endpoint ID and metadata,
 and do not return the token or its digest.
@@ -326,7 +326,7 @@ without changing the original facts. A request with no matches is ignored.
 `one_shot` changes from `armed` to `fired` only after it accepts at least one
 Signal. `standing` remains `active`. Expired or cancelled Endpoints are
 terminal and return an ignored result without new work. Suspended tenants
-also accept no work. `DELETE /api/v1/webhook-endpoints/:id` cancels the
+also accept no work. `DELETE /api/v2/webhook-endpoints/:id` cancels the
 Endpoint. A known terminal capability remains safe for producer redelivery.
 
 `WebhookEndpoint` owns these transitions through AshStateMachine, including

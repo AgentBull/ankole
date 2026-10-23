@@ -15,18 +15,53 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
 import { linkTarget, useSearchParams } from '../../common/router'
+import { fromDocument } from '../api/json-api'
 import {
-  ankoleWebAutomationJobControllerIndexOptions,
-  ankoleWebAutomationJobControllerShowOptions
-} from '../api/generated/@tanstack/react-query.gen'
-import type { AutomationJobItem, AutomationJobRunItem } from '../api/generated/types.gen'
+  getAutomationJobOptions,
+  listAutomationJobRunsOptions,
+  listAutomationJobsOptions
+} from '../api/v2/generated/@tanstack/react-query.gen'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
 import { StatusIndicator, type StatusTone } from '../console-form'
 import { ErrorBlock } from '../../common/error-block'
+import { requestErrorCode } from '../../common/request-errors'
 import { formatConsoleDate, formatJSON, resourceID } from '../console-primitives'
 import { AgentCell, FilterSwitch, ResourceListPage, ResourceSearch, RowViewAction } from '../console-list-page'
 import { matchesResourceSearch } from '../state/resource-search'
 import { agentFilesPath } from './agent-files'
+
+export type AutomationJobItem = {
+  id: string
+  agent_uid: string
+  owner_session_id: string
+  drive_prefix: string
+  label: string
+  wake_on_failure: boolean
+  status: 'active' | 'cancelled'
+  reply_route: Record<string, unknown>
+  source_provenance: Record<string, unknown>
+  inserted_at: string
+  updated_at: string
+}
+
+type AutomationJobRunItem = {
+  id: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  attempts: number
+  started_at: string | null
+  finished_at: string | null
+  exit_code: number | null
+  error: string | null
+  stdout: string | null
+  stdout_truncated: boolean
+  stderr: string | null
+  stderr_truncated: boolean
+}
+
+/** The list of automation jobs, also read by the route loader. */
+export function automationJobListOptions(agentUID: string | undefined) {
+  return listAutomationJobsOptions({ query: { agent: agentUID || undefined, page: { limit: 100 } } })
+}
 
 export function AutomationJobsPage() {
   const { t } = useTranslation()
@@ -37,24 +72,33 @@ export function AutomationJobsPage() {
   const selectedID = resourceID(searchParams.get('job'), 1)
 
   const jobs = useQuery({
-    ...ankoleWebAutomationJobControllerIndexOptions({
-      query: { agent: scope.agentUID || undefined, limit: 100 }
-    }),
+    ...automationJobListOptions(scope.agentUID),
+    select: document => fromDocument(document) as AutomationJobItem[],
     refetchInterval: ACTIVITY_REFRESH_MS
   })
-  const allJobs = jobs.data?.automation_jobs ?? []
+  const allJobs = jobs.data ?? []
   const selectedAgentUID = automationJobAgentUID(allJobs, selectedID, scope.agentUID)
+  const detailPath = { agent_uid: selectedAgentUID, id: String(selectedID ?? 1000) }
+  const detailEnabled = Boolean(selectedAgentUID) && selectedID !== undefined
 
   const detail = useQuery({
-    ...ankoleWebAutomationJobControllerShowOptions({
-      path: { agent_uid: selectedAgentUID, automation_job_id: selectedID ?? 1000 },
-      query: { runs: 20 }
-    }),
-    enabled: Boolean(selectedAgentUID) && selectedID !== undefined,
+    ...getAutomationJobOptions({ path: detailPath }),
+    select: document => fromDocument(document) as AutomationJobItem,
+    enabled: detailEnabled,
     refetchInterval: selectedID !== undefined ? ACTIVITY_REFRESH_MS : false,
     retry: false
   })
-  const detailNotFound = detail.error?.error?.code === 'not_found'
+  const runs = useQuery({
+    ...listAutomationJobRunsOptions({
+      path: { agent_uid: detailPath.agent_uid, automation_job_id: selectedID ?? 1000 },
+      query: { page: { limit: 20 } }
+    }),
+    select: document => fromDocument(document) as AutomationJobRunItem[],
+    enabled: detailEnabled,
+    refetchInterval: selectedID !== undefined ? ACTIVITY_REFRESH_MS : false,
+    retry: false
+  })
+  const detailNotFound = requestErrorCode(detail.error) === 'not_found'
 
   const rows = allJobs
     .filter(job => includeFinished || job.status === 'active')
@@ -135,11 +179,11 @@ export function AutomationJobsPage() {
           closeLabel={t('common.close')}
           className="data-[side=right]:w-full data-[side=right]:sm:max-w-[min(64rem,92vw)]">
           <SheetHeader className="gap-3 border-b border-border pb-6">
-            <SheetTitle>{detail.data?.automation_job.label ?? t('console.automation_jobs.detail_title')}</SheetTitle>
+            <SheetTitle>{detail.data?.label ?? t('console.automation_jobs.detail_title')}</SheetTitle>
             <SheetDescription>
-              {detail.data?.automation_job ? (
+              {detail.data ? (
                 <span className="font-mono text-xs">
-                  #{detail.data.automation_job.id} · {detail.data.automation_job.owner_session_id}
+                  #{detail.data.id} · {detail.data.owner_session_id}
                 </span>
               ) : null}
             </SheetDescription>
@@ -147,14 +191,14 @@ export function AutomationJobsPage() {
           <div className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
             {detailNotFound ? (
               <ErrorBlock error={t('console.automation_jobs.not_found', { id: selectedID })} />
-            ) : detail.error ? (
-              <ErrorBlock error={detail.error} />
+            ) : detail.error || runs.error ? (
+              <ErrorBlock error={detail.error ?? runs.error} />
             ) : selectedID !== undefined && !selectedAgentUID && !jobs.isLoading ? (
               <ErrorBlock error={t('console.automation_jobs.not_found', { id: selectedID })} />
-            ) : detail.isLoading || !detail.data?.automation_job ? (
+            ) : detail.isLoading || runs.isLoading || !detail.data ? (
               <Skeleton className="h-64 w-full" />
             ) : (
-              <AutomationJobDetail job={detail.data.automation_job} />
+              <AutomationJobDetail job={detail.data} runs={runs.data ?? []} />
             )}
           </div>
         </SheetContent>
@@ -168,7 +212,7 @@ export function automationJobAgentUID(
   selectedID: number | undefined,
   scopeAgentUID: string
 ): string {
-  return jobs.find(job => job.id === selectedID)?.agent_uid ?? scopeAgentUID
+  return jobs.find(job => job.id === String(selectedID))?.agent_uid ?? scopeAgentUID
 }
 
 export function automationJobDetailParams(
@@ -217,13 +261,13 @@ function AutomationJobRow({ job, onOpen }: { job: AutomationJobItem; onOpen: () 
           {t(`console.automation_jobs.status_${job.status}`)}
         </StatusIndicator>
       </TableCell>
-      <TableCell>{formatConsoleDate(job.created_at)}</TableCell>
+      <TableCell>{formatConsoleDate(job.inserted_at)}</TableCell>
       <RowViewAction label={t('common.view_details_for', { name: job.label })} onOpen={onOpen} />
     </TableRow>
   )
 }
 
-function AutomationJobDetail({ job }: { job: AutomationJobItem }) {
+function AutomationJobDetail({ job, runs }: { job: AutomationJobItem; runs: AutomationJobRunItem[] }) {
   const { t } = useTranslation()
 
   return (
@@ -248,7 +292,7 @@ function AutomationJobDetail({ job }: { job: AutomationJobItem }) {
             label={t('console.automation_jobs.failure_wake')}
             value={job.wake_on_failure ? t('common.boolean_true') : t('common.boolean_false')}
           />
-          <Fact label={t('console.automation_jobs.created_at')} value={formatConsoleDate(job.created_at)} />
+          <Fact label={t('console.automation_jobs.created_at')} value={formatConsoleDate(job.inserted_at)} />
           <Fact label={t('console.automation_jobs.updated_at')} value={formatConsoleDate(job.updated_at)} />
         </dl>
         <details>
@@ -261,10 +305,10 @@ function AutomationJobDetail({ job }: { job: AutomationJobItem }) {
 
       <section className="grid gap-3">
         <h3 className="font-medium">{t('console.automation_jobs.run_history')}</h3>
-        {job.runs.length === 0 ? (
+        {runs.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('console.automation_jobs.no_runs')}</p>
         ) : (
-          job.runs.map(run => <AutomationJobRun key={run.id} run={run} />)
+          runs.map(run => <AutomationJobRun key={run.id} run={run} />)
         )}
       </section>
     </div>
@@ -293,11 +337,20 @@ function AutomationJobRun({ run }: { run: AutomationJobRunItem }) {
         <span>{formatConsoleDate(run.finished_at)}</span>
         {run.exit_code == null ? null : <span>{t('console.automation_jobs.exit_code', { code: run.exit_code })}</span>}
       </div>
-      {run.error ? <p className="break-words text-sm text-destructive-foreground">{run.error}</p> : null}
-      {run.stdout ? <RunLog label="stdout" value={run.stdout} /> : null}
-      {run.stderr ? <RunLog label="stderr" value={run.stderr} /> : null}
+      {run.error ? <p className="break-words text-sm text-destructive-foreground">{firstLine(run.error)}</p> : null}
+      {run.stdout ? <RunLog label="stdout" value={runLog(run.stdout, run.stdout_truncated)} /> : null}
+      {run.stderr ? <RunLog label="stderr" value={runLog(run.stderr, run.stderr_truncated)} /> : null}
     </article>
   )
+}
+
+function firstLine(text: string): string {
+  return text.split('\n', 1)[0] ?? ''
+}
+
+// The control plane keeps the end of a long log; the marker tells that the start is gone.
+function runLog(text: string, truncated: boolean): string {
+  return truncated ? `${text}\n...[truncated]` : text
 }
 
 function RunLog({ label, value }: { label: string; value: string }) {

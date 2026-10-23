@@ -15,9 +15,6 @@ defmodule Ankole.Ash.Types.JSONMap do
   @impl true
   def storage_type(_constraints), do: :map
 
-  @doc "Gives the JSON schema of the value for the JSON:API OpenAPI document."
-  def json_schema(_constraints), do: %{"type" => "object", "additionalProperties" => true}
-
   # The value is a JSON object, so map functions such as `get_path` (the
   # `at_path:` keyword filter) accept it.
   @impl true

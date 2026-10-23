@@ -142,12 +142,12 @@ defmodule Ankole.AgentWorkers.Providers.Errors do
     do: Ankole.Errors.Invalid.NotFound.exception(resource: Ankole.AgentWorkers.Providers.Provider)
 
   def rejection(:worker_provider_in_use),
-    do: {409, "Agents still use this provider, including Agents being deleted", []}
+    do: {:conflict, "Agents still use this provider, including Agents being deleted", []}
 
   def rejection(reason) do
     case describe(reason) do
       {:invalid, message, details} -> {message, details}
-      {:conflict, message, details} -> {409, message, details}
+      {:conflict, message, details} -> {:conflict, message, details}
       :unknown -> nil
     end
   end

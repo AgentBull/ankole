@@ -19,9 +19,7 @@ export type AiGatewayProvider = {
     /**
      * Field included by default.
      */
-    connection_options: {
-      [key: string]: unknown
-    }
+    connection_options: unknown
     /**
      * Field included by default.
      */

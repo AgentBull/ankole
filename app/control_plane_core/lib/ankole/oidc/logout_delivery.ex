@@ -3,7 +3,7 @@ defmodule Ankole.OIDC.LogoutDelivery do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     domain: Ankole.OIDC,
-    extensions: [AshStateMachine]
+    extensions: [AshStateMachine, AshJsonApi.Resource]
 
   @undelivered_states [:pending, :delivering, :failed]
   postgres do
@@ -57,6 +57,30 @@ defmodule Ankole.OIDC.LogoutDelivery do
     end
   end
 
+  calculations do
+    calculate(:principal_uid, :string, expr(session.principal_uid), public?: true)
+  end
+
+  # The endpoint stays private: the Console shows the client configuration.
+  json_api do
+    type("oidc_logout_delivery")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :id,
+      :session_id,
+      :principal_uid,
+      :status,
+      :attempt_count,
+      :last_attempt_at,
+      :next_attempt_at,
+      :delivered_at,
+      :deadline,
+      :last_error
+    ])
+  end
+
   state_machine do
     state_attribute(:status)
     initial_states([:pending])
@@ -76,6 +100,25 @@ defmodule Ankole.OIDC.LogoutDelivery do
 
     read :lookup_across_tenants do
       multitenancy(:allow_global)
+    end
+
+    # The Console list of the deliveries of one client, the newest first.
+    read :console_list do
+      argument(:client_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      filter(expr(session.client_id == ^arg(:client_id)))
+      prepare(build(sort: [inserted_at: :desc]))
+    end
+
+    # The Console retries a delivery of one client. A delivery of another
+    # client reads as not found.
+    action :console_retry, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:client_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.OIDC.Logout.console_retry_in_tx(args.client_id, args.id))
+      end)
     end
 
     create :enqueue_in_tx do

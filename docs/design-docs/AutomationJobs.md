@@ -213,7 +213,9 @@ The Console API is read-only. It lists jobs in the selected tenant or
 filters them by Agent. The list requires `automation_jobs/read`. It reads one
 job and its recent runs through the owning Agent path. The detail read requires
 `agent:<agent_uid>:automation_jobs/read`. It shows the attempt count, terminal
-result, exit code, error, and bounded logs.
+result, exit code, error, and bounded logs. The `/api/v2` JSON:API serves these
+reads: `GET /automation-jobs`, `GET /agents/:agent_uid/automation-jobs/:id`, and
+`GET /agents/:agent_uid/automation-jobs/:automation_job_id/runs`.
 
 ### Live activity in Console Home
 

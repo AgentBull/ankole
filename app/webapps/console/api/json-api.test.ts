@@ -71,13 +71,15 @@ test('JSON:API errors get the Console failure shape and other payloads stay the 
   const invalid = fromErrors({
     errors: [
       { code: 'required', detail: 'is required', source: { pointer: '/data/attributes/name' } },
-      { code: 'invalid_attribute', detail: 'is invalid', source: { pointer: '/data/attributes/slug' } }
+      { code: 'invalid_attribute', detail: 'is invalid', source: { pointer: '/data/attributes/slug' } },
+      { code: 'required', detail: 'is required', source: { pointer: '/data/label' } }
     ]
   })
   expect(requestErrorCode(invalid)).toBe('validation_failed')
   expect(requestErrorDetailList(invalid)).toEqual([
     { path: 'name', message: 'is required' },
-    { path: 'slug', message: 'is invalid' }
+    { path: 'slug', message: 'is invalid' },
+    { path: 'label', message: 'is required' }
   ])
 
   const described = fromErrors({

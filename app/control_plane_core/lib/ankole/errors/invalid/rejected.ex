@@ -5,13 +5,12 @@ defmodule Ankole.Errors.Invalid.Rejected do
   The reason stays an atom or a tuple. `Ankole.Errors.reason/1` gives it back to
   domain code. The message does not contain the reason or the input values.
 
-  `Ankole.Errors.wrap/2` can add `detail`, one sentence for the operator,
-  `details`, the rejected fields, and `status`, 409 for a conflict with the
-  current state. Only the v2 JSON:API error shows them, as the `detail`, the
-  `meta.details`, and the status of the error.
+  `Ankole.Errors.wrap/2` can add `detail`, one sentence for the operator, and
+  `details`, the rejected fields. Only the v2 JSON:API error shows them, as the
+  `detail` and the `meta.details` of the error.
   """
 
-  use Splode.Error, fields: [:reason, :detail, details: [], status: 422], class: :invalid
+  use Splode.Error, fields: [:reason, :detail, details: []], class: :invalid
 
   def message(_error), do: "The domain operation was rejected"
 
@@ -27,7 +26,7 @@ defmodule Ankole.Errors.Invalid.Rejected do
     def to_json_api_error(error),
       do: %AshJsonApi.Error{
         id: Ash.UUID.generate(),
-        status_code: error.status,
+        status_code: 422,
         code: Ankole.Errors.Invalid.Rejected.code(error.reason),
         title: "Rejected",
         detail: error.detail || "the domain operation was rejected",

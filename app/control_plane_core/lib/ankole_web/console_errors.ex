@@ -6,7 +6,7 @@ defmodule AnkoleWeb.ConsoleErrors do
   import Plug.Conn, only: [put_status: 2]
   import Phoenix.Controller, only: [json: 2]
 
-  alias Ankole.Errors.Invalid.{NotFound, Rejected, Stale, StatusTransition}
+  alias Ankole.Errors.Invalid.{Conflict, NotFound, Rejected, Stale, StatusTransition}
 
   @conflicts [
     Stale,
@@ -28,8 +28,8 @@ defmodule AnkoleWeb.ConsoleErrors do
 
   Authorization failures share one response. An `Ash.Error.Invalid` error uses
   the declared vocabulary of `Ankole.Errors`: a stale write or a refused state
-  transition gives 409, a missing target gives 404, a declared rejection goes
-  to the controller's local handler as its reason, and other errors are field
+  transition gives 409, a missing target gives 404, a declared rejection or
+  conflict goes to the controller's local handler as its reason, and other errors are field
   validation failures (422). Framework and unknown errors are logged and give
   a generic response.
 
@@ -66,6 +66,7 @@ defmodule AnkoleWeb.ConsoleErrors do
   defp declared_error(errors) do
     Enum.find_value(errors, fn
       %Rejected{reason: reason} -> {:rejected, reason}
+      %Conflict{reason: reason} -> {:rejected, reason}
       %module{} when module in @conflicts -> :conflict
       %NotFound{} -> :not_found
       _error -> nil
