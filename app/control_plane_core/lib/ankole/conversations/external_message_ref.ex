@@ -3,7 +3,7 @@ defmodule Ankole.Conversations.ExternalMessageRef do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     tenant_in_primary_key: true,
-    domain: Ankole.Conversations.Domain
+    domain: Ankole.Conversations
 
   @type t :: %__MODULE__{}
 
@@ -92,8 +92,6 @@ defmodule Ankole.Conversations.ExternalMessageRef do
     defaults([:read])
 
     create :record do
-      transaction?(false)
-
       accept([
         :message_id,
         :conversation_id,
@@ -113,7 +111,7 @@ defmodule Ankole.Conversations.ExternalMessageRef do
       ])
     end
 
-    in_tx_update :observe do
+    update :observe do
       accept([
         :reply_to_provider_message_id,
         :provider_thread_id,
@@ -127,7 +125,7 @@ defmodule Ankole.Conversations.ExternalMessageRef do
       ])
     end
 
-    in_tx_update :fold_reaction do
+    update :fold_reaction do
       accept([:reactions, :raw_reaction_keys, :last_seen_at])
     end
   end

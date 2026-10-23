@@ -27,13 +27,22 @@ content. An object store keeps the bytes.
 | `files` | `sha256` (primary key), `size`, `deleting`, `created_at`, `last_referenced_at` | One distinct byte content |
 | `drive_files` | `tenant_id`, nullable `agent_uid`, `path`, `sha256`, `mode`, `content_type`, `source`, `conversation_id`, `message_id`, timestamps; unique `(tenant_id, agent_uid, path) NULLS NOT DISTINCT` | One file in an Agent drive or the tenant's Pod drive |
 
-Both models are Ash resources in `Ankole.Files.Domain`. Blob actions own
-storage refresh, reference renewal, collection marking, and final removal.
-The marking and removal actions use the same live-reference predicate.
-DriveFile actions own path upserts and moves under the natural
-identity. The `remove_paths` action uses one native `DELETE ... RETURNING`
-statement for a subtree. It requires the caller's transaction and uses the
-same tenant context as all other drive operations.
+Both models are Ash resources. The root module `Ankole.Files` is their Ash
+domain. Blob actions own storage refresh, reference renewal, collection
+marking, and final removal. The marking and removal actions use the same
+live-reference predicate. DriveFile actions own path upserts and moves under
+the natural identity. `drive_files` has no primary key, so AshPostgres
+has no destroy action for it: `DriveFile.remove_paths_in_tx/2` removes a
+subtree with one `DELETE ... RETURNING` statement that binds the current
+tenant. It requires the caller's transaction.
+
+A commit, move, delete, or snapshot listing is a generic action of `DriveFile`
+(`commit_paths`, `move_paths`, `delete_paths`, `list_snapshot`), and one batch
+of collection is the generic action `collect_marked` of `Blob`. Each generic
+action owns its transaction. `Ankole.Files.commit/3`, `move/3`, `delete/2`, and
+`list/3` with `snapshot: true` run these actions and give the domain reason of
+a failure. Another domain that names files in its own transaction calls
+`commit/4`.
 
 - A path identifies a file. A folder is only a path prefix; there are no folder
   rows. A path is relative, uses `/`, has at most 1024 bytes, and has no empty,
@@ -339,14 +348,17 @@ every file under a folder in one transaction, whatever the folder's size.
 
 | Route | Operation |
 | --- | --- |
-| `GET /api/v1/agents/:agent_uid/files?path=` | Folders and files of one folder |
+| `GET /api/v2/agents/:agent_uid/files?path=` | Folders and files of one folder |
 | `GET /api/v1/agents/:agent_uid/files/content?path=` | Download one file |
 | `POST /api/v1/agents/:agent_uid/files` | Upload one file (multipart: `path`, `file`) |
-| `POST /api/v1/agents/:agent_uid/file-moves` | Move or rename a file or folder |
-| `DELETE /api/v1/agents/:agent_uid/files?path=` | Delete a file, or a folder and every file in it |
+| `POST /api/v2/agents/:agent_uid/file-moves` | Move or rename a file or folder |
+| `DELETE /api/v2/agents/:agent_uid/files?path=` | Delete a file, or a folder and every file in it |
 
-Moves reject an existing target file with `already_exists`; the API has no
-overwrite option.
+The JSON operations use the Files Ash domain and JSON:API. Multipart uploads
+and byte downloads use the two byte-transfer routes above. The Console uses
+one configured HTTP client for both paths, including its session, CSRF, and
+tenant context. A move rejects an existing target file and leaves both paths
+unchanged. The API has no overwrite option.
 
 The AuthZ resource is `agent:<uid>:files` with the actions `read`, `update`,
 and `delete`.

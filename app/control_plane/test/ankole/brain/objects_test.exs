@@ -4,7 +4,6 @@ defmodule Ankole.Brain.ObjectsTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AuthZ
-  alias Ankole.Brain.Chunks
   alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Chunk
@@ -35,7 +34,7 @@ defmodule Ankole.Brain.ObjectsTest do
       human: human
     } do
       {:ok, object} =
-        Objects.create_object(
+        Ankole.Brain.create_object(
           %{slug: "notes/extraction-progress", type: "note", title: "Progress", body: "Body"},
           human.uid
         )
@@ -52,7 +51,7 @@ defmodule Ankole.Brain.ObjectsTest do
         Enum.reduce([%{tags: ["research"]}, %{meta: %{"reviewed" => true}}], object, fn attrs,
                                                                                         previous ->
           assert {:ok, current} =
-                   Objects.update_object(
+                   Ankole.Brain.update_object(
                      previous.slug,
                      Map.put(attrs, :expected_content_hash, previous.content_hash),
                      human.uid
@@ -65,7 +64,7 @@ defmodule Ankole.Brain.ObjectsTest do
         end)
 
       {:ok, retitled} =
-        Objects.update_object(
+        Ankole.Brain.update_object(
           object.slug,
           %{title: "New title", expected_content_hash: object.content_hash},
           human.uid
@@ -75,7 +74,7 @@ defmodule Ankole.Brain.ObjectsTest do
       assert retitled.timelines_extracted_at == object.timelines_extracted_at
 
       {:ok, edited} =
-        Objects.update_object(
+        Ankole.Brain.update_object(
           object.slug,
           %{body: "New body", expected_content_hash: retitled.content_hash},
           human.uid
@@ -85,7 +84,7 @@ defmodule Ankole.Brain.ObjectsTest do
       assert edited.timelines_extracted_at == retitled.timelines_extracted_at
 
       {:ok, pending} =
-        Objects.update_object(
+        Ankole.Brain.update_object(
           object.slug,
           %{meta: %{"later" => true}, expected_content_hash: edited.content_hash},
           human.uid
@@ -99,7 +98,7 @@ defmodule Ankole.Brain.ObjectsTest do
 
     test "tags share the edit baseline and audit while omitted tags remain", %{human: human} do
       assert {:ok, object} =
-               Objects.create_object(
+               Ankole.Brain.create_object(
                  %{
                    slug: "notes/tagged",
                    type: "note",
@@ -112,7 +111,7 @@ defmodule Ankole.Brain.ObjectsTest do
       assert Ankole.Brain.Links.tags_for_object(object.slug) == ["AI", "research"]
 
       assert {:ok, updated} =
-               Objects.update_object(
+               Ankole.Brain.update_object(
                  object.slug,
                  %{title: "Revised", expected_content_hash: object.content_hash},
                  human.uid
@@ -124,7 +123,7 @@ defmodule Ankole.Brain.ObjectsTest do
       assert version.author.uid == human.uid
 
       assert {:ok, cleared} =
-               Objects.update_object(
+               Ankole.Brain.update_object(
                  object.slug,
                  %{tags: [], expected_content_hash: updated.content_hash},
                  human.uid
@@ -134,17 +133,21 @@ defmodule Ankole.Brain.ObjectsTest do
       refute cleared.content_hash == updated.content_hash
 
       assert {:error, :content_hash_conflict} =
-               Objects.update_object(
-                 object.slug,
-                 %{tags: ["stale"], expected_content_hash: updated.content_hash},
-                 human.uid
+               Ankole.Errors.reason(
+                 Ankole.Brain.update_object(
+                   object.slug,
+                   %{tags: ["stale"], expected_content_hash: updated.content_hash},
+                   human.uid
+                 )
                )
 
       assert {:error, {:invalid, "tags"}} =
-               Objects.update_object(
-                 object.slug,
-                 %{tags: [""], expected_content_hash: cleared.content_hash},
-                 human.uid
+               Ankole.Errors.reason(
+                 Ankole.Brain.update_object(
+                   object.slug,
+                   %{tags: [""], expected_content_hash: cleared.content_hash},
+                   human.uid
+                 )
                )
 
       assert Ankole.Brain.Links.tags_for_object(object.slug) == []
@@ -172,7 +175,7 @@ defmodule Ankole.Brain.ObjectsTest do
       assert Enum.any?(Objects.writable_types(), &(&1.name == "research" and &1.extractable))
 
       assert {:ok, object} =
-               Objects.create_object(
+               Ankole.Brain.create_object(
                  %{slug: "researchs/retained", type: "research", title: "Retained type"},
                  human.uid
                )
@@ -183,10 +186,14 @@ defmodule Ankole.Brain.ObjectsTest do
     test "reserves the Agent type and namespace even for system writers", %{human: human} do
       for writer <- [:system, human.uid] do
         assert {:error, {:reserved_object_type, "agent"}} =
-                 Objects.create_object(%{slug: "notes/tool", type: "agent"}, writer)
+                 Ankole.Errors.reason(
+                   Ankole.Brain.create_object(%{slug: "notes/tool", type: "agent"}, writer)
+                 )
 
         assert {:error, {:reserved_object_slug, "agents/tool"}} =
-                 Objects.create_object(%{slug: "agents/tool", type: "note"}, writer)
+                 Ankole.Errors.reason(
+                   Ankole.Brain.create_object(%{slug: "agents/tool", type: "note"}, writer)
+                 )
       end
 
       refute "agent" in Objects.installed_type_names()
@@ -209,14 +216,16 @@ defmodule Ankole.Brain.ObjectsTest do
       assert object.subtype == "internal"
 
       assert {:error, {:reserved_object_type, "agent"}} =
-               Objects.update_object(
-                 object.slug,
-                 %{subtype: "external", expected_content_hash: object.content_hash},
-                 :system
+               Ankole.Errors.reason(
+                 Ankole.Brain.update_object(
+                   object.slug,
+                   %{subtype: "external", expected_content_hash: object.content_hash},
+                   :system
+                 )
                )
 
       assert {:ok, updated} =
-               Objects.update_object(
+               Ankole.Brain.update_object(
                  object.slug,
                  %{
                    body: "This Agent handles research.",
@@ -232,7 +241,12 @@ defmodule Ankole.Brain.ObjectsTest do
       source = %Ankole.Brain.Schemas.Source{id: UUIDv7.autogenerate(), kind: "url"}
 
       assert {:error, {:reserved_object_slug, "agents/forged"}} =
-               Objects.upsert_source_projection(source, %{slug: "agents/forged", type: "media"})
+               Ankole.Errors.reason(
+                 Ankole.Brain.upsert_source_projection(source, %{
+                   slug: "agents/forged",
+                   type: "media"
+                 })
+               )
     end
 
     test "creates an object with chunks per audience scope", %{human: human, group: group} do
@@ -245,7 +259,7 @@ defmodule Ankole.Brain.ObjectsTest do
       """
 
       assert {:ok, object} =
-               Objects.create_object(
+               Ankole.Brain.create_object(
                  %{slug: "companies/acme", type: "company", title: "Acme", body: body},
                  human.uid
                )
@@ -266,9 +280,11 @@ defmodule Ankole.Brain.ObjectsTest do
 
     test "rejects an undeclared type and lists the installed set", %{human: human} do
       assert {:error, {:unknown_object_type, "spaceship", details}} =
-               Objects.create_object(
-                 %{slug: "x/y", type: "spaceship", title: "X"},
-                 human.uid
+               Ankole.Errors.reason(
+                 Ankole.Brain.create_object(
+                   %{slug: "x/y", type: "spaceship", title: "X"},
+                   human.uid
+                 )
                )
 
       assert "note" in details.installed_types
@@ -293,9 +309,11 @@ defmodule Ankole.Brain.ObjectsTest do
       """
 
       assert {:error, {:writer_not_in_scope_group, _name}} =
-               Objects.create_object(
-                 %{slug: "notes/rejected", type: "note", title: "X", body: body},
-                 human.uid
+               Ankole.Errors.reason(
+                 Ankole.Brain.create_object(
+                   %{slug: "notes/rejected", type: "note", title: "X", body: body},
+                   human.uid
+                 )
                )
     end
 
@@ -307,9 +325,11 @@ defmodule Ankole.Brain.ObjectsTest do
       """
 
       assert {:error, {:unknown_scope_group, "missing-group"}} =
-               Objects.create_object(
-                 %{slug: "notes/a", type: "note", title: "A", body: body},
-                 human.uid
+               Ankole.Errors.reason(
+                 Ankole.Brain.create_object(
+                   %{slug: "notes/a", type: "note", title: "A", body: body},
+                   human.uid
+                 )
                )
 
       body = """
@@ -319,9 +339,11 @@ defmodule Ankole.Brain.ObjectsTest do
       """
 
       assert {:error, {:unknown_scope_principal, "missing-uid"}} =
-               Objects.create_object(
-                 %{slug: "notes/b", type: "note", title: "B", body: body},
-                 :system
+               Ankole.Errors.reason(
+                 Ankole.Brain.create_object(
+                   %{slug: "notes/b", type: "note", title: "B", body: body},
+                   :system
+                 )
                )
     end
   end
@@ -331,7 +353,7 @@ defmodule Ankole.Brain.ObjectsTest do
       prefix = String.duplicate("x", 5_000)
 
       {:ok, object} =
-        Objects.create_object(
+        Ankole.Brain.create_object(
           %{
             slug: "notes/long-meta",
             type: "note",
@@ -342,7 +364,7 @@ defmodule Ankole.Brain.ObjectsTest do
         )
 
       assert {:ok, updated} =
-               Objects.update_object(
+               Ankole.Brain.update_object(
                  object.slug,
                  %{meta: %{"value" => prefix <> "B"}, expected_content_hash: object.content_hash},
                  human.uid
@@ -351,10 +373,12 @@ defmodule Ankole.Brain.ObjectsTest do
       refute object.content_hash == updated.content_hash
 
       assert {:error, :content_hash_conflict} =
-               Objects.update_object(
-                 object.slug,
-                 %{title: "Stale", expected_content_hash: object.content_hash},
-                 human.uid
+               Ankole.Errors.reason(
+                 Ankole.Brain.update_object(
+                   object.slug,
+                   %{title: "Stale", expected_content_hash: object.content_hash},
+                   human.uid
+                 )
                )
     end
 
@@ -364,7 +388,7 @@ defmodule Ankole.Brain.ObjectsTest do
             {:effective_date, ~D[2026-08-01], ~D[2026-08-02]}
           ] do
         {:ok, object} =
-          Objects.create_object(
+          Ankole.Brain.create_object(
             %{
               field => before_value,
               slug: "notes/cas-#{field}",
@@ -377,7 +401,7 @@ defmodule Ankole.Brain.ObjectsTest do
           )
 
         assert {:ok, updated} =
-                 Objects.update_object(
+                 Ankole.Brain.update_object(
                    object.slug,
                    %{field => after_value, :expected_content_hash => object.content_hash},
                    human.uid
@@ -386,17 +410,19 @@ defmodule Ankole.Brain.ObjectsTest do
         refute updated.content_hash == object.content_hash
 
         assert {:error, :content_hash_conflict} =
-                 Objects.update_object(
-                   object.slug,
-                   %{
-                     title: object.title,
-                     body: "Stale full form",
-                     meta: object.meta,
-                     subtype: object.subtype,
-                     effective_date: object.effective_date,
-                     expected_content_hash: object.content_hash
-                   },
-                   human.uid
+                 Ankole.Errors.reason(
+                   Ankole.Brain.update_object(
+                     object.slug,
+                     %{
+                       title: object.title,
+                       body: "Stale full form",
+                       meta: object.meta,
+                       subtype: object.subtype,
+                       effective_date: object.effective_date,
+                       expected_content_hash: object.content_hash
+                     },
+                     human.uid
+                   )
                  )
 
         stored = Repo.get!(Object, object.id)
@@ -410,32 +436,40 @@ defmodule Ankole.Brain.ObjectsTest do
 
     test "deleted content is read-only until explicit restore", %{human: human} do
       {:ok, original} =
-        Objects.create_object(
+        Ankole.Brain.create_object(
           %{slug: "notes/deleted-write", type: "note", title: "Deleted", body: "Original"},
           human.uid
         )
 
       {:ok, edited} =
-        Objects.update_object(
+        Ankole.Brain.update_object(
           original.slug,
           %{body: "Current", expected_content_hash: original.content_hash},
           human.uid
         )
 
       [version] = Repo.all(from(v in ObjectVersion, where: v.object_id == ^original.id))
-      {:ok, deleted} = Objects.soft_delete(edited.slug, reason: "No longer valid", by: human.uid)
+
+      {:ok, deleted} =
+        Ankole.Brain.soft_delete_object(edited.slug, %{reason: "No longer valid", by: human.uid})
 
       before_chunks =
         Repo.all(from(c in Chunk, where: c.object_id == ^original.id, order_by: c.id))
 
       assert {:error, :object_deleted} =
-               Objects.update_object(
-                 deleted.slug,
-                 %{body: "Hidden edit", expected_content_hash: deleted.content_hash},
-                 human.uid
+               Ankole.Errors.reason(
+                 Ankole.Brain.update_object(
+                   deleted.slug,
+                   %{body: "Hidden edit", expected_content_hash: deleted.content_hash},
+                   human.uid
+                 )
                )
 
-      assert {:error, :object_deleted} = Objects.rollback(deleted.slug, version.id, human.uid)
+      assert {:error, :object_deleted} =
+               Ankole.Errors.reason(
+                 Ankole.Brain.rollback_object(deleted.slug, version.id, human.uid)
+               )
+
       Ankole.DataCase.assert_persisted_equal(Repo.get!(Object, original.id), deleted)
 
       Ankole.DataCase.assert_persisted_equal(
@@ -446,13 +480,16 @@ defmodule Ankole.Brain.ObjectsTest do
       assert Repo.all(from(c in Chunk, where: c.object_id == ^original.id, order_by: c.id)) ==
                before_chunks
 
-      assert {:ok, restored} = Objects.restore(deleted.slug)
+      assert {:ok, restored} = Ankole.Brain.restore_object(deleted.slug)
       assert is_nil(restored.deleted_at)
-      assert {:ok, rolled_back} = Objects.rollback(restored.slug, version.id, human.uid)
+
+      assert {:ok, rolled_back} =
+               Ankole.Brain.rollback_object(restored.slug, version.id, human.uid)
+
       assert rolled_back.body == original.body
 
       assert {:ok, _edited_again} =
-               Objects.update_object(
+               Ankole.Brain.update_object(
                  rolled_back.slug,
                  %{body: "Visible edit", expected_content_hash: rolled_back.content_hash},
                  human.uid
@@ -461,20 +498,22 @@ defmodule Ankole.Brain.ObjectsTest do
 
     test "snapshots the previous body and applies CAS", %{human: human} do
       assert {:ok, object} =
-               Objects.create_object(
+               Ankole.Brain.create_object(
                  %{slug: "notes/cas", type: "note", title: "CAS", body: "v1"},
                  human.uid
                )
 
       assert {:error, :content_hash_conflict} =
-               Objects.update_object(
-                 "notes/cas",
-                 %{body: "v2", expected_content_hash: "stale"},
-                 human.uid
+               Ankole.Errors.reason(
+                 Ankole.Brain.update_object(
+                   "notes/cas",
+                   %{body: "v2", expected_content_hash: "stale"},
+                   human.uid
+                 )
                )
 
       assert {:ok, updated} =
-               Objects.update_object(
+               Ankole.Brain.update_object(
                  "notes/cas",
                  %{body: "v2", expected_content_hash: object.content_hash},
                  human.uid
@@ -497,7 +536,7 @@ defmodule Ankole.Brain.ObjectsTest do
       body = "First paragraph stays.\n\nSecond paragraph changes."
 
       assert {:ok, object} =
-               Objects.create_object(
+               Ankole.Brain.create_object(
                  %{slug: "notes/reconcile", type: "note", title: "R", body: body},
                  human.uid
                )
@@ -516,7 +555,7 @@ defmodule Ankole.Brain.ObjectsTest do
       # The whole body is one chunk (short text merges); rewrite to change
       # its text: position 0 must reset its vector state.
       assert {:ok, _updated} =
-               Objects.update_object(
+               Ankole.Brain.update_object(
                  "notes/reconcile",
                  %{
                    body: "First paragraph stays.\n\nSecond paragraph is different now.",
@@ -534,7 +573,7 @@ defmodule Ankole.Brain.ObjectsTest do
   describe "timeline chunks" do
     test "timelines compile after body with their own scope", %{human: human, group: group} do
       assert {:ok, object} =
-               Objects.create_object(
+               Ankole.Brain.create_object(
                  %{slug: "events/kickoff", type: "event", title: "Kickoff", body: "Overview."},
                  human.uid
                )
@@ -553,7 +592,7 @@ defmodule Ankole.Brain.ObjectsTest do
                  })
                end)
 
-      assert {:ok, _object} = Chunks.reconcile(object)
+      assert {:ok, _object} = Ankole.Brain.reconcile_chunks(object)
 
       chunks =
         Chunk
@@ -573,7 +612,7 @@ defmodule Ankole.Brain.ObjectsTest do
   describe "resolve_slug/2 and valid_holder?/2" do
     test "resolves through slug aliases", %{human: human} do
       assert {:ok, _object} =
-               Objects.create_object(
+               Ankole.Brain.create_object(
                  %{slug: "companies/new-name", type: "company", title: "New"},
                  human.uid
                )
@@ -601,7 +640,7 @@ defmodule Ankole.Brain.ObjectsTest do
   describe "resolve_reference/2" do
     setup %{human: human} do
       {:ok, object} =
-        Objects.create_object(
+        Ankole.Brain.create_object(
           %{slug: "companies/minghu-ai", type: "company", title: "Minghu AI"},
           human.uid
         )
@@ -637,7 +676,7 @@ defmodule Ankole.Brain.ObjectsTest do
       assert resolved.slug == object.slug
 
       {:ok, _other} =
-        Objects.create_object(
+        Ankole.Brain.create_object(
           %{slug: "companies/minghu-labs", type: "company", title: "Minghu Labs"},
           human.uid
         )
@@ -656,14 +695,14 @@ defmodule Ankole.Brain.ObjectsTest do
       assert {:ok, _alias} = Ankole.Brain.Links.add_alias(object.slug, alias_text)
 
       assert {:ok, other} =
-               Objects.create_object(
+               Ankole.Brain.create_object(
                  %{slug: "companies/deleted-alias-target", type: "company", title: "Other"},
                  human.uid
                )
 
       assert {:ok, _alias} = Ankole.Brain.Links.add_alias(other.slug, alias_text)
       assert {:ambiguous, _candidates} = Objects.resolve_reference(alias_text)
-      assert {:ok, _deleted} = Objects.soft_delete(other.slug)
+      assert {:ok, _deleted} = Ankole.Brain.soft_delete_object(other.slug)
 
       assert {:ok, resolved} = Objects.resolve_reference(alias_text)
       assert resolved.slug == object.slug
@@ -679,20 +718,43 @@ defmodule Ankole.Brain.ObjectsTest do
     test "Chinese titles stay distinct and duplicate exact titles are ambiguous" do
       for {slug, title} <- [{"notes/research", "研究 Skill"}, {"notes/drawing", "绘图 Skill"}] do
         assert {:ok, _object} =
-                 Objects.create_object(%{slug: slug, type: "note", title: title}, :system)
+                 Ankole.Brain.create_object(%{slug: slug, type: "note", title: title}, :system)
       end
 
       assert {:ok, %{slug: "notes/research"}} = Objects.resolve_reference("研究 Skill")
       assert {:error, :not_found} = Objects.resolve_reference("炒股 Skill")
 
       assert {:ok, _object} =
-               Objects.create_object(
-                 %{slug: "notes/other-research", type: "note", title: "研究 Skill"},
-                 :system
+               Ankole.Errors.reason(
+                 Ankole.Brain.create_object(
+                   %{slug: "notes/other-research", type: "note", title: "研究 Skill"},
+                   :system
+                 )
                )
 
       assert {:ambiguous, candidates} = Objects.resolve_reference("研究 Skill")
       assert length(candidates) == 2
+    end
+  end
+
+  describe "operation transactions" do
+    test "a write step runs only in the transaction of its operation", %{human: human} do
+      attrs = %{slug: "notes/operation", type: "note", title: "Operation"}
+
+      assert {:error, :transaction_required} = Objects.create_object_in_tx(attrs, human.uid)
+      assert {:error, :not_found} = Objects.get_by_slug("notes/operation")
+
+      assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
+        Repo.transact(fn -> Ankole.Brain.create_object(attrs, human.uid) end)
+      end
+
+      assert {:error, :not_found} = Objects.get_by_slug("notes/operation")
+
+      assert {:ok, %Object{slug: "notes/operation"}} =
+               Ankole.Brain.create_object(attrs, human.uid)
+
+      assert {:error, {:slug_taken, "notes/operation"}} =
+               Ankole.Errors.reason(Ankole.Brain.create_object(attrs, human.uid))
     end
   end
 end

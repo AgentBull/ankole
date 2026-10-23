@@ -57,17 +57,7 @@ defmodule Ankole.Sessions.Presentation do
   end
 
   def start(run, driver) do
-    with {:ok, :linked} <-
-           Ankole.Repo.transact(fn repo ->
-             with :ok <- Ankole.Sessions.Fence.check_in_tx(repo, run, :share),
-                  :ok <-
-                    Attachments.link_payload(
-                      run.agent_uid,
-                      Signal.envelope(run.delivered_event),
-                      run.delivered_event.conversation_id
-                    ),
-                  do: {:ok, :linked}
-           end) do
+    with {:ok, :linked} <- run |> Ankole.Sessions.link_run_input() |> Ankole.Errors.reason() do
       with :ok <-
              Preview.maybe_start_for(run.event, run.agent_uid, run.conversation.id,
                driver: driver,
@@ -80,6 +70,19 @@ defmodule Ankole.Sessions.Presentation do
         continue(run, events)
       end
     end
+  end
+
+  @doc false
+  def link_input_in_tx(repo, run) do
+    with :ok <- Ankole.Sessions.Fence.check_in_tx(repo, run, :share),
+         :ok <-
+           Attachments.link_payload_in_tx(
+             repo,
+             run.agent_uid,
+             Signal.envelope(run.delivered_event),
+             run.delivered_event.conversation_id
+           ),
+         do: {:ok, :linked}
   end
 
   def reply_event(events, fallback) do

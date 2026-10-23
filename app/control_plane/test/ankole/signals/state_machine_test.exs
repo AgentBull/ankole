@@ -190,11 +190,13 @@ defmodule Ankole.Signals.StateMachineTest do
 
     assert {:ok, {1, nil}} =
              Repo.transact(fn repo ->
-               Queue.stop_human_work_in_tx(repo, human_uid, 2, now) |> then(&{:ok, &1})
+               Ankole.Signals.stop_human_work_in_tx(repo, human_uid, 2, now) |> then(&{:ok, &1})
              end)
 
     assert Repo.reload!(queued).status == :dead_letter
     assert Repo.reload!(admitted).status == :running
+    assert Ankole.Signals.count_admitted_attempts_for_human(human_uid, 2) == 1
+    assert Ankole.Signals.count_admitted_attempts_for_human(human_uid, 1) == 0
   end
 
   defp transition(signal, action, attrs),

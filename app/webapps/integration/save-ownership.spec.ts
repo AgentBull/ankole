@@ -1,31 +1,37 @@
 import { expect, test, type Route } from '@playwright/test'
 
+// A Worker provider record as the site JSON:API sends it.
+function workerProvider(attributes: { provider_id: string }) {
+  return { id: `row-${attributes.provider_id}`, type: 'worker_provider', attributes }
+}
+
 test('a provider response preserves edits made while saving and the navigation guard', async ({ page }) => {
   let item = {
     provider_id: 'fixture',
     kind: 'docker',
     display_name: 'Fixture',
     config: 'before',
-    credentials: {},
+    stored_credentials: [],
     is_default: false,
-    agent_count: 0
+    agent_count: 0,
+    selectable: true
   }
   const writes: Route[] = []
-  await page.route('**/api/v1/site/worker-provider-kinds', route =>
+  await page.route('**/api/v2/site/worker-provider-kinds', route =>
     route.fulfill({
       json: {
         worker_provider_kinds: [{ kind: 'docker', example: 'before', credentials: { token: { required: false } } }]
       }
     })
   )
-  await page.route('**/api/v1/site/worker-providers**', route => {
+  await page.route('**/api/v2/site/worker-providers**', route => {
     if (route.request().method() === 'PATCH') {
       writes.push(route)
       return
     }
-    return route.fulfill({ json: { worker_providers: [item] } })
+    return route.fulfill({ json: { data: [workerProvider(item)] } })
   })
-  await page.route('**/api/v1/site/app-configurations**', route => route.fulfill({ json: { app_configurations: [] } }))
+  await page.route('**/api/v2/site/app-configurations**', route => route.fulfill({ json: { app_configurations: [] } }))
   await page.goto('/worker-providers/fixture')
   const config = page.locator('textarea')
   await config.fill('sent')
@@ -42,7 +48,7 @@ test('a provider response preserves edits made while saving and the navigation g
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: /keep editing/i }).click()
   item = { ...item, config: 'sent' }
-  await writes[0]!.fulfill({ json: { worker_provider: item } })
+  await writes[0]!.fulfill({ json: { data: workerProvider(item) } })
   await expect(config).toHaveValue('next')
   await expect(page.getByLabel('token', { exact: true })).toHaveValue('next-token')
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeEnabled()
@@ -56,13 +62,19 @@ test('suspending a tenant leaves its unsaved name dirty', async ({ page }) => {
     suspended_at: null as string | null,
     deleting_at: null
   }
-  await page.route('**/api/v1/site/privileged-tenant', route => route.fulfill({ json: { tenant: { id: 'other' } } }))
-  await page.route('**/api/v1/site/tenants**', route => {
-    if (route.request().method() === 'PUT') {
+  const document = (record: typeof tenant) => {
+    const { id, ...attributes } = record
+    return { id, type: 'tenant', attributes }
+  }
+  await page.route('**/api/v2/site/privileged-tenant', route =>
+    route.fulfill({ json: { data: { id: 'other', type: 'tenant', attributes: {} } } })
+  )
+  await page.route('**/api/v2/site/tenants**', route => {
+    if (route.request().method() === 'POST') {
       tenant = { ...tenant, suspended_at: '2026-10-19T00:00:00Z' }
-      return route.fulfill({ json: { tenant } })
+      return route.fulfill({ status: 201, json: { data: document(tenant) } })
     }
-    return route.fulfill({ json: { tenants: [tenant], brain_packs: [] } })
+    return route.fulfill({ json: { data: [document(tenant)] } })
   })
   await page.goto('/tenants/one')
   const input = page.locator('input').first()
@@ -76,7 +88,7 @@ test('suspending a tenant leaves its unsaved name dirty', async ({ page }) => {
 test('an old reveal does not replace a new Agent environment draft', async ({ page }) => {
   let reveal: Route | undefined
   const item = { name: 'QA_SECRET', source: 'agent', secret: true, value: null }
-  await page.route('**/api/v1/agents/agent-one/worker-envs**', route => {
+  await page.route('**/api/v2/agents/agent-one/worker-envs**', route => {
     if (route.request().method() === 'POST') {
       reveal = route
       return
@@ -101,21 +113,22 @@ test('a delayed delete acknowledgement cannot navigate away from the next editor
     kind: 'docker',
     display_name: 'Fixture',
     config: 'before',
-    credentials: {},
+    stored_credentials: [],
     is_default: false,
-    agent_count: 0
+    agent_count: 0,
+    selectable: true
   }
-  await page.route('**/api/v1/site/worker-provider-kinds', route =>
+  await page.route('**/api/v2/site/worker-provider-kinds', route =>
     route.fulfill({ json: { worker_provider_kinds: [{ kind: 'docker', example: 'before', credentials: {} }] } })
   )
-  await page.route('**/api/v1/site/worker-providers**', route => {
+  await page.route('**/api/v2/site/worker-providers**', route => {
     if (route.request().method() === 'DELETE') {
       deletion = route
       return
     }
-    return route.fulfill({ json: { worker_providers: deleted ? [] : [item] } })
+    return route.fulfill({ json: { data: deleted ? [] : [workerProvider(item)] } })
   })
-  await page.route('**/api/v1/site/app-configurations**', route => route.fulfill({ json: { app_configurations: [] } }))
+  await page.route('**/api/v2/site/app-configurations**', route => route.fulfill({ json: { app_configurations: [] } }))
   await page.goto('/worker-providers/fixture')
   await page.getByRole('button', { name: 'Delete', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click()
@@ -126,7 +139,7 @@ test('a delayed delete acknowledgement cannot navigate away from the next editor
     .click()
   await expect(page).toHaveURL(/\/settings$/)
   deleted = true
-  await deletion!.fulfill({ status: 204 })
+  await deletion!.fulfill({ json: { data: workerProvider(item) } })
   await expect
     .poll(() => page.evaluate(() => (window as unknown as { testMutationStatuses(): string[] }).testMutationStatuses()))
     .toContain('success')

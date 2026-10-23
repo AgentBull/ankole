@@ -1,6 +1,6 @@
 defmodule Ankole.Principals.LocalCredential do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals
 
   postgres do
     table("human_user_local_credentials")
@@ -34,11 +34,28 @@ defmodule Ankole.Principals.LocalCredential do
 
     create :create_in_tx do
       accept([:principal_uid, :password_hash, :must_change_password])
-      transaction?(false)
     end
 
-    in_tx_update :set_password_in_tx do
+    update :set_password_in_tx do
       accept([:password_hash, :must_change_password])
+    end
+
+    action :complete_forced_password_change, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:uid, :term, allow_nil?: false)
+      argument(:password_hash, :term, allow_nil?: false, sensitive?: true)
+      argument(:credential_version, :integer, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :put_password, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:uid, :term, allow_nil?: false)
+      argument(:password_hash, :term, allow_nil?: false, sensitive?: true)
+      argument(:must_change_password, :boolean, allow_nil?: false)
+
+      run(__MODULE__.Actions)
     end
   end
 

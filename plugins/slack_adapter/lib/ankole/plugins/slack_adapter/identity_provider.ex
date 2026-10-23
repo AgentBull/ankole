@@ -30,6 +30,20 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
     end
   end
 
+  @doc """
+  Declares the ID token that the host verifies for a Slack login.
+
+  The UserInfo `sub` claim must match the signed `sub` claim.
+  """
+  @spec id_token_verification(map()) :: Ankole.IdentityProviders.OIDC.verification()
+  def id_token_verification(config) do
+    %{
+      issuer: "https://slack.com",
+      client_id: Map.fetch!(config, "clientID"),
+      subject_claim: "sub"
+    }
+  end
+
   @spec exchange_code(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def exchange_code(config, code, opts \\ []) do
     client = Config.client(config)
@@ -41,22 +55,13 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
              code: code,
              redirect_uri: Keyword.get(opts, :redirect_uri)
            ),
-         {:ok, verified} <-
-           Ankole.IdentityProviders.OIDC.verify(
-             token,
-             "https://slack.com",
-             Map.fetch!(config, "clientID"),
-             opts
-           ),
          {:ok, claims} <-
            OIDC.user_info(token.access_token,
              base_url: client.base_url,
              req_options: client.req_options
            ),
-         :ok <- Ankole.IdentityProviders.OIDC.bind_subject(verified, claims),
-         user <- normalize_claims(claims),
-         {:ok, user} <- hydrate_user(config, user) do
-      {:ok, %{token: token, user: user, auth_time: verified["auth_time"]}}
+         {:ok, user} <- hydrate_user(config, normalize_claims(claims)) do
+      {:ok, %{token: token, claims: claims, user: user}}
     end
   end
 

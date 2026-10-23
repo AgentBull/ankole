@@ -13,14 +13,10 @@ defmodule Ankole.Sessions.SessionQueries do
   and the conversations page already surfaces them.
   """
 
-  import Ecto.Query, warn: false
+  import Ash.Expr, only: [expr: 1]
 
   alias Ankole.BackgroundAgentJobs
-  alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.Repo
   alias Ankole.Schedule.Cron
-  alias Ankole.Schedule.Schemas.CronSchedule
-  alias Ankole.Schedule.Schemas.ScheduledEvent
 
   @type session :: %{
           session_id: String.t(),
@@ -66,45 +62,49 @@ defmodule Ankole.Sessions.SessionQueries do
   # origin so the console can prefer a job title when one exists.
 
   defp cron_sessions(agent_uid) do
-    CronSchedule
-    |> where([s], s.agent_uid == ^agent_uid and s.status != :deleted)
-    |> group_by([s], s.owner_session_id)
-    |> select([s], %{session_id: s.owner_session_id, at: max(s.updated_at)})
-    |> Repo.all()
-    |> Enum.map(fn %{session_id: session_id, at: at} ->
+    agent_uid
+    |> Ankole.Schedule.list_cron_schedules()
+    |> Enum.group_by(& &1.owner_session_id, & &1.updated_at)
+    |> Enum.map(fn {session_id, times} ->
+      at = Enum.max(times, DateTime)
       %{session_id: session_id, kind: "session", title: nil, status: nil, last_activity_at: at}
     end)
   end
 
+  # One row for each session: the newest event, by DISTINCT ON the session.
   defp event_sessions(agent_uid) do
-    ScheduledEvent
-    |> where([e], e.agent_uid == ^agent_uid)
-    |> where([e], not like(e.session_id, ^(Cron.execution_session_prefix() <> "%")))
-    |> group_by([e], e.session_id)
-    |> select([e], %{session_id: e.session_id, at: max(e.updated_at)})
-    |> Repo.all()
-    |> Enum.map(fn %{session_id: session_id, at: at} ->
-      %{session_id: session_id, kind: "session", title: nil, status: nil, last_activity_at: at}
+    prefix = Cron.execution_session_prefix()
+
+    [
+      query: [
+        filter: expr(agent_uid == ^agent_uid and not string_starts_with(session_id, ^prefix)),
+        distinct: [:session_id],
+        distinct_sort: [session_id: :asc, updated_at: :desc],
+        select: [:session_id, :updated_at]
+      ]
+    ]
+    |> Ankole.Schedule.list_scheduled_events!()
+    |> Enum.map(fn event ->
+      %{
+        session_id: event.session_id,
+        kind: "session",
+        title: nil,
+        status: nil,
+        last_activity_at: event.updated_at
+      }
     end)
   end
 
   defp job_sessions(agent_uid) do
-    Job
-    |> where([j], j.agent_uid == ^agent_uid)
-    |> select([j], %{
-      job_id: j.id,
-      status: j.status,
-      title: j.title,
-      at: j.updated_at
-    })
-    |> Repo.all()
-    |> Enum.map(fn %{job_id: job_id, status: status, title: title, at: at} ->
+    [query: [filter: [agent_uid: agent_uid], select: [:id, :status, :title, :updated_at]]]
+    |> BackgroundAgentJobs.list_jobs!()
+    |> Enum.map(fn job ->
       %{
-        session_id: BackgroundAgentJobs.job_session_id(job_id),
+        session_id: BackgroundAgentJobs.job_session_id(job.id),
         kind: "job",
-        title: title,
-        status: Atom.to_string(status),
-        last_activity_at: at
+        title: job.title,
+        status: Atom.to_string(job.status),
+        last_activity_at: job.updated_at
       }
     end)
   end

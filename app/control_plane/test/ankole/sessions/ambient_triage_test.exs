@@ -25,7 +25,7 @@ defmodule Ankole.Sessions.AmbientTriageTest do
     refute Repo.exists?(SessionWorkspace)
     refute Repo.exists?(ModelConversation)
 
-    assert {:ok, %{status: :completed}} = AmbientTriage.run(key, event)
+    assert {:ok, :settled} = AmbientTriage.run(key, event)
 
     assert %Signal{completed_at: %DateTime{}, turn_outcome: "silent", last_attempt_at: nil} =
              Repo.reload!(event)
@@ -40,8 +40,7 @@ defmodule Ankole.Sessions.AmbientTriageTest do
     event = ambient_event(agent, "What is the benchmark?")
     key = %{agent_uid: agent.uid, session_id: event.session_id}
 
-    assert {:ok, %{status: :ambient_ready, signal: event}} =
-             AmbientTriage.run(key, event)
+    assert {:ok, :intervene, event} = AmbientTriage.run(key, event)
 
     refute Repo.exists?(SessionWorkspace)
     refute Repo.exists?(ModelConversation)
@@ -130,8 +129,7 @@ defmodule Ankole.Sessions.AmbientTriageTest do
       data = put_in(event.data, ["ambient_batch", "expires_at"], DateTime.to_iso8601(expires))
       event = Repo.update!(Ecto.Changeset.change(event, data: data))
 
-      assert {:ok, %{status: :ambient_superseded, reason: :expired}} =
-               AmbientTriage.run(key, event)
+      assert {:ok, :settled} = AmbientTriage.run(key, event)
 
       assert_receive :ambient_expiring_provider_called
       assert DateTime.compare(DateTime.utc_now(:microsecond), expires) == :gt
@@ -155,15 +153,14 @@ defmodule Ankole.Sessions.AmbientTriageTest do
     key = %{agent_uid: agent.uid, session_id: event.session_id}
 
     for attempt <- 1..2 do
-      assert {:ok, %{status: :deferred, signal: current}} =
-               AmbientTriage.run(key, event)
+      assert {:ok, :deferred, current} = AmbientTriage.run(key, event)
 
       assert current.attempt_count == attempt
       assert current.last_attempt_at == nil
       assert current.completed_at == nil
     end
 
-    assert {:ok, %{status: :completed}} = AmbientTriage.run(key, event)
+    assert {:ok, :settled} = AmbientTriage.run(key, event)
 
     assert %Signal{
              attempt_count: 3,
@@ -226,13 +223,7 @@ defmodule Ankole.Sessions.AmbientTriageTest do
 
     on_exit(fn -> :telemetry.detach(handler) end)
 
-    assert {:ok,
-            %{
-              status: :agent_token_quota_exceeded,
-              token_quota: %{used_tokens: 1_500, limit_tokens: 1_000, exceeded: true},
-              posted: %{intents: []},
-              notice_error: nil
-            }} = AmbientTriage.run(key, event)
+    assert {:ok, :settled} = AmbientTriage.run(key, event)
 
     assert_receive :ambient_quota_consumed
     refute_receive :ambient_provider_called, 20
@@ -266,7 +257,7 @@ defmodule Ankole.Sessions.AmbientTriageTest do
       {:json, 200, response("HANDOFF", %{"handoff_job_id" => Integer.to_string(job.id)})}
     end)
 
-    assert {:ok, %{status: :completed}} = AmbientTriage.run(key, event)
+    assert {:ok, :settled} = AmbientTriage.run(key, event)
     assert_receive {:triage_request, request}
     refute Map.has_key?(request.body, "conversation")
     refute Map.has_key?(request.body, "previous_response_id")
@@ -280,7 +271,7 @@ defmodule Ankole.Sessions.AmbientTriageTest do
     assert %Signal{completed_at: %DateTime{}, turn_outcome: "silent", last_attempt_at: nil} =
              Repo.reload!(event)
 
-    assert {:ok, %{status: :already_completed}} = AmbientTriage.run(key, event)
+    assert {:ok, :settled} = AmbientTriage.run(key, event)
     refute_receive {:triage_request, _}, 20
     assert Repo.aggregate(from(s in Signal, where: s.type == "command.steer"), :count) == 1
     refute Repo.exists?(SessionWorkspace)
@@ -332,8 +323,7 @@ defmodule Ankole.Sessions.AmbientTriageTest do
 
     send(provider, :finish_classification)
 
-    assert {:ok, %{status: :ambient_superseded, reason: :scene_changed}} =
-             Task.await(classification)
+    assert {:ok, :settled} = Task.await(classification)
 
     assert %Signal{completed_at: %DateTime{}} = Repo.reload!(event)
     assert Repo.reload!(newest).completed_at == nil
@@ -352,8 +342,7 @@ defmodule Ankole.Sessions.AmbientTriageTest do
     event = ambient_event(agent, "The pod failed.")
     key = %{agent_uid: agent.uid, session_id: event.session_id}
 
-    assert {:ok, %{status: :deferred, signal: failed}} =
-             AmbientTriage.run(key, event)
+    assert {:ok, :deferred, failed} = AmbientTriage.run(key, event)
 
     assert failed.last_attempt_at == nil
     later = DateTime.add(event.occurred_at, 20, :second)
@@ -371,7 +360,7 @@ defmodule Ankole.Sessions.AmbientTriageTest do
                now: later
              )
 
-    assert {:ok, %{status: :ambient_superseded}} = AmbientTriage.run(key, failed)
+    assert {:ok, :settled} = AmbientTriage.run(key, failed)
     assert %Signal{last_attempt_at: nil, completed_at: %DateTime{}} = Repo.reload!(event)
 
     assert %Signal{attempt_count: 0, last_attempt_at: nil, completed_at: nil} =

@@ -204,15 +204,16 @@ See [Background Agent Job](BackgroundAgentJob.md) for the complete Job contract.
 The Console API exposes the selected tenant's defaults and Agent-specific
 effective state.
 
-- `GET /api/v1/agent-library/capabilities`
-- `PUT /api/v1/agent-library/agent-plugins/:id`
-- `PUT /api/v1/agent-library/skills/:id`
-- `GET /api/v1/agents/:agent_uid/library-capabilities`
-- `PUT /api/v1/agents/:agent_uid/library-capabilities/agent-plugins/:id`
-- `PUT /api/v1/agents/:agent_uid/library-capabilities/skills/:id`
+- `GET /api/v2/agent-library/capabilities`
+- `PUT /api/v2/agent-library/agent-plugins/:id`
+- `PUT /api/v2/agent-library/skills/:id`
+- `GET /api/v2/agents/:agent_uid/library-capabilities`
+- `PUT /api/v2/agents/:agent_uid/library-capabilities/agent-plugins/:id`
+- `PUT /api/v2/agents/:agent_uid/library-capabilities/skills/:id`
 
-Tenant default writes use `{ "enabled": boolean }`.
-Agent writes use `{ "enabled": boolean | null }`.
+Requests use `application/vnd.api+json`. Tenant default writes use
+`{ "data": { "enabled": boolean } }`. Agent writes use
+`{ "data": { "enabled": boolean | null } }`.
 A null value restores inheritance.
 
 Capability rows include these state fields:
@@ -358,10 +359,11 @@ completes applies that list. Completed installations fail closed.
 
 The Console API makes both states visible.
 
-- `GET /api/v1/control-plane-plugins`
-- `PUT /api/v1/control-plane-plugins`
+- `GET /api/v2/site/control-plane-plugins`
+- `PUT /api/v2/site/control-plane-plugins`
 
-The write body uses `{ "id": string, "enabled": boolean }`.
+The write body uses `{ "data": { "id": string, "enabled": boolean } }` with
+`Content-Type: application/vnd.api+json`.
 
 Each response row includes these fields:
 
@@ -380,10 +382,13 @@ and next-start selection. A pending disable therefore rejects new assignments.
 The Plugin controls and setup selection use this same check. The
 `plugins.enabled_ids` entry is read-only in general Console settings. Use the
 Control Plane Plugin controls to change it. These writes belong to
-`Ankole.Plugins.Config`; AppConfigure supplies validation, storage, and its
-key lock. Only changes that remove Worker kinds also take the Worker
+`Ankole.Plugins.Config`. AppConfigure supplies validation, storage, the
+transaction, and its key lock (`AppConfigure.update_global/2`). In that
+transaction, `Ankole.Plugins.Contracts.veto_disable/3` lets each contract stop
+the change. Only changes that remove Worker kinds also take the Worker
 provider lock and check Worker references. Enabling Plugins and changes to other
-Plugins do not run that check.
+Plugins do not run that check. A stored list that cannot be decoded stops the
+write; delete the key with `Ankole.AppConfigure.delete_global/1` to recover.
 
 Function Compute requires `china-market-ai-providers`; Vercel requires
 `vercel-worker-provider`. The China-market Plugin enables both its model
@@ -424,6 +429,14 @@ The control plane handles storage, authorization, setup, supervision, and
 database commits. A Plugin implements only the callback contract of the
 subsystem that calls it. Each subsystem document defines that contract.
 Callback declarations use atom keys.
+
+`Ankole.Plugins.Contracts` is the one table of these contracts. Each entry
+names the functions of the owning subsystem: `validate` checks one active
+declaration at Registry startup, `refresh` publishes the subsystem view of the
+boot snapshot, and `veto_disable` can stop a change of the enable list. The
+Registry and `Plugins.Config` call only this table; they do not name a
+subsystem. A new contract adds one entry. A declaration of a contract without
+an entry keeps only the generic shape check of `Plugins.Spec`.
 
 Control Plane Plugins do not control Agent capabilities. A control-plane
 adapter and a related Agent Plugin can have different enabled states.

@@ -30,8 +30,9 @@ defmodule Mix.Tasks.Ankole.Openapi.Check do
 
     try do
       for {name, module} <- [
-            {"console", AnkoleWeb.APISpec},
-            {"internal", AnkoleWeb.InternalAPISpec}
+            {"internal", AnkoleWeb.InternalAPISpec},
+            {"console-v2", AnkoleWeb.JSONAPI.ConsoleRouter},
+            {"site-v2", AnkoleWeb.JSONAPI.SiteRouter}
           ] do
         committed_path = committed_spec_path(name)
         generated = module.spec() |> OpenAPI.to_map() |> normalize()

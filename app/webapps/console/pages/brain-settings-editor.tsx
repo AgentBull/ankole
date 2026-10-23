@@ -1,4 +1,4 @@
-import type { AiGatewayModelCatalogEntry as AIGatewayModelCatalogEntry } from '../api/generated/types.gen'
+import type { AIGatewayModelCatalogEntry } from '../state/provider-settings'
 import {
   CreatableCombobox,
   CronEditor,
@@ -17,12 +17,11 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { Link } from '@tanstack/react-router'
 import {
-  ankoleWebAgentControllerIndexOptions,
-  ankoleWebAiGatewayProviderControllerModelsOptions,
-  ankoleWebAiGatewayProviderControllerIndexOptions,
-  ankoleWebAiGatewayProviderControllerProviderKindsOptions
-} from '../api/generated/@tanstack/react-query.gen'
-import type { AppConfigurationItem } from '../api/generated/types.gen'
+  listAiGatewayModelsOptions,
+  listAiGatewayProviderKindsOptions
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
+import { agentListOptions } from '../api/agents'
+import type { AppConfigurationItem } from '../api/configuration-types'
 import { LabeledField } from '../console-form'
 import { modelOptionsForBrainModel, providersWithCapability } from './model-profile-options'
 import {
@@ -44,6 +43,8 @@ import {
 } from '../state/brain-setting-editor'
 import { settingDescription } from '../state/setting-groups'
 import { SettingGroupField } from './setting-group-field'
+import { listAiGatewayProvidersOptions } from '../api/v2-site/generated/@tanstack/react-query.gen'
+import { aiGatewayProviders } from '../state/provider-settings'
 
 function cronEditorLabels(t: TFunction): CronEditorLabels {
   return {
@@ -94,15 +95,15 @@ export function BrainSettingsEditor({
   const { t } = useTranslation()
   const itemsByKey = new Map(items.map(item => [item.key, item]))
   const cronLabels = cronEditorLabels(t)
-  const providers = useQuery(ankoleWebAiGatewayProviderControllerIndexOptions())
-  const providerKinds = useQuery(ankoleWebAiGatewayProviderControllerProviderKindsOptions())
-  const modelCatalog = useQuery(ankoleWebAiGatewayProviderControllerModelsOptions())
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const providerList = providers.data?.ai_gateway_providers ?? []
+  const providers = useQuery({ ...listAiGatewayProvidersOptions(), select: aiGatewayProviders })
+  const providerKinds = useQuery(listAiGatewayProviderKindsOptions())
+  const modelCatalog = useQuery(listAiGatewayModelsOptions())
+  const agents = useQuery(agentListOptions())
+  const providerList = providers.data ?? []
   const kindList = providerKinds.data?.provider_kinds ?? []
   const providersLoading = providers.isLoading || providerKinds.isLoading
   const maintainerAgentUID = brainStringDraft(drafts[BRAIN_KEYS.maintainerAgentUID])
-  const agentList = agents.data?.agents ?? []
+  const agentList = agents.data ?? []
   const selectedAgent = agentList.find(agent => agent.uid === maintainerAgentUID)
   const selectableAgents = agentList.filter(agent => agent.status === 'active' || agent.uid === maintainerAgentUID)
   const enabled = drafts[BRAIN_KEYS.enabled] === 'true'

@@ -70,16 +70,28 @@ Bun code calls the control plane for permission decisions.
 
 ## Stored Groups and Grants
 
-`Ankole.AuthZ.Domain` declares the four stored resource types. Their typed
+`Ankole.AuthZ` is the Ash domain of the four stored resource types. Their typed
 actions own field validation, native constraint errors, and persistence.
 Group conditions and grant rules use the Kernel syntax validators.
 Metadata uses the durable JSON object type.
 
-`AuthZ`, `Root`, `Store`, and `Grants` own the aggregate transaction and lock
-contracts. They protect the last administrator and distinguish operator groups
-from groups owned by directory and conversation synchronization. Grant writes
-hold the Pod tree lock. These owners call the resource actions inside their
-PostgreSQL transactions. Ash policies do not make permission decisions.
+Each aggregate write that locks a group, a Principal, or the Pod tree is a
+generic action of `Group`, `Membership`, `Grant`, or `ExternalBinding` that owns
+its transaction. `Store` and `Grants` keep the steps and the lock contracts for
+the caller's transaction: another domain's action calls them, for example
+`Store.replace_static_group_members/4` or `Grants.upsert_permission_grant/2`.
+They protect the last administrator and distinguish operator groups from
+groups owned by directory and conversation synchronization. Grant writes
+hold the Pod tree lock. `AuthZ.add_synced_group_member/3` and
+`remove_synced_group_member/3` change one member of a synchronized group for
+an adapter that observes the change. Ash policies do not make permission
+decisions.
+
+`Ankole.AuthZ.Snapshot` assembles the decision snapshot for each check. It is a
+read model in the persistence boundary: it selects maps and values from
+grants, groups, and memberships and reads the Principal through
+`Principals.get_principal_across_tenants/1`. `AuthZ.restoration_review/1` is
+the other read model. The other AuthZ reads use Ash queries.
 
 Membership admission preserves its first timestamp. External bindings use
 their tenant-scoped composite key. Grant upserts use the partial
@@ -270,11 +282,13 @@ or constraint for the reservation.
 
 The reservation belongs to the grant interfaces:
 
-- The Console grant API (`/api/v1/permission-grants`) rejects a create that names
-  a reserved action, for a Principal owner or a group owner, with `422
-  validation_failed` and an `action` detail path.
+- The Console grant API (`/api/v2/permission-grants`, the Grant actions
+  `create_operator_grant`, `update_operator_grant`, and `delete_operator_grant`)
+  rejects a create that names a reserved action, for a Principal owner or a
+  group owner, with a `400` JSON:API error at `/data/attributes/action`.
 - The same API rejects an update to a page grant. Its action, resource pattern,
-  and condition are fixed, so an update changes only the description.
+  and condition are fixed, so an update changes only the description. It
+  refuses the delete of a page grant with the code `page_grant`.
 - Ordinary grants keep partial updates. The action need not be included when
   the resource pattern or condition changes.
 
@@ -345,7 +359,7 @@ the generic settings editor. `Tenants.transfer_site_administration/2` owns the
 transaction that locks this configuration and the target tenant, makes the
 selected active human a site administrator, and transfers the role. Suspending
 or deleting the privileged tenant is rejected. Site resources use the `site:`
-AuthZ namespace and `/api/v1/site/` HTTP namespace.
+AuthZ namespace and the `/api/v2/site/` HTTP namespace.
 
 ## Rules
 

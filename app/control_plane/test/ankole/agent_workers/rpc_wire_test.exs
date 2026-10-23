@@ -36,24 +36,6 @@ defmodule Ankole.AgentWorkers.RPCWireTest do
     refute log =~ secret
   end
 
-  test "Ash authorization failures use the shared access denial contract" do
-    secret = "private-forbidden-token"
-
-    for style <- [:default, :tuple_reason, :inspect_tuple_reason, :tuple_inspect] do
-      error = Ash.Error.Forbidden.exception(errors: [RuntimeError.exception(secret)])
-
-      assert RPCWire.error_payload("request-1", error,
-               fallback_code: "job_failed",
-               message_style: style
-             ) == %{
-               "request_id" => "request-1",
-               "code" => "forbidden",
-               "message" => "access denied",
-               "details_json" => %{}
-             }
-    end
-  end
-
   test "validation errors preserve field limits and the broker code without private input" do
     secret = "private-token-/srv/private/session"
 

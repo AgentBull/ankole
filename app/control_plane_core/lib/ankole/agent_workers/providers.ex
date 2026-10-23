@@ -1,10 +1,20 @@
 defmodule Ankole.AgentWorkers.Providers do
-  @moduledoc "The owner of Worker provider configuration, credentials, and Agent assignment."
+  @moduledoc """
+  The owner of Worker provider configuration, credentials, and Agent assignment.
 
-  import Ecto.Query
+  This module is also the Ash domain of the site `Provider` resource. It is a
+  domain separate from `Ankole.AgentWorkers` because a domain has one JSON:API
+  router: the providers are in the site API, and the Worker rows of a tenant
+  are in the Console API.
+  """
+
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
+
   require Ash.Query
   alias Ankole.Attrs
+  alias Ankole.Errors
   alias Ankole.Repo
+  alias Ankole.AgentWorkers
   alias Ankole.AgentWorkers.Config
   alias Ankole.AgentWorkers.ProviderKind
 
@@ -18,9 +28,51 @@ defmodule Ankole.AgentWorkers.Providers do
 
   @write_keys ~w(provider_id kind display_name config credentials is_default)
 
-  def list do
-    Provider |> Ash.Query.sort(:provider_id) |> Ankole.Ash.read!()
+  resources do
+    resource(Ankole.AgentWorkers.Providers.ConsoleOperations)
+
+    resource(Ankole.AgentWorkers.WorkerEnv.SiteOperations)
+
+    resource Provider do
+      define(:add_provider, action: :add)
+      define(:configure_provider, action: :configure_provider, args: [:provider_id])
+      define(:delete_provider, action: :delete_provider, args: [:provider_id])
+      define(:import_providers, action: :import_seed, args: [:path])
+    end
   end
+
+  # The site administration API at `/api/v2/site` (`AnkoleWeb.JSONAPI.SiteRouter`).
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/worker-providers", Ankole.AgentWorkers.Providers.ConsoleOperations do
+        route(:get, "/:provider_id/check", :console_check, name: "check_worker_provider")
+      end
+
+      base_route "/worker-provider-kinds", Ankole.AgentWorkers.Providers.ConsoleOperations do
+        route(:get, "/", :console_kinds, name: "list_worker_provider_kinds")
+      end
+
+      base_route "/worker-envs", Ankole.AgentWorkers.WorkerEnv.SiteOperations do
+        route(:get, "/", :console_list, name: "list_site_worker_envs")
+        route(:put, "/:name", :console_put, name: "update_site_worker_env")
+        route(:delete, "/:name", :console_delete, name: "delete_site_worker_env")
+        route(:post, "/:name/decryptions", :console_decrypt, name: "decrypt_site_worker_env")
+      end
+
+      base_route "/worker-providers", Provider do
+        index(:list, name: "list_worker_providers", derive_sort?: false)
+        post(:add, name: "create_worker_provider")
+        patch(:configure_provider, route: "/:provider_id", name: "update_worker_provider")
+        delete(:delete_provider, route: "/:provider_id", name: "delete_worker_provider")
+      end
+    end
+  end
+
+  def list, do: Ankole.Ash.read!(Ash.Query.for_read(Provider, :list))
 
   def fetch(provider_id) when is_binary(provider_id) do
     case Ankole.Ash.read_one!(Ash.Query.filter(Provider, provider_id == ^provider_id)) do
@@ -65,11 +117,9 @@ defmodule Ankole.AgentWorkers.Providers do
 
   @doc "Returns the connection addresses selected for this Agent's current generation."
   def connection_endpoints(agent_uid) do
-    with %AgentWorker{} = worker <- Repo.get(AgentWorker, agent_uid) do
-      {:ok, Map.get(worker.instance_settings, "endpoints", %{})}
-    else
+    case AgentWorkers.get_agent_worker!(agent_uid) do
+      %AgentWorker{} = worker -> {:ok, Map.get(worker.instance_settings, "endpoints", %{})}
       nil -> {:error, :worker_provider_missing}
-      error -> error
     end
   end
 
@@ -84,7 +134,10 @@ defmodule Ankole.AgentWorkers.Providers do
   def select_in_tx(repo, nil) do
     lock_registry(repo, :shared)
 
-    case repo.one(from(p in Provider, where: p.is_default, lock: "FOR KEY SHARE")) do
+    case Provider
+         |> Ash.Query.filter(is_default == true)
+         |> Ash.Query.lock("FOR KEY SHARE")
+         |> Ankole.Ash.read_one!() do
       nil -> {:error, :worker_provider_required}
       provider -> select_provider(repo, provider)
     end
@@ -93,9 +146,10 @@ defmodule Ankole.AgentWorkers.Providers do
   def select_in_tx(repo, provider_id) when is_binary(provider_id) do
     lock_registry(repo, :shared)
 
-    case repo.one(
-           from(p in Provider, where: p.provider_id == ^provider_id, lock: "FOR KEY SHARE")
-         ) do
+    case Provider
+         |> Ash.Query.filter(provider_id == ^provider_id)
+         |> Ash.Query.lock("FOR KEY SHARE")
+         |> Ankole.Ash.read_one!() do
       nil -> {:error, :worker_provider_not_found}
       provider -> select_provider(repo, provider)
     end
@@ -136,180 +190,140 @@ defmodule Ankole.AgentWorkers.Providers do
 
   defp ensure_plugin_selected(_plugin_id, error), do: error
 
-  @doc "Locks the provider registry and checks references only for disabled Worker kinds."
-  def validate_disabled_kinds(_repo, disabled_kinds) when map_size(disabled_kinds) == 0, do: :ok
+  @doc """
+  Stops a Plugin selection that removes a Worker kind still in use.
 
-  def validate_disabled_kinds(repo, disabled_kinds) do
+  `Ankole.Plugins.Contracts` calls it in the transaction that writes the enable
+  list. Only a change that removes Worker kinds takes the exclusive registry
+  lock and checks the Worker rows of every tenant.
+  """
+  @spec veto_disable_in_tx(module(), [String.t()], [String.t()]) :: :ok | {:error, term()}
+  def veto_disable_in_tx(repo, previous_ids, enabled_ids) do
+    ProviderKind.registry()
+    |> ProviderKind.disabled_kinds(previous_ids, enabled_ids)
+    |> validate_disabled_kinds(repo)
+  end
+
+  defp validate_disabled_kinds(disabled_kinds, _repo) when map_size(disabled_kinds) == 0, do: :ok
+
+  defp validate_disabled_kinds(disabled_kinds, repo) do
     lock_registry(repo, :exclusive)
     kinds = Map.keys(disabled_kinds)
+    providers = Provider |> Ash.Query.filter(kind in ^kinds) |> Ankole.Ash.read!()
 
-    assigned =
-      Repo.across_tenants(fn ->
-        repo.one(
-          from(w in AgentWorker,
-            join: p in Provider,
-            on: p.provider_id == w.provider_id,
-            where: p.kind in ^kinds,
-            select: {p.kind, p.provider_id},
-            limit: 1
-          )
-        )
-      end)
-
-    case assigned do
+    case AgentWorkers.assigned_worker(Enum.map(providers, & &1.provider_id)) do
       nil ->
         :ok
 
-      {kind, id} ->
+      %AgentWorker{provider_id: id} ->
+        kind = Enum.find_value(providers, &(&1.provider_id == id and &1.kind))
         {:error, {:worker_provider_plugin_in_use, Map.fetch!(disabled_kinds, kind), id}}
     end
   end
 
-  def create(attrs) do
-    Repo.transact(&create_in_tx(&1, attrs))
-  end
+  def create(attrs), do: Errors.reason(add_provider(attrs))
 
-  @doc false
+  @doc "Creates a provider in the caller's transaction (the composition step of `create/1`)."
   def create_in_tx(repo, attrs) do
     with {:ok, input} <- action_input(attrs) do
       changeset = Ankole.Ash.for_create(Provider, :create, input)
 
-      if changeset.valid? do
-        mode =
-          if Ash.Changeset.get_attribute(changeset, :is_default), do: :exclusive, else: :shared
-
-        lock_registry(repo, mode)
-        set_default_in_tx(changeset)
-      end
-
-      Ankole.Ash.create(changeset)
+      with :ok <- lock_for_default(repo, changeset),
+           do: Ankole.Ash.create(changeset)
     end
   end
 
-  def update(provider_id, attrs) do
-    result =
-      Repo.transact(fn repo ->
-        lock_registry(repo, :exclusive)
+  def update(provider_id, attrs),
+    do: Errors.reason(configure_provider(provider_id, attrs))
 
-        with %Provider{} = provider <-
-               repo.one(
-                 from(p in Provider, where: p.provider_id == ^provider_id, lock: "FOR UPDATE")
-               ),
-             {:ok, input} <- action_input(attrs) do
-          changeset = Ankole.Ash.for_update(provider, :configure, input)
-          if changeset.valid?, do: set_default_in_tx(changeset)
+  @doc "Changes a provider in the caller's transaction (the composition step of `update/2`)."
+  def configure_in_tx(repo, provider_id, attrs) do
+    lock_registry(repo, :exclusive)
 
-          with {:ok, updated} <- Ankole.Ash.update(changeset) do
-            :ok = Ankole.AgentWorkers.clear_provider_rejections_in_tx(provider_id)
-
-            {:ok, updated}
-          end
-        else
-          nil -> {:error, :worker_provider_not_found}
-          error -> error
-        end
-      end)
-
-    case result do
-      {:ok, _provider} ->
-        Repo.across_tenants(fn ->
-          Repo.all(from(w in AgentWorker, where: w.provider_id == ^provider_id))
-        end)
-        |> Enum.each(&ReconcileJob.enqueue/1)
-
-      _error ->
-        :ok
+    with %Provider{} = provider <- lock_provider(provider_id),
+         {:ok, input} <- action_input(attrs),
+         changeset = Ankole.Ash.for_update(provider, :configure, input),
+         :ok <- unset_other_defaults(changeset),
+         {:ok, updated} <- Ankole.Ash.update(changeset),
+         :ok <- AgentWorkers.clear_provider_rejections_in_tx(provider_id) do
+      {:ok, updated}
+    else
+      nil -> {:error, :worker_provider_not_found}
+      error -> error
     end
-
-    result
   end
 
-  def delete(provider_id) do
-    Repo.transact(fn repo ->
-      with %Provider{} = provider <-
-             repo.one(
-               from(p in Provider, where: p.provider_id == ^provider_id, lock: "FOR UPDATE")
-             ),
-           false <-
-             Repo.across_tenants(fn ->
-               repo.exists?(from(w in AgentWorker, where: w.provider_id == ^provider_id))
-             end) do
-        Ankole.Ash.destroy(provider, :remove)
-      else
-        nil -> {:error, :worker_provider_not_found}
-        true -> {:error, :worker_provider_in_use}
-      end
-    end)
+  @doc false
+  def reconcile_workers(%Provider{provider_id: provider_id}),
+    do: provider_id |> AgentWorkers.provider_workers() |> Enum.each(&ReconcileJob.enqueue/1)
+
+  def delete(provider_id), do: Errors.reason(delete_provider(provider_id))
+
+  @doc "Deletes an unassigned provider in the caller's transaction."
+  def delete_in_tx(_repo, provider_id) do
+    case lock_provider(provider_id) do
+      nil ->
+        {:error, :worker_provider_not_found}
+
+      provider ->
+        if AgentWorkers.assigned_worker([provider_id]),
+          do: {:error, :worker_provider_in_use},
+          else: Ankole.Ash.destroy(provider, :remove)
+    end
   end
 
   @doc "Assigns a migrated Worker exactly once."
-  def assign(agent_uid, provider_id) do
-    result =
-      Repo.transact(fn repo ->
-        with {:ok, provider_id} <- select_in_tx(repo, provider_id),
-             %AgentWorker{} = worker <-
-               Ankole.AgentWorkers.lock_in_tx(repo, agent_uid) do
-          Ankole.Ash.update(worker, :assign_provider, %{provider_id: provider_id})
-        else
-          nil -> {:error, :agent_not_found}
-          error -> error
-        end
-      end)
+  def assign(agent_uid, provider_id),
+    do: Errors.reason(AgentWorkers.assign_worker_provider(agent_uid, provider_id))
 
-    if match?({:ok, _}, result), do: ReconcileJob.enqueue(agent_uid)
-    result
+  @doc "Assigns a provider to an Agent's Worker in the caller's transaction."
+  def assign_in_tx(repo, agent_uid, provider_id) do
+    with {:ok, provider_id} <- select_in_tx(repo, provider_id),
+         %AgentWorker{} = worker <- AgentWorkers.lock_in_tx(repo, agent_uid) do
+      Ankole.Ash.update(worker, :assign_provider, %{provider_id: provider_id})
+    else
+      nil -> {:error, :agent_not_found}
+      error -> error
+    end
   end
+
+  @doc false
+  # Runs the `console_assign_provider` action of the Worker. A missing Agent is
+  # not found, and an Agent that has a provider or is being deleted is a
+  # conflict, as in the v1 Console API.
+  def console_assign_in_tx(agent_uid, provider_id) do
+    Repo
+    |> assign_in_tx(agent_uid, provider_id)
+    |> Errors.reason()
+    |> Errors.wrap(&assign_rejection/1)
+  end
+
+  defp assign_rejection(:agent_not_found),
+    do: Errors.Invalid.NotFound.exception(resource: AgentWorker)
+
+  defp assign_rejection(:worker_provider_immutable),
+    do: {:conflict, "This Agent already has a provider", []}
+
+  defp assign_rejection(:agent_uid_pending_deletion),
+    do: {:conflict, "This Agent is being deleted", []}
+
+  defp assign_rejection(reason), do: Ankole.AgentWorkers.Providers.Errors.rejection(reason)
 
   def provider_ids(agent_uids) do
-    Repo.all(
-      from(w in AgentWorker,
-        where: w.agent_uid in ^agent_uids,
-        select: {w.agent_uid, w.provider_id}
-      )
-    )
-    |> Map.new()
+    [query: [filter: [agent_uid: [in: agent_uids]]]]
+    |> AgentWorkers.list_agent_workers!()
+    |> Map.new(&{&1.agent_uid, &1.provider_id})
   end
 
-  def projection(provider, agent_count \\ nil) do
-    agent_count =
-      agent_count ||
-        Repo.across_tenants(fn ->
-          Repo.aggregate(
-            from(w in AgentWorker, where: w.provider_id == ^provider.provider_id),
-            :count
-          )
-        end)
+  @doc """
+  Gives a function that tells whether a new Agent can select a provider.
 
-    projection(provider, agent_count, configured_plugins(Repo))
-  end
-
-  defp projection(provider, agent_count, enabled) do
-    %{
-      provider_id: provider.provider_id,
-      kind: provider.kind,
-      display_name: provider.display_name,
-      config: provider.config,
-      is_default: provider.is_default,
-      agent_count: agent_count,
-      selectable: match?({:ok, _id}, validate_selection(provider, enabled)),
-      credentials: Map.new(provider.credentials, fn {name, _ciphertext} -> {name, "********"} end)
-    }
-  end
-
-  def list_projections do
-    counts =
-      Repo.across_tenants(fn ->
-        Repo.all(
-          from(w in AgentWorker,
-            group_by: w.provider_id,
-            select: {w.provider_id, count(w.agent_uid)}
-          )
-        )
-      end)
-      |> Map.new()
-
+  The function reads the enabled Plugins once, so it can check many providers.
+  """
+  @spec selectable_fun() :: (Provider.t() -> boolean())
+  def selectable_fun do
     enabled = configured_plugins(Repo)
-    Enum.map(list(), &projection(&1, Map.get(counts, &1.provider_id, 0), enabled))
+    &match?({:ok, _id}, validate_selection(&1, enabled))
   end
 
   defp action_input(attrs) when is_map(attrs) do
@@ -325,19 +339,35 @@ defmodule Ankole.AgentWorkers.Providers do
     end
   end
 
-  defp set_default_in_tx(changeset) do
-    if Ash.Changeset.get_attribute(changeset, :is_default) do
+  defp lock_provider(provider_id) do
+    Provider
+    |> Ash.Query.filter(provider_id == ^provider_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
+  end
+
+  defp lock_for_default(repo, changeset) do
+    if changeset.valid? do
+      mode = if Ash.Changeset.get_attribute(changeset, :is_default), do: :exclusive, else: :shared
+      lock_registry(repo, mode)
+      unset_other_defaults(changeset)
+    else
+      :ok
+    end
+  end
+
+  defp unset_other_defaults(changeset) do
+    if changeset.valid? and Ash.Changeset.get_attribute(changeset, :is_default) do
       id = Ash.Changeset.get_attribute(changeset, :id)
 
-      result =
-        Provider
-        |> Ash.Query.filter(is_default == true and id != ^id)
-        |> Ankole.Ash.bulk_update(:unset_default, %{}, strategy: [:atomic], return_errors?: true)
-
-      case result do
-        %{status: :success} -> :ok
-        %{errors: [error | _]} -> Repo.rollback(error)
+      case Provider
+           |> Ash.Query.filter(is_default == true and id != ^id)
+           |> Ankole.Ash.update_where(:unset_default) do
+        {:ok, _providers} -> :ok
+        {:error, _error} = error -> error
       end
+    else
+      :ok
     end
   end
 

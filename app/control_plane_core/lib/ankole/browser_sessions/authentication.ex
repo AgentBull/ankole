@@ -1,6 +1,6 @@
 defmodule Ankole.BrowserSessions.Authentication do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :site, domain: Ankole.BrowserSessions.Domain
+  use Ankole.Ash.Resource, tenancy: :site, domain: Ankole.BrowserSessions
 
   @proof_fields [
     :revision,
@@ -90,17 +90,39 @@ defmodule Ankole.BrowserSessions.Authentication do
 
     create :create_in_tx do
       accept([:browser_id, :tenant_id, :provider_id, :subject_id, :purpose] ++ @proof_fields)
-      transaction?(false)
     end
 
-    in_tx_update :renew_in_tx do
+    update :renew_in_tx do
       accept(@proof_fields)
       change(set_attribute(:revoked_at, nil))
     end
 
-    in_tx_update :revoke_in_tx do
+    update :revoke_in_tx do
       accept([:revision])
       change(set_attribute(:revoked_at, &DateTime.utc_now/0))
+    end
+
+    action :revoke, :term do
+      argument(:browser_ref, :term)
+      argument(:authentication_ref, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :create_pod_access, :term do
+      argument(:authentication_ref, :term)
+      argument(:create, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :connect_pod_access, :term do
+      argument(:authentication_ref, :term)
+      argument(:verified_ref, :term)
+      argument(:tenant_id, :term)
+      argument(:connect, :term)
+
+      run(__MODULE__.Actions)
     end
   end
 

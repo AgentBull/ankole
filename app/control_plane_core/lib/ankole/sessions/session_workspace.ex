@@ -8,7 +8,8 @@ defmodule Ankole.Sessions.SessionWorkspace do
 
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.Sessions.Domain
+    domain: Ankole.Sessions,
+    fragments: [Ankole.Sessions.Operations]
 
   @type t :: %__MODULE__{}
 
@@ -54,12 +55,20 @@ defmodule Ankole.Sessions.SessionWorkspace do
     timestamps(type: :utc_datetime_usec)
   end
 
+  relationships do
+    # The public conversation that a conversation Session serves.
+    has_one :conversation, Ankole.Conversations.Conversation do
+      source_attribute(:conversation_id)
+      destination_attribute(:id)
+      public?(false)
+    end
+  end
+
   actions do
     defaults([:read])
 
     create :allocate do
       primary?(true)
-      transaction?(false)
 
       accept([
         :agent_uid,
@@ -72,7 +81,8 @@ defmodule Ankole.Sessions.SessionWorkspace do
       ])
     end
 
-    in_tx_update :advance_epoch do
+    update :advance_epoch do
+      require_atomic?(true)
       accept([])
       change(atomic_update(:epoch, expr(epoch + 1)))
     end

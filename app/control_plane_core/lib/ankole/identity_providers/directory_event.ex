@@ -2,7 +2,7 @@ defmodule Ankole.IdentityProviders.DirectoryEvent do
   @moduledoc false
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.IdentityProviders.Domain,
+    domain: Ankole.IdentityProviders,
     extensions: [AshStateMachine]
 
   postgres do
@@ -74,38 +74,62 @@ defmodule Ankole.IdentityProviders.DirectoryEvent do
 
     create :receive_in_tx do
       accept([:provider_id, :event_id, :event_type, :external_ids, :reason, :provider_time])
-      transaction?(false)
     end
 
-    in_tx_update :process_in_tx do
+    update :process_in_tx do
       accept([])
       change(transition_state(:processed))
       change(set_attribute(:processed_at, &DateTime.utc_now/0))
       change(set_attribute(:last_error, nil))
     end
 
-    in_tx_update :fail_in_tx do
+    update :fail_in_tx do
       accept([:last_error])
       validate(attribute_in(:status, [:pending, :review_required]))
     end
 
-    in_tx_update :require_review_in_tx do
+    update :require_review_in_tx do
       accept([:last_error])
       change(transition_state(:review_required))
     end
 
-    in_tx_update :review_in_tx do
+    update :review_in_tx do
       accept([:reviewed_by, :review_reason])
       validate(present(:review_reason))
       validate(match(:review_reason, ~r/\S/))
     end
 
-    in_tx_update :dismiss_in_tx do
+    update :dismiss_in_tx do
       accept([:reviewed_by, :review_reason])
       validate(present(:review_reason))
       validate(match(:review_reason, ~r/\S/))
       change(transition_state(:dismissed))
       change(set_attribute(:processed_at, &DateTime.utc_now/0))
+    end
+
+    action :receive, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :term, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :apply_restriction, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:event, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
+
+      run(__MODULE__.Actions)
+    end
+
+    action :update_open, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:event, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
+      argument(:action, :atom, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false)
+      argument(:only_open?, :boolean, allow_nil?: false)
+
+      run(__MODULE__.Actions)
     end
   end
 

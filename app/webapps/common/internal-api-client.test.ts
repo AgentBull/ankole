@@ -96,3 +96,14 @@ test('network rejection keeps the original error identity', async () => {
   }) as typeof fetch
   await expect(podAgents()).rejects.toBe(offline)
 })
+
+test('a JSON:API error document renders the text of its first error', async () => {
+  const payload = {
+    errors: [{ status: '404', code: 'not_found', title: 'NotFound', detail: 'the resource was not found' }]
+  }
+  globalThis.fetch = (async (_request: Request) => Response.json(payload, { status: 404 })) as typeof fetch
+  const error = await conversationDetail({ path: { id: 'gone' } }).catch(error => error)
+  expect(error).toBeInstanceOf(InternalAPIError)
+  expect(error.message).toBe('the resource was not found')
+  expect(error.payload).toEqual(payload)
+})

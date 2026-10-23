@@ -1,7 +1,6 @@
 defmodule Ankole.AIGateway.ResponseChain do
   @moduledoc "Tenant-scoped Response chain queries, checkpoints and visible suffix changes."
   require Ash.Query
-  import Ecto.Query
   alias Ecto.Adapters.SQL
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.ResponseItems
@@ -118,7 +117,7 @@ defmodule Ankole.AIGateway.ResponseChain do
     max_depth = normalize_public_chain_depth(max_depth)
 
     with {:ok, %Message{} = final} <- get_response_for_subject(subject_uid, response_id) do
-      {:ok, chain_messages(Repo, final.conversation_id, final.id, max_depth)}
+      {:ok, chain_messages(final.conversation_id, final.id, max_depth)}
     end
   end
 
@@ -130,21 +129,21 @@ defmodule Ankole.AIGateway.ResponseChain do
   """
   @spec list_conversation_responses_in_tx(module(), String.t(), binary(), keyword()) ::
           {:ok, [Message.t()]} | {:error, :invalid_conversation}
-  def list_conversation_responses_in_tx(repo, subject_uid, conversation_id, opts \\ []) do
+  def list_conversation_responses_in_tx(_repo, subject_uid, conversation_id, opts \\ []) do
     statuses = Keyword.get(opts, :statuses)
 
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, conversation_id} <- cast_uuid(conversation_id),
-         %Conversation{} <- lock_owned_conversation(repo, subject_uid, conversation_id) do
-      query =
+         %Conversation{} <- lock_owned_conversation(subject_uid, conversation_id) do
+      responses =
         Message
-        |> where([message], message.subject_uid == ^subject_uid)
-        |> where([message], message.conversation_id == ^conversation_id)
-        |> order_by([message], desc: message.inserted_at, desc: message.id)
+        |> Ash.Query.filter(subject_uid == ^subject_uid and conversation_id == ^conversation_id)
+        |> Ash.Query.sort(inserted_at: :desc, id: :desc)
         |> maybe_filter_response_statuses(statuses)
         |> maybe_lock_response_rows(Keyword.get(opts, :lock, false))
+        |> Ankole.Ash.read!()
 
-      {:ok, repo.all(query)}
+      {:ok, responses}
     else
       _invalid_or_missing -> {:error, :invalid_conversation}
     end
@@ -160,7 +159,7 @@ defmodule Ankole.AIGateway.ResponseChain do
   @spec latest_visible_leaf(binary()) :: binary() | nil
   def latest_visible_leaf(conversation_id) do
     with {:ok, conversation_id} <- cast_uuid(conversation_id) do
-      latest_visible_leaf_for_uuid(Repo, conversation_id)
+      latest_visible_leaf_for_uuid(conversation_id)
     else
       {:error, _reason} -> nil
     end
@@ -188,7 +187,7 @@ defmodule Ankole.AIGateway.ResponseChain do
            }}
           | {:error, term()}
   def hard_delete_visible_suffix_in_tx(
-        repo,
+        _repo,
         subject_uid,
         conversation_id,
         response_ids,
@@ -197,8 +196,8 @@ defmodule Ankole.AIGateway.ResponseChain do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, conversation_id} <- cast_uuid(conversation_id),
          {:ok, message_ids} <- decode_response_ids(response_ids),
-         %Conversation{} <- lock_owned_conversation(repo, subject_uid, conversation_id) do
-      delete_visible_suffix(repo, conversation_id, message_ids)
+         %Conversation{} <- lock_owned_conversation(subject_uid, conversation_id) do
+      delete_visible_suffix(conversation_id, message_ids)
     else
       nil -> {:ok, tail_delete_noop(:conversation_not_found)}
       {:error, _reason} -> {:error, :invalid_response_suffix}
@@ -228,71 +227,58 @@ defmodule Ankole.AIGateway.ResponseChain do
              optional(:reason) => atom()
            }}
           | {:error, term()}
-  def retract_visible_suffix_in_tx(repo, subject_uid, conversation_id, response_ids, opts \\ []) do
+  def retract_visible_suffix_in_tx(_repo, subject_uid, conversation_id, response_ids, opts \\ []) do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, conversation_id} <- cast_uuid(conversation_id),
          {:ok, message_ids} <- decode_response_ids(response_ids),
-         %Conversation{} <- lock_owned_conversation(repo, subject_uid, conversation_id) do
-      retract_visible_suffix(repo, conversation_id, message_ids, opts)
+         %Conversation{} <- lock_owned_conversation(subject_uid, conversation_id) do
+      retract_visible_suffix(conversation_id, message_ids, opts)
     else
       nil -> {:ok, tail_retraction_noop(:conversation_not_found)}
       {:error, _reason} -> {:error, :invalid_response_suffix}
     end
   end
 
-  def latest_visible_leaf_for_uuid(repo, conversation_id) do
+  @doc false
+  def latest_visible_leaf_for_uuid(conversation_id) do
     Message
-    |> where([message], message.conversation_id == ^conversation_id)
-    |> where([message], message.status == :complete)
-    |> where(
-      [message],
-      fragment(
-        """
-        NOT EXISTS (
-          SELECT 1
-          FROM ai_gateway_messages AS child
-          WHERE child.conversation_id = ?
-            AND child.status = 'complete'
-            AND child.previous_message_id = ?
+    |> Ash.Query.filter(
+      conversation_id == ^conversation_id and status == :complete and
+        not exists(
+          Message,
+          conversation_id == parent(conversation_id) and status == :complete and
+            previous_message_id == parent(id)
         )
-        """,
-        message.conversation_id,
-        message.id
-      )
     )
-    |> order_by([message], desc: message.inserted_at, desc: message.id)
-    |> limit(1)
-    |> select([message], message.id)
-    |> repo.one()
+    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.Query.select([:id])
+    |> Ankole.Ash.read_one!()
+    |> case do
+      %Message{id: id} -> id
+      nil -> nil
+    end
   end
 
-  defp delete_visible_suffix(_repo, _conversation_id, []),
+  defp delete_visible_suffix(_conversation_id, []),
     do: {:ok, tail_delete_noop(:empty_suffix)}
 
-  defp delete_visible_suffix(repo, conversation_id, message_ids) do
-    case validate_current_visible_suffix(repo, conversation_id, message_ids) do
+  defp delete_visible_suffix(conversation_id, message_ids) do
+    case validate_current_visible_suffix(conversation_id, message_ids) do
       :ok ->
-        result =
-          Message
-          |> Ash.Query.filter(id in ^message_ids)
-          |> Ankole.Ash.bulk_destroy(:remove_suffix, %{},
-            strategy: [:atomic],
-            return_records?: true,
-            select: [:id],
-            return_errors?: true
-          )
-
-        deleted_count =
-          case result do
-            %Ash.BulkResult{status: :success, records: records} -> length(records)
-            %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+        deleted =
+          case Message
+               |> Ash.Query.filter(id in ^message_ids)
+               |> Ankole.Ash.destroy_where(:remove_suffix, %{}, select: [:id]) do
+            {:ok, records} -> records
+            {:error, error} -> raise error
           end
 
         {:ok,
          %{
            status: :deleted,
            deleted_message_ids: message_ids,
-           deleted_count: deleted_count
+           deleted_count: length(deleted)
          }}
 
       {:noop, reason} ->
@@ -303,11 +289,11 @@ defmodule Ankole.AIGateway.ResponseChain do
     end
   end
 
-  defp retract_visible_suffix(_repo, _conversation_id, [], _opts),
+  defp retract_visible_suffix(_conversation_id, [], _opts),
     do: {:ok, tail_retraction_noop(:empty_suffix)}
 
-  defp retract_visible_suffix(repo, conversation_id, message_ids, opts) do
-    case validate_current_visible_suffix(repo, conversation_id, message_ids) do
+  defp retract_visible_suffix(conversation_id, message_ids, opts) do
+    case validate_current_visible_suffix(conversation_id, message_ids) do
       :ok ->
         retraction = %{
           "reason" => Keyword.get(opts, :reason, "unspecified"),
@@ -317,7 +303,7 @@ defmodule Ankole.AIGateway.ResponseChain do
             |> DateTime.to_iso8601()
         }
 
-        with {:ok, retracted} <- retract_response_rows(repo, message_ids, retraction) do
+        with {:ok, retracted} <- retract_response_rows(message_ids, retraction) do
           {:ok,
            %{
              status: :retracted,
@@ -334,25 +320,22 @@ defmodule Ankole.AIGateway.ResponseChain do
     end
   end
 
-  defp validate_current_visible_suffix(repo, conversation_id, message_ids) do
-    case latest_visible_leaf_for_uuid(repo, conversation_id) do
+  defp validate_current_visible_suffix(conversation_id, message_ids) do
+    case latest_visible_leaf_for_uuid(conversation_id) do
       nil ->
         {:noop, :no_visible_leaf}
 
       leaf_id ->
-        visible_suffix =
-          repo
-          |> chain_messages(conversation_id, leaf_id, length(message_ids))
-          |> Enum.map(& &1.id)
+        visible_suffix = chain_ids(conversation_id, leaf_id, length(message_ids), false)
 
         cond do
           visible_suffix != message_ids ->
             {:noop, :not_visible_suffix}
 
-          not complete_response_rows?(repo, conversation_id, message_ids) ->
+          not complete_response_rows?(conversation_id, message_ids) ->
             {:error, :invalid_response_suffix}
 
-          response_suffix_has_external_children?(repo, conversation_id, message_ids) ->
+          response_suffix_has_external_children?(conversation_id, message_ids) ->
             {:error, :response_suffix_has_descendants}
 
           true ->
@@ -361,59 +344,57 @@ defmodule Ankole.AIGateway.ResponseChain do
     end
   end
 
-  defp retract_response_rows(_repo, message_ids, retraction) do
-    case Message
-         |> Ash.Query.filter(id in ^message_ids)
-         |> Ankole.Ash.bulk_update(:retract, %{metadata: %{"retraction" => retraction}},
-           strategy: [:atomic],
-           return_records?: true,
-           return_errors?: true
-         ) do
-      %Ash.BulkResult{status: :success, records: records} ->
-        by_id = Map.new(records, &{&1.id, &1})
-        {:ok, Enum.map(message_ids, &Map.fetch!(by_id, &1))}
-
-      %Ash.BulkResult{errors: errors} ->
-        {:error, Ash.Error.to_error_class(errors)}
+  defp retract_response_rows(message_ids, retraction) do
+    with {:ok, records} <-
+           Message
+           |> Ash.Query.filter(id in ^message_ids)
+           |> Ankole.Ash.update_where(:retract, %{metadata: %{"retraction" => retraction}}) do
+      by_id = Map.new(records, &{&1.id, &1})
+      {:ok, Enum.map(message_ids, &Map.fetch!(by_id, &1))}
     end
   end
 
-  def lock_owned_conversation(repo, subject_uid, conversation_id) do
+  @doc false
+  def lock_owned_conversation(subject_uid, conversation_id) do
     Conversation
-    |> where([conversation], conversation.id == ^conversation_id)
-    |> where([conversation], conversation.subject_uid == ^subject_uid)
-    |> lock("FOR UPDATE")
-    |> repo.one()
+    |> Ash.Query.filter(id == ^conversation_id and subject_uid == ^subject_uid)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
   end
 
-  def lock_active_owned_conversation(repo, subject_uid, conversation_id) do
+  @doc false
+  def lock_active_owned_conversation(subject_uid, conversation_id) do
     Conversation
-    |> where([conversation], conversation.id == ^conversation_id)
-    |> where([conversation], conversation.subject_uid == ^subject_uid)
-    |> where([conversation], is_nil(conversation.ended_at))
-    |> lock("FOR UPDATE")
-    |> repo.one()
+    |> Ash.Query.filter(
+      id == ^conversation_id and subject_uid == ^subject_uid and is_nil(ended_at)
+    )
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
   end
 
-  defp complete_response_rows?(repo, conversation_id, message_ids) do
-    count =
+  defp complete_response_rows?(conversation_id, message_ids) do
+    complete =
       Message
-      |> where([message], message.id in ^message_ids)
-      |> where([message], message.conversation_id == ^conversation_id)
-      |> where([message], message.type == :message)
-      |> where([message], message.status == :complete)
-      |> repo.aggregate(:count)
+      |> Ash.Query.filter(
+        id in ^message_ids and conversation_id == ^conversation_id and type == :message and
+          status == :complete
+      )
+      |> Ash.Query.select([:id])
+      |> Ankole.Ash.read!()
 
-    count == length(message_ids)
+    length(complete) == length(message_ids)
   end
 
-  defp response_suffix_has_external_children?(repo, conversation_id, message_ids) do
+  defp response_suffix_has_external_children?(conversation_id, message_ids) do
     Message
-    |> where([message], message.conversation_id == ^conversation_id)
-    |> where([message], message.previous_message_id in ^message_ids)
-    |> where([message], message.id not in ^message_ids)
-    |> where([message], message.status == :complete)
-    |> repo.exists?()
+    |> Ash.Query.filter(
+      conversation_id == ^conversation_id and previous_message_id in ^message_ids and
+        id not in ^message_ids and status == :complete
+    )
+    |> Ash.Query.limit(1)
+    |> Ash.Query.select([:id])
+    |> Ankole.Ash.read!()
+    |> Enum.any?()
   end
 
   defp decode_response_ids(response_ids) when is_list(response_ids) do
@@ -463,7 +444,7 @@ defmodule Ankole.AIGateway.ResponseChain do
   @spec get_message(binary()) :: Message.t() | nil
   def get_message(resp_or_id) do
     with {:ok, id} <- decode_response_id(resp_or_id) do
-      Repo.get(Message, id)
+      Message |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!()
     else
       {:error, _reason} -> nil
     end
@@ -488,11 +469,9 @@ defmodule Ankole.AIGateway.ResponseChain do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, id} <- decode_response_id(resp_or_id),
          %Message{} = message <-
-           Repo.one(
-             from(m in Message,
-               where: m.id == ^id and m.subject_uid == ^subject_uid
-             )
-           ) do
+           Message
+           |> Ash.Query.filter(id == ^id and subject_uid == ^subject_uid)
+           |> Ankole.Ash.read_one!() do
       {:ok, message}
     else
       _not_found_or_invalid -> {:error, :not_found}
@@ -525,7 +504,6 @@ defmodule Ankole.AIGateway.ResponseChain do
          {:ok, conversation_id, previous_message_id} <-
            resolve_checkpoint_chain(subject_uid, conversation_id, previous_message_id, artifact) do
       insert_checkpoint_row(
-        Repo,
         subject_uid,
         conversation_id,
         previous_message_id,
@@ -557,14 +535,12 @@ defmodule Ankole.AIGateway.ResponseChain do
     with {:ok, normalized_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, conversation_id} <- cast_uuid(conversation_id),
          %Conversation{} = conversation <-
-           Repo.one(
-             from(c in Conversation,
-               where:
-                 c.id == ^conversation_id and
-                   c.subject_uid == ^normalized_uid and
-                   (is_nil(c.ended_at) or ^include_ended?)
-             )
-           ) do
+           Conversation
+           |> Ash.Query.filter(
+             id == ^conversation_id and subject_uid == ^normalized_uid and
+               (is_nil(ended_at) or ^include_ended?)
+           )
+           |> Ankole.Ash.read_one!() do
       {:ok, conversation}
     else
       _not_found_or_invalid -> {:error, :invalid_conversation}
@@ -609,35 +585,24 @@ defmodule Ankole.AIGateway.ResponseChain do
   def conversation_id(attrs),
     do: Ankole.Attrs.get(attrs, :conversation_id)
 
+  @doc false
   def complete_message_for_subject(subject_uid, message_id) do
-    complete_message_for_subject(Repo, subject_uid, message_id)
+    Message
+    |> Ash.Query.filter(id == ^message_id and subject_uid == ^subject_uid and status == :complete)
+    |> Ankole.Ash.read_one!()
   end
 
-  def complete_message_for_subject(repo, subject_uid, message_id) do
-    repo.one(
-      from(m in Message,
-        where:
-          m.id == ^message_id and
-            m.subject_uid == ^subject_uid and
-            m.status == :complete
-      )
+  @doc false
+  def complete_message_for_active_subject(subject_uid, message_id) do
+    Message
+    |> Ash.Query.filter(
+      id == ^message_id and subject_uid == ^subject_uid and status == :complete and
+        exists(
+          Conversation,
+          id == parent(conversation_id) and subject_uid == ^subject_uid and is_nil(ended_at)
+        )
     )
-  end
-
-  def complete_message_for_active_subject(repo, subject_uid, message_id) do
-    repo.one(
-      from(m in Message,
-        join: conversation in Conversation,
-        on: conversation.id == m.conversation_id,
-        where:
-          m.id == ^message_id and
-            m.subject_uid == ^subject_uid and
-            m.status == :complete and
-            conversation.subject_uid == ^subject_uid and
-            is_nil(conversation.ended_at),
-        select: m
-      )
-    )
+    |> Ankole.Ash.read_one!()
   end
 
   defp resolve_checkpoint_chain(subject_uid, conversation_id, previous_message_id, artifact) do
@@ -667,8 +632,8 @@ defmodule Ankole.AIGateway.ResponseChain do
   # A checkpoint is background compaction, not user activity, so this insert
   # deliberately skips Conversations.touch_conversation_in_tx: the console
   # orders conversations by activity and compaction must not reorder them.
+  @doc false
   def insert_checkpoint_row(
-        _repo,
         subject_uid,
         conversation_id,
         previous_message_id,
@@ -704,28 +669,33 @@ defmodule Ankole.AIGateway.ResponseChain do
   # Validates that an anchor message exists, is complete, and belongs to the
   # given conversation. Per plan §3.3: only complete, non-retracted anchors.
   defp validate_anchor(conversation_id, message_id) do
-    case Repo.one(
-           from(m in Message,
-             where:
-               m.id == ^message_id and
-                 m.conversation_id == ^conversation_id and
-                 m.status == :complete,
-             select: m.id
-           )
-         ) do
+    case Message
+         |> Ash.Query.filter(
+           id == ^message_id and conversation_id == ^conversation_id and status == :complete
+         )
+         |> Ash.Query.select([:id])
+         |> Ankole.Ash.read_one!() do
       nil -> {:error, :invalid_anchor}
-      _id -> :ok
+      %Message{} -> :ok
     end
   end
 
   defp walk_message_chain(conversation_id, anchor_id, stop_at_checkpoint?) do
-    Repo
-    |> chain_messages(conversation_id, anchor_id, @history_chain_max_depth, stop_at_checkpoint?)
+    conversation_id
+    |> chain_messages(anchor_id, @history_chain_max_depth, stop_at_checkpoint?)
     |> Enum.filter(&project_message?/1)
     |> Enum.reverse()
   end
 
-  defp chain_messages(repo, conversation_id, anchor_id, max_depth, stop_at_checkpoint? \\ false) do
+  # The recursive ancestor walk gives ids in chain order. The rows come from
+  # the Message resource.
+  defp chain_messages(conversation_id, anchor_id, max_depth, stop_at_checkpoint? \\ false) do
+    conversation_id
+    |> chain_ids(anchor_id, max_depth, stop_at_checkpoint?)
+    |> load_messages()
+  end
+
+  defp chain_ids(conversation_id, anchor_id, max_depth, stop_at_checkpoint?) do
     continue =
       if stop_at_checkpoint?,
         do: "NOT (message.status = 'complete' AND message.type = 'checkpoint')",
@@ -733,38 +703,38 @@ defmodule Ankole.AIGateway.ResponseChain do
 
     result =
       SQL.query!(
-        repo,
-        ancestor_chain_sql(continue) <>
-          """
-          SELECT message.*
-          FROM chain
-          JOIN ai_gateway_messages AS message ON message.id = chain.id
-          WHERE message.tenant_id = $4::text::uuid
-          ORDER BY chain.depth ASC
-          """,
+        Repo,
+        """
+        #{ancestor_chain_sql(continue)}
+        SELECT chain.id::text
+        FROM chain
+        JOIN ai_gateway_messages AS message ON message.id = chain.id
+        WHERE message.tenant_id = $4::text::uuid
+        ORDER BY chain.depth ASC
+        """,
         [anchor_id, conversation_id, max_depth, Repo.tenant_id!()]
       )
 
-    Enum.map(result.rows, &repo.load(Message, {result.columns, &1}))
+    Enum.map(result.rows, fn [id] -> id end)
   end
 
   defp chain_metadata(conversation_id, anchor_id) do
     result =
       SQL.query!(
         Repo,
-        ancestor_chain_sql("true") <>
-          """
-          SELECT CASE
-            WHEN jsonb_typeof(message.metadata->'request_metadata') = 'object'
-              THEN message.metadata->'request_metadata'
-            ELSE '{}'::jsonb
-          END AS caller_metadata
-          FROM chain
-          JOIN ai_gateway_messages AS message ON message.id = chain.id
-          WHERE message.tenant_id = $4::text::uuid
-            AND message.status = 'complete' AND message.type = 'message'
-          ORDER BY chain.depth DESC
-          """,
+        """
+        #{ancestor_chain_sql("true")}
+        SELECT CASE
+          WHEN jsonb_typeof(message.metadata->'request_metadata') = 'object'
+            THEN message.metadata->'request_metadata'
+          ELSE '{}'::jsonb
+        END AS caller_metadata
+        FROM chain
+        JOIN ai_gateway_messages AS message ON message.id = chain.id
+        WHERE message.tenant_id = $4::text::uuid
+          AND message.status = 'complete' AND message.type = 'message'
+        ORDER BY chain.depth DESC
+        """,
         [anchor_id, conversation_id, @history_chain_max_depth, Repo.tenant_id!()]
       )
 
@@ -783,20 +753,34 @@ defmodule Ankole.AIGateway.ResponseChain do
     result =
       SQL.query!(
         Repo,
-        ancestor_chain_sql(continue) <>
-          """
-          SELECT message.*
-          FROM chain
-          JOIN ai_gateway_messages AS message ON message.id = chain.id
-          WHERE message.tenant_id = $4::text::uuid
-            AND message.status = 'complete' AND message.type <> 'checkpoint'
-            AND #{matches}
-          ORDER BY chain.depth DESC
-          """,
+        """
+        #{ancestor_chain_sql(continue)}
+        SELECT message.id::text
+        FROM chain
+        JOIN ai_gateway_messages AS message ON message.id = chain.id
+        WHERE message.tenant_id = $4::text::uuid
+          AND message.status = 'complete' AND message.type <> 'checkpoint'
+          AND #{matches}
+        ORDER BY chain.depth DESC
+        """,
         [anchor_id, conversation_id, @history_chain_max_depth, Repo.tenant_id!(), key, value]
       )
 
-    Enum.map(result.rows, &Repo.load(Message, {result.columns, &1}))
+    result.rows |> Enum.map(fn [id] -> id end) |> load_messages()
+  end
+
+  # Gives the Message rows of the ids in the order of the ids. A row that a
+  # concurrent writer removed after the walk is left out.
+  defp load_messages([]), do: []
+
+  defp load_messages(ids) do
+    by_id =
+      Message
+      |> Ash.Query.filter(id in ^ids)
+      |> Ankole.Ash.read!()
+      |> Map.new(&{&1.id, &1})
+
+    Enum.flat_map(ids, &List.wrap(by_id[&1]))
   end
 
   defp ancestor_chain_sql(continue) do
@@ -838,10 +822,10 @@ defmodule Ankole.AIGateway.ResponseChain do
   defp maybe_filter_response_statuses(query, nil), do: query
 
   defp maybe_filter_response_statuses(query, statuses) when is_list(statuses),
-    do: where(query, [message], message.status in ^statuses)
+    do: Ash.Query.filter(query, status in ^statuses)
 
   defp maybe_filter_response_statuses(query, _statuses), do: query
 
-  defp maybe_lock_response_rows(query, true), do: lock(query, "FOR UPDATE")
+  defp maybe_lock_response_rows(query, true), do: Ash.Query.lock(query, :for_update)
   defp maybe_lock_response_rows(query, _lock?), do: query
 end

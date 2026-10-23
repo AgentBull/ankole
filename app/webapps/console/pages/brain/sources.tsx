@@ -23,13 +23,14 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  ankoleWebBrainControllerArchiveSourceMutation,
-  ankoleWebBrainControllerCreateSourceMutation,
-  ankoleWebBrainControllerLearnSourceMutation,
-  ankoleWebBrainControllerListSourcesOptions,
-  ankoleWebBrainControllerUpdateSourceMutation
-} from '../../api/generated/@tanstack/react-query.gen'
-import type { BrainSource } from '../../api/generated/types.gen'
+  archiveBrainSourceMutation,
+  createBrainSourceMutation,
+  learnBrainSourceMutation,
+  listBrainSourcesOptions,
+  updateBrainSourceMutation
+} from '../../api/v2/generated/@tanstack/react-query.gen'
+import type { ListBrainSourcesResponse } from '../../api/v2/generated/types.gen'
+import { fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
 import { DiscardConfirmDialog, LabeledField, focusFirstInvalidControl, useDialogDiscardGuard } from '../../console-form'
@@ -37,6 +38,8 @@ import { ResourceListPage } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
 
 const SOURCE_KINDS = ['file', 'url'] as const
+
+type BrainSource = Flat<NonNullable<ListBrainSourcesResponse['data']>[number]>
 
 export function BrainSourcesPage() {
   const { t } = useTranslation()
@@ -49,8 +52,8 @@ export function BrainSourcesPage() {
   const [scopeTarget, setScopeTarget] = useState<BrainSource>()
   const [sourceScope, setSourceScope] = useState('')
 
-  const sources = useQuery(ankoleWebBrainControllerListSourcesOptions())
-  const rows = sources.data?.sources ?? []
+  const sources = useQuery({ ...listBrainSourcesOptions(), select: document => fromDocument(document) })
+  const rows = sources.data ?? []
 
   const registerDirty = kind !== 'file' || Boolean(upstreamID.trim() || name.trim() || scope.trim())
 
@@ -63,9 +66,9 @@ export function BrainSourcesPage() {
     setRegisterOpen(true)
   }
   const register = useMutation({
-    ...ankoleWebBrainControllerCreateSourceMutation(),
+    ...createBrainSourceMutation(),
     onSuccess: response => {
-      toast.success(t('console.brain.source_registered', { name: response.source.name }))
+      toast.success(t('console.brain.source_registered', { name: response.name }))
       setRegisterOpen(false)
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -76,14 +79,14 @@ export function BrainSourcesPage() {
     pending: register.isPending
   })
   const learn = useMutation({
-    ...ankoleWebBrainControllerLearnSourceMutation(),
+    ...learnBrainSourceMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.learn_done'))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
   const archive = useMutation({
-    ...ankoleWebBrainControllerArchiveSourceMutation(),
+    ...archiveBrainSourceMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.archive_done'))
       setArchiveTarget(undefined)
@@ -91,7 +94,7 @@ export function BrainSourcesPage() {
     onError: error => toast.error(requestErrorMessage(error))
   })
   const updateScope = useMutation({
-    ...ankoleWebBrainControllerUpdateSourceMutation(),
+    ...updateBrainSourceMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.source_scope_saved'))
       setScopeTarget(undefined)
@@ -215,10 +218,12 @@ export function BrainSourcesPage() {
               }
               register.mutate({
                 body: {
-                  kind,
-                  upstream_id: upstreamID.trim(),
-                  name: name.trim(),
-                  ...(scope.trim() ? { default_audience_scope: scope.trim() } : {})
+                  data: {
+                    kind,
+                    upstream_id: upstreamID.trim(),
+                    name: name.trim(),
+                    ...(scope.trim() ? { default_audience_scope: scope.trim() } : {})
+                  }
                 }
               })
             }}>
@@ -293,7 +298,7 @@ export function BrainSourcesPage() {
               if (scopeTarget) {
                 updateScope.mutate({
                   path: { source_id: scopeTarget.id },
-                  body: { default_audience_scope: sourceScope.trim() || null }
+                  body: { data: { scope: sourceScope.trim() || null } }
                 })
               }
             }}>

@@ -698,8 +698,10 @@ defmodule Ankole.TenantDeletionConcurrencyTest do
     creator =
       Task.async(fn ->
         Repo.with_tenant(tenant.id, fn ->
-          Repo.transact(fn _repo ->
-            {:ok, result} = Principals.create_human(%{display_name: "Admitted before deletion"})
+          Repo.transact(fn repo ->
+            {:ok, result} =
+              Principals.create_human_in_tx(repo, %{display_name: "Admitted before deletion"})
+
             send(parent, {:human_inserted, result.principal.uid})
             receive do: (:commit -> {:ok, result})
           end)

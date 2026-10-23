@@ -290,19 +290,22 @@ defmodule Ankole.OIDC.CredentialResourceActionsTest do
       expires_at: DateTime.add(DateTime.utc_now(), 60)
     }
 
+  # The code exchange issues the first token of a family in its transaction.
   defp refresh(session) do
     {:ok, issued} =
-      Attesto.RefreshToken.issue(
-        RefreshStore,
-        %{
-          subject: session.principal_uid,
-          client_id: session.client_id,
-          scope: ["openid", "offline_access"],
-          claims: %{"session_id" => session.id}
-        },
-        ttl: 2_592_000,
-        family_ttl: 2_592_000
-      )
+      Repo.transact(fn ->
+        Attesto.RefreshToken.issue(
+          RefreshStore,
+          %{
+            subject: session.principal_uid,
+            client_id: session.client_id,
+            scope: ["openid", "offline_access"],
+            claims: %{"session_id" => session.id}
+          },
+          ttl: 2_592_000,
+          family_ttl: 2_592_000
+        )
+      end)
 
     issued
   end

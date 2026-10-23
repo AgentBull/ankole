@@ -10,11 +10,10 @@ defmodule Ankole.Sessions.Queue do
   and provider-visible effects can commit together. AIGateway owns model facts.
   """
 
-  import Ecto.Query, warn: false
+  import Ash.Expr, only: [expr: 1]
 
+  alias Ankole.Signals
   alias Ankole.Signals.Signal
-  alias Ankole.Repo
-  alias Ankole.Conversations.InputTombstone
   alias Ankole.Signals.Sanitizer
 
   @type session_commit_result :: {:ok, Signal.t()} | {:error, term()}
@@ -34,14 +33,14 @@ defmodule Ankole.Sessions.Queue do
 
   @doc "Locks every participating session before any workspace or Signal row."
   def lock_sessions_in_tx(repo, sessions) do
-    sessions
-    |> Enum.uniq()
-    |> Enum.sort()
-    |> Enum.each(fn {agent_uid, session_id} ->
-      lock_session_in_tx(repo, agent_uid, session_id)
-    end)
+    case sessions |> Enum.uniq() |> Enum.sort() do
+      [] ->
+        :ok
 
-    :ok
+      sorted ->
+        Ankole.AdvisoryLock.lock!(repo, sorted)
+        :ok
+    end
   end
 
   @doc """
@@ -184,8 +183,8 @@ defmodule Ankole.Sessions.Queue do
       ),
       do: {:ok, signal}
 
-  def mark_event_dead_letter_in_tx(_repo, %Signal{} = signal, dead_letter_at, reason) do
-    Ankole.Ash.update(signal, :dead_letter, %{
+  def mark_event_dead_letter_in_tx(repo, %Signal{} = signal, dead_letter_at, reason) do
+    Signals.transition_in_tx(repo, signal, :dead_letter, %{
       dead_letter_at: dead_letter_at,
       dead_letter_reason: dead_letter_reason(reason)
     })
@@ -197,8 +196,8 @@ defmodule Ankole.Sessions.Queue do
   defp mark_event_completed(_repo, %Signal{status: :dead_letter}, _attrs),
     do: {:error, :signal_already_dead_lettered}
 
-  defp mark_event_completed(_repo, %Signal{} = signal, attrs) when is_map(attrs),
-    do: Ankole.Ash.update(signal, :complete, attrs)
+  defp mark_event_completed(repo, %Signal{} = signal, attrs) when is_map(attrs),
+    do: Signals.transition_in_tx(repo, signal, :complete, attrs)
 
   defp completion_attrs(opts) do
     %{completed_at: Keyword.fetch!(opts, :completed_at)}
@@ -210,65 +209,22 @@ defmodule Ankole.Sessions.Queue do
   defp maybe_put_completion_anchor(attrs, key, value), do: Map.put(attrs, key, value)
 
   @doc "All open inputs due now, in queue order."
-  def due(key, now \\ DateTime.utc_now(:microsecond)) do
-    open_query(key.agent_uid, key.session_id)
-    |> where([e], e.available_at <= ^now)
-    |> Repo.all()
-  end
+  def due(key, now \\ DateTime.utc_now(:microsecond)),
+    do: Signals.session_queue(key.agent_uid, key.session_id, due_at: now)
 
   @doc "The oldest open input, including future or unstarted work."
-  def oldest_open(repo, uid, session),
-    do: open_query(uid, session) |> limit(1) |> repo.one()
+  def oldest_open(_repo, uid, session),
+    do: uid |> Signals.session_queue(session, limit: 1) |> List.first()
 
   @doc "The oldest admitted open input, including a deferred retry."
-  def oldest_started(repo, uid, session) do
-    open_query(uid, session)
-    |> where([e], not is_nil(e.last_attempt_at))
-    |> limit(1)
-    |> repo.one()
-  end
+  def oldest_started(_repo, uid, session),
+    do: uid |> Signals.session_queue(session, started?: true, limit: 1) |> List.first()
 
   @doc "Returns runnable or admitted work for the public Session status."
-  def status_event(repo, uid, session, now) do
-    open_query(uid, session)
-    |> exclude(:order_by)
-    |> order_by([event],
-      asc:
-        fragment(
-          "CASE WHEN ? > ? THEN 2 WHEN ? IS NULL THEN 1 ELSE 0 END",
-          event.available_at,
-          ^now,
-          event.last_attempt_at
-        ),
-      asc: event.available_at,
-      asc: event.queue_sequence
-    )
-    |> limit(1)
-    |> repo.one()
-  end
+  def status_event(_repo, uid, session, now), do: Signals.session_status_signal(uid, session, now)
 
-  defp open_query(uid, session) do
-    from(e in Signal,
-      left_join: conversation in Ankole.Conversations.Conversation,
-      on: conversation.id == e.conversation_id and conversation.kind == :native,
-      where:
-        e.agent_uid == ^uid and e.session_id == ^session and
-          e.status in [:queued, :running],
-      where:
-        not is_nil(e.last_attempt_at) or e.type != "conversation.message.addressed" or
-          fragment("COALESCE(?->>'delivery_mode', 'steer')", e.data) != "queue" or
-          is_nil(conversation.id) or
-          fragment("COALESCE(?->>'queue_paused', 'false')", conversation.metadata) != "true",
-      order_by: [asc: e.queue_sequence]
-    )
-  end
-
-  def next_ready_event(uid, session, now \\ DateTime.utc_now(:microsecond)) do
-    open_query(uid, session)
-    |> where([e], e.available_at <= ^now)
-    |> limit(1)
-    |> Repo.one()
-  end
+  def next_ready_event(uid, session, now \\ DateTime.utc_now(:microsecond)),
+    do: uid |> Signals.session_queue(session, due_at: now, limit: 1) |> List.first()
 
   # Accepts an explicit queue sequence for fixtures and replay tools.
   # Events without provider entry identity cannot be matched to a deletion
@@ -285,7 +241,7 @@ defmodule Ankole.Sessions.Queue do
   # that has already been withdrawn.
   defp reject_tombstoned_event_source(_repo, %Signal{reply_binding_name: nil}, _now), do: :ok
 
-  defp reject_tombstoned_event_source(repo, %Signal{} = event, now) do
+  defp reject_tombstoned_event_source(_repo, %Signal{} = event, now) do
     provider_message_ids = Signal.input_provider_message_ids(event)
 
     case provider_message_ids do
@@ -293,19 +249,19 @@ defmodule Ankole.Sessions.Queue do
         :ok
 
       [_entry_id | _rest] ->
-        InputTombstone
-        |> where([tombstone], tombstone.conversation_id == ^event.conversation_id)
-        |> where([tombstone], tombstone.provider_message_id in ^provider_message_ids)
-        |> where([tombstone], tombstone.tombstoned_until > ^now)
-        |> select([tombstone], tombstone.provider_message_id)
-        |> repo.all()
-        |> case do
-          [] ->
-            :ok
+        {:ok, tombstones} =
+          Ankole.Conversations.list_input_tombstones(
+            query: [
+              filter: [
+                conversation_id: event.conversation_id,
+                provider_message_id: [in: provider_message_ids],
+                tombstoned_until: [greater_than: now]
+              ],
+              limit: 1
+            ]
+          )
 
-          [_withdrawn | _rest] ->
-            {:error, :signal_canceled}
-        end
+        if tombstones == [], do: :ok, else: {:error, :signal_canceled}
     end
   end
 
@@ -316,40 +272,16 @@ defmodule Ankole.Sessions.Queue do
     explicit_ids = [signal.message_id | declared]
     background = Ankole.Sessions.ModelHistory.read_message_ids_in_tx(repo, signal) -- explicit_ids
 
-    existing =
-      repo.all(
-        from(m in Ankole.Conversations.Message,
-          where: m.conversation_id == ^signal.conversation_id and m.id in ^background,
-          select: m.id
-        )
+    {:ok, messages} =
+      Ankole.Conversations.list_messages(
+        query: [
+          filter: expr(conversation_id == ^signal.conversation_id and id in ^background),
+          select: [:id]
+        ]
       )
+
+    existing = Enum.map(messages, & &1.id)
 
     if background -- existing == [], do: :ok, else: {:error, :signal_context_canceled}
-  end
-
-  def stop_human_work_in_tx(_repo, uid, version, now) do
-    require Ash.Query
-
-    result =
-      Signal
-      |> Ash.Query.filter(
-        human_uid == ^uid and human_access_version < ^version and status == :queued and
-          is_nil(last_attempt_at)
-      )
-      |> Ankole.Ash.bulk_update(
-        :revoke_unstarted,
-        %{
-          dead_letter_at: now,
-          dead_letter_reason: %{"reason" => "human_access_revoked"}
-        },
-        strategy: [:atomic],
-        return_records?: true,
-        return_errors?: true
-      )
-
-    case result do
-      %Ash.BulkResult{status: :success, records: records} -> {length(records), nil}
-      %Ash.BulkResult{errors: errors} -> Ankole.Repo.rollback(errors)
-    end
   end
 end

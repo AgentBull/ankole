@@ -543,12 +543,12 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
       checkpoint =
         PreviewAdapter.adapter_checkpoint(
-          Ankole.Conversations.Delivery.PreviewState.get(stored).checkpoint
+          Ankole.Conversations.Delivery.PreviewStates.get(stored).checkpoint
         )
 
       assert hd(checkpoint["messages"])["message_id"] == "preview-B"
 
-      assert Ankole.Conversations.Delivery.PreviewState.get(stored).provider_message_id ==
+      assert Ankole.Conversations.Delivery.PreviewStates.get(stored).provider_message_id ==
                "preview-A"
 
       changed = %{

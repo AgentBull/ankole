@@ -11,10 +11,14 @@ defmodule Ankole.Signals.Binding do
   the gateway's routing key.
   """
 
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Signals.Domain
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Signals,
+    extensions: [AshJsonApi.Resource]
 
   alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.Signals.BindingFilters
+  alias Ankole.Signals.Bindings
 
   @type t :: %__MODULE__{}
 
@@ -72,12 +76,39 @@ defmodule Ankole.Signals.Binding do
     timestamps(type: :utc_datetime_usec)
   end
 
+  json_api do
+    type("signal_binding")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :agent_uid,
+      :name,
+      :adapter,
+      :config_ref,
+      :target,
+      :filters,
+      :unaddressed_group_message_policy,
+      :unmatched_sender_policy,
+      :enabled,
+      :unavailable_reason
+    ])
+
+    primary_key do
+      keys([:agent_uid, :name])
+      delimiter("~")
+    end
+  end
+
   actions do
     defaults([:read])
 
+    read :lookup_across_tenants do
+      multitenancy(:allow_global)
+    end
+
     create :put do
       primary?(true)
-      transaction?(false)
       upsert?(true)
 
       upsert_fields([
@@ -119,15 +150,57 @@ defmodule Ankole.Signals.Binding do
       )
     end
 
-    in_tx_update :disable do
+    update :disable do
       accept([])
       change(set_attribute(:enabled, false))
       change(set_attribute(:unavailable_reason, nil))
     end
 
-    destroy :remove do
-      transaction?(false)
-      require_atomic?(false)
+    destroy(:remove)
+
+    action :assign, :term do
+      argument(:assignment, :map, allow_nil?: false)
+      after_commit({Bindings, :cache_committed_assignment})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :reassign, :term do
+      argument(:assignment, :map, allow_nil?: false)
+      after_commit({Bindings, :cache_committed_assignment})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :put_cloud, :term do
+      argument(:binding, :map, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :move_cloud, :term do
+      argument(:source, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
+      argument(:current_config, :map, allow_nil?: false)
+      argument(:binding, :map, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    # The Console disables a binding of one Agent. An unknown Agent or binding
+    # reads as not found.
+    action :console_disable, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:name, :string, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :disable_by_name, :term do
+      argument(:agent_uid, :term, allow_nil?: false)
+      argument(:name, :term, allow_nil?: false)
+
+      run(__MODULE__.Actions)
     end
   end
 

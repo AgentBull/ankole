@@ -8,11 +8,8 @@ defmodule Ankole.Conversations.Delivery.Attachment do
   still names that content at that path before the intent commits.
   """
 
-  import Ecto.Query
-
   alias Ankole.Ecto.JSONPayload
   alias Ankole.Files
-  alias Ankole.Files.Schemas.DriveFile
   alias Ankole.Conversations.Delivery.ToolOutput
 
   @tool_name "reply_attachment"
@@ -64,11 +61,13 @@ defmodule Ankole.Conversations.Delivery.Attachment do
       digest = Base.decode16!(blob_ref, case: :lower)
 
       exists? =
-        Ankole.Repo.exists?(
-          from(file in DriveFile,
-            where: file.agent_uid == ^agent_uid and file.path == ^path and file.sha256 == ^digest
-          )
-        )
+        Ankole.Files.list_drive_files!(
+          query: [
+            filter: [agent_uid: agent_uid, path: path, sha256: digest],
+            limit: 1,
+            select: [:path]
+          ]
+        ) != []
 
       if exists?,
         do: {:cont, :ok},

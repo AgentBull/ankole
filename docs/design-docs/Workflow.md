@@ -243,7 +243,8 @@ column: the Job's `owner_session_id` is the task session.
 
 The task Session is `wf_task:<call_id>`. The dispatch Signal source ID
 is `workflow:call:<call_id>:dispatch`. These identities make task dispatch
-idempotent.
+idempotent. One replay commit accepts the dispatch Signals of all its new calls
+as one list (see [Signals](Signals.md)).
 
 The control plane updates `memo_bytes` in the same transaction that stores new
 call arguments or a terminal result envelope. It measures the exact Torque
@@ -305,7 +306,9 @@ The watchdog uses this timestamp, not unrelated metadata updates.
 One temporary `RunServer` serializes replay for one run. PostgreSQL is the
 source of truth. The conversation Reconciler asks the Workflow owner for runs
 without a `RunServer` and terminal runs that need cleanup, then inserts the
-`PokeRun` job. This also covers a crash before the first task event.
+`PokeRun` job. The pass reads every tenant and needs no transaction:
+each idempotent job insert stands alone, and the next pass repeats a failed
+one. This also covers a crash before the first task event.
 A new replay reads the script and memo from PostgreSQL, so completed tasks do
 not run again. Each native replay handle monitors its `RunServer` owner and
 execution task. Exit of either process cancels the isolate without another
@@ -347,19 +350,23 @@ from the durable payload, so the outcome reaches the user without the Agent
 runtime that failed to relay it.
 
 After a running call sleeps, succeeds, or reaches a terminal failure, the
-post-commit hook starts a separate `Mail.release_capacity/1` transaction. It
-advances the oldest queued call across the Agent's running workflows that waits
-for capacity. A workflow at its own concurrency limit is not eligible. The
-wake transaction locks the Agent slot scope, run, call, Session, and Signal in
-that order. A task that failed before admission did not release a slot.
-Deferrals for a Worker shortage, delivery failure, or an active retry keep
+post-commit work starts the separate `AgentCall.release_capacity` generic action
+(`Mail.release_capacity/1`). The watchdog action `reconcile_stale_tasks`
+declares it with `after_commit`; a Sessions transaction that composes a task
+transition calls `Ankole.Workflow.cleanup_terminal_transition/1` after its
+commit. It advances the oldest queued call across the Agent's running workflows
+that waits for capacity. A workflow at its own concurrency limit is not
+eligible. The wake transaction locks the Agent slot scope, run, call, Session,
+and Signal in that order. A task that failed before admission did not release a
+slot. Deferrals for a Worker shortage, delivery failure, or an active retry keep
 their own retry time.
 
 A completed or failed run changes every remaining queued or running call to
 `cancelled` in the same transaction as the run terminal state. This releases
 every task-capacity slot before external cleanup. After the transaction commits,
 the control plane appends idempotent `command.stop` events for cancelled task
-sessions and stops live Jobs owned by any task session in the run. The run
+sessions in one transaction and stops live Jobs owned by any task session in
+the run. The run
 records one cleanup completion time only after all stop operations succeed.
 Startup recovery includes terminal runs without that time and repeats the
 idempotent cleanup before it marks them complete.
@@ -426,15 +433,25 @@ single busy count. See [Background Agent Job](BackgroundAgentJob.md) and
 
 ## Module Owners
 
-`Ankole.Workflow` delegates the public contract. `Queries` reads projections;
-`Lifecycle` creates and ends runs; `TaskLifecycle` owns task transitions;
-`Replay` commits the durable memo; `Mail` appends events and releases capacity;
-`Slot` owns the slot, run, and call lock order; `Recovery` restores lost wakeups.
-`RunServer` coordinates replay and keeps its waiting-period watchdog. The
-domain modules call these owners directly. Projection helpers stay in `Queries`.
-The public module exposes the operations used by other domains. The
-resource actions own legal transitions through `AshStateMachine`; each action
-uses the caller's tenant and transaction. `TaskLifecycle` uses one
+`Ankole.Workflow` is the domain module and the boundary API: reads, the
+post-commit `cleanup_terminal_transition/1`, and the write operations. Each
+write operation (`create_with_dispatch`, `send_task_message`,
+`defer_task_event`, the three replay commits, and `reconcile_stale_tasks`) is a
+generic action on `Run` or `AgentCall` that owns its transaction and must be
+the top-level call. The module does not expose `_in_tx` functions. A Sessions
+or Background Agent Job transaction composes the `_in_tx` functions of
+`TaskLifecycle`, `Lifecycle`, and `Slot` directly.
+
+`Queries` reads projections; `Lifecycle` creates and ends runs;
+`TaskLifecycle` owns task transitions; `Replay` commits the durable memo;
+`Mail` appends events and releases capacity; `Slot` owns the slot, run, and
+call lock order; `Recovery` restores lost wakeups. `RunServer` coordinates
+replay and keeps its waiting-period watchdog; it calls the generic actions.
+Reads and row locks use Ash queries. `Queries.capacity_candidate/2` is a
+registered read model: it selects the next capacity waiter across calls, runs,
+and Signals and gives only identifiers. The resource actions own legal
+transitions through `AshStateMachine`; each action uses the caller's tenant and
+the transaction of its generic action. `TaskLifecycle` uses one
 compensation function when a stopped run has a running call. It cancels
 the call and notifies its Session in the same transaction. A retry that queues a
 running call releases its slot and wakes capacity waiters after commit, just as

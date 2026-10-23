@@ -2,7 +2,7 @@ import { Button } from '@ankole/uikit'
 import { RiResetLeftLine } from '@remixicon/react'
 import { type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { AppConfigurationItem } from '../api/generated/types.gen'
+import type { AppConfigurationItem } from '../api/configuration-types'
 
 /** One labeled section of a specialized settings-group editor, with its restore-default action. */
 export function SettingGroupField({

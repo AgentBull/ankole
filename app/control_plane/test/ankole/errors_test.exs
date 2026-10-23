@@ -2,7 +2,7 @@ defmodule Ankole.ErrorsTest do
   use ExUnit.Case, async: true
 
   alias Ankole.Errors
-  alias Ankole.Errors.Invalid.{NotFound, Rejected, Stale, StatusTransition}
+  alias Ankole.Errors.Invalid.{Conflict, NotFound, Rejected, Stale, StatusTransition}
   alias AshStateMachine.Errors.NoMatchingTransition
 
   test "shape/2 gives the declared exceptions and keeps other errors" do
@@ -39,9 +39,73 @@ defmodule Ankole.ErrorsTest do
     assert Errors.wrap(:ok) == :ok
   end
 
+  test "wrap/2 adds the operator text, makes a conflict, or replaces the rejection" do
+    describe = fn
+      :invalid_config -> {"The YAML is invalid", [%{path: "config", line: 3}]}
+      :in_use -> {:conflict, "Agents use it", []}
+      :missing -> NotFound.exception(resource: TenantIsolationFixture.Probe)
+      _other -> nil
+    end
+
+    assert {:error,
+            %Rejected{
+              reason: :invalid_config,
+              detail: "The YAML is invalid",
+              details: [%{path: "config", line: 3}]
+            }} = Errors.wrap({:error, :invalid_config}, describe)
+
+    assert {:error, %Conflict{reason: :in_use, detail: "Agents use it"}} =
+             Errors.wrap({:error, :in_use}, describe)
+
+    assert {:error, %NotFound{resource: TenantIsolationFixture.Probe}} =
+             Errors.wrap({:error, :missing}, describe)
+
+    assert {:error, %Rejected{reason: :other, detail: nil}} =
+             Errors.wrap({:error, :other}, describe)
+
+    assert Errors.wrap({:ok, 1}, describe) == {:ok, 1}
+  end
+
+  test "a rejection and a conflict give their reason code to the JSON:API error" do
+    assert %AshJsonApi.Error{
+             status_code: 422,
+             code: "invalid_config",
+             detail: "Bad",
+             meta: %{details: [%{path: "config"}]}
+           } =
+             AshJsonApi.ToJsonApiError.to_json_api_error(
+               Rejected.exception(
+                 reason: :invalid_config,
+                 detail: "Bad",
+                 details: [%{path: "config"}]
+               )
+             )
+
+    assert %AshJsonApi.Error{status_code: 409, code: "in_use", meta: :undefined} =
+             AshJsonApi.ToJsonApiError.to_json_api_error(
+               Conflict.exception(reason: {:in_use, "p"})
+             )
+  end
+
+  test "rollback_result/1 gives a rolled-back changeset as its class and keeps other results" do
+    changeset =
+      %Ash.Changeset{resource: TenantIsolationFixture.Probe}
+      |> Ash.Changeset.add_error(Ash.Error.Changes.StaleRecord.exception(filter: %{id: 1}))
+
+    assert {:error, %Ash.Error.Invalid{errors: [%Stale{}]}} =
+             Errors.rollback_result({:error, changeset})
+
+    # A generic action rolls back with its declared rejection; the class stays.
+    rejected = Ash.Error.to_error_class(Rejected.exception(reason: :job_not_found))
+    assert Errors.rollback_result({:error, rejected}) == {:error, rejected}
+    assert Errors.rollback_result({:error, :reason}) == {:error, :reason}
+    assert Errors.rollback_result({:ok, 1}) == {:ok, 1}
+  end
+
   test "reason/1 gives domain code its reason and keeps other failures" do
     for {error, reason} <- [
           {Rejected.exception(reason: :job_not_found), :job_not_found},
+          {Conflict.exception(reason: :worker_provider_in_use), :worker_provider_in_use},
           {Stale.exception([]), :stale},
           {Ash.Error.Changes.StaleRecord.exception([]), :stale},
           {NotFound.exception(id: 1), :not_found},

@@ -14,6 +14,7 @@ defmodule Ankole.IdentityProviders.Login do
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.Config
   alias Ankole.IdentityProviders.LocalPassword
+  alias Ankole.IdentityProviders.OIDC
 
   @authorization_capability "oidc_authorization"
   @code_exchange_capability "oidc_code_exchange"
@@ -57,6 +58,10 @@ defmodule Ankole.IdentityProviders.Login do
 
   @doc """
   Exchanges an OIDC authorization code and upserts the authenticated user.
+
+  The adapter exchanges the code. This function verifies the upstream proof
+  with `Ankole.IdentityProviders.OIDC.verify_login/3` before the adapter can
+  write the user.
   """
   @spec complete_oidc_login(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def complete_oidc_login(provider_id, code, opts)
@@ -64,8 +69,8 @@ defmodule Ankole.IdentityProviders.Login do
     with {:ok, module, config} <-
            login_module(provider_id, capability(opts, @code_exchange_capability)),
          {:ok, %{user: user} = login} <- module.exchange_code(config, code, opts),
-         :ok <-
-           Ankole.IdentityProviders.OIDC.validate_authentication_time(login[:auth_time], opts),
+         {:ok, auth_time} <-
+           OIDC.verify_login(module.id_token_verification(config), login, opts),
          {:ok, %{principal: principal, identity: identity}} <-
            module.upsert_user(provider_id, user),
          :ok <- Ankole.Principals.HumanAccess.check(principal.uid, principal.access_version) do
@@ -73,7 +78,7 @@ defmodule Ankole.IdentityProviders.Login do
        %{
          principal_uid: principal.uid,
          access_version: principal.access_version,
-         auth_time: login[:auth_time],
+         auth_time: auth_time,
          provider_id: provider_id,
          external_id: identity.external_id,
          user: user

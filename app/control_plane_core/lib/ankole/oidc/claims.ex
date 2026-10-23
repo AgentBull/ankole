@@ -1,22 +1,13 @@
 defmodule Ankole.OIDC.Claims do
   @moduledoc false
-  import Ecto.Query
-  alias Ankole.Principals.{HumanUser, Principal}
-  alias Ankole.Repo
+  alias Ankole.Principals
 
+  # FOR SHARE holds the active Human and its profile until the tokens of the
+  # grant are minted.
   def load(subject) do
-    case Repo.one(
-           from(p in Principal,
-             join: h in HumanUser,
-             on: h.principal_uid == p.uid,
-             where: p.uid == ^subject and p.type == :human and p.status == :active,
-             lock: "FOR SHARE",
-             select: {p, h}
-           ),
-           lock_identity: {"principals", subject}
-         ) do
-      {principal, human} -> {:ok, principal, human}
-      nil -> {:error, :inactive_human}
+    case Principals.lock_active_human_in_tx(Ankole.Repo, subject) do
+      {:ok, %{principal: principal, human_user: human}} -> {:ok, principal, human}
+      {:error, _reason} -> {:error, :inactive_human}
     end
   end
 

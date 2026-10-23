@@ -4,9 +4,9 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
   """
 
   use Ankole.Ash.Resource,
-    extensions: [AshStateMachine],
+    extensions: [AshStateMachine, AshJsonApi.Resource],
     tenancy: :tenant,
-    domain: Ankole.AutomationJobs.Domain
+    domain: Ankole.AutomationJobs
 
   @type t :: %__MODULE__{}
 
@@ -72,6 +72,43 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
     timestamps(type: :utc_datetime_usec)
   end
 
+  relationships do
+    belongs_to :job, Ankole.AutomationJobs.Schemas.Job do
+      source_attribute(:automation_job_id)
+      attribute_type(:integer)
+      define_attribute?(false)
+    end
+  end
+
+  # The definition facts of the Console activity projection, read in the
+  # same query as the run.
+  calculations do
+    calculate(:job_agent_uid, :string, expr(job.agent_uid))
+    calculate(:job_label, :string, expr(job.label))
+    calculate(:job_owner_session_id, :string, expr(job.owner_session_id))
+    calculate(:job_status, :atom, expr(job.status))
+  end
+
+  json_api do
+    type("automation_job_run")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :automation_job_id,
+      :status,
+      :attempts,
+      :started_at,
+      :finished_at,
+      :exit_code,
+      :error,
+      :stdout,
+      :stdout_truncated,
+      :stderr,
+      :stderr_truncated
+    ])
+  end
+
   state_machine do
     state_attribute(:status)
     initial_states([:queued, :failed])
@@ -89,29 +126,86 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
   actions do
     defaults([:read])
 
+    read :across_tenants do
+      multitenancy(:allow_global)
+    end
+
+    # The Console run history of one job of one Agent, the newest run first.
+    read :console_list do
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:automation_job_id, :integer, allow_nil?: false)
+
+      filter(
+        expr(automation_job_id == ^arg(:automation_job_id) and job.agent_uid == ^arg(:agent_uid))
+      )
+
+      prepare(build(sort: [inserted_at: :desc, id: :desc]))
+      pagination(keyset?: true, default_limit: 20, max_page_size: 100, countable: false)
+    end
+
+    action :start_attempt, :term do
+      argument(:run_id, :integer, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+      argument(:ready_timeout_ms, :integer, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :finish_attempt, :term do
+      argument(:run_id, :integer, allow_nil?: false)
+      argument(:attempt_id, :term, allow_nil?: false)
+      argument(:result, :term, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :infrastructure_failure, :term do
+      argument(:run_id, :integer, allow_nil?: false)
+      argument(:attempt_id, :term, allow_nil?: false)
+      argument(:error, :term, allow_nil?: false)
+
+      argument(:disposition, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:retry, :exhausted]]
+      )
+
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :emit_event, :term do
+      argument(:agent_uid, :term, allow_nil?: false)
+      argument(:run_id, :integer, allow_nil?: false)
+      argument(:attempt_id, :term, allow_nil?: false)
+      argument(:payload, :term)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
     create :enqueue do
       primary?(true)
-      transaction?(false)
       accept([:automation_job_id, :event])
     end
 
     create :record_failed do
-      transaction?(false)
       accept([:automation_job_id, :event, :finished_at, :error])
       change(transition_state(:failed))
     end
 
-    in_tx_update :wait_for_worker do
+    update :wait_for_worker do
       accept([:worker_wait_started_at])
     end
 
-    in_tx_update :start do
+    update :start do
       accept([:attempt_id, :started_at, :finished_at, :error])
       change(atomic_update(:attempts, expr(attempts + 1)))
       change(transition_state(:running))
     end
 
-    in_tx_update :settle do
+    update :settle do
       argument(:status, :atom, allow_nil?: false, constraints: [one_of: [:failed, :succeeded]])
       change(transition_state(arg(:status)))
 
@@ -127,16 +221,17 @@ defmodule Ankole.AutomationJobs.Schemas.Run do
       ])
     end
 
-    in_tx_update :retry do
+    update :retry do
       accept([:attempt_id, :error])
       change(transition_state(:queued))
     end
 
-    in_tx_update :record_error do
+    update :record_error do
       accept([:error])
     end
 
-    atomic_in_tx_update :stop_human_work do
+    update :stop_human_work do
+      require_atomic?(true)
       accept([:attempt_id, :finished_at, :error])
       change(transition_state(:cancelled))
     end

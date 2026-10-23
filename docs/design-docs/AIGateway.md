@@ -90,7 +90,11 @@ sections. Both use the same provider, model, context-length, and request-option
 form. The custom section also requires the immutable name and description. The
 `coding` label identifies the Background Agent Job default model. A sibling
 `Token quota` section sets the Agent's period and token limit; see
-[Agent Token Quota](AgentTokenQuota.md).
+[Agent Token Quota](AgentTokenQuota.md). The tenant Console routes under
+`/api/v2/agents/:agent_uid` read and write model profiles, provider-hosted
+capabilities, and token quotas through the owning domain actions. These HTTP
+actions return typed configuration and usage views. Principal/AuthZ checks each
+operation before it reaches the domain.
 
 For an Agent token, `GET /models` exposes each configured custom name as an
 alias and uses its description in the catalog. Another Agent and an admin
@@ -259,6 +263,22 @@ an automatic token-refresh callback. The refresh action preserves the credential
 revision; explicit replacement changes it. A stale cooldown action returns the
 existing record without a database write. API controllers authorize and project
 these domain results; they do not choose a persistence path.
+
+`Ankole.AIGateway.ProviderConfigs` is the Ash domain of `Provider`. It is
+separate from `Ankole.AIGateway` because a domain is in one JSON:API router:
+the providers are site resources, and Conversations are tenant resources. The
+site JSON:API (`/api/v2/site/ai-gateway/providers`) lists, reads, creates or
+changes (`PATCH`, the `put` action), disables or deletes (`delete`, the
+`retire` action), and enables (`POST …/enable`) a provider. The calculated
+`credential_pool` field (`CredentialPoolView`) and `provider_metadata` field
+give the same projection as `ProviderConfigs.projection/1`; no credential
+value leaves the row. A rejection carries the operator text of
+`ProviderConfigs.rejection/1`. The same site API serves the model catalog,
+provider kinds, credential writes, credential-pool strategy, and ChatGPT login.
+Credential writes return the safe Provider projection. ChatGPT sign-in actions
+call `ChatGPTAuth` without a transport transaction; the provider domain owns
+the transaction that stores a completed credential. The login response contains
+only the current step, its opaque client context, and safe account metadata.
 
 `ai_gateway_providers` stores operator-configured provider rows. Each row
 contains:
@@ -895,6 +915,39 @@ columns join to `background_agent_jobs.id`, to the Session, and to
 stop the quota row. Rows are never updated or deleted while the Agent exists;
 deleting the Agent Principal removes them with its other AIGateway records.
 [Agent Token Quota](AgentTokenQuota.md) lists the columns.
+
+### Persistence Contract
+
+`Ankole.AIGateway` is the Ash domain of the gateway resources. Other domains
+read Conversation, Message, Artifact, CompactionArtifact, and UsageRecord rows
+through its `get_*` and `list_*` defines. Provider rows belong to the
+`Ankole.AIGateway.ProviderConfigs` domain.
+`get_conversation_by_id` reads one Conversation by its ID;
+`get_conversation/3` reads the Conversation of one subject.
+
+A write with more than one step is a generic action of its resource. The
+action owns its transaction and runs only as the top-level call. A caller that
+already has a transaction uses the `_in_tx` function of the same step. The
+Message actions are:
+
+- `renew_lease`: the heartbeat and the next orphan deadline.
+- `commit_terminal`: the first terminal commit of a Response.
+- `fail_generating` and `reconcile_orphan`: the failure of a generating
+  Response.
+- `admit_run`: the stateful admission, with the optional checkpoint and the
+  caller callbacks.
+- `install_recovery_checkpoint`: the replay recovery checkpoint.
+
+These actions publish their live events after the commit. A progress-only
+write is one conditional update and has no transaction. The Artifact action
+`persist_output` stores all generated images of one response in one
+transaction. The Provider actions `change`, `retire`, `put_cooldown`, and
+`rotate_credential` lock the row before the update reads the current
+credential pool.
+
+The history reads walk the `previous_message_id` chain with one recursive SQL
+query. The query binds the tenant at each step and gives the row IDs in chain
+order. The rows then come from the Message resource.
 
 ## How a Stateful Response Runs
 

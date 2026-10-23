@@ -1,13 +1,27 @@
 # Principal
 
-`Ankole.Principals.Domain` owns the typed persistence actions for Principals,
-Agent and Human profiles, external identities, local credentials, access
-restrictions, audit events, and pending identity mappings. These resources use
-the PostgreSQL tables and constraints. The Principal UID codec and
-tenant-qualified ActorRef codec are the identity and attribution contracts.
+`Ankole.Principals` is the Ash domain of the typed persistence actions for
+Principals, Agent and Human profiles, external identities, local credentials,
+access restrictions, audit events, and pending identity mappings. These
+resources use the PostgreSQL tables and constraints. The Principal UID
+codec and tenant-qualified ActorRef codec are the identity and attribution
+contracts.
 
-The aggregate operations own transactions and lock order. Resource
-actions require that transaction. Profile actions accept only profile fields;
+Each aggregate operation (create, enable, delete, or update an Agent; create
+or update a Human; create a local account; platform subject upserts; Human
+access changes; mapping observations and reviews; work classification and
+cleanup; local password writes) is a generic action of
+`Ankole.Principals.Principal`, `MappingRequest`, or `LocalCredential`. The
+generic action owns the transaction and the lock order, and the resource
+actions run in it. Another domain does the same steps in its own transaction
+through the `_in_tx` functions, for example `Principals.create_human_in_tx/2`
+and `Principals.lock_principal_in_tx/3`; it cannot call the generic action
+there. The browser login completes a forced password change in its own
+transaction with `complete_forced_password_change_in_tx/4`; it hashes the
+password before that transaction.
+A read of a Principal in any tenant uses the `allow_global` read action through
+`Principals.get_principal_across_tenants/1` in a `Repo.across_tenants` block.
+Profile actions accept only profile fields;
 they cannot change identity, status, or access versions. Human revocation
 changes status and the access version in one Principal action. Audit events
 have no update or delete action. The cleanup audit action keeps the first
@@ -254,6 +268,24 @@ and `MappingRequests.bind_subject` write the identity to exactly the Principal
 the operator chose. This explicit provider binding stays authoritative even
 when another provider uses the same external ID.
 
+## Verify Upstream Login
+
+`IdentityProviders.Login.complete_oidc_login/3` is the only place that accepts
+the proof of an identity-provider login. The adapter exchanges the code and
+returns the token, the claims of the provider's user endpoint, and the
+normalized user. The adapter declares the expected ID token with
+`id_token_verification/1`: the issuer, the client ID, and the claim that names
+the user (`sub` for Google and Slack, `oid` for Entra ID). The login boundary
+verifies the signature, issuer, audience, nonce, and authentication time with
+`IdentityProviders.OIDC.verify_login/3`. The user endpoint claim must equal the
+signed claim. Then the adapter writes the user.
+
+Lark, WeCom, and DingTalk login use OAuth 2.0 without an ID token. Their
+adapters declare `:none`, so their logins have no authentication time and
+cannot serve a fresh-authentication request. The plugin registry rejects an
+adapter with the `oidc_code_exchange` capability that does not export
+`id_token_verification/1`.
+
 ## Create and Update Humans
 
 `create_human` inserts the Principal and human profile in one transaction.
@@ -301,6 +333,28 @@ checks completion; TanStack Query owns the request and cache.
 
 `HumanAccess.disable/4` records a Human restriction and revokes its credentials.
 AuthZ protects the last active human administrator.
+
+## Console Identity and Access API
+
+The tenant Console uses `/api/v2/identity-provider-adapters` and
+`/api/v2/identity-providers` for provider configuration and directory review.
+Configuration responses redact stored secrets. A blank secret input keeps the
+stored value. Directory approval requires the current snapshot fingerprint and
+explicit removal approval. Event review checks both the provider and event ID.
+
+`Ankole.IdentityProviders.Console` and `Ankole.Principals.Access` are typed,
+stateless Ash transport resources. Their actions call the owning domain's
+public operations. They keep no rows and open no transaction. Each durable
+write stays with its existing domain action and PostgreSQL adapter.
+`AnkoleWeb.JSONAPI.Policy` sets the operator and selected data tenant before
+it authorizes the route through Principal/AuthZ.
+
+The Human access view at `/api/v2/principals/:uid/access` includes restrictions,
+permission review, history, affected work, and cleanup results. Access changes
+require a reason and an operation ID. Restoration requires verified identity,
+the current permission fingerprint, and cleared restrictions. The work review
+routes at `/api/v2/work-access-reviews` record explicit Human or service
+authority without replaying stopped work.
 
 ## Divide Setup from Principal Data
 

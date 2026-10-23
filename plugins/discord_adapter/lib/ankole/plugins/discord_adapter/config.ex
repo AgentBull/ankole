@@ -9,14 +9,11 @@ defmodule Ankole.Plugins.DiscordAdapter.Config do
 
   @moduledoc "Validation and runtime helpers for the first-party Discord adapter."
 
-  import Ecto.Query, warn: false
-
   alias Ankole.Signals.Bindings
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
   alias Ankole.Plugins.DiscordAdapter.Client
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Signals.Binding
 
   @key_pattern ~r/\Asignals\.discord\.bindings\.[A-Za-z0-9_.:-]+\z/
 
@@ -77,13 +74,15 @@ defmodule Ankole.Plugins.DiscordAdapter.Config do
       when is_atom(repo) and is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
     fingerprint = secret_fingerprint(config)
 
-    Binding
-    |> where(
-      [binding],
-      binding.adapter == "discord" and binding.enabled == true and
-        (binding.agent_uid != ^agent_uid or binding.name != ^binding_name)
+    Ankole.Signals.list_bindings!(
+      query: [
+        filter: [
+          adapter: "discord",
+          enabled: true,
+          or: [[agent_uid: [not_eq: agent_uid]], [name: [not_eq: binding_name]]]
+        ]
+      ]
     )
-    |> repo.all()
     |> Enum.reduce_while(:ok, fn binding, :ok ->
       case Bindings.binding_config_in_tx(repo, binding, __MODULE__) do
         {:ok, other} ->

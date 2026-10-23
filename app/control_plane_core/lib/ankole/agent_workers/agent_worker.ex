@@ -2,9 +2,25 @@ defmodule Ankole.AgentWorkers.AgentWorker do
   @moduledoc "The durable lifecycle, launch identity, and current connection of one Agent's Worker."
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.AgentWorkers.Domain,
-    extensions: [AshStateMachine]
+    domain: Ankole.AgentWorkers,
+    extensions: [AshStateMachine, AshJsonApi.Resource]
 
+  alias Ankole.AgentWorkers.ReconcileJob
+  alias Ankole.AgentWorkers.WorkerAdmission
+
+  # The fields that the Console shows for each Worker.
+  @console_fields [
+    :provider_id,
+    :state,
+    :generation,
+    :image,
+    :capacity,
+    :load,
+    :last_worker_heartbeat_at,
+    :state_changed_at,
+    :drain_reason,
+    :last_error
+  ]
   @states [:absent, :starting, :ready, :stale, :paused, :draining, :deleting]
   @generation_fields [
     :generation,
@@ -58,9 +74,23 @@ defmodule Ankole.AgentWorkers.AgentWorker do
     end
   end
 
+  json_api do
+    type("agent_worker")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    # The primary key names the record in the result of a generic action.
+    default_fields([:agent_uid | @console_fields])
+  end
+
   attributes do
-    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, primary_key?: true, allow_nil?: false)
-    attribute(:provider_id, :string, constraints: [trim?: false])
+    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:provider_id, :string, constraints: [trim?: false], public?: true)
 
     for field <- [
           :generation,
@@ -71,25 +101,34 @@ defmodule Ankole.AgentWorkers.AgentWorker do
           :transport_route,
           :drain_reason
         ] do
-      attribute(field, :string, constraints: [trim?: false])
+      attribute(field, :string, constraints: [trim?: false], public?: field in @console_fields)
     end
 
     for field <- [:create_sent_at, :instance_seen_at, :wanted_until, :last_worker_heartbeat_at] do
-      attribute(field, :utc_datetime_usec)
+      attribute(field, :utc_datetime_usec, public?: field in @console_fields)
     end
 
-    attribute(:state_changed_at, :utc_datetime_usec, allow_nil?: false, generated?: true)
+    attribute(:state_changed_at, :utc_datetime_usec,
+      allow_nil?: false,
+      generated?: true,
+      public?: true
+    )
+
     attribute(:storage_ref, Ankole.Ash.Types.JSONMap)
     attribute(:token_digest, :binary, sensitive?: true)
     attribute(:token_ciphertext, :binary, sensitive?: true)
     attribute(:protocol_version, :integer)
 
     for field <- [:instance_settings, :capacity, :load] do
-      attribute(field, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
+      attribute(field, Ankole.Ash.Types.JSONMap,
+        allow_nil?: false,
+        default: %{},
+        public?: field in @console_fields
+      )
     end
 
     attribute(:initial_start_pending, :boolean, allow_nil?: false, default: false)
-    attribute(:last_error, :string, constraints: [trim?: false, max_length: 4000])
+    attribute(:last_error, :string, constraints: [trim?: false, max_length: 4000], public?: true)
     attribute(:last_error_kind, :string, constraints: [trim?: false])
   end
 
@@ -128,13 +167,13 @@ defmodule Ankole.AgentWorkers.AgentWorker do
     defaults([:read])
 
     create :register do
-      transaction?(false)
       accept([:agent_uid, :provider_id])
       validate(present(:provider_id))
       change(set_attribute(:initial_start_pending, true))
     end
 
-    atomic_in_tx_update :reserve_slot do
+    update :reserve_slot do
+      require_atomic?(true)
       accept([])
 
       change(
@@ -174,7 +213,6 @@ defmodule Ankole.AgentWorkers.AgentWorker do
     end
 
     update :request do
-      transaction?(false)
       require_atomic?(true)
       accept([])
       change(filter(expr(state != :deleting)))
@@ -189,7 +227,9 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       )
     end
 
-    atomic_in_tx_update :begin_generation do
+    update :begin_generation do
+      require_atomic?(true)
+
       accept([
         :generation,
         :create_sent_at,
@@ -218,13 +258,15 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       change({Ankole.AgentWorkers.Changes.StateClock, target: :starting})
     end
 
-    atomic_in_tx_update :resume do
+    update :resume do
+      require_atomic?(true)
       accept([])
       change(transition_state(:starting))
       change({Ankole.AgentWorkers.Changes.StateClock, target: :starting})
     end
 
-    atomic_in_tx_update :pause do
+    update :pause do
+      require_atomic?(true)
       accept([])
       change(transition_state(:paused))
       change(set_attribute(:drain_reason, nil))
@@ -232,7 +274,8 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       change({Ankole.AgentWorkers.Changes.StateClock, target: :paused})
     end
 
-    atomic_in_tx_update :drain do
+    update :drain do
+      require_atomic?(true)
       accept([:drain_reason])
       change(transition_state(:draining))
 
@@ -246,12 +289,26 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       change({Ankole.AgentWorkers.Changes.StateClock, target: :draining})
     end
 
-    in_tx_update :admit do
-      accept([:incarnation_id, :transport_route, :capacity])
-      argument(:generation, :string, allow_nil?: false, constraints: [trim?: false])
-      validate(present([:incarnation_id, :transport_route]))
-      change(Ankole.AgentWorkers.Changes.AdmitConnection)
-      change(transition_state(:ready), only_when_valid?: true)
+    # The caller locks the row and checks its generation and protocol. The
+    # update applies only while no other incarnation has a fresh heartbeat.
+    update :admit do
+      require_atomic?(true)
+      accept([:transport_route, :capacity])
+      argument(:incarnation, :string, allow_nil?: false, constraints: [trim?: false])
+      validate(present(:transport_route))
+
+      change(
+        filter(
+          expr(
+            is_nil(incarnation_id) or incarnation_id == ^arg(:incarnation) or
+              is_nil(transport_route) or is_nil(last_worker_heartbeat_at) or
+              last_worker_heartbeat_at <= fragment("clock_timestamp() - interval '60 seconds'")
+          )
+        )
+      )
+
+      change(set_attribute(:incarnation_id, arg(:incarnation)))
+      change(transition_state(:ready))
       change(set_attribute(:initial_start_pending, false))
       change(set_attribute(:last_error, nil))
       change(set_attribute(:last_error_kind, nil))
@@ -264,7 +321,8 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       change({Ankole.AgentWorkers.Changes.StateClock, target: :ready})
     end
 
-    atomic_in_tx_update :heartbeat do
+    update :heartbeat do
+      require_atomic?(true)
       accept([:capacity, :load])
       argument(:route, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:incarnation, :string, allow_nil?: false, constraints: [trim?: false])
@@ -281,7 +339,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       change(atomic_update(:last_worker_heartbeat_at, expr(fragment("now()"))))
     end
 
-    in_tx_update :disconnect do
+    update :disconnect do
       accept([])
       change(next_state())
       change(set_attribute(:transport_route, nil))
@@ -293,7 +351,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       )
     end
 
-    in_tx_update :settle do
+    update :settle do
       accept([:storage_ref, :last_error, :last_error_kind])
       change(next_state())
 
@@ -312,7 +370,8 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       )
     end
 
-    atomic_in_tx_update :mark_deleting do
+    update :mark_deleting do
+      require_atomic?(true)
       accept([])
       change(transition_state(:deleting))
       change(set_attribute(:incarnation_id, nil))
@@ -322,7 +381,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       change(atomic_update(:state_changed_at, expr(fragment("now()"))))
     end
 
-    in_tx_update :observe do
+    update :observe do
       accept([
         :instance_ref,
         :instance_seen_at,
@@ -334,19 +393,19 @@ defmodule Ankole.AgentWorkers.AgentWorker do
     end
 
     update :record_error do
-      transaction?(false)
       require_atomic?(true)
       accept([:last_error, :last_error_kind])
     end
 
-    atomic_in_tx_update :clear_rejection do
+    update :clear_rejection do
+      require_atomic?(true)
       accept([])
       change(filter(expr(last_error_kind == "rejected")))
       change(set_attribute(:last_error, nil))
       change(set_attribute(:last_error_kind, nil))
     end
 
-    in_tx_update :assign_provider do
+    update :assign_provider do
       accept([:provider_id])
       validate(present(:provider_id))
 
@@ -373,10 +432,119 @@ defmodule Ankole.AgentWorkers.AgentWorker do
     end
 
     destroy :remove do
-      transaction?(false)
-      require_atomic?(false)
-      atomic_upgrade?(false)
       validate(attribute_equals(:state, :deleting))
+    end
+
+    read :across_tenants do
+      multitenancy(:allow_global)
+    end
+
+    # Each generic action owns one transaction. It locks the row before it
+    # changes it, and its publish function runs after the commit.
+
+    action :admit_connection, :term do
+      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:generation, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:route, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:incarnation, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:capacity, :map, allow_nil?: false)
+      after_commit({WorkerAdmission, :publish_admission})
+      run(__MODULE__.Actions)
+    end
+
+    action :renew_connection, :term do
+      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:route, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:incarnation, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:capacity, :map, allow_nil?: false)
+      argument(:load, :map, allow_nil?: false)
+      after_commit({WorkerAdmission, :publish_renewal})
+      run(__MODULE__.Actions)
+    end
+
+    action :drain_connection, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:route, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:reason, :string, allow_nil?: false, constraints: [trim?: false])
+      after_commit({WorkerAdmission, :publish_worker})
+      run(__MODULE__.Actions)
+    end
+
+    action :release_route, :struct do
+      constraints(instance_of: __MODULE__)
+      allow_nil?(true)
+      argument(:route, :string, allow_nil?: false, constraints: [trim?: false])
+      after_commit({WorkerAdmission, :publish_worker})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :expire_connection, :term do
+      allow_nil?(true)
+      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
+      after_commit({WorkerAdmission, :publish_expiry})
+      run(__MODULE__.Actions)
+    end
+
+    read :console_list do
+      prepare(build(sort: [agent_uid: :asc]))
+    end
+
+    action :assign_provider_once, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:provider_id, :string, allow_nil?: true, constraints: [trim?: false])
+      after_commit({ReconcileJob, :enqueue})
+
+      run(__MODULE__.Actions)
+    end
+
+    # The Console assignment keeps the v1 answers: a missing Agent or provider
+    # is not found, and an Agent that has a provider or is being deleted is a
+    # conflict.
+    action :console_assign_provider, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
+      after_commit({ReconcileJob, :enqueue})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :decide_reconcile_step, :term do
+      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:seen, :term, allow_nil?: false)
+      argument(:previous, :term)
+      argument(:prepared, :term)
+      run(__MODULE__.Actions)
+    end
+
+    action :record_reconcile_result, :term do
+      argument(:call, :term, allow_nil?: false)
+      argument(:facts, :term, allow_nil?: false)
+      argument(:result, :term)
+      run(__MODULE__.Actions)
+    end
+
+    action :record_prepare_error, :struct do
+      constraints(instance_of: __MODULE__)
+      allow_nil?(true)
+      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:reason, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:kind, :string, allow_nil?: false)
+      after_commit({WorkerAdmission, :publish_worker})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :authorize_turn do
+      argument(:ref, :term, allow_nil?: false)
+      argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:effect, :atom, allow_nil?: false)
+
+      run(__MODULE__.Actions)
     end
   end
 

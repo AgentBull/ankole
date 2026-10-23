@@ -5,10 +5,10 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
-  ankoleWebDirectoryAccessControllerShowOptions,
-  ankoleWebDirectoryAccessControllerApproveMutation,
-  ankoleWebDirectoryAccessControllerReviewEventMutation
-} from '../api/generated/@tanstack/react-query.gen'
+  getIdentityDirectoryOptions,
+  approveIdentityDirectoryMutation,
+  reviewIdentityDirectoryEventMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
 import { AccessReviewModel } from '../state/access-review-model'
 import { ErrorBlock } from '../../common/error-block'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -19,7 +19,7 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
   const { t } = useTranslation()
   const model = useModel(AccessReviewModel)
   const directory = useQuery({
-    ...ankoleWebDirectoryAccessControllerShowOptions({ path: { provider_id: providerID } }),
+    ...getIdentityDirectoryOptions({ path: { provider_id: providerID } }),
     refetchInterval: 15000
   })
   const onSuccess = () => {
@@ -27,8 +27,8 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
     toast.success(t('console.human_access.saved'))
   }
   const onError = (error: unknown) => toast.error(requestErrorMessage(error))
-  const approve = useMutation({ ...ankoleWebDirectoryAccessControllerApproveMutation(), onSuccess, onError })
-  const review = useMutation({ ...ankoleWebDirectoryAccessControllerReviewEventMutation(), onSuccess, onError })
+  const approve = useMutation({ ...approveIdentityDirectoryMutation(), onSuccess, onError })
+  const review = useMutation({ ...reviewIdentityDirectoryEventMutation(), onSuccess, onError })
   const snapshot = directory.data?.snapshot
   const pending = approve.isPending || review.isPending
   const confirmed = Boolean(
@@ -99,9 +99,11 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
               approve.mutate({
                 path: { provider_id: providerID },
                 body: {
-                  reason: model.reason.value.trim(),
-                  snapshot_fingerprint: model.approvedFingerprint.value!,
-                  confirm_removals: true
+                  data: {
+                    reason: model.reason.value.trim(),
+                    snapshot_fingerprint: model.approvedFingerprint.value!,
+                    confirm_removals: true
+                  }
                 }
               })
             }>
@@ -127,7 +129,7 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
                 onClick={() =>
                   review.mutate({
                     path: { provider_id: providerID, event_id: event.id },
-                    body: { action: 'retry', reason: model.reason.value.trim() }
+                    body: { data: { action: 'retry', reason: model.reason.value.trim() } }
                   })
                 }>
                 {t('common.retry')}
@@ -140,7 +142,7 @@ export function DirectoryAccessSection({ providerID }: { providerID: string }) {
                 onClick={() =>
                   review.mutate({
                     path: { provider_id: providerID, event_id: event.id },
-                    body: { action: 'dismiss', reason: model.reason.value.trim() }
+                    body: { data: { action: 'dismiss', reason: model.reason.value.trim() } }
                   })
                 }>
                 {t('console.directory_access.dismiss')}

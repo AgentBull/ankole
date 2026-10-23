@@ -4,7 +4,7 @@ defmodule Ankole.Signals.AdaptersTest do
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsFixtures
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.PluginFixtures.MockSignalProvider.ReplyPreview, as: MockReplyPreview
@@ -320,7 +320,7 @@ defmodule Ankole.Signals.AdaptersTest do
     # The reloaded checkpoint feeds `checkpoint`, `previous_presentation`, and
     # the Signal copy, so the stored secret must vanish from all three.
     {:ok, _event} =
-      PreviewState.put_checkpoint(event.id, %{
+      PreviewStates.put_checkpoint(event.id, %{
         "presentation" => %{"answer" => "#{worker_env_secret} #{worker_env_secret}"}
       })
 

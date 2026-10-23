@@ -2,7 +2,6 @@ defmodule Ankole.OIDC.Logout do
   @moduledoc """
   Persistent delivery of session-specific OIDC Back-Channel Logout.
   """
-  import Ecto.Query
   require Ash.Query
   alias Ankole.OIDC.Client
   alias Ankole.OIDC.LogoutDelivery
@@ -36,66 +35,77 @@ defmodule Ankole.OIDC.Logout do
     end
   end
 
-  def deliveries(client_id \\ nil) do
-    query =
-      from(d in LogoutDelivery,
-        join: s in Session,
-        on: s.id == d.session_id,
-        order_by: [desc: d.inserted_at],
-        select: %{delivery: d, client_id: s.client_id, principal_uid: s.principal_uid}
-      )
+  @doc false
+  def console_retry_in_tx(client_id, id) do
+    case LogoutDelivery
+         |> Ash.Query.filter(id == ^id and session.client_id == ^client_id)
+         |> Ankole.Ash.read_one!() do
+      %LogoutDelivery{} ->
+        case retry_in_tx(id) do
+          {:ok, delivery} ->
+            {:ok,
+             Ash.load!(delivery, [:principal_uid], tenant: Repo.tenant_id(), authorize?: false)}
 
-    query = if client_id, do: where(query, [_d, s], s.client_id == ^client_id), else: query
-    Repo.all(query)
+          error ->
+            Ankole.Errors.not_found(error, [:not_found], LogoutDelivery)
+        end
+
+      nil ->
+        {:error, Ankole.Errors.Invalid.NotFound.exception(resource: LogoutDelivery, id: id)}
+    end
   end
 
-  def retry(id) do
-    Repo.transact(fn repo ->
-      case repo.one(from(d in LogoutDelivery, where: d.id == ^id, lock: "FOR UPDATE")) do
-        nil ->
-          {:error, :not_found}
+  def retry(id), do: Ankole.Ash.run_action(LogoutDelivery, :retry, %{id: id})
 
-        %LogoutDelivery{status: :delivered} = delivery ->
+  @doc false
+  def retry_in_tx(id) do
+    case lock_delivery(id) do
+      nil ->
+        {:error, :not_found}
+
+      %LogoutDelivery{status: :delivered} = delivery ->
+        {:ok, delivery}
+
+      delivery ->
+        now = DateTime.utc_now()
+
+        with {:ok, delivery} <-
+               Ankole.Ash.update(delivery, :restart_in_tx, %{
+                 deadline: DateTime.add(now, 24 * 60 * 60),
+                 next_attempt_at: now
+               }),
+             {:ok, job} <- Oban.insert(LogoutWorker.new(%{"delivery_id" => delivery.id})),
+             :ok <- Oban.retry_job(job) do
           {:ok, delivery}
-
-        delivery ->
-          now = DateTime.utc_now()
-
-          with {:ok, delivery} <-
-                 Ankole.Ash.update(delivery, :restart_in_tx, %{
-                   deadline: DateTime.add(now, 24 * 60 * 60),
-                   next_attempt_at: now
-                 }),
-               {:ok, job} <- Oban.insert(LogoutWorker.new(%{"delivery_id" => delivery.id})),
-               :ok <- Oban.retry_job(job) do
-            {:ok, delivery}
-          end
-      end
-    end)
+        end
+    end
   end
 
   def deliver_browser(browser_id) do
     deliveries =
       Repo.across_tenants(fn ->
-        Repo.all(
-          from(d in LogoutDelivery,
-            join: s in Session,
-            on: s.id == d.session_id,
-            where: s.browser_id == ^browser_id and d.status in [:pending, :delivering],
-            select: {d.tenant_id, d.id}
-          )
-        )
+        session_ids =
+          Session
+          |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
+          |> Ash.Query.filter(browser_id == ^browser_id)
+          |> Ash.read!(authorize?: false)
+          |> Enum.map(& &1.id)
+
+        LogoutDelivery
+        |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
+        |> Ash.Query.filter(session_id in ^session_ids and status in [:pending, :delivering])
+        |> Ash.read!(authorize?: false)
       end)
 
-    Enum.each(deliveries, fn {tenant_id, id} ->
-      Repo.with_tenant(tenant_id, fn -> deliver(id) end)
+    Enum.each(deliveries, fn delivery ->
+      Repo.with_tenant(delivery.tenant_id, fn -> deliver(delivery.id) end)
     end)
 
     :ok
   end
 
   def deliver(id) do
-    case claim(id) do
+    case Ankole.Ash.run_action(LogoutDelivery, :claim, %{id: id}) do
       {:ok, :complete} ->
         :ok
 
@@ -122,44 +132,50 @@ defmodule Ankole.OIDC.Logout do
     end
   end
 
-  defp claim(id) do
-    Repo.transact(fn repo ->
-      case repo.one(from(d in LogoutDelivery, where: d.id == ^id, lock: "FOR UPDATE")) do
-        nil ->
-          {:ok, :complete}
+  @doc false
+  def claim_in_tx(id) do
+    case lock_delivery(id) do
+      nil ->
+        {:ok, :complete}
 
-        %LogoutDelivery{status: :delivered} ->
-          {:ok, :complete}
+      %LogoutDelivery{status: :delivered} ->
+        {:ok, :complete}
 
-        delivery ->
-          now = DateTime.utc_now()
+      delivery ->
+        now = DateTime.utc_now()
 
-          cond do
-            delivery.status == :delivering and is_struct(delivery.last_attempt_at, DateTime) and
-                DateTime.diff(now, delivery.last_attempt_at) < 15 ->
-              {:ok, {:wait, 15}}
+        cond do
+          delivery.status == :delivering and is_struct(delivery.last_attempt_at, DateTime) and
+              DateTime.diff(now, delivery.last_attempt_at) < 15 ->
+            {:ok, {:wait, 15}}
 
-            delivery.status == :failed ->
-              {:ok, :expired}
+          delivery.status == :failed ->
+            {:ok, :expired}
 
-            DateTime.compare(now, delivery.deadline) != :lt ->
-              with {:ok, _} <-
-                     Ankole.Ash.update(delivery, :exhaust_in_tx, %{}),
-                   do: {:ok, :expired}
+          DateTime.compare(now, delivery.deadline) != :lt ->
+            with {:ok, _} <- Ankole.Ash.update(delivery, :exhaust_in_tx, %{}),
+                 do: {:ok, :expired}
 
-            is_struct(delivery.next_attempt_at, DateTime) and
-                DateTime.compare(delivery.next_attempt_at, now) == :gt ->
-              {:ok, {:wait, max(1, DateTime.diff(delivery.next_attempt_at, now))}}
+          is_struct(delivery.next_attempt_at, DateTime) and
+              DateTime.compare(delivery.next_attempt_at, now) == :gt ->
+            {:ok, {:wait, max(1, DateTime.diff(delivery.next_attempt_at, now))}}
 
-            true ->
-              Ankole.Ash.update(delivery, :claim_in_tx, %{at: now})
-          end
-      end
-    end)
+          true ->
+            Ankole.Ash.update(delivery, :claim_in_tx, %{at: now})
+        end
+    end
+  end
+
+  defp lock_delivery(id) do
+    LogoutDelivery
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
   end
 
   defp transmit(delivery) do
-    with %Session{} = session <- Repo.get(Session, delivery.session_id),
+    with %Session{} = session <-
+           Session |> Ash.Query.filter(id == ^delivery.session_id) |> Ankole.Ash.read_one!(),
          {:ok, token} <-
            Attesto.LogoutToken.mint(Ankole.OIDC.attesto_config(), session.client_id,
              sub: session.principal_uid,
@@ -198,18 +214,10 @@ defmodule Ankole.OIDC.Logout do
            %{at: now, next_attempt_at: DateTime.add(now, delay), last_error: reason}}
       end
 
-    case Repo.transact(fn ->
-           case LogoutDelivery
-                |> Ash.Query.filter(id == ^delivery.id)
-                |> Ankole.Ash.bulk_update(action, attrs,
-                  strategy: [:atomic],
-                  return_errors?: true
-                ) do
-             %Ash.BulkResult{status: :success} -> {:ok, :ok}
-             %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
-           end
-         end) do
-      {:ok, :ok} -> if result == :ok, do: :ok, else: {:snooze, delay}
+    case LogoutDelivery
+         |> Ash.Query.filter(id == ^delivery.id)
+         |> Ankole.Ash.update_where(action, attrs) do
+      {:ok, _} -> if result == :ok, do: :ok, else: {:snooze, delay}
       {:error, _} = error -> error
     end
   end

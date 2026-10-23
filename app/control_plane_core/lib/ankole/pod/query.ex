@@ -16,10 +16,10 @@ defmodule Ankole.Pod.Query do
       if is_integer(limit) and limit > 0 and limit <= Keyword.get(opts, :max_limit, 100_000) do
         {limit_param, params} = Formula.bind(params, limit + 1)
 
-        sql =
-          "SELECT (to_jsonb(r) - 'tenant_id' - 'table_id') || jsonb_build_object('created_at', #{utc_timestamp("r.created_at")}, 'updated_at', #{utc_timestamp("r.updated_at")}, 'data', r.data || #{projection}), jsonb_build_array(#{Enum.map_join(order, ",", &cursor_value/1)}) FROM db_records r WHERE r.tenant_id = $1::text::uuid AND r.table_id = $2::text::uuid AND (#{where}) AND (#{group}) AND (#{cursor}) AND (#{ids_sql}) ORDER BY #{Enum.join(Enum.map(order, &(&1.sql <> " " <> &1.direction <> " NULLS LAST")) ++ ["r.id ASC"], ",")} LIMIT #{limit_param}"
-
-        case Repo.query(sql, params) do
+        case Repo.query(
+               "SELECT (to_jsonb(r) - 'tenant_id' - 'table_id') || jsonb_build_object('created_at', #{utc_timestamp("r.created_at")}, 'updated_at', #{utc_timestamp("r.updated_at")}, 'data', r.data || #{projection}), jsonb_build_array(#{Enum.map_join(order, ",", &cursor_value/1)}) FROM db_records r WHERE r.tenant_id = $1::text::uuid AND r.table_id = $2::text::uuid AND (#{where}) AND (#{group}) AND (#{cursor}) AND (#{ids_sql}) ORDER BY #{Enum.join(Enum.map(order, &(&1.sql <> " " <> &1.direction <> " NULLS LAST")) ++ ["r.id ASC"], ",")} LIMIT #{limit_param}",
+               params
+             ) do
           {:ok, result} ->
             {rows, extra} = Enum.split(result.rows, limit)
             last = List.last(rows)

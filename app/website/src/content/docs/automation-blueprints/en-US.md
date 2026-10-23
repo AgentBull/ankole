@@ -39,19 +39,21 @@ A schedule wakes the Agent once a day. The Agent collects and summarizes the req
 Get the browser session cookie and `x-csrf-token` value from a signed-in browser before you run this Console request.
 
 ```bash
-curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules \
+curl -X POST https://ankole.example.com/api/v2/agents/<agent_uid>/cron-schedules \
   -H "Cookie: $CONSOLE_COOKIE" \
   -H "x-csrf-token: $CSRF_TOKEN" \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/vnd.api+json" \
   -d '{
-    "owner_session_id": "<session_id>",
-    "binding_name": "main",
-    "name": "daily-digest",
-    "idempotency_key": "daily-digest-1",
-    "schedule": { "kind": "cron", "expression": "0 9 * * *" },
-    "timezone": "Asia/Shanghai",
-    "delivery": { "targets": [{ "binding_name": "main", "conversation_id": "<conversation_uuid>" }] },
-    "payload": { "task": "Produce today'\''s digest of the topics in your mission." }
+    "data": {
+      "owner_session_id": "<session_id>",
+      "binding_name": "main",
+      "name": "daily-digest",
+      "idempotency_key": "daily-digest-1",
+      "schedule": { "kind": "cron", "expression": "0 9 * * *" },
+      "timezone": "Asia/Shanghai",
+      "delivery": { "targets": [{ "binding_name": "main", "conversation_id": "<conversation_uuid>" }] },
+      "payload": { "task": "Produce today'\''s digest of the topics in your mission." }
+    }
   }'
 ```
 
@@ -73,7 +75,7 @@ Keep the direct Agent schedule when every run needs semantic judgment. Read [Wor
 
 The agent is asked something in a turn, and decides to come back to it later. Instead of a fixed cron, the agent itself sets a one-shot wakeup with `check_back_later`. The shape from the agent's side is "look again in an hour" — the agent calls the tool; the operator surface is read-only.
 
-This fits work that is not on a cadence: "check whether the deploy finished in an hour," "re-read this thread after the standup." The agent owns the timing; you see the pending checkbacks through `GET /api/v1/checkbacks?agent=<agent_uid>` and can cancel one with `DELETE /api/v1/agents/:agent_uid/checkbacks/:scheduled_event_id`.
+This fits work that is not on a cadence: "check whether the deploy finished in an hour," "re-read this thread after the standup." The agent owns the timing; you see the pending checkbacks through `GET /api/v2/checkbacks?agent=<agent_uid>` and can cancel one with `DELETE /api/v2/agents/:agent_uid/checkbacks/:scheduled_event_id`.
 
 ## Blueprint: research-and-report (schedule + background job)
 

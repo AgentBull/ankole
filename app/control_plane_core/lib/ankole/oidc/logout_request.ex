@@ -1,6 +1,6 @@
 defmodule Ankole.OIDC.LogoutRequest do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.OIDC.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.OIDC
 
   postgres do
     table("oidc_logout_requests")
@@ -55,24 +55,29 @@ defmodule Ankole.OIDC.LogoutRequest do
 
     create :prepare_in_tx do
       accept([:browser_id, :browser_revision, :client_id, :redirect_uri, :state, :expires_at])
-      transaction?(false)
     end
 
-    atomic_in_tx_update :confirm_in_tx do
+    update :confirm_in_tx do
+      require_atomic?(true)
       accept([])
       change(filter(expr(is_nil(confirmed_at))))
       change(set_attribute(:confirmed_at, &DateTime.utc_now/0))
     end
 
     destroy :cancel_in_tx do
-      transaction?(false)
       require_atomic?(true)
       change(filter(expr(is_nil(confirmed_at))))
     end
 
     destroy :expire_in_tx do
-      transaction?(false)
       require_atomic?(true)
+    end
+
+    action :confirm, :term do
+      argument(:browser_ref, :term)
+      argument(:id, :term)
+
+      run(__MODULE__.Actions)
     end
   end
 

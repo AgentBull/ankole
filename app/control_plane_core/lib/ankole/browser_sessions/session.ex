@@ -1,6 +1,6 @@
 defmodule Ankole.BrowserSessions.Session do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :site, domain: Ankole.BrowserSessions.Domain
+  use Ankole.Ash.Resource, tenancy: :site, domain: Ankole.BrowserSessions
 
   postgres do
     table("browser_sessions")
@@ -58,30 +58,43 @@ defmodule Ankole.BrowserSessions.Session do
 
     create :create_in_tx do
       accept([:expires_at])
-      transaction?(false)
     end
 
-    in_tx_update :activate_in_tx do
+    update :activate_in_tx do
       accept([:active_authentication_id, :active_tenant_id])
     end
 
-    in_tx_update :record_login_in_tx do
+    update :record_login_in_tx do
       accept([:revision, :active_authentication_id, :active_tenant_id, :expires_at])
     end
 
-    in_tx_update :revoke_in_tx do
+    update :revoke_in_tx do
       accept([:revision, :active_authentication_id, :active_tenant_id])
     end
 
-    in_tx_update :logout_in_tx do
+    update :logout_in_tx do
       accept([:revision, :logout_revision])
       change(set_attribute(:active_authentication_id, nil))
       change(set_attribute(:active_tenant_id, nil))
     end
 
     destroy :expire_in_tx do
-      transaction?(false)
       require_atomic?(true)
+    end
+
+    action :activate, :term do
+      argument(:browser_ref, :term)
+      argument(:authentication_ref, :term)
+      argument(:tenant_id, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :logout, :term do
+      argument(:browser_ref, :term)
+      argument(:expected_revision, :term)
+
+      run(__MODULE__.Actions)
     end
   end
 

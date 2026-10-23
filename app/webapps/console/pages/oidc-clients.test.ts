@@ -1,10 +1,8 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
-import type {
-  AiGatewayProviderItem as AIGatewayProviderItem,
-  AiGatewayProviderKindItem as AIGatewayProviderKindItem
-} from '../api/generated/types.gen'
+import type { AIGatewayProviderKindItem } from '../state/provider-settings'
 import i18n, { loadLocale } from '../../common/i18n'
 import { buildModelAliases, filterGroupOptions } from './oidc-clients'
+import type { AIGatewayProviderItem } from '../state/provider-settings'
 
 beforeAll(() => loadLocale('en-US'))
 

@@ -23,26 +23,29 @@ import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from '@tanstack/react-router'
 import {
-  ankoleWebAuthZGroupControllerAddMemberMutation,
-  ankoleWebAuthZGroupControllerIndexOptions,
-  ankoleWebAuthZGroupControllerRemoveMemberMutation,
-  ankoleWebPrincipalControllerGrantsOptions,
-  ankoleWebPrincipalControllerGroupsOptions,
-  ankoleWebPrincipalControllerIndexOptions,
-  ankoleWebPrincipalControllerShowOptions
-} from '../api/generated/@tanstack/react-query.gen'
-import type { PrincipalItem } from '../api/generated/types.gen'
-import { requestErrorMessage } from '../../common/request-errors'
+  addPrincipalGroupMemberMutation,
+  getPrincipalOptions,
+  listGrantsOfPrincipalOptions,
+  listGroupsOfPrincipalOptions,
+  listPrincipalGroupsOptions,
+  listPrincipalsOptions,
+  removePrincipalGroupMemberMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import type { Principal } from '../api/v2/generated/types.gen'
+import { type Flat, fromDocument } from '../api/json-api'
 import { AddMembershipPicker } from '../add-membership-picker'
 import { BackLink, PageStack } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
 import { ConfirmDeleteButton, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowViewAction, SubNav } from '../console-list-page'
-import { principalGroupDisplayName } from '../state/principal-group-text'
+import { principalGroupDisplayName, principalGroupErrorMessage } from '../state/principal-group-text'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
 import { useLocalIdentityProvider } from '../use-local-identity-provider'
 import { PermissionGrantsSection } from './permission-grant-editor'
 import { LocalPasswordSection } from './principal-local-password'
+
+/** The flat Console record of a Principal; `id` is its UID. */
+export type PrincipalRecord = Flat<Principal>
 
 /**
  * Sibling views of the "Access" nav area.
@@ -66,15 +69,18 @@ export function AccessSubNav() {
 
 export function PrincipalsListPage() {
   const { t } = useTranslation()
-  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions({ query: { include_disabled: true } }))
+  const principals = useQuery({
+    ...listPrincipalsOptions({ query: { include_disabled: true } }),
+    select: data => fromDocument(data)
+  })
   const localIdentity = useLocalIdentityProvider()
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
-  const rows = (principals.data?.principals ?? []).filter(principal =>
+  const rows = (principals.data ?? []).filter(principal =>
     matchesResourceSearch(
       searchQuery,
-      principal.uid,
+      principal.id,
       principal.email,
       principal.handle,
       principal.display_name,
@@ -119,12 +125,12 @@ export function PrincipalsListPage() {
         />
       }>
       {rows.map(principal => (
-        <TableRow key={principal.uid}>
+        <TableRow key={principal.id}>
           <TableCell>
             <Link
               data-row-link
               className="flex items-center gap-2 text-foreground"
-              to={encodeURIComponent(principal.uid)}>
+              to={encodeURIComponent(principal.id)}>
               <PrincipalAvatar principal={principal} />
               <span className="truncate">{principalLabel(principal)}</span>
             </Link>
@@ -142,7 +148,7 @@ export function PrincipalsListPage() {
             label={t('common.view_details_for', {
               name: principalLabel(principal)
             })}
-            to={encodeURIComponent(principal.uid)}
+            to={encodeURIComponent(principal.id)}
           />
         </TableRow>
       ))}
@@ -154,9 +160,9 @@ export function PrincipalDetailPage() {
   const { t } = useTranslation()
   const params = useParams({ strict: false })
   const uid = params.uid ?? ''
-  const principal = useQuery(ankoleWebPrincipalControllerShowOptions({ path: { uid } }))
+  const principal = useQuery({ ...getPrincipalOptions({ path: { uid } }), select: data => fromDocument(data) })
   const localIdentity = useLocalIdentityProvider()
-  const loadedPrincipal = principal.data?.principal
+  const loadedPrincipal = principal.data
 
   return (
     <PageStack className="mx-auto max-w-4xl">
@@ -211,26 +217,29 @@ export function PrincipalDetailPage() {
 }
 
 /** Static operator-domain groups this principal belongs to, with join/leave. */
-function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
+function PrincipalGroupsSection({ principal }: { principal: PrincipalRecord }) {
   const { t } = useTranslation()
-  const groups = useQuery(ankoleWebPrincipalControllerGroupsOptions({ path: { uid: principal.uid } }))
-  const allGroups = useQuery(ankoleWebAuthZGroupControllerIndexOptions())
-  const memberships = groups.data?.principal_groups ?? []
+  const groups = useQuery({
+    ...listGroupsOfPrincipalOptions({ path: { uid: principal.id } }),
+    select: data => fromDocument(data)
+  })
+  const allGroups = useQuery({ ...listPrincipalGroupsOptions(), select: data => fromDocument(data) })
+  const memberships = groups.data ?? []
 
   const addMember = useMutation({
-    ...ankoleWebAuthZGroupControllerAddMemberMutation(),
+    ...addPrincipalGroupMemberMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.principals.group_added', { id: variables.path.name }))
     },
-    onError: error => toast.error(requestErrorMessage(error))
+    onError: error => toast.error(principalGroupErrorMessage(t, error))
   })
   const removeMember = useMutation({
-    ...ankoleWebAuthZGroupControllerRemoveMemberMutation(),
+    ...removePrincipalGroupMemberMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.principals.group_removed', { id: variables.path.name }))
     },
-    // The server refuses removing the last admin member (409); toast its reason.
-    onError: error => toast.error(requestErrorMessage(error))
+    // The server refuses removing the last admin member; toast its reason.
+    onError: error => toast.error(principalGroupErrorMessage(t, error))
   })
 
   return (
@@ -246,14 +255,14 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
         placeholder={t('console.principals.add_to_group_placeholder')}
         emptyText={t('console.principals.add_to_group_empty')}
         // Only operator-domain static groups accept manual membership.
-        candidates={(allGroups.data?.principal_groups ?? [])
+        candidates={(allGroups.data ?? [])
           .filter(group => group.domain === 'operator' && group.kind === 'static')
           .map(group => ({ id: group.name, label: principalGroupDisplayName(t, group) }))}
         excludedIDs={new Set(memberships.map(group => group.name))}
         error={allGroups.error}
         isLoading={allGroups.isLoading}
         pending={addMember.isPending}
-        onAdd={name => addMember.mutate({ path: { name, principal_uid: principal.uid } })}
+        onAdd={name => addMember.mutate({ path: { name, principal_uid: principal.id } })}
       />
       <ErrorBlock error={groups.error} />
       {!groups.error && !groups.isLoading && memberships.length === 0 ? (
@@ -316,7 +325,7 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
                               confirmLabel: t('console.principals.remove_group')
                             }}
                             onConfirm={() =>
-                              removeMember.mutate({ path: { name: group.name, principal_uid: principal.uid } })
+                              removeMember.mutate({ path: { name: group.name, principal_uid: principal.id } })
                             }
                           />
                         ) : null}
@@ -334,25 +343,28 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
 }
 
 /** Direct grants attached to this principal. */
-function PrincipalGrantsSection({ principal }: { principal: PrincipalItem }) {
+function PrincipalGrantsSection({ principal }: { principal: PrincipalRecord }) {
   const { t } = useTranslation()
-  const grants = useQuery(ankoleWebPrincipalControllerGrantsOptions({ path: { uid: principal.uid } }))
+  const grants = useQuery({
+    ...listGrantsOfPrincipalOptions({ path: { uid: principal.id } }),
+    select: data => fromDocument(data)
+  })
 
   return (
     <PermissionGrantsSection
       title={t('console.principals.grants_section_title')}
       description={t('console.principals.grants_section_description')}
       addLabel={t('console.principals.add_grant')}
-      addTo={`/access/principals/${encodeURIComponent(principal.uid)}/grants/new`}
+      addTo={`/access/principals/${encodeURIComponent(principal.id)}/grants/new`}
       empty={t('console.principals.grants_empty')}
       error={grants.error}
-      grants={grants.data?.permission_grants ?? []}
+      grants={grants.data ?? []}
       isLoading={grants.isLoading}
     />
   )
 }
 
-function PrincipalAvatar({ principal, size = 'sm' }: { principal: PrincipalItem; size?: 'sm' | 'lg' }) {
+function PrincipalAvatar({ principal, size = 'sm' }: { principal: PrincipalRecord; size?: 'sm' | 'lg' }) {
   return (
     <Avatar size={size}>
       {principal.avatar_url ? <AvatarImage src={principal.avatar_url} alt="" /> : null}

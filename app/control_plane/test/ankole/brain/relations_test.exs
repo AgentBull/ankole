@@ -14,7 +14,7 @@ defmodule Ankole.Brain.RelationsTest do
 
     for slug <- ["notes/relation-source", "notes/relation-target"] do
       assert {:ok, _} =
-               Objects.create_object(
+               Ankole.Brain.create_object(
                  %{slug: slug, type: "note", title: slug, body: "A note."},
                  :system
                )
@@ -37,13 +37,13 @@ defmodule Ankole.Brain.RelationsTest do
     old_chunk = Repo.get_by!(Chunk, object_id: old.id, chunk_index: 0)
 
     assert {:ok, _} =
-             Objects.update_object(
+             Ankole.Brain.update_object(
                old.slug,
                %{body: "The current body.", expected_content_hash: old.content_hash},
                :system
              )
 
-    assert {:ok, current} = Chunks.reconcile(old)
+    assert {:ok, current} = Ankole.Brain.reconcile_chunks(old)
     assert current.body == "The current body."
     chunk = Repo.get_by!(Chunk, object_id: old.id, chunk_index: 0)
     assert chunk.chunk_text == "The current body."

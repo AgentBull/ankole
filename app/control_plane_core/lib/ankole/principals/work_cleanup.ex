@@ -11,6 +11,7 @@ defmodule Ankole.Principals.WorkCleanup do
     ]
 
   import Ecto.Query
+  require Ash.Query
   alias Ankole.Principals.AccessEvent
   alias Ankole.Principals.Principal
   alias Ankole.Repo
@@ -33,22 +34,18 @@ defmodule Ankole.Principals.WorkCleanup do
   # The audit row commits with the stop mutations. Tenant teardown can process
   # a bounded batch without inventing a second cleanup checkpoint.
   def pending_for_tenant(limit) do
-    Repo.all(
-      from principal in Principal,
-        as: :human,
-        where: principal.type == :human and principal.status == :disabled,
-        where:
-          not exists(
-            from event in AccessEvent,
-              where:
-                event.principal_uid == parent_as(:human).uid and event.source == "work_cleanup" and
-                  event.operation_id ==
-                    fragment("'access-version:' || ?::text", parent_as(:human).access_version),
-              select: 1
-          ),
-        order_by: principal.uid,
-        limit: ^limit
+    Principal
+    |> Ash.Query.filter(
+      type == :human and status == :disabled and
+        not exists(
+          access_events,
+          source == "work_cleanup" and
+            operation_id == fragment("'access-version:' || ?::text", parent(access_version))
+        )
     )
+    |> Ash.Query.sort(uid: :asc)
+    |> Ash.Query.limit(limit)
+    |> Ankole.Ash.read!()
   end
 
   @impl Ankole.Job
@@ -79,13 +76,12 @@ defmodule Ankole.Principals.WorkCleanup do
     end
   end
 
-  def cleanup(uid, version) do
-    Repo.transact(fn repo ->
-      principal =
-        repo.one!(from(p in Principal, where: p.uid == ^uid, lock: "FOR UPDATE"),
-          lock_identity: {"principals", uid}
-        )
+  def cleanup(uid, version),
+    do: Ankole.Ash.run_action(Principal, :cleanup_work, %{uid: uid, version: version})
 
+  @doc false
+  def cleanup_in_tx(repo, uid, version) do
+    with {:ok, principal} <- Ankole.Principals.lock_principal_in_tx(repo, uid) do
       now = DateTime.utc_now()
 
       results =
@@ -93,54 +89,24 @@ defmodule Ankole.Principals.WorkCleanup do
           Ankole.Work.Owner.revoke_human_work_in_tx(repo, uid, version, now)
         end)
 
-      running = Repo.across_tenants(fn -> running_count(repo, uid, version) end)
+      running =
+        Ankole.Signals.count_admitted_attempts_for_human(uid, version) +
+          Ankole.AutomationJobs.count_running_runs_for_human(uid, version)
 
-      {:ok, _event} =
-        Ankole.Ash.create(AccessEvent, :record_once_in_tx, %{
-          principal_uid: uid,
-          operation_id: "access-version:#{version}",
-          source: "work_cleanup",
-          action: "stop_future_work",
-          reason: "human_access_revoked",
-          previous_status: principal.status,
-          status: principal.status,
-          access_version: version,
-          details: Map.put(results, "admitted_attempts_allowed_to_finish", running)
-        })
-
-      {:ok, %{running: running, stopped: results}}
-    end)
-  end
-
-  defp running_count(repo, uid, version) do
-    events =
-      from e in Ankole.Signals.Signal,
-        where:
-          e.human_uid == ^uid and e.human_access_version < ^version and
-            e.status in [:queued, :running],
-        select: e.id
-
-    deliveries =
-      repo.aggregate(
-        from(e in Ankole.Signals.Signal,
-          where:
-            e.id in subquery(events) and not is_nil(e.last_attempt_at) and
-              e.status in [:queued, :running]
-        ),
-        :count
-      )
-
-    jobs =
-      from j in Ankole.AutomationJobs.Schemas.Job,
-        where: j.human_uid == ^uid and j.human_access_version < ^version,
-        select: j.id
-
-    deliveries +
-      repo.aggregate(
-        from(r in Ankole.AutomationJobs.Schemas.Run,
-          where: r.automation_job_id in subquery(jobs) and r.status == :running
-        ),
-        :count
-      )
+      with {:ok, _event} <-
+             Ankole.Ash.create(AccessEvent, :record_once_in_tx, %{
+               principal_uid: uid,
+               operation_id: "access-version:#{version}",
+               source: "work_cleanup",
+               action: "stop_future_work",
+               reason: "human_access_revoked",
+               previous_status: principal.status,
+               status: principal.status,
+               access_version: version,
+               details: Map.put(results, "admitted_attempts_allowed_to_finish", running)
+             }) do
+        {:ok, %{running: running, stopped: results}}
+      end
+    end
   end
 end

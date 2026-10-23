@@ -1,11 +1,12 @@
 import { Badge, Button, Checkbox, Input, Textarea, toast } from '@ankole/uikit'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { listOidcLoginSourcesOptions } from '../api/v2/generated/@tanstack/react-query.gen'
+import { fromDocument } from '../api/json-api'
 import {
-  oidcLoginSourcesOptions,
-  ankoleWebOidcClientControllerLogoutDeliveriesOptions,
-  ankoleWebOidcClientControllerRetryLogoutMutation
-} from '../api/generated/@tanstack/react-query.gen'
+  listOidcLogoutDeliveriesOptions,
+  retryOidcLogoutDeliveryMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
 import { ErrorBlock } from '../../common/error-block'
 import { requestErrorMessage } from '../../common/request-errors'
 import { LabeledField } from '../console-form'
@@ -21,7 +22,7 @@ export function OIDCSessionSettings({
   setDraft: (draft: ClientDraft) => void
 }) {
   const { t } = useTranslation()
-  const providers = useQuery(oidcLoginSourcesOptions())
+  const providers = useQuery(listOidcLoginSourcesOptions())
   return (
     <section className="grid gap-5 border-b border-border pb-6">
       <h3 className="text-base font-semibold">{t('console.access_sessions.title')}</h3>
@@ -105,14 +106,27 @@ export function OIDCSessionSettings({
   )
 }
 
+type LogoutDeliveryItem = {
+  id: string
+  session_id: string
+  principal_uid: string
+  status: 'pending' | 'delivering' | 'failed' | 'delivered'
+  attempt_count: number
+  next_attempt_at: string | null
+  delivered_at: string | null
+  deadline: string
+  last_error: string | null
+}
+
 export function OIDCLogoutDeliveries({ clientID }: { clientID: string }) {
   const { t } = useTranslation()
   const deliveries = useQuery({
-    ...ankoleWebOidcClientControllerLogoutDeliveriesOptions({ path: { id: clientID } }),
+    ...listOidcLogoutDeliveriesOptions({ path: { client_id: clientID } }),
+    select: document => fromDocument(document) as LogoutDeliveryItem[],
     refetchInterval: 15000
   })
   const retry = useMutation({
-    ...ankoleWebOidcClientControllerRetryLogoutMutation(),
+    ...retryOidcLogoutDeliveryMutation(),
     onSuccess: () => {
       toast.success(t('console.access_sessions.retry_started'))
     },
@@ -124,10 +138,10 @@ export function OIDCLogoutDeliveries({ clientID }: { clientID: string }) {
       <p className="text-sm text-muted-foreground">{t('console.access_sessions.delivery_hint')}</p>
       <ErrorBlock error={deliveries.error} />
       {deliveries.isLoading ? <p role="status">{t('common.loading')}</p> : null}
-      {deliveries.data?.deliveries.length === 0 ? (
+      {deliveries.data?.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t('console.access_sessions.no_deliveries')}</p>
       ) : null}
-      {deliveries.data?.deliveries.map(item => (
+      {deliveries.data?.map(item => (
         <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 border border-border p-4">
           <div className="grid gap-1 text-sm">
             <span>
@@ -146,7 +160,7 @@ export function OIDCLogoutDeliveries({ clientID }: { clientID: string }) {
               variant="outline"
               size="sm"
               disabled={retry.isPending}
-              onClick={() => retry.mutate({ path: { id: clientID, delivery_id: item.id } })}>
+              onClick={() => retry.mutate({ path: { client_id: clientID, id: item.id } })}>
               {t('common.retry')}
             </Button>
           ) : null}

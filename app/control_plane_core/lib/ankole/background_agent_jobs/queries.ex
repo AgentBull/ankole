@@ -1,24 +1,26 @@
 defmodule Ankole.BackgroundAgentJobs.Queries do
-  @moduledoc false
+  @moduledoc """
+  Normalizes the parameters of the Job read actions and projects their rows.
 
+  The Job resource owns the list reads (`console_list`, `list_for_agent`,
+  `ambient_candidates`, `live_for_owner_sessions`). This module validates the
+  caller parameters, converts the opaque list cursors to the keyset of the read
+  action, and projects records into the Console and tool contracts.
+  """
+
+  require Ash.Query
   require Ankole.ModelIntegerID
 
-  import Ecto.Query
-
+  alias Ankole.BackgroundAgentJobs.JobState
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.Principals
   alias Ankole.Repo
 
-  @list_cursor_version "1"
+  @cursor_version "2"
   @list_page_size 32
-  @list_query_limit @list_page_size + 1
   @ambient_candidate_limit 8
-  @ambient_candidate_query_limit @ambient_candidate_limit + 1
-  @list_statuses %{
-    "live" => [:queued, :running, :waiting_on_user],
-    "stop" => [:succeeded, :failed, :stopped]
-  }
+  @list_status_groups %{"live" => :live, "stop" => :stop}
   @result_read_columns [
     :id,
     :task,
@@ -44,27 +46,20 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   def list_for_agent(agent_uid, opts \\ []) when is_binary(agent_uid) and is_list(opts) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, status} <- list_status(Keyword.get(opts, :status)),
-         {:ok, cursor} <- decode_list_cursor(Keyword.get(opts, :cursor), status) do
-      statuses = Map.fetch!(@list_statuses, status)
-
-      rows =
-        Job
-        |> where([job], job.agent_uid == ^agent_uid)
-        |> where([job], job.status in ^statuses)
-        |> maybe_before_list_cursor(cursor)
-        |> order_by([job], desc: job.updated_at, desc: job.id)
-        |> limit(@list_query_limit)
-        |> Repo.all()
-
-      page = Enum.take(rows, @list_page_size)
-      jobs = Enum.map(page, &list_projection/1)
-
-      next_cursor =
-        if length(rows) > @list_page_size do
-          page |> List.last() |> encode_list_cursor(status)
-        end
-
-      {:ok, %{jobs: jobs, next_cursor: next_cursor}}
+         {:ok, keyset} <- decode_cursor(Keyword.get(opts, :cursor), [status]),
+         {:ok, page} <-
+           Job
+           |> Ash.Query.for_read(:list_for_agent, %{
+             agent_uid: agent_uid,
+             status_group: Map.fetch!(@list_status_groups, status)
+           })
+           |> Ash.Query.select([:id, :title, :status, :updated_at])
+           |> Ankole.Ash.read(page: page_options(@list_page_size, keyset)) do
+      {:ok,
+       %{
+         jobs: Enum.map(page.results, &list_projection/1),
+         next_cursor: next_cursor(page, [status])
+       }}
     end
   end
 
@@ -77,7 +72,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
           String.t()
         ) :: %{complete: boolean(), jobs: [map()]}
   def ambient_candidates_in_tx(
-        repo,
+        _repo,
         agent_uid,
         owner_session_id,
         conversation_id,
@@ -87,28 +82,25 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
              is_binary(conversation_id) and is_binary(binding_name) do
     rows =
       Job
-      |> where([job], job.agent_uid == ^agent_uid)
-      |> where([job], job.owner_session_id == ^owner_session_id)
-      |> where([job], job.status in [:queued, :running, :waiting_on_user])
-      |> where(
-        [job],
-        fragment("?->>'conversation_id' = ?", job.reply_route, ^conversation_id)
-      )
-      |> where([job], fragment("?->>'binding_name' = ?", job.reply_route, ^binding_name))
-      |> excluding_reflection_jobs()
-      |> order_by([job], desc: job.updated_at, desc: job.id)
-      |> limit(@ambient_candidate_query_limit)
-      |> select([job], %{
-        job_id: job.id,
-        title: job.title,
-        status: job.status,
-        task_excerpt: fragment("left(?, 600)", job.task)
+      |> Ash.Query.for_read(:ambient_candidates, %{
+        agent_uid: agent_uid,
+        owner_session_id: owner_session_id,
+        conversation_id: conversation_id,
+        binding_name: binding_name
       })
-      |> repo.all()
+      |> Ash.Query.select([:id, :title, :status])
+      |> Ash.Query.load(:task_excerpt)
+      |> Ash.Query.limit(@ambient_candidate_limit + 1)
+      |> Ankole.Ash.read!()
 
     %{
       complete: length(rows) <= @ambient_candidate_limit,
-      jobs: Enum.take(rows, @ambient_candidate_limit)
+      jobs:
+        rows
+        |> Enum.take(@ambient_candidate_limit)
+        |> Enum.map(
+          &%{job_id: &1.id, title: &1.title, status: &1.status, task_excerpt: &1.task_excerpt}
+        )
     }
   end
 
@@ -129,40 +121,36 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     :completed_at,
     :inserted_at
   ]
+  @activity_columns [:owner_session_id, :source_signal_id, :updated_at]
 
   @spec list_for_console(keyword()) ::
-          {:ok, %{jobs: [map()], next_cursor: String.t() | nil}}
+          {:ok, %{jobs: [Job.t()], next_cursor: String.t() | nil}}
           | {:error, term()}
   def list_for_console(opts \\ []) when is_list(opts) do
+    activity? = Keyword.get(opts, :activity, false)
+
     with {:ok, agent_uid} <- console_agent_uid(Keyword.get(opts, :agent_uid)),
          {:ok, status} <- console_status(Keyword.get(opts, :status)),
          {:ok, search} <- console_search(Keyword.get(opts, :search)),
-         {:ok, cursor} <- decode_console_cursor(Keyword.get(opts, :cursor)) do
-      limit = opts |> Keyword.get(:limit, 50) |> max(1) |> min(100)
-
-      rows =
-        Job
-        |> maybe_filter_console_agent(agent_uid)
-        |> maybe_filter_console_status(status)
-        |> maybe_filter_activity(Keyword.get(opts, :activity, false))
-        |> maybe_filter_console_search(search)
-        |> maybe_before_console_cursor(cursor)
-        |> order_by([job], desc: job.queued_at, desc: job.id)
-        |> limit(^(limit + 1))
-        |> select([job], map(job, ^@console_list_columns))
-        |> maybe_select_activity(Keyword.get(opts, :activity, false))
-        |> Repo.all()
-
-      page = Enum.take(rows, limit)
-
-      next_cursor =
-        if length(rows) > limit do
-          page |> List.last() |> encode_console_cursor()
-        end
-
-      {:ok, %{jobs: page, next_cursor: next_cursor}}
+         {:ok, keyset} <- decode_cursor(Keyword.get(opts, :cursor), []),
+         {:ok, page} <-
+           Job
+           |> Ash.Query.for_read(:console_list, %{
+             agent_uid: agent_uid,
+             status: status,
+             search: search,
+             live_only: activity?
+           })
+           |> load_activity(activity?)
+           |> Ankole.Ash.read(
+             page: page_options(opts |> Keyword.get(:limit, 50) |> max(1) |> min(100), keyset)
+           ) do
+      {:ok, %{jobs: page.results, next_cursor: next_cursor(page, [])}}
     end
   end
+
+  defp load_activity(query, false), do: query
+  defp load_activity(query, true), do: Ash.Query.load(query, [:error_code, :error_summary])
 
   @doc "Reads live background Jobs without task, trajectory or result payloads."
   def list_activity(agent_uid, opts \\ []) do
@@ -195,26 +183,60 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     end
   end
 
-  defp maybe_filter_activity(query, false), do: query
+  @doc """
+  Applies the parameters of the `console_list` read action. It reads only the
+  list columns, and the activity columns for `live_only`.
+  """
+  def prepare_console_list(%Ash.Query{arguments: arguments} = query) do
+    query
+    |> Ash.Query.select(console_columns(arguments[:live_only]))
+    |> filter_present(arguments[:agent_uid], fn query, uid ->
+      Ash.Query.filter(query, agent_uid == ^uid)
+    end)
+    |> filter_present(arguments[:status], fn query, status ->
+      Ash.Query.filter(query, status == ^status)
+    end)
+    |> filter_present(arguments[:live_only] && Job.live_statuses(), fn query, statuses ->
+      Ash.Query.filter(query, status in ^statuses)
+    end)
+    |> filter_present(arguments[:search], &filter_search/2)
+    |> Ash.Query.sort(queued_at: :desc, id: :desc)
+  end
 
-  defp maybe_filter_activity(query, true),
-    do: where(query, [job], job.status in [:queued, :running, :waiting_on_user])
+  @doc "Applies the parameters of the `list_for_agent` read action."
+  def prepare_agent_list(%Ash.Query{arguments: arguments} = query) do
+    statuses =
+      case arguments.status_group do
+        :live -> Job.live_statuses()
+        :stop -> JobState.terminal_statuses()
+      end
 
-  defp maybe_select_activity(query, false), do: query
+    query
+    |> Ash.Query.filter(agent_uid == ^arguments.agent_uid and status in ^statuses)
+    |> Ash.Query.sort(updated_at: :desc, id: :desc)
+  end
 
-  defp maybe_select_activity(query, true) do
-    select_merge(query, [job], %{
-      owner_session_id: job.owner_session_id,
-      source_signal_id: job.source_signal_id,
-      updated_at: job.updated_at,
-      error_code: fragment("left(?->>'code', 200)", job.error),
-      error_summary:
-        fragment("left(COALESCE(?->>'summary', ?->>'message'), 1000)", job.error, job.error)
-    })
+  defp console_columns(true), do: @console_list_columns ++ @activity_columns
+  defp console_columns(_live_only), do: @console_list_columns
+
+  defp filter_present(query, value, _filter) when value in [nil, false], do: query
+  defp filter_present(query, value, filter), do: filter.(query, value)
+
+  defp filter_search(query, search) do
+    pattern = "%#{Repo.escape_like(search)}%"
+
+    case Ankole.ModelIntegerID.parse(search) do
+      {:ok, id} -> Ash.Query.filter(query, id == ^id or ilike(title, ^pattern))
+      _not_an_id -> Ash.Query.filter(query, ilike(title, ^pattern))
+    end
   end
 
   @spec get(pos_integer()) :: Job.t() | nil
-  def get(job_id) when Ankole.ModelIntegerID.valid?(job_id), do: Repo.get(Job, job_id)
+  def get(job_id) when Ankole.ModelIntegerID.valid?(job_id) do
+    Job
+    |> Ash.Query.filter(id == ^job_id)
+    |> Ankole.Ash.read_one!()
+  end
 
   @doc "Lists live Job ids owned by any of the given Sessions."
   @spec live_job_ids_for_owner_sessions([String.t()], String.t()) :: [pos_integer()]
@@ -223,14 +245,13 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   def live_job_ids_for_owner_sessions(session_ids, agent_uid)
       when is_list(session_ids) and is_binary(agent_uid) do
     Job
-    |> where(
-      [job],
-      job.agent_uid == ^agent_uid and job.owner_session_id in ^session_ids and
-        job.status in [:queued, :running, :waiting_on_user]
-    )
-    |> order_by([job], asc: job.id)
-    |> select([job], job.id)
-    |> Repo.all()
+    |> Ash.Query.for_read(:live_for_owner_sessions, %{
+      agent_uid: agent_uid,
+      owner_session_ids: session_ids
+    })
+    |> Ash.Query.select([:id])
+    |> Ankole.Ash.read!()
+    |> Enum.map(& &1.id)
   end
 
   @spec get_for_agent(pos_integer() | nil, String.t()) :: Job.t() | nil
@@ -238,21 +259,19 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
 
   def get_for_agent(job_id, agent_uid)
       when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) do
-    get_for_agent(Repo, job_id, agent_uid, [])
+    Job
+    |> Ash.Query.filter(id == ^job_id and agent_uid == ^agent_uid)
+    |> Ankole.Ash.read_one!()
   end
 
-  @doc false
-  @spec get_for_agent(module(), pos_integer(), String.t(), keyword()) :: Job.t() | nil
-  def get_for_agent(repo, job_id, agent_uid, opts)
+  @doc "Locks one Job of an Agent inside the caller's transaction."
+  @spec lock_for_agent_in_tx(pos_integer(), String.t()) :: Job.t() | nil
+  def lock_for_agent_in_tx(job_id, agent_uid)
       when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) do
-    query =
-      from(job in Job,
-        where: job.id == ^job_id and job.agent_uid == ^agent_uid
-      )
-
-    query
-    |> maybe_lock(Keyword.get(opts, :lock))
-    |> repo.one(lock_identity: {"background_agent_jobs", job_id})
+    Job
+    |> Ash.Query.filter(id == ^job_id and agent_uid == ^agent_uid)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!(lock_identity: {"background_agent_jobs", job_id})
   end
 
   @doc """
@@ -270,29 +289,22 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   def get_result_window_for_agent(job_id, agent_uid, offset)
       when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) and is_integer(offset) and
              offset >= 0 do
-    query =
-      from(job in Job,
-        where: job.id == ^job_id and job.agent_uid == ^agent_uid,
-        select: {
-          map(job, ^@result_read_columns),
-          fragment(
-            "substring(convert_to(?->>'output_text', 'UTF8') from ? for ?)",
-            job.result,
-            ^(offset + 1),
-            ^@result_window_bytes
-          ),
-          fragment("octet_length(?->>'output_text')", job.result),
-          fragment("coalesce(? - 'output_text', '{}'::jsonb)", job.result)
-        }
-      )
-
-    case Repo.one(query) do
-      {job, output_window, total_bytes, result_fields} ->
+    Job
+    |> Ash.Query.filter(id == ^job_id and agent_uid == ^agent_uid)
+    |> Ash.Query.select(@result_read_columns)
+    |> Ash.Query.load(
+      result_output_window: %{from: offset + 1, bytes: @result_window_bytes},
+      result_output_bytes: %{},
+      result_fields: %{}
+    )
+    |> Ankole.Ash.read_one!()
+    |> case do
+      %Job{} = job ->
         %{
-          job: struct(Job, job),
-          output_window: output_window,
-          total_bytes: total_bytes,
-          result_paths: Map.take(result_fields, @result_path_keys)
+          job: job,
+          output_window: job.result_output_window,
+          total_bytes: job.result_output_bytes,
+          result_paths: Map.take(job.result_fields, @result_path_keys)
         }
 
       nil ->
@@ -325,101 +337,42 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     end
   end
 
-  @spec console_projection(Job.t()) :: map()
-  def console_projection(%Job{} = job) do
-    job
-    |> base_projection()
-    |> Map.merge(%{
-      duration_seconds: duration_seconds(job),
-      inserted_at: iso8601(job.inserted_at),
-      updated_at: iso8601(job.updated_at)
-    })
-  end
-
-  @doc "Projects one `list_for_console/1` row into the named Console list contract."
-  @spec console_list_projection(map()) :: map()
-  def console_list_projection(row) do
-    %{
-      id: row.id,
-      agent_uid: row.agent_uid,
-      title: row.title,
-      status: to_string(row.status),
-      attempts: row.attempts,
-      execution_failures: row.execution_failures,
-      workspace_template_id: row.workspace_template_id,
-      duration_seconds: duration_seconds(row),
-      inserted_at: iso8601(row.inserted_at)
-    }
-  end
-
-  # Console field list; the RuntimeFabric RPC view is the generated
-  # BackgroundAgentJobResponse message built by the RPC broker.
-  defp base_projection(%Job{} = job) do
-    %{
-      id: job.id,
-      agent_uid: job.agent_uid,
-      owner_session_id: job.owner_session_id,
-      source_signal_id: job.source_signal_id,
-      source_tool_call_id: job.source_tool_call_id,
-      continued_from_job_id: job.continued_from_job_id,
-      workspace_owner_job_id: job.workspace_owner_job_id,
-      runtime_thread_id: job.runtime_thread_id,
-      title: job.title,
-      task: job.task,
-      status: Atom.to_string(job.status),
-      attempts: job.attempts,
-      execution_failures: job.execution_failures,
-      workspace_template_id: job.workspace_template_id,
-      model_profile: job.model_profile,
-      reply_route: job.reply_route || %{},
-      result: job.result || %{},
-      error: job.error || %{},
-      metadata: job.metadata || %{},
-      queued_at: iso8601(job.queued_at),
-      started_at: iso8601(job.started_at),
-      completed_at: iso8601(job.completed_at)
-    }
-  end
-
   defp list_status(nil), do: {:ok, "live"}
   defp list_status(""), do: {:ok, "live"}
-  defp list_status(status) when is_map_key(@list_statuses, status), do: {:ok, status}
+  defp list_status(status) when is_map_key(@list_status_groups, status), do: {:ok, status}
   defp list_status(_status), do: {:error, :invalid_background_agent_job_list_status}
 
-  defp maybe_before_list_cursor(query, nil), do: query
+  defp page_options(limit, nil), do: [limit: limit]
+  defp page_options(limit, keyset), do: [limit: limit, after: keyset]
 
-  defp maybe_before_list_cursor(query, {updated_at, id}) do
-    where(
-      query,
-      [job],
-      job.updated_at < ^updated_at or
-        (job.updated_at == ^updated_at and job.id < ^id)
-    )
-  end
+  # A cursor carries its version, the parameters it belongs to, and the keyset
+  # of the last row of its page. A cursor of another list or status is invalid.
+  defp next_cursor(%{more?: true, results: [_ | _] = results}, scope) do
+    keyset = List.last(results).__metadata__.keyset
 
-  defp encode_list_cursor(%Job{} = job, status) do
-    [@list_cursor_version, status, DateTime.to_iso8601(job.updated_at), job.id]
+    [@cursor_version | scope]
+    |> Kernel.++([keyset])
     |> Enum.join("|")
     |> Base.url_encode64(padding: false)
   end
 
-  defp decode_list_cursor(nil, _status), do: {:ok, nil}
-  defp decode_list_cursor("", _status), do: {:ok, nil}
+  defp next_cursor(_page, _scope), do: nil
 
-  defp decode_list_cursor(cursor, status) when is_binary(cursor) do
+  defp decode_cursor(nil, _scope), do: {:ok, nil}
+  defp decode_cursor("", _scope), do: {:ok, nil}
+
+  defp decode_cursor(cursor, scope) when is_binary(cursor) do
+    expected = Enum.join([@cursor_version | scope], "|") <> "|"
+
     with {:ok, decoded} <- Base.url_decode64(cursor, padding: false),
-         [@list_cursor_version, ^status, updated_at_text, id] <-
-           String.split(decoded, "|", parts: 4),
-         {:ok, updated_at, _offset} <- DateTime.from_iso8601(updated_at_text),
-         {:ok, id} <- Ankole.ModelIntegerID.parse(id) do
-      {:ok, {updated_at, id}}
+         ^expected <> keyset when keyset != "" <- decoded do
+      {:ok, keyset}
     else
       _reason -> {:error, :invalid_background_agent_job_cursor}
     end
   end
 
-  defp decode_list_cursor(_cursor, _status),
-    do: {:error, :invalid_background_agent_job_cursor}
+  defp decode_cursor(_cursor, _scope), do: {:error, :invalid_background_agent_job_cursor}
 
   defp list_projection(%Job{} = job) do
     %{
@@ -437,7 +390,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   defp console_status(""), do: {:ok, nil}
 
   defp console_status(status) do
-    case Ankole.BackgroundAgentJobs.JobState.cast_status(status) do
+    case JobState.cast_status(status) do
       {:ok, cast} -> {:ok, cast}
       :error -> {:error, :invalid_background_agent_job_status}
     end
@@ -459,105 +412,4 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   end
 
   defp console_search(_search), do: {:error, :invalid_background_agent_job_search}
-
-  defp maybe_filter_console_agent(query, nil), do: query
-
-  defp maybe_filter_console_agent(query, agent_uid),
-    do: where(query, [job], job.agent_uid == ^agent_uid)
-
-  defp maybe_filter_console_status(query, nil), do: query
-
-  defp maybe_filter_console_status(query, status),
-    do: where(query, [job], job.status == ^status)
-
-  defp maybe_filter_console_search(query, nil), do: query
-
-  defp maybe_filter_console_search(query, search) do
-    pattern = "%#{Repo.escape_like(search)}%"
-
-    case Ankole.ModelIntegerID.parse(search) do
-      {:ok, id} ->
-        where(query, [job], job.id == ^id or ilike(job.title, ^pattern))
-
-      _not_an_id ->
-        where(query, [job], ilike(job.title, ^pattern))
-    end
-  end
-
-  defp maybe_before_console_cursor(query, nil), do: query
-
-  defp maybe_before_console_cursor(query, {queued_at, id}) do
-    where(
-      query,
-      [job],
-      job.queued_at < ^queued_at or
-        (job.queued_at == ^queued_at and job.id < ^id)
-    )
-  end
-
-  defp encode_console_cursor(nil), do: nil
-
-  defp encode_console_cursor(%{queued_at: queued_at, id: id}) do
-    "#{DateTime.to_iso8601(queued_at)}|#{id}"
-    |> Base.url_encode64(padding: false)
-  end
-
-  defp decode_console_cursor(nil), do: {:ok, nil}
-  defp decode_console_cursor(""), do: {:ok, nil}
-
-  defp decode_console_cursor(cursor) when is_binary(cursor) do
-    with {:ok, decoded} <- Base.url_decode64(cursor, padding: false),
-         [queued_at_text, id] <- String.split(decoded, "|", parts: 2),
-         {:ok, queued_at, _offset} <- DateTime.from_iso8601(queued_at_text),
-         {:ok, id} <- Ankole.ModelIntegerID.parse(id) do
-      {:ok, {queued_at, id}}
-    else
-      _reason -> {:error, :invalid_background_agent_job_cursor}
-    end
-  end
-
-  defp decode_console_cursor(_cursor), do: {:error, :invalid_background_agent_job_cursor}
-
-  defp duration_seconds(job) do
-    case {job.started_at || job.queued_at, job.completed_at} do
-      {%DateTime{} = started_at, %DateTime{} = completed_at} ->
-        max(DateTime.diff(completed_at, started_at, :second), 0)
-
-      {%DateTime{} = started_at, nil} ->
-        max(DateTime.diff(now(), started_at, :second), 0)
-
-      _value ->
-        0
-    end
-  end
-
-  defp iso8601(nil), do: nil
-  defp iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
-
-  defp maybe_lock(query, nil), do: query
-  defp maybe_lock(query, "FOR UPDATE"), do: lock(query, "FOR UPDATE")
-  defp now, do: DateTime.utc_now(:microsecond)
-
-  @doc """
-  Keeps only skill-lesson reflection Jobs: the system Jobs the Brain runs to
-  reflect on finished work. The metadata flag at
-  `Ankole.Brain.SkillLessons` is the writer.
-  """
-  @spec reflection_jobs(Ecto.Queryable.t()) :: Ecto.Query.t()
-  def reflection_jobs(query) do
-    where(query, [job], fragment("(? ->> 'skill_lesson_reflection') = 'true'", job.metadata))
-  end
-
-  @doc """
-  Excludes skill-lesson reflection Jobs, so user-facing listings and budgets
-  see only real work.
-  """
-  @spec excluding_reflection_jobs(Ecto.Queryable.t()) :: Ecto.Query.t()
-  def excluding_reflection_jobs(query) do
-    where(
-      query,
-      [job],
-      fragment("coalesce(? ->> 'skill_lesson_reflection', 'false') <> 'true'", job.metadata)
-    )
-  end
 end

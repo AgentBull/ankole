@@ -1,4 +1,4 @@
-import type { AiGatewayConversationItem as AIGatewayConversationItem } from './api/generated/types.gen'
+import type { AIGatewayConversationItem } from './api/ai-gateway-conversations'
 import i18n from '../common/i18n'
 
 type ConversationNameSource = Pick<AIGatewayConversationItem, 'conversation_key' | 'display_name' | 'kind' | 'metadata'>

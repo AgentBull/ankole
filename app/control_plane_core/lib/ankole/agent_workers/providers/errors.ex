@@ -21,8 +21,10 @@ defmodule Ankole.AgentWorkers.Providers.Errors do
   def describe({:invalid_worker_provider_config, errors}),
     do: invalid("Worker provider YAML is invalid", errors)
 
-  def describe(%module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid],
-    do: invalid("Worker provider is invalid", Ankole.Ash.validation_details(error))
+  def describe(error)
+      when is_struct(error, Ash.Changeset) or
+             (is_exception(error) and :erlang.map_get(:class, error) == :invalid),
+      do: invalid("Worker provider is invalid", Ankole.Ash.validation_details(error))
 
   def describe({:invalid_worker_provider_credential, name}),
     do:
@@ -130,6 +132,25 @@ defmodule Ankole.AgentWorkers.Providers.Errors do
     do: invalid("#{@platform_connections[platform]} is unreachable: #{Exception.message(reason)}")
 
   def describe(_reason), do: :unknown
+
+  @doc """
+  Gives the v2 error of a rejection for `Ankole.Errors.wrap/2`: a missing
+  provider is not found, a provider in use is a conflict, and an invalid
+  provider names its fields.
+  """
+  def rejection(:worker_provider_not_found),
+    do: Ankole.Errors.Invalid.NotFound.exception(resource: Ankole.AgentWorkers.Providers.Provider)
+
+  def rejection(:worker_provider_in_use),
+    do: {:conflict, "Agents still use this provider, including Agents being deleted", []}
+
+  def rejection(reason) do
+    case describe(reason) do
+      {:invalid, message, details} -> {message, details}
+      {:conflict, message, details} -> {:conflict, message, details}
+      :unknown -> nil
+    end
+  end
 
   defp invalid(message, details \\ []),
     do: {:invalid, message, details}

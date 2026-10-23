@@ -7,42 +7,46 @@ defmodule Ankole.Sessions.MessageLifecycle do
   alias Ankole.Sessions.ModelHistory
   alias Ankole.Conversations.Delivery.Preview
   alias Ankole.Conversations.Delivery.Interactions
-  alias Ankole.Repo
   alias Ankole.Schedule
 
   def process(%Signal{} = input, opts) do
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-
-    Repo.transact(fn repo ->
-      with %Signal{} = input <- repo.get(Signal, input.id),
-           {:ok, cancelled_checkbacks} <-
-             Schedule.cancel_checkbacks_for_provider_entry_in_tx(
-               repo,
-               %{
-                 "agent_uid" => input.agent_uid,
-                 "session_id" => input.session_id,
-                 "binding_name" => input.reply_binding_name,
-                 "provider_message_id" => input.provider_message_id
-               },
-               now
-             ),
-           :ok <- Queue.lock_session_in_tx(repo, input.agent_uid, input.session_id),
-           %Signal{} = input <- Ankole.Signals.lock_signal_in_tx(repo, input.id),
-           {:ok, superseded_interactions} <-
-             Interactions.supersede_removed_source_in_tx(repo, input, now) do
-        ignore_lifecycle_event(
-          repo,
-          input,
-          cancelled_checkbacks,
-          superseded_interactions,
-          now
-        )
-      else
-        nil -> {:ok, %{status: :idle}}
-        {:error, _reason} = error -> error
-      end
-    end)
+    input
+    |> Ankole.Sessions.process_message_removal(
+      Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    )
+    |> Ankole.Errors.reason()
     |> stop_removed_previews()
+  end
+
+  @doc false
+  def process_in_tx(repo, %Signal{} = input, now) do
+    with %Signal{} = input <- Ankole.Signals.get_signal!(input.id),
+         {:ok, cancelled_checkbacks} <-
+           Schedule.cancel_checkbacks_for_provider_entry_in_tx(
+             repo,
+             %{
+               "agent_uid" => input.agent_uid,
+               "session_id" => input.session_id,
+               "binding_name" => input.reply_binding_name,
+               "provider_message_id" => input.provider_message_id
+             },
+             now
+           ),
+         :ok <- Queue.lock_session_in_tx(repo, input.agent_uid, input.session_id),
+         %Signal{} = input <- Ankole.Signals.lock_signal_in_tx(repo, input.id),
+         {:ok, superseded_interactions} <-
+           Interactions.supersede_removed_source_in_tx(repo, input, now) do
+      ignore_lifecycle_event(
+        repo,
+        input,
+        cancelled_checkbacks,
+        superseded_interactions,
+        now
+      )
+    else
+      nil -> {:ok, %{status: :idle}}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp ignore_lifecycle_event(

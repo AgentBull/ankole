@@ -1,5 +1,5 @@
 defmodule Ankole.Conversations.Delivery.PreviewTest do
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.AIGateway.ResponseCommit
   use Ankole.DataCase, async: false
 
@@ -192,7 +192,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
 
     recorded = Repo.get!(Signal, signal.id)
 
-    assert Ankole.Conversations.Delivery.PreviewState.get(recorded).provider_message_id =~
+    assert Ankole.Conversations.Delivery.PreviewStates.get(recorded).provider_message_id =~
              "mock-reply-"
   end
 
@@ -322,7 +322,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     assert state.preview_established
 
     assert state.preview_entry_id ==
-             Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, signal.id)).provider_message_id
+             Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).provider_message_id
 
     assert :ok = Events.publish(second_round, :output_text_delta, %{text: "final round"})
     assert :sys.get_state(pid).text_buffer == "final round"
@@ -711,14 +711,14 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     refute Map.has_key?(continued, "thought")
 
     old_checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, signal.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).checkpoint
 
     assert old_checkpoint["presentation_owner"] == false
     assert old_checkpoint["continued_to_signal_id"] == steer_event.id
     assert old_checkpoint["presentation"]["state"] == "continued"
 
     new_checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, steer_event.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, steer_event.id)).checkpoint
 
     assert new_checkpoint["presentation_owner"] == true
     assert new_checkpoint["stream_signal_id"] == signal.id
@@ -749,13 +749,13 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     assert second_continued["answer"] == "新卡片续接"
 
     second_checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, steer_event.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, steer_event.id)).checkpoint
 
     assert second_checkpoint["presentation_owner"] == false
     assert second_checkpoint["continued_to_signal_id"] == next_steer_event.id
 
     next_checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, next_steer_event.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, next_steer_event.id)).checkpoint
 
     assert next_checkpoint["presentation_owner"] == true
     assert next_checkpoint["stream_signal_id"] == signal.id
@@ -794,7 +794,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     refute_receive :unexpected_empty_card_finalize, 100
 
     old_checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, signal.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).checkpoint
 
     assert old_checkpoint["presentation_owner"] == false
     refute Map.has_key?(old_checkpoint, "presentation")
@@ -847,7 +847,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
              Preview.continue_on(signal.id, steer_event)
 
     old_checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, signal.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).checkpoint
 
     assert old_checkpoint["presentation_owner"] == false
     assert old_checkpoint["presentation"]["state"] == "continued"
@@ -910,7 +910,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
 
     checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, signal.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).checkpoint
 
     assert get_in(checkpoint, ["presentation", "plan", "items"]) == [
              %{
@@ -972,7 +972,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     end)
 
     assert {:ok, _updated} =
-             PreviewState.put_checkpoint(signal.id, %{
+             PreviewStates.put_checkpoint(signal.id, %{
                "subject_uid" => subject.uid,
                "conversation_id" => conversation.id,
                "streaming_state" => "closed",
@@ -990,7 +990,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
 
     checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, signal.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).checkpoint
 
     assert checkpoint["presentation"]["state"] == "awaiting_input"
     assert checkpoint["presentation"]["interaction_status"] == "pending"
@@ -1097,7 +1097,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     assert Process.alive?(pid)
 
     assert is_nil(
-             Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, signal.id)).provider_message_id
+             Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).provider_message_id
            )
   end
 
@@ -1276,7 +1276,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     assert_receive {:recovery_refresh, _request}
 
     blocked =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, signal.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).checkpoint
 
     assert blocked["recovery_state"]["state"] == "blocked"
     assert blocked["recovery_state"]["reason"] == "operator_action_required"
@@ -1287,13 +1287,13 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     refute_receive {:recovery_refresh, _request}
 
     assert :ok =
-             PreviewState.wake_blocked(
+             PreviewStates.wake_blocked(
                signal.agent_uid,
                signal.reply_binding_name
              )
 
     woken =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, signal.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).checkpoint
 
     refute Map.has_key?(woken, "recovery_state")
 
@@ -1309,19 +1309,19 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     assert_receive {:recovery_refresh, _request}
 
     permanent =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, signal.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).checkpoint
 
     assert permanent["recovery_state"]["state"] == "permanent"
     assert permanent["recovery_state"]["reason"] == "permanent_failure"
     assert permanent["recovery_state"]["detail"]["code"] == 40_201
 
     assert :ok =
-             PreviewState.wake_blocked(
+             PreviewStates.wake_blocked(
                signal.agent_uid,
                signal.reply_binding_name
              )
 
-    assert Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, signal.id)).checkpoint ==
+    assert Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).checkpoint ==
              permanent
   end
 
@@ -1415,7 +1415,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     assert_receive {:recovery_refresh, _request}
 
     blocked =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, signal.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).checkpoint
 
     assert blocked["recovery_state"]["state"] == "blocked"
     assert blocked["recovery_state"]["detail"]["reason"] == "auth"
@@ -1519,7 +1519,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     assert request.checkpoint["refresh_reason"] == "terminal_recovery"
 
     delegated =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, signal.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).checkpoint
 
     assert delegated["presentation_owner"] == false
     assert delegated["streaming_state"] == "open"
@@ -1569,7 +1569,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     assert Preview.lookup(open_event.id) == []
 
     open_delegated =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, open_event.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, open_event.id)).checkpoint
 
     assert open_delegated["presentation_owner"] == false
     assert open_delegated["recovery_state"]["state"] == "delegated"
@@ -1632,7 +1632,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     owner = self()
 
     assert {:ok, %{"sequence" => working_sequence}} =
-             PreviewState.prepare_mutation(
+             PreviewStates.prepare_mutation(
                signal.id,
                "working",
                "working-digest",
@@ -1681,7 +1681,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     refute Process.alive?(task_pid)
 
     checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, signal.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, signal.id)).checkpoint
 
     assert get_in(checkpoint, ["presentation", "plan", "items"]) == [
              %{
@@ -1692,7 +1692,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
            ]
 
     assert {:ok, %{"sequence" => terminal_sequence}} =
-             PreviewState.prepare_mutation(
+             PreviewStates.prepare_mutation(
                signal.id,
                "terminal",
                "terminal-digest",
@@ -1706,22 +1706,19 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     %{principal: subject} = agent_fixture()
     binding_fixture(subject.uid, "mock", :ignore, adapter: "mock-provider")
 
-    {:ok, %{signal: signal}} =
-      Repo.transact(fn _repo ->
-        {:ok,
-         emit_addressed_signal(
-           subject.uid,
-           "mock",
-           group_entry(%{
-             source_event_id: "preview-#{suffix}-event",
-             conversation_id: "mock:chat:preview-#{suffix}",
-             provider_message_id: "human-message-#{suffix}",
-             provider_thread_id: "mock-thread-#{suffix}",
-             explicit: true,
-             text: "ping"
-           })
-         )}
-      end)
+    %{signal: signal} =
+      emit_addressed_signal(
+        subject.uid,
+        "mock",
+        group_entry(%{
+          source_event_id: "preview-#{suffix}-event",
+          conversation_id: "mock:chat:preview-#{suffix}",
+          provider_message_id: "human-message-#{suffix}",
+          provider_thread_id: "mock-thread-#{suffix}",
+          explicit: true,
+          text: "ping"
+        })
+      )
 
     %{subject: subject, signal: signal}
   end
@@ -1753,21 +1750,19 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
 
   defp steer_signal(subject_uid, source_event, suffix) do
     assert {:ok, %{status: :accepted, signal: %Signal{} = steer_event}} =
-             Repo.transact(fn _repo ->
-               Ankole.Conversations.Observe.emit_entry(
-                 subject_uid,
-                 source_event.reply_binding_name,
-                 group_entry(%{
-                   source_event_id: "preview-#{suffix}-event",
-                   conversation_id: source_event.conversation_id,
-                   provider_message_id: "human-message-#{suffix}",
-                   provider_thread_id: source_event.provider_thread_id,
-                   explicit: true,
-                   text: "/steer 继续"
-                 }),
-                 now: DateTime.add(base_time(), 1, :second)
-               )
-             end)
+             Ankole.Conversations.Observe.emit_entry(
+               subject_uid,
+               source_event.reply_binding_name,
+               group_entry(%{
+                 source_event_id: "preview-#{suffix}-event",
+                 conversation_id: source_event.conversation_id,
+                 provider_message_id: "human-message-#{suffix}",
+                 provider_thread_id: source_event.provider_thread_id,
+                 explicit: true,
+                 text: "/steer 继续"
+               }),
+               now: DateTime.add(base_time(), 1, :second)
+             )
 
     steer_event
   end
@@ -1776,7 +1771,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     event = Repo.get!(Signal, request.signal.id)
 
     checkpoint =
-      (Ankole.Conversations.Delivery.PreviewState.get(event).checkpoint || %{})
+      (Ankole.Conversations.Delivery.PreviewStates.get(event).checkpoint || %{})
       |> Map.put("card_id", "card-#{event.id}")
       |> Map.put("message_id", "message-#{event.id}")
       |> Map.put("streaming_state", streaming_state)
@@ -1784,11 +1779,12 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
       |> Map.put("conversation_id", request.conversation_id)
       |> Map.put("presentation", ReplyPresentation.checkpoint(request.presentation))
 
-    {:ok, event} = PreviewState.put_checkpoint(event.id, checkpoint)
+    {:ok, event} = PreviewStates.put_checkpoint(event.id, checkpoint)
 
     {:ok,
      %{
-       reply_preview_checkpoint: Ankole.Conversations.Delivery.PreviewState.get(event).checkpoint,
+       reply_preview_checkpoint:
+         Ankole.Conversations.Delivery.PreviewStates.get(event).checkpoint,
        created_provider_message_id: "message-#{event.id}"
      }}
   end

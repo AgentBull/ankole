@@ -23,26 +23,26 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { localizedText } from '../../common/config-fields'
 import i18n from '../../common/i18n'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
+import { listAiGatewayProviderKindsOptions as providerKindsOptions } from '../api/v2-site/generated/@tanstack/react-query.gen'
+import type { AIGatewayProviderKindItem } from '../state/provider-settings'
 import {
-  ankoleWebAiGatewayProviderControllerDeleteProviderMutation as deleteProviderMutation,
-  ankoleWebAiGatewayProviderControllerEnableProviderMutation as enableProviderMutation,
-  ankoleWebAiGatewayProviderControllerIndexOptions as providerIndexOptions,
-  ankoleWebAiGatewayProviderControllerProviderKindsOptions as providerKindsOptions,
-  ankoleWebAiGatewayProviderControllerShowOptions as providerShowOptions,
-  ankoleWebAiGatewayProviderControllerPutProviderMutation as putProviderMutation
-} from '../api/generated/@tanstack/react-query.gen'
-import type {
-  AiGatewayProviderItem as AIGatewayProviderItem,
-  AiGatewayProviderKindItem as AIGatewayProviderKindItem
-} from '../api/generated/types.gen'
+  deleteAiGatewayProviderMutation as deleteProviderMutation,
+  enableAiGatewayProviderMutation as enableProviderMutation,
+  getAiGatewayProviderOptions as providerShowOptions,
+  listAiGatewayProvidersOptions as providerIndexOptions,
+  putAiGatewayProviderMutation as putProviderMutation
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { nextProviderID, ProviderEditorModel } from '../state/provider-editor-model'
 import {
+  aiGatewayProvider,
+  aiGatewayProviders,
   buildConnectionOptions,
   connectionSettings,
   initialSettingValue,
   settingValidationMessage,
+  type AIGatewayProviderItem,
   type ProviderSetting
 } from '../state/provider-settings'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
@@ -53,13 +53,13 @@ import { CredentialPoolEditor, credentialStrategyLabel } from './provider-creden
 
 export function ProvidersListPage() {
   const { t } = useTranslation()
-  const providers = useQuery(providerIndexOptions())
+  const providers = useQuery({ ...providerIndexOptions(), select: aiGatewayProviders })
   const providerKinds = useQuery(providerKindsOptions())
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const kindByID = new Map((providerKinds.data?.provider_kinds ?? []).map(kind => [kind.provider_kind, kind]))
-  const rows = (providers.data?.ai_gateway_providers ?? []).filter(provider => {
+  const rows = (providers.data ?? []).filter(provider => {
     const pool = provider.credential_pool
     const kind = kindByID.get(provider.provider_kind)
     const entrySearch = pool.entries.flatMap(entry => [
@@ -83,9 +83,7 @@ export function ProvidersListPage() {
   const removeProvider = useMutation({
     ...deleteProviderMutation(),
     onSuccess: (_data, variables) => {
-      const provider = providers.data?.ai_gateway_providers.find(
-        item => item.provider_id === variables.path.provider_id
-      )
+      const provider = providers.data?.find(item => item.provider_id === variables.path.provider_id)
       toast.success(
         t(provider?.disabled_at ? 'console.providers.deleted' : 'console.providers.disabled', {
           id: variables.path.provider_id
@@ -216,17 +214,16 @@ export function ProviderEditorPage() {
   const providerID = params.providerID
   const mode = providerID ? 'edit' : 'new'
 
-  const providers = useQuery(providerIndexOptions())
+  const providers = useQuery({ ...providerIndexOptions(), select: aiGatewayProviders })
   const providerKinds = useQuery(providerKindsOptions())
   const providerDetail = useQuery({
     ...providerShowOptions({ path: { provider_id: providerID ?? '' } }),
+    select: aiGatewayProvider,
     enabled: Boolean(providerID)
   })
-  const configuredProviders = providers.data?.ai_gateway_providers
+  const configuredProviders = providers.data
   const kinds = providerKinds.data?.provider_kinds ?? []
-  const selected =
-    providerDetail.data?.ai_gateway_provider ??
-    configuredProviders?.find(provider => provider.provider_id === providerID)
+  const selected = providerDetail.data ?? configuredProviders?.find(provider => provider.provider_id === providerID)
 
   const activeKind = kinds.find(kind => kind.provider_kind === model.providerKind.value)
   const settings = connectionSettings(activeKind)
@@ -304,16 +301,23 @@ export function ProviderEditorPage() {
         draft =>
           saveProvider.mutateAsync({
             body: {
-              provider_id: trimmedID,
-              provider_kind: draft.providerKind,
-              base_url: draft.baseURL.trim() || null,
-              connection_options: built.value
+              data: {
+                type: 'ai_gateway_provider',
+                // The path names the provider. A new provider has no record ID yet.
+                id: selected?.id ?? '',
+                attributes: {
+                  provider_kind: draft.providerKind,
+                  base_url: draft.baseURL.trim() || null,
+                  connection_options: built.value
+                }
+              }
             },
             path: { provider_id: trimmedID }
           }),
         (response, clean) => {
-          toast.success(t('console.providers.saved', { id: response.ai_gateway_provider.provider_id }))
-          if (clean) void navigate({ to: `/providers/${encodeURIComponent(response.ai_gateway_provider.provider_id)}` })
+          const { provider_id } = aiGatewayProvider(response)
+          toast.success(t('console.providers.saved', { id: provider_id }))
+          if (clean) void navigate({ to: `/providers/${encodeURIComponent(provider_id)}` })
         }
       )
       .catch(() => {

@@ -1,6 +1,26 @@
 import type { TFunction } from 'i18next'
+import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 
 type GroupText = { built_in: boolean; name: string; display_name: string; description?: string | null }
+
+const groupErrorCodes = [
+  'built_in_group',
+  'computed_group',
+  'group_domain_mismatch',
+  'group_has_grants',
+  'last_admin_member',
+  'last_active_human_admin',
+  'not_human',
+  'principal_disabled'
+]
+
+/** Localizes the domain refusals of group and membership writes. */
+export function principalGroupErrorMessage(t: TFunction, error: unknown): string {
+  const code = requestErrorCode(error)
+  return code && groupErrorCodes.includes(code)
+    ? t(`console.principal_groups.error_${code}`)
+    : requestErrorMessage(error)
+}
 
 /**
  * Built-in groups are seeded with English text that the operator may later

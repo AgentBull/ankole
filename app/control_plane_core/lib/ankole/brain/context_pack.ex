@@ -11,18 +11,20 @@ defmodule Ankole.Brain.ContextPack do
   injection never blocks a Turn.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Brain.Access
   alias Ankole.Brain.Config
   alias Ankole.Brain.ContextPackStats
   alias Ankole.Brain.Links
   alias Ankole.Brain.LazySkillVisibility
+  alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
+  alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Link
   alias Ankole.Brain.Schemas.Object
-  alias Ankole.Repo
+  alias Ankole.Brain.Schemas.ObjectAlias
   alias Ankole.Logging
 
   @pack_entity_limit 8
@@ -109,50 +111,52 @@ defmodule Ankole.Brain.ContextPack do
 
       card ->
         aka =
-          Ankole.Brain.Schemas.ObjectAlias
-          |> where([alias], alias.object_slug == ^card.slug)
-          |> limit(5)
-          |> select([alias], alias.alias_norm)
-          |> Repo.all()
+          ObjectAlias
+          |> Ash.Query.filter(object_slug == ^card.slug)
+          |> Ash.Query.limit(5)
+          |> Ash.Query.select([:alias_norm])
+          |> Ankole.Ash.read!()
+          |> Enum.map(& &1.alias_norm)
 
         outgoing =
           Link
-          |> where([link], link.from_object_slug == ^card.slug)
+          |> Ash.Query.filter(from_object_slug == ^card.slug)
           |> LazySkillVisibility.filter_links(visibility)
-          |> limit(10)
-          |> select([link], {link.link_type, link.to_object_slug})
-          |> Repo.all()
-          |> Enum.map(fn {link_type, to} -> %{link_type: link_type, to: to} end)
+          |> Ash.Query.limit(10)
+          |> Ash.Query.select([:link_type, :to_object_slug])
+          |> Ankole.Ash.read!()
+          |> Enum.map(&%{link_type: &1.link_type, to: &1.to_object_slug})
 
         backlinks =
           Link
-          |> where([link], link.to_object_slug == ^card.slug)
+          |> Ash.Query.filter(to_object_slug == ^card.slug)
           |> LazySkillVisibility.filter_links(visibility)
-          |> Repo.aggregate(:count)
+          |> Ankole.Ash.aggregate!({:count, :count})
+          |> Map.fetch!(:count)
 
         Map.merge(card, %{aka: aka, edges: outgoing, backlink_count: backlinks})
     end
   end
 
   defp base_card(slug, access, disclosure, forgetting, now, conversation_id, visibility) do
-    case Repo.get_by(Object, slug: slug) do
-      nil ->
+    case Objects.get_by_slug(slug) do
+      {:error, :not_found} ->
         nil
 
-      %Object{deleted_at: deleted} when not is_nil(deleted) ->
+      {:ok, %Object{deleted_at: deleted}} when not is_nil(deleted) ->
         nil
 
-      %Object{} = object ->
+      {:ok, %Object{} = object} ->
         if LazySkillVisibility.visible?(visibility, object.slug) do
           facts =
             object.slug
             |> entity_claims(conversation_id)
-            |> where([claim], claim.claim_type == :fact and is_nil(claim.expired_at))
+            |> Ash.Query.filter(claim_type == :fact and is_nil(expired_at))
             |> Access.filter_claims(access)
             |> LazySkillVisibility.filter_claims(visibility)
-            |> order_by([claim], desc: claim.valid_from)
-            |> limit(50)
-            |> Repo.all()
+            |> Ash.Query.sort(valid_from: :desc)
+            |> Ash.Query.limit(50)
+            |> Ankole.Ash.read!()
             |> Access.filter_disclosable(& &1.audience_scope, disclosure)
             |> Enum.sort_by(
               fn claim ->
@@ -203,10 +207,10 @@ defmodule Ankole.Brain.ContextPack do
 
       objects =
         Object
-        |> where([object], object.slug in ^slugs and is_nil(object.deleted_at))
+        |> Ash.Query.filter(slug in ^slugs and is_nil(deleted_at))
         |> LazySkillVisibility.filter_objects(visibility)
-        |> order_by([object], asc: object.slug)
-        |> Repo.all()
+        |> Ash.Query.sort(slug: :asc)
+        |> Ankole.Ash.read!()
 
       objects
       |> visible_pointer_objects(access, disclosure)
@@ -237,22 +241,23 @@ defmodule Ankole.Brain.ContextPack do
     by_id = Map.new(objects, &{&1.id, &1.slug})
 
     chunk_scopes =
-      Ankole.Brain.Schemas.Chunk
-      |> where([chunk], chunk.object_id in ^ids)
+      Chunk
+      |> Ash.Query.filter(object_id in ^ids)
       |> Access.filter_chunks(access)
-      |> select([chunk], {chunk.object_id, chunk.audience_scope})
-      |> distinct(true)
-      |> Repo.all()
-      |> Enum.map(fn {id, scope} -> {Map.fetch!(by_id, id), scope} end)
+      |> Ash.Query.distinct([:object_id, :audience_scope])
+      |> Ash.Query.select([:object_id, :audience_scope])
+      |> Ankole.Ash.read!()
+      |> Enum.map(&{Map.fetch!(by_id, &1.object_id), &1.audience_scope})
 
     claim_scopes =
       Claim
-      |> where([claim], claim.object_slug in ^slugs)
+      |> Ash.Query.filter(object_slug in ^slugs)
       |> Access.filter_current_claims()
       |> Access.filter_claims(access)
-      |> select([claim], {claim.object_slug, claim.audience_scope})
-      |> distinct(true)
-      |> Repo.all()
+      |> Ash.Query.distinct([:object_slug, :audience_scope])
+      |> Ash.Query.select([:object_slug, :audience_scope])
+      |> Ankole.Ash.read!()
+      |> Enum.map(&{&1.object_slug, &1.audience_scope})
 
     visible =
       (chunk_scopes ++ claim_scopes)
@@ -267,14 +272,12 @@ defmodule Ankole.Brain.ContextPack do
   # sit in storage that no card reads. The holder's own card is where it
   # belongs: a channel-filed claim held by somebody else is their knowledge,
   # not this entity's.
-  defp entity_claims(slug, nil), do: where(Claim, [claim], claim.object_slug == ^slug)
+  defp entity_claims(slug, nil), do: Ash.Query.filter(Claim, object_slug == ^slug)
 
   defp entity_claims(slug, conversation_id) do
-    where(
+    Ash.Query.filter(
       Claim,
-      [claim],
-      claim.object_slug == ^slug or
-        (claim.conversation_id == ^conversation_id and claim.holder == ^slug)
+      object_slug == ^slug or (conversation_id == ^conversation_id and holder == ^slug)
     )
   end
 
@@ -305,24 +308,22 @@ defmodule Ankole.Brain.ContextPack do
   defp open_threads(access, disclosure, visibility) do
     takes =
       Claim
-      |> where([claim], claim.claim_type == :take and claim.active == true)
-      |> where([claim], is_nil(claim.resolved_at))
-      |> where([claim], claim.weight >= 0.6)
+      |> Ash.Query.filter(claim_type == :take and active == true and is_nil(resolved_at))
+      |> Ash.Query.filter(weight >= 0.6)
       |> Access.filter_claims(access)
       |> LazySkillVisibility.filter_claims(visibility)
-      |> order_by([claim], desc: claim.weight)
-      |> limit(@open_thread_limit)
-      |> Repo.all()
+      |> Ash.Query.sort(weight: :desc)
+      |> Ash.Query.limit(@open_thread_limit)
+      |> Ankole.Ash.read!()
 
     commitments =
       Claim
-      |> where([claim], claim.claim_type == :fact and is_nil(claim.expired_at))
-      |> where([claim], claim.kind == "commitment")
+      |> Ash.Query.filter(claim_type == :fact and is_nil(expired_at) and kind == "commitment")
       |> Access.filter_claims(access)
       |> LazySkillVisibility.filter_claims(visibility)
-      |> order_by([claim], desc: claim.valid_from)
-      |> limit(@open_thread_limit)
-      |> Repo.all()
+      |> Ash.Query.sort(valid_from: :desc)
+      |> Ash.Query.limit(@open_thread_limit)
+      |> Ankole.Ash.read!()
 
     (takes ++ commitments)
     |> Access.filter_disclosable(& &1.audience_scope, disclosure)

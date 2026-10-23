@@ -12,8 +12,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.SubscriptionReconciler do
 
   use GenServer
 
-  alias Ankole.{IdentityProviders, Logging, Repo}
-  alias Ankole.Tenants.Tenant
+  alias Ankole.{IdentityProviders, Logging, Repo, Tenants}
   alias Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions
 
   @default_interval_ms :timer.hours(6)
@@ -28,7 +27,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.SubscriptionReconciler do
 
   @spec reconcile_once(keyword()) :: map()
   def reconcile_once(opts \\ []) do
-    Repo.all(Tenant)
+    Tenants.list()
     |> Enum.reduce(%{ensured: 0, removed: 0, skipped: 0, errors: []}, fn tenant, acc ->
       result = Repo.with_tenant(tenant.id, fn -> reconcile_tenant(opts) end)
       errors = Enum.map(result.errors, &Map.put(&1, :tenant_id, tenant.id))

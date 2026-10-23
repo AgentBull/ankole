@@ -1,6 +1,28 @@
 defmodule Ankole.Brain.Schemas.Object do
   @moduledoc "A current knowledge page with explicit content, ownership, and projection writes."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Brain,
+    extensions: [AshJsonApi.Resource]
+
+  # The resource gives summary fields. `GET /api/v2/brain/objects/show` gives
+  # the page body, Claims, and links.
+  json_api do
+    type("brain_object")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :slug,
+      :type,
+      :subtype,
+      :title,
+      :effective_date,
+      :managed_by_source_id,
+      :deleted_at,
+      :updated_at
+    ])
+  end
 
   postgres do
     table("brain_objects")
@@ -24,10 +46,10 @@ defmodule Ankole.Brain.Schemas.Object do
       default: &Ankole.Ecto.UUIDv7.autogenerate/0
     )
 
-    attribute(:slug, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:type, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:subtype, :string, constraints: [trim?: false])
-    attribute(:title, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:slug, :string, allow_nil?: false, public?: true, constraints: [trim?: false])
+    attribute(:type, :string, allow_nil?: false, public?: true, constraints: [trim?: false])
+    attribute(:subtype, :string, public?: true, constraints: [trim?: false])
+    attribute(:title, :string, allow_nil?: false, public?: true, constraints: [trim?: false])
 
     attribute(:body, :string,
       allow_nil?: false,
@@ -36,17 +58,21 @@ defmodule Ankole.Brain.Schemas.Object do
     )
 
     attribute(:meta, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
-    attribute(:effective_date, :date)
+    attribute(:effective_date, :date, public?: true)
     attribute(:content_hash, :string, constraints: [trim?: false])
     attribute(:chunking_signature, :string, constraints: [trim?: false])
     attribute(:last_retrieved_at, :utc_datetime_usec)
     attribute(:links_extracted_at, :utc_datetime_usec)
     attribute(:timelines_extracted_at, :utc_datetime_usec)
-    attribute(:deleted_at, :utc_datetime_usec)
-    attribute(:managed_by_source_id, Ankole.Ash.Types.UUIDv7)
+    attribute(:deleted_at, :utc_datetime_usec, public?: true)
+    attribute(:managed_by_source_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:created_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
     # Projection writes must not advance the logical content clock.
-    attribute(:updated_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
+    attribute(:updated_at, :utc_datetime_usec,
+      allow_nil?: false,
+      public?: true,
+      default: &DateTime.utc_now/0
+    )
   end
 
   identities do
@@ -81,24 +107,31 @@ defmodule Ankole.Brain.Schemas.Object do
   actions do
     defaults([:read])
 
+    # The Console list: a slug prefix, a title or slug search, and the live
+    # or the soft-deleted objects.
+    read :console_list do
+      argument(:prefix, :string, constraints: [trim?: false])
+      argument(:search, :string)
+      argument(:deleted, :boolean, default: false)
+      prepare(__MODULE__.Preparations)
+    end
+
     create :create do
-      transaction?(false)
       accept(@initial)
     end
 
     create :create_projection do
-      transaction?(false)
       accept([:managed_by_source_id | @initial])
       require_attributes([:managed_by_source_id])
     end
 
     create_if_absent :ensure_canonical do
-      transaction?(false)
       accept(@initial)
       upsert_identity(:slug)
     end
 
-    atomic_in_tx_update :edit do
+    update :edit do
+      require_atomic?(true)
       accept(@content)
       argument(:expected_content_hash, :string, allow_nil?: false, constraints: [trim?: false])
 
@@ -112,52 +145,61 @@ defmodule Ankole.Brain.Schemas.Object do
       )
     end
 
-    atomic_in_tx_update :project do
+    update :project do
+      require_atomic?(true)
       accept([:type, :deleted_at | @content])
       argument(:source_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
       change(filter(expr(managed_by_source_id == ^arg(:source_id))))
     end
 
-    atomic_in_tx_update :forget do
+    update :forget do
+      require_atomic?(true)
       accept([:meta, :content_hash])
       change(filter(expr(is_nil(managed_by_source_id))))
       change(set_attribute(:deleted_at, &DateTime.utc_now/0))
     end
 
-    atomic_in_tx_update :restore do
+    update :restore do
+      require_atomic?(true)
       accept([:meta, :content_hash])
       change(filter(expr(is_nil(managed_by_source_id))))
       change(set_attribute(:deleted_at, nil))
     end
 
-    atomic_in_tx_update :withdraw_projection do
+    update :withdraw_projection do
+      require_atomic?(true)
       accept([])
       argument(:source_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
       change(filter(expr(managed_by_source_id == ^arg(:source_id) and is_nil(deleted_at))))
       change(set_attribute(:deleted_at, &DateTime.utc_now/0))
     end
 
-    atomic_in_tx_update :fork do
+    update :fork do
+      require_atomic?(true)
       accept([])
       change(filter(expr(not is_nil(managed_by_source_id) and type != "agent-skills")))
       change(set_attribute(:managed_by_source_id, nil))
     end
 
-    atomic_in_tx_update :retype do
+    update :retype do
+      require_atomic?(true)
       accept([:slug, :type])
       change(filter(expr(is_nil(managed_by_source_id) and is_nil(deleted_at))))
       change(set_attribute(:updated_at, &DateTime.utc_now/0))
     end
 
-    atomic_in_tx_update :refresh_hash do
+    update :refresh_hash do
+      require_atomic?(true)
       accept([:content_hash])
     end
 
-    atomic_in_tx_update :stamp_chunking do
+    update :stamp_chunking do
+      require_atomic?(true)
       accept([:chunking_signature])
     end
 
-    atomic_in_tx_update :stamp_links do
+    update :stamp_links do
+      require_atomic?(true)
       accept([])
       change(atomic_update(:links_extracted_at, expr(updated_at)))
     end
@@ -177,15 +219,169 @@ defmodule Ankole.Brain.Schemas.Object do
     end
 
     destroy :purge do
-      transaction?(false)
       require_atomic?(true)
       change(filter(expr(not is_nil(deleted_at) and is_nil(managed_by_source_id))))
     end
 
     destroy :merge_duplicate do
-      transaction?(false)
       require_atomic?(true)
       change(filter(expr(is_nil(managed_by_source_id))))
+    end
+
+    # Each operation owns its transaction. The Objects, Chunks, and Links
+    # modules give the steps.
+    action :create_object, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:attrs, :map, allow_nil?: false)
+      argument(:writer, :term, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :update_object, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+      argument(:attrs, :map, allow_nil?: false)
+      argument(:writer, :term, allow_nil?: false)
+      argument(:author, Ankole.Ash.Types.ActorRef)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :upsert_source_projection, :struct do
+      constraints(instance_of: __MODULE__)
+
+      argument(:source, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: Ankole.Brain.Schemas.Source]
+      )
+
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :upsert_library_projection, :atom do
+      argument(:source, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: Ankole.Brain.Schemas.Source]
+      )
+
+      argument(:page, :map, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :soft_delete_object, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+      argument(:reason, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:by, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :rollback_object, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+      argument(:version_id, :uuid, allow_nil?: false)
+      argument(:writer, :term, allow_nil?: false)
+      argument(:author, Ankole.Ash.Types.ActorRef)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :fork_library_page, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+
+      run(__MODULE__.Actions)
+    end
+
+    action :restore_object, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+
+      run(__MODULE__.Actions)
+    end
+
+    action :reconcile_chunks, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:object, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
+      argument(:chunking, :map)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :reconcile_object_links, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+
+      run(__MODULE__.Actions)
+    end
+
+    # The Console operations. The operator is the actor of the action
+    # (Ankole.Brain.Console).
+    action :console_create, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false)
+      argument(:type, :string, allow_nil?: false)
+      argument(:subtype, :string)
+      argument(:title, :string, allow_nil?: false)
+      argument(:body, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+      argument(:meta, Ankole.Ash.Types.JSONMap, allow_nil?: false)
+      argument(:effective_date, :date)
+      argument(:tags, {:array, :string}, default: [])
+
+      run(__MODULE__.Actions)
+    end
+
+    # The content hash is a compare-and-swap token: the edit fails when the
+    # object changed after the editor read it. Without tags, the tags stay.
+    action :console_update, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:expected_content_hash, :string, allow_nil?: false)
+      argument(:subtype, :string)
+      argument(:title, :string, allow_nil?: false)
+      argument(:body, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+      argument(:meta, Ankole.Ash.Types.JSONMap, allow_nil?: false)
+      argument(:effective_date, :date)
+      argument(:tags, {:array, :string})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :console_rollback, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:version_id, :uuid, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :console_forget, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:reason, :string, constraints: [trim?: false, allow_empty?: true])
+
+      run(__MODULE__.Actions)
+    end
+
+    # The pattern pages of one audience and their evidence links commit
+    # together; Ankole.Brain.Patterns gives the steps.
+    action :write_patterns, :integer do
+      argument(:patterns, {:array, :map}, allow_nil?: false)
+      argument(:existing, :map, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+  end
+
+  relationships do
+    has_many :tags, Ankole.Brain.Schemas.Tag do
+      source_attribute(:slug)
+      destination_attribute(:object_slug)
     end
   end
 

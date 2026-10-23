@@ -43,6 +43,24 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
     end
   end
 
+  @doc """
+  Declares the ID token that the host verifies for an Entra ID login.
+
+  The issuer contains the configured directory ID, so the issuer check also
+  rejects a token of another directory. The Graph user ID must match the
+  signed object ID (`oid`).
+  """
+  @spec id_token_verification(map()) :: Ankole.IdentityProviders.OIDC.verification()
+  def id_token_verification(config) do
+    client = Config.identity_client(config)
+
+    %{
+      issuer: "https://login.microsoftonline.com/#{client.tenant_id}/v2.0",
+      client_id: client.client_id,
+      subject_claim: "oid"
+    }
+  end
+
   @spec exchange_code(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def exchange_code(config, code, opts \\ []) do
     client = Config.identity_client(config)
@@ -52,24 +70,12 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
              code: code,
              redirect_uri: Keyword.get(opts, :redirect_uri)
            ),
-         {:ok, claims} <-
-           Ankole.IdentityProviders.OIDC.verify(
-             token,
-             "https://login.microsoftonline.com/#{client.tenant_id}/v2.0",
-             client.client_id,
-             opts
-           ),
-         true <- claims["tid"] == client.tenant_id,
          {:ok, user} <-
            Graph.get(client, "me",
              query: [{"$select", @me_select}],
              token: {:bearer, token.access_token}
-           ),
-         true <- is_binary(claims["oid"]) and claims["oid"] == user["id"] do
-      {:ok, %{token: token, user: user, auth_time: claims["auth_time"]}}
-    else
-      false -> {:error, :oidc_subject_mismatch}
-      {:error, _} = error -> error
+           ) do
+      {:ok, %{token: token, claims: %{"oid" => user["id"]}, user: user}}
     end
   end
 

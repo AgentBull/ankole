@@ -133,13 +133,22 @@ defmodule Ankole.BackgroundAgentJobsTest do
     }
 
     assert {:error, :fixture_rollback} =
-             Repo.transact(fn _repo ->
+             Repo.transact(fn repo ->
                assert {:ok, %{wakeup_event: %Signal{}}} =
-                        BackgroundAgentJobs.request_complete(job.id, args)
+                        Ankole.BackgroundAgentJobs.Control.request_complete_in_tx(
+                          repo,
+                          job.id,
+                          args
+                        )
 
                refute_receive :reconcile_inbox, 20
                {:error, :fixture_rollback}
              end)
+
+    # The operation owns its transaction, so it does not run inside another one.
+    assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
+      Repo.transact(fn _repo -> BackgroundAgentJobs.request_complete(job.id, args) end)
+    end
 
     assert Repo.reload!(job).status == :queued
 
@@ -1480,7 +1489,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "status-transition")
 
-    assert {:error, {:invalid_background_agent_job_status_transition, :queued, :running}} =
+    assert {:error, {:invalid_status_transition, :queued, :running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                "status" => "running"
              })
@@ -1497,7 +1506,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "metadata" => %{"ignored" => true}
              })
 
-    assert {:error, {:invalid_background_agent_job_status_transition, :running, :queued}} =
+    assert {:error, {:invalid_status_transition, :running, :queued}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                "status" => "queued"
              })

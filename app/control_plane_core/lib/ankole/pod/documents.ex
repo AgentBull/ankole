@@ -1,65 +1,63 @@
 defmodule Ankole.Pod.Documents do
-  @moduledoc "Commits complete documents and idempotent OT batches under the page row lock."
-  import Ecto.Query
+  @moduledoc """
+  Commits complete documents and idempotent OT batches under the page row lock.
+
+  A write runs a generic action of `Ankole.Pod.Page`, which owns the
+  transaction. The action gives the page ID and the result; the page channel
+  gets the commit after the transaction ends.
+  """
   require Ash.Query
   alias Ankole.{ActorRef, Repo}
-  alias Ankole.Pod.{Access, PageChange, PageContent, Pages}
+  alias Ankole.Pod.{Access, Page, PageChange, PageContent, Pages}
 
   def write(uid, id, base_revision, xml, authority \\ nil)
 
   def write(uid, id, base_revision, xml, authority)
       when is_integer(base_revision) and is_binary(xml) do
-    validation = Ankole.Kernel.page_validate(xml)
-
-    commit(uid, id, authority, fn page ->
-      with :ok <- current_revision(page, base_revision),
-           {:ok, parsed} <- validation,
-           do: save(page, Repo.get!(PageContent, page.id), uid, parsed, %{kind: :reset})
-    end)
+    # Validate before the transaction; the page lock decides which error applies.
+    Page
+    |> Ankole.Ash.run_action(:write_document, %{
+      uid: uid,
+      id: id,
+      base_revision: base_revision,
+      validation: Ankole.Kernel.page_validate(xml),
+      authority: authority
+    })
+    |> result()
   end
 
   def write(_uid, _id, _revision, _xml, _authority), do: {:error, :invalid_request}
 
+  @doc false
+  def write_in_tx(uid, id, base_revision, validation) do
+    commit_in_tx(uid, id, fn page ->
+      with :ok <- current_revision(page, base_revision),
+           {:ok, parsed} <- validation,
+           do: save(page, content!(page), uid, parsed, %{kind: :reset})
+    end)
+  end
+
   def apply(uid, id, attrs, authority \\ nil)
 
   def apply(uid, id, attrs, authority) when is_map(attrs) do
-    base = Ankole.Attrs.get(attrs, :base_revision)
-    client = Ankole.Attrs.get(attrs, :client_id)
-    seq = Ankole.Attrs.get(attrs, :client_seq)
-    changes = Ankole.Attrs.get(attrs, :changes)
+    batch = %{
+      base: Ankole.Attrs.get(attrs, :base_revision),
+      client: Ankole.Attrs.get(attrs, :client_id),
+      seq: Ankole.Attrs.get(attrs, :client_seq),
+      changes: Ankole.Attrs.get(attrs, :changes)
+    }
 
-    if is_integer(base) and base >= 0 and is_binary(client) and byte_size(client) in 1..255 and
-         is_integer(seq) and seq > 0 and is_list(changes) do
-      commit(uid, id, authority, fn page ->
-        previous = Repo.get_by(PageChange, page_id: page.id, client_id: client, client_seq: seq)
-
-        cond do
-          previous && previous.changes !== changes ->
-            {:error, :client_sequence_conflict}
-
-          previous ->
-            {:ok, Map.put(replay(page, base), :acknowledged_revision, previous.revision)}
-
-          base != page.revision ->
-            # Retries keep their original base even after their log entry is pruned.
-            # A committed batch advanced the revision and cannot reach apply again.
-            {:ok, replay(page, base)}
-
-          true ->
-            content = Repo.get!(PageContent, page.id)
-
-            with {:ok, parsed} <- Ankole.Kernel.page_apply(content.content, changes),
-                 {:ok, %{page: page}} <-
-                   save(page, content, uid, parsed, %{
-                     kind: :change,
-                     client_id: client,
-                     client_seq: seq,
-                     changes: changes
-                   }) do
-              {:ok, Map.put(replay(page, base), :acknowledged_revision, page.revision)}
-            end
-        end
-      end)
+    if is_integer(batch.base) and batch.base >= 0 and is_binary(batch.client) and
+         byte_size(batch.client) in 1..255 and is_integer(batch.seq) and batch.seq > 0 and
+         is_list(batch.changes) do
+      Page
+      |> Ankole.Ash.run_action(:apply_document_changes, %{
+        uid: uid,
+        id: id,
+        batch: batch,
+        authority: authority
+      })
+      |> result()
     else
       {:error, :invalid_request}
     end
@@ -67,34 +65,73 @@ defmodule Ankole.Pod.Documents do
 
   def apply(_uid, _id, _attrs, _authority), do: {:error, :invalid_request}
 
-  def since(uid, id, revision) when is_integer(revision) and revision >= 0 do
-    Repo.transact(fn _repo ->
-      with {:ok, page} <- Pages.lock(id, :share),
-           {:ok, _} <- Access.authorize(uid, page, "page_view"),
-           true <- page.type == :doc,
-           do: {:ok, replay(page, revision)},
-           else: (
-             false -> {:error, :invalid_page_type}
-             error -> error
-           )
+  @doc false
+  def apply_in_tx(uid, id, %{base: base, client: client, seq: seq, changes: changes}) do
+    commit_in_tx(uid, id, fn page ->
+      previous =
+        PageChange
+        |> Ash.Query.filter(page_id == ^page.id and client_id == ^client and client_seq == ^seq)
+        |> Ankole.Ash.read_one!()
+
+      cond do
+        previous && previous.changes !== changes ->
+          {:error, :client_sequence_conflict}
+
+        previous ->
+          {:ok, Map.put(replay(page, base), :acknowledged_revision, previous.revision)}
+
+        base != page.revision ->
+          # Retries keep their original base even after their log entry is pruned.
+          # A committed batch advanced the revision and cannot reach apply again.
+          {:ok, replay(page, base)}
+
+        true ->
+          content = content!(page)
+
+          with {:ok, parsed} <- Ankole.Kernel.page_apply(content.content, changes),
+               {:ok, %{page: page}} <-
+                 save(page, content, uid, parsed, %{
+                   kind: :change,
+                   client_id: client,
+                   client_seq: seq,
+                   changes: changes
+                 }) do
+            {:ok, Map.put(replay(page, base), :acknowledged_revision, page.revision)}
+          end
+      end
     end)
   end
 
+  def since(uid, id, revision) when is_integer(revision) and revision >= 0,
+    do: Ankole.Ash.run_action(Page, :read_page_changes, %{uid: uid, id: id, revision: revision})
+
   def since(_uid, _id, _revision), do: {:error, :invalid_request}
+
+  @doc false
+  def since_in_tx(uid, id, revision) do
+    with {:ok, page} <- Pages.lock(id, :share),
+         {:ok, _} <- Access.authorize(uid, page, "page_view"),
+         true <- page.type == :doc,
+         do: {:ok, replay(page, revision)},
+         else: (
+           false -> {:error, :invalid_page_type}
+           error -> error
+         )
+  end
+
+  @doc "Publishes a committed document change to the page channel."
+  def committed(%{page_id: id}), do: Pages.broadcast(id)
 
   defp replay(page, base) do
     query =
-      from(c in PageChange,
-        where: c.page_id == ^page.id and c.revision > ^base and c.revision <= ^page.revision
+      Ash.Query.filter(
+        PageChange,
+        page_id == ^page.id and revision > ^base and revision <= ^page.revision
       )
 
-    # Count the complete stored rows in PostgreSQL before loading any batches.
-    # row_to_json includes more metadata and whitespace than the Channel DTO.
-    bytes =
-      Repo.one(
-        from c in query,
-          select: coalesce(sum(fragment("octet_length(row_to_json(?)::text)", c)), 0)
-      )
+    # Count the stored batches in PostgreSQL before loading any of them. The
+    # stored JSON includes more fields and whitespace than the Channel DTO.
+    bytes = Ankole.Ash.aggregate!(query, [{:bytes, :sum, field: :wire_bytes}]).bytes || 0
 
     envelope_bytes =
       byte_size(
@@ -110,7 +147,7 @@ defmodule Ankole.Pod.Documents do
     if bytes + envelope_bytes > Ankole.Pod.DocumentWire.max_bytes() do
       %{revision: page.revision, changes: [], reset_required: true, reload_required: true}
     else
-      changes = Repo.all(from c in query, order_by: c.revision)
+      changes = query |> Ash.Query.sort(revision: :asc) |> Ankole.Ash.read!()
 
       reset_required =
         base > page.revision or
@@ -120,31 +157,25 @@ defmodule Ankole.Pod.Documents do
     end
   end
 
-  defp commit(uid, id, authority, fun) do
-    nested? = Repo.in_transaction?()
-
-    result =
-      Access.write_transaction(authority, fn _repo ->
-        with {:ok, page} <- Pages.lock(id),
-             {:ok, _} <- Access.authorize(uid, page, "page_edit"),
-             true <- page.type == :doc do
-          fun.(page)
-        else
-          false -> {:error, :invalid_page_type}
-          error -> error
-        end
-      end)
-
-    case result do
-      {:ok, result} ->
-        if not nested?,
-          do: Phoenix.PubSub.broadcast(Ankole.PubSub, "pod-page:" <> id, {:page_committed, id})
-
-        {:ok, result}
-
-      error ->
-        error
+  defp commit_in_tx(uid, id, fun) do
+    with {:ok, page} <- Pages.lock(id),
+         {:ok, _} <- Access.authorize(uid, page, "page_edit"),
+         true <- page.type == :doc,
+         {:ok, result} <- fun.(page) do
+      {:ok, %{page_id: page.id, result: result}}
+    else
+      false -> {:error, :invalid_page_type}
+      error -> error
     end
+  end
+
+  defp result({:ok, %{result: result}}), do: {:ok, result}
+  defp result(error), do: error
+
+  defp content!(page) do
+    PageContent
+    |> Ash.Query.filter(page_id == ^page.id)
+    |> Ankole.Ash.read_one!(not_found_error?: true)
   end
 
   defp save(page, content, uid, parsed, change) do
@@ -159,8 +190,7 @@ defmodule Ankole.Pod.Documents do
              updated_by: author,
              updated_at: now
            }),
-         {:ok, page} <-
-           Ankole.Ash.update(page, :advance_revision, %{updated_at: now}),
+         {:ok, page} <- Ankole.Ash.update(page, :advance_revision, %{updated_at: now}),
          {:ok, _} <-
            Ankole.Ash.create(
              PageChange,
@@ -171,16 +201,11 @@ defmodule Ankole.Pod.Documents do
                author: author,
                created_at: now
              })
-           ) do
-      query =
-        PageChange
-        |> Ash.Query.filter(page_id == ^page.id and revision <= ^(page.revision - window))
-
-      case Ankole.Ash.bulk_destroy(query, :prune, %{}, strategy: [:atomic], return_errors?: true) do
-        %Ash.BulkResult{status: :success} -> :ok
-        %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
-      end
-
+           ),
+         {:ok, _pruned} <-
+           PageChange
+           |> Ash.Query.filter(page_id == ^page.id and revision <= ^(page.revision - window))
+           |> Ankole.Ash.destroy_where(:prune) do
       {:ok, %{page: page, content: content}}
     end
   end

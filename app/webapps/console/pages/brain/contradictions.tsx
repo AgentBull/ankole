@@ -23,16 +23,19 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  ankoleWebBrainControllerDecideContradictionMutation,
-  ankoleWebBrainControllerListContradictionsOptions
-} from '../../api/generated/@tanstack/react-query.gen'
-import type { BrainContradiction } from '../../api/generated/types.gen'
+  decideBrainContradictionMutation,
+  listBrainContradictionsOptions
+} from '../../api/v2/generated/@tanstack/react-query.gen'
+import type { ListBrainContradictionsResponse } from '../../api/v2/generated/types.gen'
+import { fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
 import { ResourceListPage } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
 
 const CONTRADICTION_STATUSES = ['open', 'resolved', 'dismissed'] as const
+
+type BrainContradiction = Flat<NonNullable<ListBrainContradictionsResponse['data']>[number]>
 
 export function BrainContradictionsPage() {
   const { t } = useTranslation()
@@ -43,8 +46,11 @@ export function BrainContradictionsPage() {
   }>()
   const [note, setNote] = useState('')
 
-  const contradictions = useQuery(ankoleWebBrainControllerListContradictionsOptions({ query: { status } }))
-  const rows = contradictions.data?.contradictions ?? []
+  const contradictions = useQuery({
+    ...listBrainContradictionsOptions({ query: { status } }),
+    select: document => fromDocument(document)
+  })
+  const rows = contradictions.data ?? []
 
   // Reset per target so a note typed for one contradiction never carries to another.
   const openDecide = (contradiction: BrainContradiction, decision: 'resolved' | 'dismissed') => {
@@ -52,7 +58,7 @@ export function BrainContradictionsPage() {
     setNote('')
   }
   const decide = useMutation({
-    ...ankoleWebBrainControllerDecideContradictionMutation(),
+    ...decideBrainContradictionMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.contradiction_decided'))
       setDecideTarget(undefined)
@@ -113,13 +119,13 @@ export function BrainContradictionsPage() {
                   <Badge className="mr-2" variant="secondary">
                     A
                   </Badge>
-                  {contradiction.a_claim?.claim ?? '—'}
+                  {contradiction.a_claim_text ?? '—'}
                 </p>
                 <p>
                   <Badge className="mr-2" variant="outline">
                     B
                   </Badge>
-                  {contradiction.b_claim?.claim ?? '—'}
+                  {contradiction.b_claim_text ?? '—'}
                 </p>
               </div>
             </TableCell>
@@ -183,8 +189,10 @@ export function BrainContradictionsPage() {
                 decide.mutate({
                   path: { contradiction_id: decideTarget.contradiction.id },
                   body: {
-                    status: decideTarget.decision,
-                    ...(note.trim() ? { resolution_note: note.trim() } : {})
+                    data: {
+                      status: decideTarget.decision,
+                      ...(note.trim() ? { resolution_note: note.trim() } : {})
+                    }
                   }
                 })
               }>

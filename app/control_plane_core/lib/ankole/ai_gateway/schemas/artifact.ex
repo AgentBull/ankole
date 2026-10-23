@@ -1,6 +1,6 @@
 defmodule Ankole.AIGateway.Schemas.Artifact do
   @moduledoc "Principal-owned image bytes with explicit payload selection and atomic collection."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIGateway.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIGateway
 
   postgres do
     table("ai_gateway_artifacts")
@@ -52,7 +52,6 @@ defmodule Ankole.AIGateway.Schemas.Artifact do
     defaults([:read])
 
     create :upload do
-      transaction?(false)
       accept([:subject_uid, :filename, :purpose, :mime_type, :payload, :expires_at])
       change(set_attribute(:kind, :uploaded_file))
       change(Ankole.AIGateway.Changes.PrepareArtifact, only_when_valid?: true)
@@ -74,8 +73,6 @@ defmodule Ankole.AIGateway.Schemas.Artifact do
     end
 
     create :generate_image do
-      transaction?(false)
-
       accept([
         :id,
         :subject_uid,
@@ -92,13 +89,11 @@ defmodule Ankole.AIGateway.Schemas.Artifact do
     end
 
     destroy :remove do
-      transaction?(false)
       require_atomic?(true)
       change(filter(expr(kind == :uploaded_file)))
     end
 
     destroy :collect do
-      transaction?(false)
       require_atomic?(true)
       argument(:now, :utc_datetime_usec, allow_nil?: false)
 
@@ -116,6 +111,14 @@ defmodule Ankole.AIGateway.Schemas.Artifact do
           )
         )
       )
+    end
+
+    action :persist_output, :term do
+      argument(:subject_uid, :term, allow_nil?: false)
+      argument(:output, :term, allow_nil?: false)
+      argument(:options, :term, allow_nil?: false, default: [])
+
+      run(__MODULE__.Actions)
     end
   end
 

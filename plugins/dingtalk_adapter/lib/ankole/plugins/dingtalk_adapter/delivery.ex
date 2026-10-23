@@ -26,7 +26,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Delivery do
   alias Ankole.Plugins.DingTalkAdapter.InteractiveCard
   alias Ankole.Plugins.DingTalkAdapter.Markdown
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Repo
   alias Ankole.Conversations.Conversation
   alias Ankole.Conversations.Delivery.Intent
   alias DingTalkOpenAPI.Error
@@ -281,7 +280,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Delivery do
   defp combined_result([], _payload), do: %{raw_payload: %{}}
 
   defp resolve_target(%Intent{conversation_id: conversation_id}) do
-    case Repo.get_by(Conversation, id: conversation_id) do
+    case Ankole.Conversations.get_conversation!(conversation_id) do
       %Conversation{external_kind: :im_dm, metadata: metadata} ->
         case optional_text(metadata, "dm_user_id") do
           user_id when is_binary(user_id) -> {:ok, {:dm, user_id}}

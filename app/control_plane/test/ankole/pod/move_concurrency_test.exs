@@ -46,8 +46,11 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
     move =
       Task.async(
         Repo.bind_tenant(fn ->
+          # The test holds the move's transaction open, so it runs the move body.
           Repo.transact(fn _repo ->
-            {:ok, moved} = Pages.move(ctx.editor.uid, ctx.page.id, %{parent_id: ctx.right.id})
+            {:ok, moved} =
+              Pages.move_in_tx(ctx.editor.uid, ctx.page.id, %{parent_id: ctx.right.id})
+
             send(parent, {:checked, backend_pid()})
             receive do: (:commit -> {:ok, moved})
           end)
@@ -59,10 +62,10 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
     grant =
       Task.async(
         Repo.bind_tenant(fn ->
-          Repo.transact(fn _repo ->
+          Repo.transact(fn repo ->
             send(parent, {:grant_started, backend_pid()})
 
-            AuthZ.create_permission_grant(%{
+            AuthZ.Grants.create_permission_grant(repo, %{
               principal_uid: ctx.viewer.uid,
               resource_pattern: "pod:**:#{ctx.page.id}:**",
               action: "page_manage"
@@ -76,7 +79,8 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
     sharing =
       Task.async(
         Repo.bind_tenant(fn ->
-          Repo.transact(fn _repo ->
+          # One connection runs the sharing action and reports its backend.
+          Repo.checkout(fn ->
             send(parent, {:sharing_started, backend_pid()})
 
             Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, ctx.right.id, %{
@@ -104,9 +108,9 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
     writer =
       Task.async(
         Repo.bind_tenant(fn ->
-          Repo.transact(fn _repo ->
+          Repo.transact(fn repo ->
             {:ok, _} =
-              AuthZ.create_permission_grant(%{
+              AuthZ.Grants.create_permission_grant(repo, %{
                 principal_uid: ctx.viewer.uid,
                 resource_pattern: "pod:**:#{ctx.right.id}:**",
                 action: "page_manage"
@@ -123,7 +127,7 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
     move =
       Task.async(
         Repo.bind_tenant(fn ->
-          Repo.transact(fn _repo ->
+          Repo.checkout(fn ->
             send(parent, {:move_started, backend_pid()})
             Pages.move(ctx.editor.uid, ctx.page.id, %{parent_id: ctx.right.id})
           end)
@@ -151,7 +155,7 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
       Task.async(
         Repo.bind_tenant(fn ->
           Repo.transact(fn _repo ->
-            {:ok, _} = Pages.set_space(ctx.owner.uid, "view")
+            {:ok, _} = Pages.set_space_in_tx(ctx.owner.uid, "view")
             send(parent, {:access_uncommitted, backend_pid()})
             receive do: (:commit -> {:ok, :written})
           end)
@@ -163,7 +167,7 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
     move =
       Task.async(
         Repo.bind_tenant(fn ->
-          Repo.transact(fn _repo ->
+          Repo.checkout(fn ->
             send(parent, {:move_started, backend_pid()})
             Pages.move(ctx.editor.uid, ctx.page.id, %{parent_id: ctx.right.id})
           end)

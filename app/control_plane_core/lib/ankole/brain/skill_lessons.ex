@@ -17,17 +17,11 @@ defmodule Ankole.Brain.SkillLessons do
   re-running the no-context probes it passed.
   """
 
-  import Ecto.Query, warn: false
-
   alias Ankole.AIAgent.Library
-  alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs
-  alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Brain.Config
   alias Ankole.Brain.ModelCalls
   alias Ankole.Logging
-  alias Ankole.Repo
-  alias Ankole.Signals.Binding
   alias Ankole.Version
 
   @terminal_statuses [:succeeded, :failed, :stopped]
@@ -119,7 +113,7 @@ defmodule Ankole.Brain.SkillLessons do
   """
   @spec apply_reflection_output(pos_integer()) :: :ok | {:error, term()}
   def apply_reflection_output(job_id) do
-    job = Repo.get(Job, job_id)
+    job = BackgroundAgentJobs.get_job(job_id)
 
     cond do
       is_nil(job) -> :ok
@@ -140,11 +134,9 @@ defmodule Ankole.Brain.SkillLessons do
   end
 
   defp agent_uids do
-    Ankole.AIAgent.Library.Schemas.AgentSkill
-    |> distinct([skill], skill.agent_uid)
-    |> select([skill], skill.agent_uid)
-    |> Repo.all()
-    |> Enum.sort()
+    [query: [distinct: [:agent_uid], select: [:agent_uid], sort: [agent_uid: :asc]]]
+    |> Ankole.AIAgent.list_agent_skills!()
+    |> Enum.map(& &1.agent_uid)
   end
 
   defp evaluate_trigger(agent_uid, now) do
@@ -164,22 +156,39 @@ defmodule Ankole.Brain.SkillLessons do
     end
   end
 
+  # The applied reflection jobs of one Agent are few: one for each
+  # threshold of evidence jobs.
   defp reflection_watermark(agent_uid) do
-    Job
-    |> where([job], job.agent_uid == ^agent_uid)
-    |> Queries.reflection_jobs()
-    |> where([job], fragment("(? -> 'lessons_applied_at') IS NOT NULL", job.metadata))
-    |> select([job], max(fragment("(? ->> 'through_job_id')::bigint", job.metadata)))
-    |> Repo.one()
-    |> Kernel.||(0)
+    [
+      query: [
+        filter: [agent_uid: agent_uid, skill_lesson_reflection?: true],
+        select: [:metadata]
+      ]
+    ]
+    |> BackgroundAgentJobs.list_jobs!()
+    |> Enum.filter(&is_map_key(&1.metadata, "lessons_applied_at"))
+    |> Enum.map(&through_job_id(&1.metadata["through_job_id"]))
+    |> Enum.max(fn -> 0 end)
   end
 
+  defp through_job_id(id) when is_integer(id), do: id
+  defp through_job_id(id) when is_binary(id), do: String.to_integer(id)
+  defp through_job_id(nil), do: 0
+
   defp reflection_in_flight?(agent_uid) do
-    Job
-    |> where([job], job.agent_uid == ^agent_uid)
-    |> where([job], job.status not in ^@terminal_statuses)
-    |> Queries.reflection_jobs()
-    |> Repo.exists?()
+    [
+      query: [
+        filter: [
+          agent_uid: agent_uid,
+          not: [status: [in: @terminal_statuses]],
+          skill_lesson_reflection?: true
+        ],
+        select: [:id],
+        limit: 1
+      ]
+    ]
+    |> BackgroundAgentJobs.list_jobs!()
+    |> Enum.any?()
   end
 
   defp signal_candidates(agent_uid, watermark, now) do
@@ -230,16 +239,18 @@ defmodule Ankole.Brain.SkillLessons do
   end
 
   defp agent_binding_name(agent_uid) do
-    Binding
-    |> where([binding], binding.agent_uid == ^agent_uid)
-    |> where([binding], binding.enabled == true)
-    |> order_by([binding], asc: binding.name)
-    |> limit(1)
-    |> select([binding], binding.name)
-    |> Repo.one()
+    [
+      query: [
+        filter: [agent_uid: agent_uid, enabled: true],
+        sort: [name: :asc],
+        limit: 1,
+        select: [:name]
+      ]
+    ]
+    |> Ankole.Signals.list_bindings!()
     |> case do
-      nil -> {:error, :agent_has_no_binding}
-      name -> {:ok, name}
+      [] -> {:error, :agent_has_no_binding}
+      [binding] -> {:ok, binding.name}
     end
   end
 
@@ -338,7 +349,7 @@ defmodule Ankole.Brain.SkillLessons do
   end
 
   defp stamp_lessons_applied(job) do
-    {:ok, _job} = Ankole.Ash.update(job, :record_lessons_applied, %{})
+    {:ok, _job} = BackgroundAgentJobs.record_lessons_applied_job(job)
     :ok
   end
 
@@ -402,23 +413,30 @@ defmodule Ankole.Brain.SkillLessons do
   defp review_index(agent_uid, now) do
     index_floor = DateTime.add(now, -@review_index_days, :day)
 
-    Job
-    |> where([job], job.agent_uid == ^agent_uid)
-    |> where([job], job.status in ^@terminal_statuses)
-    |> where([job], coalesce(job.completed_at, job.updated_at) > ^index_floor)
-    |> Queries.excluding_reflection_jobs()
-    |> order_by([job], desc: job.id)
-    |> limit(@review_index_limit)
-    |> select([job], %{id: job.id, title: job.title, status: job.status})
-    |> Repo.all()
+    [
+      query: [
+        filter: [
+          agent_uid: agent_uid,
+          status: [in: @terminal_statuses],
+          skill_lesson_reflection?: false,
+          or: [
+            [completed_at: [greater_than: index_floor]],
+            [completed_at: [is_nil: true], updated_at: [greater_than: index_floor]]
+          ]
+        ],
+        sort: [id: :desc],
+        limit: @review_index_limit,
+        select: [:id, :title, :status]
+      ]
+    ]
+    |> BackgroundAgentJobs.list_jobs!()
+    |> Enum.map(&%{id: &1.id, title: &1.title, status: &1.status})
   end
 
   defp agent_skill_hashes(agent_uid) do
-    Ankole.AIAgent.Library.Schemas.AgentSkill
-    |> where([skill], skill.agent_uid == ^agent_uid)
-    |> select([skill], {skill.skill_name, skill.content_hash})
-    |> Repo.all()
-    |> Map.new()
+    [query: [filter: [agent_uid: agent_uid], select: [:skill_name, :content_hash]]]
+    |> Ankole.AIAgent.list_agent_skills!()
+    |> Map.new(&{&1.skill_name, &1.content_hash})
   end
 
   defp review_prompt(agent_uid, docket, index, current_release, skill_hashes) do

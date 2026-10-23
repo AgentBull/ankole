@@ -7,7 +7,8 @@ defmodule Ankole.Tenants.Jobs.Delete do
     unique: [period: :infinity, keys: [:tenant_id], states: [:available, :scheduled, :retryable]]
 
   import Ecto.Query
-  alias Ankole.{Repo, Tenants}
+  require Ash.Query
+  alias Ankole.{Principals, Repo, Tenants}
   alias Ankole.Principals.Principal
   alias Ankole.AgentWorkers.AgentWorker
 
@@ -58,7 +59,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
 
   defp step(tenant) do
     humans =
-      Repo.all(from p in Principal, where: p.type == :human and p.status == :active, limit: 50)
+      Principals.list_principals!(query: [filter: [type: :human, status: :active], limit: 50])
 
     if humans != [] do
       disable_humans(humans)
@@ -66,7 +67,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
       # Human cleanup must commit while its Principal still exists. Merely
       # enqueueing WorkCleanup would let deletion erase that job's input first.
       with :ok <- cleanup_human_work() do
-        agents = Repo.all(from p in Principal, where: p.type == :agent, limit: 50)
+        agents = Principals.list_principals!(query: [filter: [type: :agent], limit: 50])
 
         cond do
           agents != [] ->
@@ -101,7 +102,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
   end
 
   defp disable_humans(humans) do
-    with {:ok, system} <- Tenants.system_principal() do
+    with {:ok, system} <- Principals.system_principal() do
       actor = Ankole.ActorRef.from_principal(system)
 
       Enum.reduce_while(humans, {:snooze, 1}, fn principal, result ->
@@ -170,8 +171,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
   defp delete_rows(tenant_id, table) do
     Ecto.Adapters.SQL.query!(
       Repo,
-      "DELETE FROM #{table} WHERE tenant_id = $1::text::uuid AND ctid IN " <>
-        "(SELECT ctid FROM #{table} WHERE tenant_id = $1::text::uuid LIMIT 200)",
+      "DELETE FROM #{table} WHERE tenant_id = $1::text::uuid AND ctid IN (SELECT ctid FROM #{table} WHERE tenant_id = $1::text::uuid LIMIT 200)",
       [tenant_id]
     )
   end
@@ -187,7 +187,10 @@ defmodule Ankole.Tenants.Jobs.Delete do
   defp finish_in_tx(repo, tenant) do
     Ankole.Pod.Pages.lock_tree()
 
-    case repo.one(from t in Tenants.Tenant, where: t.id == ^tenant.id, lock: "FOR UPDATE") do
+    case Tenants.Tenant
+         |> Ash.Query.filter(id == ^tenant.id)
+         |> Ash.Query.lock(:for_update)
+         |> Ankole.Ash.read_one!() do
       nil ->
         {:ok, :finished}
 
@@ -202,7 +205,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
              Ankole.Principals.WorkCleanup.pending_for_tenant(1) != [] do
           {:ok, :resources_pending}
         else
-          for table <- @tables do
+          for table <- @tables ++ ["principals"] do
             Ecto.Adapters.SQL.query!(
               repo,
               "DELETE FROM #{table} WHERE tenant_id = $1::text::uuid",
@@ -210,7 +213,6 @@ defmodule Ankole.Tenants.Jobs.Delete do
             )
           end
 
-          repo.delete_all(Principal)
           {:ok, _} = Ankole.Ash.destroy(locked, :delete_in_tx)
           {:ok, _} = Ankole.Files.Jobs.CollectUnreferenced.new(%{}) |> Oban.insert()
           {:ok, :finished}

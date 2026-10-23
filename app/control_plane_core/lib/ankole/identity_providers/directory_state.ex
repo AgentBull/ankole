@@ -2,7 +2,7 @@ defmodule Ankole.IdentityProviders.DirectoryState do
   @moduledoc false
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.IdentityProviders.Domain,
+    domain: Ankole.IdentityProviders,
     extensions: [AshStateMachine]
 
   @states [:unverified, :syncing, :healthy, :review_required, :failed]
@@ -96,11 +96,11 @@ defmodule Ankole.IdentityProviders.DirectoryState do
 
     create_if_absent :ensure_in_tx, upsert_fields: [:provider_id] do
       accept([:provider_id])
-      transaction?(false)
       upsert_identity(:provider)
     end
 
-    atomic_in_tx_update :configuration_changed_in_tx do
+    update :configuration_changed_in_tx do
+      require_atomic?(true)
       accept([])
       change(atomic_update(:revision, expr(revision + 1)))
       change(transition_state(:review_required))
@@ -115,12 +115,12 @@ defmodule Ankole.IdentityProviders.DirectoryState do
       )
     end
 
-    in_tx_update :receive_event_in_tx do
+    update :receive_event_in_tx do
       accept([:approved_scope_fingerprint])
       change(atomic_update(:revision, expr(revision + 1)))
     end
 
-    in_tx_update :begin_sync_in_tx do
+    update :begin_sync_in_tx do
       accept([])
       change(atomic_update(:revision, expr(revision + 1)))
       change(set_attribute(:last_started_at, &DateTime.utc_now/0))
@@ -128,22 +128,23 @@ defmodule Ankole.IdentityProviders.DirectoryState do
       change(transition_state(:syncing))
     end
 
-    in_tx_update :complete_sync_in_tx do
+    update :complete_sync_in_tx do
       accept(@snapshot_fields)
       change(transition_state(:healthy))
     end
 
-    in_tx_update :review_snapshot_in_tx do
+    update :review_snapshot_in_tx do
       accept(@snapshot_fields)
       change(transition_state(:review_required))
     end
 
-    atomic_in_tx_update :fail_sync_in_tx do
+    update :fail_sync_in_tx do
+      require_atomic?(true)
       accept([:last_error])
       change(transition_state(:failed))
     end
 
-    in_tx_update :approve_snapshot_in_tx do
+    update :approve_snapshot_in_tx do
       accept([:approved_scope_fingerprint, :reviewed_by, :review_reason])
       validate(present(:review_reason))
       validate(match(:review_reason, ~r/\S/))
@@ -151,6 +152,51 @@ defmodule Ankole.IdentityProviders.DirectoryState do
       change(set_attribute(:missing_uids, []))
       change(set_attribute(:last_error, nil))
       change(transition_state(:healthy))
+    end
+
+    action :save_configuration, :term do
+      argument(:activation, :map, allow_nil?: false)
+      argument(:config, :map, allow_nil?: false)
+      argument(:application, :term)
+      after_commit({Ankole.IdentityProviders.Config, :publish_saved_configuration})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :upsert_user, :map do
+      argument(:provider_id, :term, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false)
+      argument(:opts, :term, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :begin_sync, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :term, allow_nil?: false)
+      argument(:expected_config, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :finish_sync, :term do
+      argument(:ticket, :term, allow_nil?: false)
+      argument(:scope, :term)
+      argument(:observations, :term, allow_nil?: false)
+      argument(:opts, :term, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :approve_snapshot, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :term, allow_nil?: false)
+      argument(:fingerprint, :term)
+      argument(:actor, :term)
+      argument(:reason, :term)
+      argument(:confirm_removals, :boolean, allow_nil?: false)
+
+      run(__MODULE__.Actions)
     end
   end
 

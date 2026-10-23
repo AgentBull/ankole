@@ -20,20 +20,20 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { listAgentModelProfilesOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import {
-  ankoleWebAgentControllerCreateMutation,
-  ankoleWebAgentControllerDeleteMutation,
-  ankoleWebAgentControllerEnableMutation,
-  ankoleWebAgentControllerIndexOptions,
-  ankoleWebAgentControllerIndexModelProfilesOptions,
-  ankoleWebAgentControllerShowOptions,
-  ankoleWebAgentControllerUpdateMutation,
-  ankoleWebAiGatewayProviderControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
-  ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
-  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
-  ankoleWebPrincipalControllerIndexOptions
-} from '../api/generated/@tanstack/react-query.gen'
-import type { AgentItem } from '../api/generated/types.gen'
+  listAiGatewayModelsOptions,
+  listAiGatewayProviderKindsOptions
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
+import { type AgentItem, agentListOptions, agentOptions } from '../api/agents'
+import {
+  createAgentMutation,
+  deleteAgentMutation,
+  enableAgentMutation,
+  listPrincipalsOptions,
+  updateAgentMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import { fromDocument } from '../api/json-api'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { blankToNull } from '../console-primitives'
 import { EditorNotFound, LabeledField, ResourceEditorPage, StatusIndicator } from '../console-form'
@@ -56,28 +56,33 @@ import { TokenQuotaEditorModel } from '../state/token-quota-editor-model'
 import { WorkerEnvAgentSection } from './worker-env-agent-section'
 import { AgentFilesLink } from './agent-files'
 import { AgentWorkerProvider, WorkerProviderSelect } from './agent-worker-provider'
-import { ankoleWebWorkerProviderControllerIndexOptions } from '../api/generated/@tanstack/react-query.gen'
+import {
+  listAiGatewayProvidersOptions,
+  listWorkerProvidersOptions
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
+import { aiGatewayProviders } from '../state/provider-settings'
+import { workerProviders as workerProviderRecords } from '../state/worker-provider-editor-model'
 
 export function AgentsListPage() {
   const { t } = useTranslation()
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
+  const agents = useQuery(agentListOptions())
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
-  const rows = (agents.data?.agents ?? []).filter(agent =>
+  const rows = (agents.data ?? []).filter(agent =>
     matchesResourceSearch(searchQuery, agent.handle, agent.uid, agent.display_name, agent.role, agent.status)
   )
   // The DELETE response reports status "disabled" for both steps, so the
   // toast keys on the row's status at click time: a disabled row's delete is
   // the permanent one.
   const deleteAgent = useMutation({
-    ...ankoleWebAgentControllerDeleteMutation(),
+    ...deleteAgentMutation(),
     onError: error => toast.error(requestErrorMessage(error))
   })
   const enableAgent = useMutation({
-    ...ankoleWebAgentControllerEnableMutation(),
+    ...enableAgentMutation(),
     onSuccess: data => {
-      toast.success(t('console.agents.enabled', { id: data.agent.handle }))
+      toast.success(t('console.agents.enabled', { id: data.handle }))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -141,7 +146,7 @@ export function AgentsListPage() {
                         icon: <RiPlayCircleLine />,
                         label: t('common.enable'),
                         pending: enableAgent.isPending,
-                        onAction: () => enableAgent.mutate({ path: { agent_uid: agent.uid } })
+                        onAction: () => enableAgent.mutate({ path: { uid: agent.uid } })
                       }
                     ]
                   : []
@@ -163,7 +168,7 @@ export function AgentsListPage() {
               }
               onDelete={() =>
                 deleteAgent.mutate(
-                  { path: { agent_uid: agent.uid } },
+                  { path: { uid: agent.uid } },
                   {
                     onSuccess: () =>
                       toast.success(
@@ -184,7 +189,7 @@ export function AgentsListPage() {
 
 export function agentEditorDetailOptions(uid: string) {
   return {
-    ...ankoleWebAgentControllerShowOptions({ path: { agent_uid: uid } }),
+    ...agentOptions(uid),
     enabled: Boolean(uid),
     refetchOnMount: 'always' as const
   }
@@ -208,31 +213,29 @@ function AgentEditor({ uid }: { uid?: string }) {
   const mode = uid ? 'edit' : 'new'
 
   const agentDetail = useQuery(agentEditorDetailOptions(uid ?? ''))
-  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
-  const owners = (principals.data?.principals ?? []).filter(principal => principal.type === 'human')
+  const principals = useQuery({ ...listPrincipalsOptions(), select: data => fromDocument(data) })
+  const owners = (principals.data ?? []).filter(principal => principal.type === 'human')
   const needsOwner = mode === 'new' && principals.isSuccess && owners.length === 0
-  const providers = useQuery(ankoleWebAIGatewayProviderControllerIndexOptions())
-  const workerProviders = useQuery(ankoleWebWorkerProviderControllerIndexOptions())
+  const providers = useQuery({ ...listAiGatewayProvidersOptions(), select: aiGatewayProviders })
+  const workerProviders = useQuery({ ...listWorkerProvidersOptions(), select: workerProviderRecords })
   const providerKinds = useQuery({
-    ...ankoleWebAIGatewayProviderControllerProviderKindsOptions(),
+    ...listAiGatewayProviderKindsOptions(),
     enabled: Boolean(uid)
   })
   const modelCatalog = useQuery({
-    ...ankoleWebAIGatewayControllerModelsOptions(),
+    ...listAiGatewayModelsOptions(),
     enabled: Boolean(uid)
   })
-  const selectedAgent = agentDetail.data?.agent
+  const selectedAgent = agentDetail.data
   const modelProfiles = useQuery({
-    ...ankoleWebAgentControllerIndexModelProfilesOptions({ path: { agent_uid: selectedAgent?.uid ?? '' } }),
+    ...listAgentModelProfilesOptions({ path: { agent_uid: selectedAgent?.uid ?? '' } }),
     enabled: Boolean(selectedAgent?.uid)
   })
   const agentDraft = useMemo(
     () =>
       mode === 'new'
         ? workerProviders.data
-          ? emptyAgentForm(
-              workerProviders.data.worker_providers.find(provider => provider.is_default)?.provider_id ?? ''
-            )
+          ? emptyAgentForm(workerProviders.data.find(provider => provider.is_default)?.provider_id ?? '')
           : undefined
         : selectedAgent
           ? formFromAgent(selectedAgent)
@@ -246,19 +249,19 @@ function AgentEditor({ uid }: { uid?: string }) {
   })
 
   const createAgent = useMutation({
-    ...ankoleWebAgentControllerCreateMutation(),
+    ...createAgentMutation(),
     onSuccess: response => {
-      toast.success(t('console.agents.saved', { id: response.agent.handle }))
+      toast.success(t('console.agents.saved', { id: response.handle }))
 
       // Land on the new agent's editor so model profiles can be configured next.
-      void navigate({ to: `/agents/${encodeURIComponent(response.agent.uid)}` })
+      if (response.uid) void navigate({ to: `/agents/${encodeURIComponent(response.uid)}` })
     }
   })
   const updateAgent = useMutation({
-    ...ankoleWebAgentControllerUpdateMutation(),
+    ...updateAgentMutation(),
     onSuccess: response => {
-      toast.success(t('console.agents.saved', { id: response.agent.handle }))
-      model.markSaved(formFromAgent(response.agent))
+      toast.success(t('console.agents.saved', { id: response.handle }))
+      model.markSaved(formFromAgent(response))
     }
   })
 
@@ -286,11 +289,11 @@ function AgentEditor({ uid }: { uid?: string }) {
     }
     if (mode === 'new') {
       createAgent.mutate({
-        body: { ...body, worker_provider_id: model.workerProviderID.value }
+        body: { data: { ...body, worker_provider_id: model.workerProviderID.value } }
       })
       return
     }
-    if (selectedAgent) updateAgent.mutate({ body, path: { agent_uid: selectedAgent.uid } })
+    if (selectedAgent) updateAgent.mutate({ body: { data: body }, path: { uid: selectedAgent.uid } })
   }
 
   // Blur-time required and pattern feedback comes from LabeledField; these
@@ -346,7 +349,7 @@ function AgentEditor({ uid }: { uid?: string }) {
       supplementary={
         mode === 'edit' && selectedAgent ? (
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 border-t border-border pt-8 [&>*]:min-w-0">
-            <AgentWorkerProvider agent={selectedAgent} providers={workerProviders.data?.worker_providers ?? []} />
+            <AgentWorkerProvider agent={selectedAgent} providers={workerProviders.data ?? []} />
             <AgentLibraryEditor agentUID={selectedAgent.uid} model={libraryModel} />
             <ModelProfilesEditor
               agent={selectedAgent}
@@ -354,7 +357,7 @@ function AgentEditor({ uid }: { uid?: string }) {
               loading={modelProfiles.isLoading}
               profiles={recordValue(modelProfiles.data?.model_profiles) ?? {}}
               providerHosted={modelProfiles.data?.provider_hosted ?? { web_search: true, image_generate: true }}
-              providers={providers.data?.ai_gateway_providers ?? []}
+              providers={providers.data ?? []}
               providerKinds={providerKinds.data?.provider_kinds ?? []}
               modelCatalog={modelCatalog.data?.models ?? []}
             />
@@ -363,7 +366,7 @@ function AgentEditor({ uid }: { uid?: string }) {
               error={modelProfiles.error}
               loading={modelProfiles.isLoading}
               profiles={recordValue(modelProfiles.data?.model_profiles) ?? {}}
-              providers={providers.data?.ai_gateway_providers ?? []}
+              providers={providers.data ?? []}
               providerKinds={providerKinds.data?.provider_kinds ?? []}
               modelCatalog={modelCatalog.data?.models ?? []}
             />
@@ -384,7 +387,7 @@ function AgentEditor({ uid }: { uid?: string }) {
               draftError === 'worker_provider_required' ? requiredText('console.worker_providers.provider') : undefined
             }>
             <WorkerProviderSelect
-              providers={workerProviders.data?.worker_providers ?? []}
+              providers={workerProviders.data ?? []}
               value={model.workerProviderID.value}
               onChange={value => {
                 model.workerProviderID.value = value
@@ -454,7 +457,7 @@ function AgentEditor({ uid }: { uid?: string }) {
             isLoading={principals.isLoading}
             placeholder={t('console.agents.owner_placeholder')}
             candidates={owners.map(principal => ({
-              id: principal.uid,
+              id: principal.id,
               label: principalLabel(principal),
               description: principal.email ?? principal.handle
             }))}
@@ -511,10 +514,21 @@ function emptyAgentForm(workerProviderID: string): AgentEditorDraft {
   }
 }
 
-function formFromAgent(agent: AgentItem): AgentEditorDraft {
+type AgentFormSource = Pick<
+  AgentItem,
+  | 'handle'
+  | 'display_name'
+  | 'avatar_url'
+  | 'role'
+  | 'owner_principal_uid'
+  | 'worker_provider_id'
+  | 'group_memory_disclosure_mode'
+>
+
+function formFromAgent(agent: AgentFormSource): AgentEditorDraft {
   return {
     handle: agent.handle,
-    displayName: agent.display_name,
+    displayName: agent.display_name ?? '',
     avatarURL: agent.avatar_url ?? '',
     role: agent.role,
     ownerPrincipalUID: agent.owner_principal_uid,

@@ -63,6 +63,7 @@ defmodule AnkoleCore.MixProject do
       {:ash, "== 3.36.1"},
       {:ash_postgres, "== 2.15.1"},
       {:ash_state_machine, "== 0.2.13"},
+      {:ash_json_api, "~> 1.7"},
       {:toml_elixir, "~> 3.2"},
       {:yaml_elixir, "~> 2.12"},
       {:ex_json_schema, "~> 0.11"},

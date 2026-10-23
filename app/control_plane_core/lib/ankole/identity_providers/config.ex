@@ -8,8 +8,8 @@ defmodule Ankole.IdentityProviders.Config do
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Registry
   alias Ankole.AppConfigure.Schema
+  alias Ankole.IdentityProviders.DirectoryState
   alias Ankole.IdentityProviders.LocalPassword
-  alias Ankole.Repo
 
   @active_key "principals.identity_providers.active"
   @directory_full_sync_interval_minutes_key "principals.identity_providers.directory_full_sync_interval_minutes"
@@ -94,37 +94,46 @@ defmodule Ankole.IdentityProviders.Config do
              config,
              :identity_provider
            ),
-         {:ok, {activation_write, config_write}} <-
-           Repo.transact(fn repo ->
-             with :ok <-
-                    Ankole.Signals.Bindings.validate_platform_application_in_tx(
-                      repo,
-                      application
-                    ),
-                  :ok <-
-                    Ankole.IdentityProviders.DirectoryAccess.configuration_changed_in_tx(
-                      repo,
-                      next["provider_id"]
-                    ),
-                  {:ok, activation_write} <-
-                    AppConfigure.update_tenant_in_tx(repo, active_definition(), fn providers ->
-                      providers |> upsert(next) |> validate_activations()
-                    end),
-                  {:ok, config_write} <-
-                    AppConfigure.put_tenant_by_key_in_tx(repo, next["config_key"], config),
-                  :ok <-
-                    Ankole.Signals.Bindings.record_platform_application_in_tx(
-                      repo,
-                      config_write,
-                      application
-                    ) do
-               {:ok, {activation_write, config_write}}
-             end
-           end) do
-      {:ok, persisted_config} = AppConfigure.cache_committed_write(config_write)
-      {:ok, _providers} = AppConfigure.cache_committed_write(activation_write)
+         {:ok, {_activation_write, {persisted_config, _scope, _key}}} <-
+           Ankole.Ash.run_action(DirectoryState, :save_configuration, %{
+             activation: next,
+             config: config,
+             application: application
+           }) do
       {:ok, persisted_config}
     end
+  end
+
+  @doc false
+  def save_provider_in_tx(repo, next, config, application) do
+    with :ok <-
+           Ankole.Signals.Bindings.validate_platform_application_in_tx(repo, application),
+         :ok <-
+           Ankole.IdentityProviders.DirectoryAccess.configuration_changed_in_tx(
+             repo,
+             next["provider_id"]
+           ),
+         {:ok, activation_write} <-
+           AppConfigure.update_tenant_in_tx(repo, active_definition(), fn providers ->
+             providers |> upsert(next) |> validate_activations()
+           end),
+         {:ok, config_write} <-
+           AppConfigure.put_tenant_by_key_in_tx(repo, next["config_key"], config),
+         :ok <-
+           Ankole.Signals.Bindings.record_platform_application_in_tx(
+             repo,
+             config_write,
+             application
+           ) do
+      {:ok, {activation_write, config_write}}
+    end
+  end
+
+  @doc false
+  def publish_saved_configuration({activation_write, config_write}) do
+    {:ok, _config} = AppConfigure.cache_committed_write(config_write)
+    {:ok, _providers} = AppConfigure.cache_committed_write(activation_write)
+    :ok
   end
 
   @doc """

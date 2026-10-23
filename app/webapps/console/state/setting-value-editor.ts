@@ -1,5 +1,3 @@
-import type { JsonValue as JSONValue } from '../api/generated/types.gen'
-
 export type SettingValueKind = 'boolean' | 'number' | 'string' | 'object' | 'structured'
 export type SettingEditorKind = 'aiGatewayCompaction' | 'timezone' | 'locale' | 'encrypted' | SettingValueKind
 
@@ -63,7 +61,7 @@ export function serializeAIGatewayCompactionDraft(draft: AIGatewayCompactionDraf
 }
 
 /** Resolves an exact-key editor before falling back to the value-shape controls. */
-export function settingEditorKind(key: string, encrypted: boolean, value: JSONValue | undefined): SettingEditorKind {
+export function settingEditorKind(key: string, encrypted: boolean, value: unknown): SettingEditorKind {
   const specific = SPECIFIC_SETTING_EDITORS.get(key)
   if (specific) return specific
   if (encrypted) return 'encrypted'
@@ -71,7 +69,7 @@ export function settingEditorKind(key: string, encrypted: boolean, value: JSONVa
 }
 
 /** Selects the smallest control that can faithfully edit the current JSON value. */
-export function settingValueKind(value: JSONValue | undefined): SettingValueKind {
+export function settingValueKind(value: unknown): SettingValueKind {
   if (typeof value === 'boolean') return 'boolean'
   if (typeof value === 'number') return 'number'
   if (typeof value === 'string') return 'string'

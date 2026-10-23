@@ -5,12 +5,12 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
-  ankoleWebHumanAccessControllerShowOptions,
-  ankoleWebHumanAccessControllerDisableMutation,
-  ankoleWebHumanAccessControllerRestoreMutation,
-  ankoleWebHumanAccessControllerClearRestrictionMutation,
-  ankoleWebHumanAccessControllerRetryCleanupMutation
-} from '../api/generated/@tanstack/react-query.gen'
+  getHumanAccessOptions,
+  disableHumanAccessMutation,
+  restoreHumanAccessMutation,
+  clearHumanAccessRestrictionMutation,
+  retryHumanWorkCleanupMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
 import { AccessReviewModel } from '../state/access-review-model'
 import { ErrorBlock } from '../../common/error-block'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -20,7 +20,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
   useSignals()
   const { t } = useTranslation()
   const model = useModel(AccessReviewModel)
-  const access = useQuery({ ...ankoleWebHumanAccessControllerShowOptions({ path: { uid } }), refetchInterval: 15000 })
+  const access = useQuery({ ...getHumanAccessOptions({ path: { uid } }), refetchInterval: 15000 })
   const onSuccess = () => {
     model.confirmed.value = false
     model.approvedFingerprint.value = undefined
@@ -28,10 +28,10 @@ export function HumanAccessSection({ uid }: { uid: string }) {
     toast.success(t('console.human_access.saved'))
   }
   const onError = (error: unknown) => toast.error(requestErrorMessage(error))
-  const disable = useMutation({ ...ankoleWebHumanAccessControllerDisableMutation(), onSuccess, onError })
-  const restore = useMutation({ ...ankoleWebHumanAccessControllerRestoreMutation(), onSuccess, onError })
-  const clear = useMutation({ ...ankoleWebHumanAccessControllerClearRestrictionMutation(), onSuccess, onError })
-  const retry = useMutation({ ...ankoleWebHumanAccessControllerRetryCleanupMutation(), onSuccess, onError })
+  const disable = useMutation({ ...disableHumanAccessMutation(), onSuccess, onError })
+  const restore = useMutation({ ...restoreHumanAccessMutation(), onSuccess, onError })
+  const clear = useMutation({ ...clearHumanAccessRestrictionMutation(), onSuccess, onError })
+  const retry = useMutation({ ...retryHumanWorkCleanupMutation(), onSuccess, onError })
   const state = access.data
   const pending = disable.isPending || restore.isPending || clear.isPending || retry.isPending
   const reasonBody = () => ({ reason: model.reason.value.trim(), operation_id: crypto.randomUUID() })
@@ -76,7 +76,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                 className="justify-self-start"
                 variant="destructive"
                 disabled={pending || !model.hasReason.value || !model.confirmed.value}
-                onClick={() => disable.mutate({ path: { uid }, body: reasonBody() })}>
+                onClick={() => disable.mutate({ path: { uid }, body: { data: reasonBody() } })}>
                 {t('console.human_access.disable')}
               </Button>
             </>
@@ -99,7 +99,9 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                     disabled={
                       pending || !model.hasReason.value || (item.source !== 'manual' && !item.recovery_verified_at)
                     }
-                    onClick={() => clear.mutate({ path: { uid, restriction_id: item.id }, body: reasonBody() })}>
+                    onClick={() =>
+                      clear.mutate({ path: { uid, restriction_id: item.id }, body: { data: reasonBody() } })
+                    }>
                     {t('console.human_access.clear')}
                   </Button>
                 </div>
@@ -171,9 +173,11 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                   restore.mutate({
                     path: { uid },
                     body: {
-                      ...reasonBody(),
-                      identity_verified: true,
-                      review_fingerprint: model.approvedFingerprint.value!
+                      data: {
+                        ...reasonBody(),
+                        identity_verified: true,
+                        review_fingerprint: model.approvedFingerprint.value!
+                      }
                     }
                   })
                 }>

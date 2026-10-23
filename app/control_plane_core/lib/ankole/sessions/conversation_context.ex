@@ -1,8 +1,6 @@
 defmodule Ankole.Sessions.ConversationContext do
   @moduledoc "Adds unread public statements to the next model request without storing a cursor."
-  import Ecto.Query
-  alias Ankole.{AIGateway, Conversations, Repo}
-  alias Ankole.Signals.Signal
+  alias Ankole.{AIGateway, Conversations}
   alias Ankole.Sessions.{Key, Prompt.Input}
 
   def append(run, request) do
@@ -31,10 +29,8 @@ defmodule Ankole.Sessions.ConversationContext do
     signal_ids = [run.signal_id | run.steer_event_ids]
 
     inputs =
-      Repo.all(
-        from(s in Signal,
-          where: s.id in ^signal_ids and s.producer == :kernel and s.conversation_id == ^id
-        )
+      Ankole.Signals.list_signals!(
+        query: [filter: [id: [in: signal_ids], producer: :kernel, conversation_id: id]]
       )
 
     input_ids =

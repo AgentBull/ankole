@@ -16,7 +16,17 @@ cron fires create an `scheduled_events` history row when they fire.
 Cron definitions and scheduled fires use AshStateMachine actions. Cron pause,
 delete, and completion clear the next-fire deadline in the same write. PostgreSQL
 rejects a deadline on any Cron state other than `active`. Updates, fires,
-and human-access revocation use the same lock order and caller transaction.
+and human-access revocation use the same lock order.
+
+`Ankole.Schedule` is the domain module. Each write entry point (checkback
+create, update, and cancel; cron create, update, pause, resume, remove, and
+run; `fire_due_event`; `fire_cron`) is a generic action on `ScheduledEvent` or
+`CronSchedule`. The action owns its transaction and must be the top-level call.
+A failed fire records its error in a second generic action after the first
+transaction rolls back. Code that already has a transaction composes the
+`_in_tx` functions of `Schedule.Checkbacks` and `Schedule.Cron`; the Sessions
+schedule tools do this in their receipt transaction. Reads and row locks use
+Ash queries.
 
 ScheduledEvent actions declare their durable types and required input directly.
 Structured provenance, wake payloads, and errors use the shared strict JSON
@@ -92,13 +102,14 @@ starts as `scheduled`; a rejected cron fire creates cancelled history through
 `record_cancelled`. This preserves the slot index, which excludes cancelled
 rows. The `fire`, `cancel`, and `fail` actions make planned work terminal;
 `reschedule` and `record_error` keep `scheduled`. No action revives a terminal
-row. `Schedule.Store` runs updates in the caller's transaction, after the owning
-row lock. A failed delivery records its diagnostic without validating the
-unrelated target again, so an invalid retained target cannot block failure
-persistence. Creation and rescheduling validate the complete target.
-Rescheduling accepts only the due time, time zone, wake payload, consumer,
-reply route, and last fire error. It cannot change the owner, authorization,
-source, request key, or creation time. Reauthorization has its own action.
+row. `Schedule.Store` runs updates in the transaction of the generic action,
+after the owning row lock. A failed delivery records its diagnostic without
+validating the unrelated target again, so an invalid retained target cannot
+block failure persistence. Creation and rescheduling validate the complete
+target. Rescheduling accepts only the due time, time zone, wake payload,
+consumer, reply route, and last fire error. It cannot change the owner,
+authorization, source, request key, or creation time. Reauthorization has its
+own action.
 
 Schedule and raw Webhook delivery call `Signals.Trigger.deliver_in_tx/5`.
 The trigger's strong `automation_job_id` foreign key selects a durable
@@ -319,7 +330,9 @@ conversation, and cancels pending manual runs.
 
 A manual run creates an immediate wake-up without changing the recurring rule.
 It works for an active or paused rule. The caller must provide a request key.
-Agent tools use the provider tool call ID, and REST uses `Idempotency-Key`.
+Agent tools use the provider tool call ID, and the Console API uses the
+`idempotency_key` of the request body
+(`POST /api/v2/agents/:agent_uid/cron-schedules/:id/runs`).
 Repeating the same request returns the same event.
 
 Cron delivery uses this form:

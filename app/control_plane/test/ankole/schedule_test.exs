@@ -1840,14 +1840,12 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert {:ok, %{lifecycle_events: [lifecycle_event]}} =
-               Repo.transact(fn _repo ->
-                 Observe.emit_entry_removed(
-                   agent.uid,
-                   "bot",
-                   lifecycle_entry(%{source_event_id: "delete-source"}),
-                   now: DateTime.add(@base_time, 2, :second)
-                 )
-               end)
+               Observe.emit_entry_removed(
+                 agent.uid,
+                 "bot",
+                 lifecycle_entry(%{source_event_id: "delete-source"}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
 
       assert {:ok, %{status: :entry_lifecycle_ignored, cancelled_checkbacks: 1}} =
                Ankole.Sessions.MessageLifecycle.process(
@@ -1912,25 +1910,22 @@ defmodule Ankole.ScheduleTest do
         )
 
       {:ok, [received]} =
-        Repo.transact(fn _repo ->
-          MockInbound.handle_message_receive(
-            "message.receive",
-            %{
-              source_event_id: "mock-dashboard-cron-request",
-              conversation_id: "mock:chat:dashboard",
-              provider_message_id: "mock-dashboard-request-message",
-              provider_thread_id: "mock-dashboard-thread",
-              text: "Every morning at 7 check https://status.internal and report each service.",
-              explicit: true,
-              now: @base_time,
-              provider_time: @base_time
-            },
-            [consumer]
-          )
-        end)
+        MockInbound.handle_message_receive(
+          "message.receive",
+          %{
+            source_event_id: "mock-dashboard-cron-request",
+            conversation_id: "mock:chat:dashboard",
+            provider_message_id: "mock-dashboard-request-message",
+            provider_thread_id: "mock-dashboard-thread",
+            text: "Every morning at 7 check https://status.internal and report each service.",
+            explicit: true,
+            now: @base_time,
+            provider_time: @base_time
+          },
+          [consumer]
+        )
 
-      {:ok, received} =
-        Repo.transact(fn _repo -> {:ok, maybe_finalize_test_inbound_batch(received)} end)
+      received = maybe_finalize_test_inbound_batch(received)
 
       source = received.signal
       run = admit_input(source, @base_time)
@@ -1971,13 +1966,7 @@ defmodule Ankole.ScheduleTest do
                end)
 
       assert :ok =
-               Repo.transact(fn _repo ->
-                 {:ok,
-                  perform_job(Ankole.Schedule.Jobs.FireCron, %{
-                    "cron_schedule_id" => schedule.id
-                  })}
-               end)
-               |> elem(1)
+               perform_job(Ankole.Schedule.Jobs.FireCron, %{"cron_schedule_id" => schedule.id})
 
       [event] = Schedule.list_cron_runs(schedule.id, 10)
       input = Repo.get!(Signal, event.signal_id)
@@ -2018,7 +2007,7 @@ defmodule Ankole.ScheduleTest do
           )
 
         {:ok, %{signal: input}} =
-          Repo.transact(fn _repo -> Schedule.fire_due_event(event.id, now: due) end)
+          Schedule.fire_due_event(event.id, now: due)
 
         run = admit_input(input, due)
         {run, result} = execute_finish(run, "silent_success", nil)
@@ -2088,7 +2077,7 @@ defmodule Ankole.ScheduleTest do
         Schedule.run_cron_schedule(schedule.id, idempotency_key: "manual-while-running", now: due)
 
       {:ok, %{signal: next}} =
-        Repo.transact(fn _repo -> Schedule.fire_due_event(manual.id, now: due) end)
+        Schedule.fire_due_event(manual.id, now: due)
 
       assert next.session_id == input.session_id
 
@@ -2344,7 +2333,7 @@ defmodule Ankole.ScheduleTest do
       )
 
     {:ok, %{signal: input}} =
-      Repo.transact(fn _repo -> Schedule.fire_cron(schedule.id, now: due) end)
+      Schedule.fire_cron(schedule.id, now: due)
 
     {schedule, input, admit_input(input, due), due}
   end
@@ -2536,10 +2525,8 @@ defmodule Ankole.ScheduleTest do
   end
 
   defp emit_entry(agent_uid, binding_name, input, opts) do
-    Repo.transact(fn _repo ->
-      with {:ok, result} <- Observe.emit_entry(agent_uid, binding_name, input, opts),
-           do: {:ok, maybe_finalize_test_inbound_batch(result)}
-    end)
+    with {:ok, result} <- Observe.emit_entry(agent_uid, binding_name, input, opts),
+         do: {:ok, maybe_finalize_test_inbound_batch(result)}
   end
 
   defp maybe_finalize_test_inbound_batch(%{inbound_batch: %InboundBatch{} = batch} = result) do

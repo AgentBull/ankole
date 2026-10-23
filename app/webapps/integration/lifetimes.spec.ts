@@ -199,34 +199,40 @@ async function providers(page: Page) {
     disabled_at: null,
     credential_pool: pool
   }
-  await page.route('**/api/v1/site/ai-gateway/**', async route => {
+  const resource = (record: typeof provider) => ({
+    id: record.provider_id,
+    type: 'ai_gateway_provider',
+    attributes: { ...record, provider_metadata: {} }
+  })
+  await page.route('**/api/v2/site/ai-gateway/provider-kinds', route =>
+    route.fulfill({
+      json: {
+        provider_kinds: [
+          { provider_kind: 'openai', label: { default: 'OpenAI' }, default_base_url: 'initial', settings: [] }
+        ]
+      }
+    })
+  )
+  await page.route('**/api/v2/site/ai-gateway/providers**', async route => {
     const path = new URL(route.request().url()).pathname
-    if (route.request().method() === 'PUT') {
+    if (route.request().method() === 'PATCH') {
       writes.push(route)
       return
     }
-    if (path.endsWith('/provider-kinds')) {
-      return route.fulfill({
-        json: {
-          provider_kinds: [
-            { provider_kind: 'openai', label: { default: 'OpenAI' }, default_base_url: 'initial', settings: [] }
-          ]
-        }
-      })
-    }
-    if (path.endsWith('/providers')) return route.fulfill({ json: { ai_gateway_providers: [provider] } })
-    return route.fulfill({ json: { ai_gateway_provider: provider } })
+    if (path.endsWith('/providers')) return route.fulfill({ json: { data: [resource(provider)] } })
+    return route.fulfill({ json: { data: resource(provider) } })
   })
   return {
     writes,
+    // The path names the saved provider; the body gives its attributes.
     complete: (index: number) =>
       writes[index]!.fulfill({
         json: {
-          ai_gateway_provider: {
+          data: resource({
             ...provider,
-            provider_id: writes[index]!.request().postDataJSON().provider_id,
-            base_url: writes[index]!.request().postDataJSON().base_url
-          }
+            provider_id: decodeURIComponent(new URL(writes[index]!.request().url()).pathname.split('/').at(-1)!),
+            base_url: writes[index]!.request().postDataJSON().data.attributes.base_url
+          })
         }
       })
   }
@@ -246,7 +252,7 @@ test('Provider save acknowledges only sent input, then a clean new-provider save
   await expect(page).toHaveURL(/\/providers\/new$/)
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect.poll(() => server.writes.length).toBe(2)
-  expect(server.writes[1]!.request().postDataJSON().base_url).toBe('https://unsent-b.test')
+  expect(server.writes[1]!.request().postDataJSON().data.attributes.base_url).toBe('https://unsent-b.test')
   await server.complete(1)
   await expect(page).toHaveURL(/\/providers\/openai-2$/)
   await expect(page.getByText('Unsaved changes', { exact: true })).not.toBeVisible()

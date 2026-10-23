@@ -8,8 +8,8 @@ defmodule Ankole.Signals.WebhookEndpoint do
 
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.Signals.Domain,
-    extensions: [AshStateMachine]
+    domain: Ankole.Signals,
+    extensions: [AshStateMachine, AshJsonApi.Resource]
 
   @modes ~w(one_shot standing)
   @type t :: %__MODULE__{}
@@ -77,7 +77,37 @@ defmodule Ankole.Signals.WebhookEndpoint do
     attribute(:fired_at, :utc_datetime_usec, public?: true)
     attribute(:cancelled_at, :utc_datetime_usec, public?: true)
     attribute(:automation_job_id, :integer, public?: true)
-    timestamps(type: :utc_datetime_usec)
+    timestamps(type: :utc_datetime_usec, public?: true)
+  end
+
+  # The token digest stays private: it identifies the capability URL.
+  json_api do
+    type("webhook_endpoint")
+    derive_filter?(false)
+    derive_sort?(false)
+    hide_fields([:token_digest])
+
+    default_fields([
+      :id,
+      :agent_uid,
+      :binding_name,
+      :session_id,
+      :conversation_id,
+      :provider_thread_id,
+      :source_signal_id,
+      :event_format,
+      :provider_message_id,
+      :source_provenance,
+      :automation_job_id,
+      :label,
+      :mode,
+      :status,
+      :expires_at,
+      :fired_at,
+      :cancelled_at,
+      :inserted_at,
+      :updated_at
+    ])
   end
 
   state_machine do
@@ -95,9 +125,20 @@ defmodule Ankole.Signals.WebhookEndpoint do
   actions do
     defaults([:read])
 
+    read :lookup_across_tenants do
+      multitenancy(:allow_global)
+    end
+
+    # The Console list: the newest endpoints first, of one Agent or of all Agents.
+    read :console_list do
+      argument(:agent, Ankole.Ash.Types.PrincipalKey)
+      filter(expr(is_nil(^arg(:agent)) or agent_uid == ^arg(:agent)))
+      prepare(build(sort: [inserted_at: :desc, id: :desc]))
+      pagination(keyset?: true, default_limit: 100, max_page_size: 500, countable: false)
+    end
+
     create :create do
       primary?(true)
-      transaction?(false)
 
       accept([
         :token_digest,
@@ -136,21 +177,74 @@ defmodule Ankole.Signals.WebhookEndpoint do
       )
     end
 
-    in_tx_update :fire do
+    update :fire do
       accept([:fired_at])
       change(transition_state(:fired))
       validate(present(:fired_at))
     end
 
-    in_tx_update :cancel do
+    update :cancel do
       accept([:cancelled_at])
       change(transition_state(:cancelled))
       validate(present(:cancelled_at))
     end
 
-    atomic_in_tx_update :expire do
+    update :expire do
+      require_atomic?(true)
       accept([])
       change(transition_state(:expired))
+    end
+
+    action :create_endpoint, :term do
+      argument(:attrs, :map, allow_nil?: false)
+      argument(:token, :term, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    # The Console creates a standing CloudEvents endpoint. The plaintext token
+    # is in this result only.
+    action :create_operator_endpoint, :map do
+      constraints(
+        fields: [
+          webhook_endpoint: [
+            type: :struct,
+            allow_nil?: false,
+            constraints: [instance_of: __MODULE__]
+          ],
+          token: [type: :string, allow_nil?: false]
+        ]
+      )
+
+      argument(:label, :string, allow_nil?: false)
+      argument(:expires_at, :utc_datetime_usec, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :cancel_operator_endpoint, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :cancel_endpoint, :term do
+      argument(:agent_uid, :term)
+      argument(:session_id, :term)
+      argument(:endpoint_id, :term, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :receive, :term do
+      argument(:token, :term, allow_nil?: false)
+      argument(:format, :term, allow_nil?: false)
+      argument(:input, :term, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(__MODULE__.Actions)
     end
   end
 end

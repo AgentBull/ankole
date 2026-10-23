@@ -3,67 +3,19 @@ defmodule Ankole.Sessions.Receipts do
   Commits a control-plane tool result with its domain write.
 
   The tape takes ownership of these results when it records the whole round.
-  A takeover can then recover committed writes without repeating them.
+  A takeover can then recover committed writes without repeating them. A
+  transaction-scoped advisory lock on the receipt identity serializes two
+  executions of one call, so the second one reads the committed receipt.
+  `Ankole.Sessions.Receipt` keeps the results.
   """
 
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Sessions.Domain
   require Ash.Query
 
   alias Ankole.Sessions.Fence
   alias Ankole.Sessions.Queue
-  alias Ankole.Repo
-
-  @identity_constraint "session_tool_receipts_pkey"
-
-  postgres do
-    table("session_tool_receipts")
-    repo(Ankole.Repo)
-    migrate?(false)
-    unique_index_names([{[:response_id, :call_id], @identity_constraint}])
-    foreign_key_names([{:agent_uid, "session_tool_receipts_agent_uid_fkey"}])
-
-    check_constraints do
-      check_constraint(:result, "session_tool_receipts_result_object")
-    end
-  end
-
-  attributes do
-    attribute(:response_id, :string,
-      primary_key?: true,
-      allow_nil?: false,
-      constraints: [trim?: false]
-    )
-
-    attribute(:call_id, :string,
-      primary_key?: true,
-      allow_nil?: false,
-      constraints: [trim?: false]
-    )
-
-    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
-    attribute(:session_id, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:result, Ankole.Ash.Types.JSONMap, allow_nil?: false)
-    create_timestamp(:inserted_at, type: :utc_datetime_usec)
-  end
-
-  actions do
-    defaults([:read])
-
-    create :commit_result do
-      primary?(true)
-      transaction?(false)
-      accept([:response_id, :call_id, :agent_uid, :session_id, :result])
-    end
-
-    destroy :discard do
-      transaction?(false)
-      require_atomic?(true)
-    end
-  end
+  alias Ankole.Sessions.Receipt
 
   def execute(run, response_id, call_id, operation) do
-    Repo.assert_outside_transaction!()
-
     :telemetry.execute([:ankole, :sessions, :receipt, :execute], %{}, %{
       agent_uid: run.agent_uid,
       session_id: run.session_id,
@@ -71,41 +23,36 @@ defmodule Ankole.Sessions.Receipts do
       call_id: call_id
     })
 
-    result =
-      Repo.transact(fn repo ->
-        with :ok <- Fence.current_in_tx(repo, run) do
-          case Ankole.Ash.read_one!(identity_query(response_id, call_id)) do
-            %__MODULE__{} = receipt ->
-              with :ok <- Fence.check_in_tx(repo, run, :share),
-                   do: {:ok, {receipt, []}}
+    with {:ok, {receipt, _after_commit}} <-
+           run
+           |> Ankole.Sessions.execute_receipt(response_id, call_id, operation)
+           |> Ankole.Errors.reason(),
+         do: {:ok, receipt}
+  end
 
-            nil ->
-              with {:ok, sessions, commit} <- operation.(repo),
-                   :ok <-
-                     Queue.lock_sessions_in_tx(repo, sessions),
-                   :ok <- Fence.check_in_tx(repo, run, :share) do
-                commit_in_tx(repo, run, response_id, call_id, commit)
-              end
+  @doc false
+  def execute_in_tx(repo, run, response_id, call_id, operation) do
+    Ankole.AdvisoryLock.lock!(repo, "session-receipt:" <> response_id <> ":" <> call_id)
+
+    with :ok <- Fence.current_in_tx(repo, run) do
+      case Ankole.Ash.read_one!(identity_query(response_id, call_id)) do
+        %Receipt{} = receipt ->
+          with :ok <- Fence.check_in_tx(repo, run, :share),
+               do: {:ok, {receipt, []}}
+
+        nil ->
+          with {:ok, sessions, commit} <- operation.(repo),
+               :ok <- Queue.lock_sessions_in_tx(repo, sessions),
+               :ok <- Fence.check_in_tx(repo, run, :share) do
+            commit_in_tx(repo, run, response_id, call_id, commit)
           end
-        end
-      end)
-
-    case result do
-      {:ok, {receipt, after_commit}} ->
-        Enum.each(after_commit, &run_after_commit/1)
-        {:ok, receipt}
-
-      {:error, %Ash.Error.Invalid{errors: errors} = error} ->
-        if receipt_conflict?(errors) do
-          fetch(response_id, call_id)
-        else
-          {:error, error}
-        end
-
-      {:error, _reason} = error ->
-        error
+      end
     end
   end
+
+  @doc "Runs the notifications of a committed receipt."
+  def publish_committed({_receipt, after_commit}),
+    do: Enum.each(after_commit, &run_after_commit/1)
 
   # Notifications cannot change the result of an already committed operation.
   defp run_after_commit(action) do
@@ -132,14 +79,14 @@ defmodule Ankole.Sessions.Receipts do
   end
 
   def delete_round_in_tx(_repo, run, response_id) do
-    __MODULE__
+    Receipt
     |> Ash.Query.filter(agent_uid == ^run.agent_uid and session_id == ^run.session_id)
     |> Ash.Query.filter(response_id == ^response_id)
     |> discard_in_tx()
   end
 
   def delete_run_in_tx(_repo, run) do
-    __MODULE__
+    Receipt
     |> Ash.Query.filter(agent_uid == ^run.agent_uid and session_id == ^run.session_id)
     |> discard_in_tx()
   end
@@ -147,7 +94,7 @@ defmodule Ankole.Sessions.Receipts do
   defp commit_in_tx(_repo, run, response_id, call_id, operation) do
     with {:ok, result, after_commit} <- operation.(),
          {:ok, receipt} <-
-           Ankole.Ash.create(__MODULE__, :commit_result, %{
+           Ankole.Ash.create(Receipt, :commit_result, %{
              response_id: response_id,
              call_id: call_id,
              agent_uid: run.agent_uid,
@@ -159,24 +106,12 @@ defmodule Ankole.Sessions.Receipts do
   end
 
   defp identity_query(response_id, call_id) do
-    __MODULE__
+    Receipt
     |> Ash.Query.filter(response_id == ^response_id and call_id == ^call_id)
   end
 
-  defp receipt_conflict?(errors) do
-    Enum.any?(errors, fn
-      %Ash.Error.Changes.InvalidAttribute{private_vars: vars} ->
-        vars[:constraint_type] == :unique and vars[:constraint] == @identity_constraint
-
-      _error ->
-        false
-    end)
-  end
-
   defp discard_in_tx(query) do
-    case Ankole.Ash.bulk_destroy(query, :discard, %{}, strategy: [:atomic], return_errors?: true) do
-      %Ash.BulkResult{status: :success} -> :ok
-      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
-    end
+    {:ok, _discarded} = Ankole.Ash.destroy_where(query, :discard)
+    :ok
   end
 end

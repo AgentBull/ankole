@@ -88,8 +88,8 @@ defmodule Ankole.Sessions.ModelHistory do
   # nothing to find.
   defp conversation_origin(_repo, %Signal{conversation_id: nil}), do: {:ok, :undeclared}
 
-  defp conversation_origin(repo, %Signal{} = signal) do
-    case repo.get_by(PublicConversation, id: signal.conversation_id) do
+  defp conversation_origin(_repo, %Signal{} = signal) do
+    case Ankole.Conversations.get_conversation!(signal.conversation_id) do
       %PublicConversation{kind: :external, external_kind: :im_dm} = channel ->
         with {:ok, peer_uid} <- dm_peer_uid(signal, channel) do
           {:ok,

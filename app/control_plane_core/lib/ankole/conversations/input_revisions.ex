@@ -1,8 +1,6 @@
 defmodule Ankole.Conversations.InputRevisions do
   @moduledoc "Merges queued input and admits revision Signals after a turn has started."
 
-  import Ecto.Query, warn: false
-
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.MessageInput
   alias Ankole.Conversations.Delivery.Deletion
@@ -13,11 +11,9 @@ defmodule Ankole.Conversations.InputRevisions do
   @spec retract_source_entry_in_tx(module(), map(), term(), DateTime.t()) ::
           {:ok, map()} | {:error, term()}
   def retract_source_entry_in_tx(repo, fact, kind, now) do
-    candidates = candidate_events_for_source_entry(fact)
-
-    candidates
-    |> select([input], input.session_id)
-    |> repo.all()
+    fact
+    |> candidate_events_for_source_entry()
+    |> Enum.map(& &1.session_id)
     |> then(&[fact_session_id(fact) | &1])
     |> Enum.uniq()
     |> Enum.sort()
@@ -25,9 +21,13 @@ defmodule Ankole.Conversations.InputRevisions do
       &Ankole.Signals.lock_target_in_tx(repo, %{agent_uid: fact.agent_uid, session_id: &1})
     )
 
-    candidates
-    |> lock("FOR UPDATE")
-    |> repo.lock_all("signals")
+    # The Session locks are held, so the candidates do not change before their row lock.
+    ids = fact |> candidate_events_for_source_entry() |> Enum.map(& &1.id)
+
+    repo
+    |> Ankole.Signals.lock_signals_in_tx([id: [in: ids], status: [in: [:queued, :running]]],
+      sort: [id: :asc]
+    )
     |> Enum.map(&retract_source_entry_from_event(repo, &1, fact, kind, now))
     |> Ankole.Attrs.collect_results()
     |> case do
@@ -178,11 +178,11 @@ defmodule Ankole.Conversations.InputRevisions do
 
       :cancel ->
         with {:ok, _} <- Deletion.commit_source_in_tx(repo, event),
-             {:ok, _} <- Ankole.Ash.destroy(event, :remove),
+             :ok <- Ankole.Signals.remove_signal(event),
              do: {:ok, :removed}
 
       {:update, attrs} ->
-        event |> Ankole.Ash.update(:revise_input, attrs)
+        Ankole.Signals.revise_input_signal(event, attrs)
     end
   end
 
@@ -219,72 +219,76 @@ defmodule Ankole.Conversations.InputRevisions do
     })
   end
 
+  # The caller holds the Session lock, so the selected Signal stays current
+  # until its row lock.
   defp event_for_supplement_source_entry(repo, fact, provider_message_id)
        when is_binary(provider_message_id) do
-    session_id = fact_session_id(fact)
+    filter =
+      [
+        agent_uid: fact.agent_uid,
+        reply_binding_name: fact.binding_name,
+        conversation_id: fact.conversation_id,
+        session_id: fact_session_id(fact),
+        type: "conversation.message.addressed",
+        status: [in: [:queued, :running]]
+      ] ++ exact_event_thread(fact.provider_thread_id)
 
-    Signal
-    |> where([event], event.agent_uid == ^fact.agent_uid)
-    |> where([event], event.reply_binding_name == ^fact.binding_name)
-    |> where([event], event.conversation_id == ^fact.conversation_id)
-    |> where([event], event.session_id == ^session_id)
-    |> where([event], event.type == "conversation.message.addressed")
-    |> where([event], event.status in [:queued, :running])
-    |> exact_event_thread(fact.provider_thread_id)
-    |> where(
-      [event],
-      event.provider_message_id == ^provider_message_id or
-        fragment(
-          "EXISTS (SELECT 1 FROM jsonb_array_elements(?->'entries') AS entry WHERE entry->>'provider_message_id' = ?)",
-          event.data,
-          ^provider_message_id
-        )
-    )
-    |> order_by([event], desc: event.queue_sequence)
-    |> limit(1)
-    |> lock("FOR UPDATE")
-    |> repo.lock_all("signals")
-    |> List.first()
+    Ankole.Signals.list_signals!(query: [filter: filter, sort: [queue_sequence: :desc]])
+    |> Enum.find(&source_entry?(&1, provider_message_id))
+    |> case do
+      %Signal{id: id} ->
+        repo |> Ankole.Signals.lock_signals_in_tx([id: id] ++ filter) |> List.first()
+
+      nil ->
+        nil
+    end
   end
 
   defp event_for_supplement_source_entry(_repo, _fact, _provider_message_id), do: nil
 
   defp latest_attachment_supplement_event(fact, repo) do
-    session_id = fact_session_id(fact)
+    filter =
+      [
+        agent_uid: fact.agent_uid,
+        reply_binding_name: fact.binding_name,
+        conversation_id: fact.conversation_id,
+        session_id: fact_session_id(fact),
+        sender_key: fact.sender_key,
+        type: "conversation.message.addressed"
+      ] ++ exact_event_thread(fact.provider_thread_id)
 
-    Signal
-    |> where([event], event.agent_uid == ^fact.agent_uid)
-    |> where([event], event.reply_binding_name == ^fact.binding_name)
-    |> where([event], event.conversation_id == ^fact.conversation_id)
-    |> where([event], event.session_id == ^session_id)
-    |> where([event], event.sender_key == ^fact.sender_key)
-    |> where([event], event.type == "conversation.message.addressed")
-    |> exact_event_thread(fact.provider_thread_id)
-    |> order_by([event], desc: event.queue_sequence)
-    |> limit(1)
-    |> lock("FOR UPDATE")
-    |> repo.lock_all("signals")
+    repo
+    |> Ankole.Signals.lock_signals_in_tx(filter, sort: [queue_sequence: :desc], limit: 1)
     |> List.first()
   end
 
-  defp exact_event_thread(query, nil), do: where(query, [event], is_nil(event.provider_thread_id))
+  defp exact_event_thread(nil), do: [provider_thread_id: [is_nil: true]]
+  defp exact_event_thread(provider_thread_id), do: [provider_thread_id: provider_thread_id]
 
-  defp exact_event_thread(query, provider_thread_id) do
-    where(query, [event], event.provider_thread_id == ^provider_thread_id)
+  # The Signal names the provider entry directly or as one entry of its batch.
+  defp source_entry?(%Signal{} = signal, provider_message_id) do
+    entries = if is_map(signal.data), do: signal.data["entries"]
+
+    signal.provider_message_id == provider_message_id or
+      (is_list(entries) and
+         Enum.any?(entries, &(is_map(&1) and &1["provider_message_id"] == provider_message_id)))
   end
 
   defp fact_session_id(fact),
     do: Map.get(fact, :session_id) || Ankole.Sessions.Key.conversation(fact.conversation_id)
 
-  defp latest_session_event?(repo, %Signal{} = event) do
-    latest_sequence =
-      Signal
-      |> where([candidate], candidate.agent_uid == ^event.agent_uid)
-      |> where([candidate], candidate.session_id == ^event.session_id)
-      |> select([candidate], max(candidate.queue_sequence))
-      |> repo.one()
-
-    latest_sequence == event.queue_sequence
+  defp latest_session_event?(_repo, %Signal{} = event) do
+    case Ankole.Signals.list_signals!(
+           query: [
+             filter: [agent_uid: event.agent_uid, session_id: event.session_id],
+             sort: [queue_sequence: :desc],
+             limit: 1,
+             select: [:queue_sequence]
+           ]
+         ) do
+      [%Signal{queue_sequence: sequence}] -> sequence == event.queue_sequence
+      [] -> false
+    end
   end
 
   defp event_entry_content_current?(
@@ -307,37 +311,23 @@ defmodule Ankole.Conversations.InputRevisions do
     entry["non_bot_mention"] != true and is_nil(entry["reply_to_provider_message_id"])
   end
 
+  # The open Signals that name the provider entry of the fact.
   defp candidate_events_for_source_entry(fact) do
-    Signal
-    |> where([input], input.agent_uid == ^fact.agent_uid)
-    |> where([input], input.reply_binding_name == ^fact.binding_name)
-    |> where([input], input.conversation_id == ^fact.conversation_id)
-    |> where([input], input.status in [:queued, :running])
-    |> maybe_where_thread(fact.provider_thread_id)
-    |> where(
-      [input],
-      input.provider_message_id == ^fact.provider_message_id or
-        fragment(
-          """
-          jsonb_typeof(?->'entries') = 'array'
-          AND EXISTS (
-            SELECT 1
-            FROM jsonb_array_elements(?->'entries') AS entry
-            WHERE entry->>'provider_message_id' = ?
-          )
-          """,
-          input.data,
-          input.data,
-          ^fact.provider_message_id
-        )
-    )
+    filter =
+      [
+        agent_uid: fact.agent_uid,
+        reply_binding_name: fact.binding_name,
+        conversation_id: fact.conversation_id,
+        status: [in: [:queued, :running]]
+      ] ++ thread_filter(fact.provider_thread_id)
+
+    [query: [filter: filter]]
+    |> Ankole.Signals.list_signals!()
+    |> Enum.filter(&source_entry?(&1, fact.provider_message_id))
   end
 
-  defp maybe_where_thread(query, nil), do: query
-
-  defp maybe_where_thread(query, provider_thread_id) do
-    where(query, [input], input.provider_thread_id == ^provider_thread_id)
-  end
+  defp thread_filter(nil), do: []
+  defp thread_filter(provider_thread_id), do: [provider_thread_id: provider_thread_id]
 
   defp retract_source_entry_from_event(repo, input, fact, _kind, now) do
     entry = %{"provider_message_id" => fact.provider_message_id}

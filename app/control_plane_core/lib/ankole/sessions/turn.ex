@@ -183,10 +183,16 @@ defmodule Ankole.Sessions.Turn do
     end
   end
 
-  defp complete(turn, :ambient_triage, {:ok, %{status: :ambient_ready, signal: event}}, _now),
+  defp complete(turn, :ambient_triage, {:ok, :intervene, event}, _now),
     do: {%{turn | event: event}, [:admit]}
 
-  defp complete(turn, :ambient_triage, result, now), do: complete(turn, :admit, result, now)
+  defp complete(turn, :ambient_triage, {:ok, :settled}, _now), do: rebuild(turn)
+
+  defp complete(turn, :ambient_triage, {:ok, :deferred, event}, now),
+    do: complete(turn, :admit, {:ok, %{status: :deferred, signal: event}}, now)
+
+  defp complete(turn, :ambient_triage, {:error, _reason} = error, now),
+    do: complete(turn, :admit, error, now)
 
   defp complete(turn, :input_kind, :ambient, _now), do: {turn, [:ambient_triage]}
   defp complete(turn, :input_kind, _kind, _now), do: {turn, [:admit]}

@@ -9,12 +9,13 @@ defmodule Ankole.Sessions.Run do
   Terminal input, domain outcomes and visible replies commit under this fence.
   """
 
-  import Ecto.Query
+  require Ash.Query
 
   alias Ankole.AIGateway
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.Sessions.RoundState
   alias Ankole.Sessions.Fence
+  alias Ankole.Sessions.Receipt
   alias Ankole.Sessions.Receipts
   alias Ankole.Sessions.Notices
   alias Ankole.Sessions.Outcome
@@ -96,7 +97,7 @@ defmodule Ankole.Sessions.Run do
     case kind(session) do
       :main when type == "im.message.may_intervene" ->
         if is_binary(event.conversation_id) &&
-             Repo.get_by(Ankole.Conversations.Conversation, id: event.conversation_id),
+             Ankole.Conversations.get_conversation!(event.conversation_id),
            do: :ambient,
            else: :main
 
@@ -136,22 +137,12 @@ defmodule Ankole.Sessions.Run do
   end
 
   @doc "Commits the retry time and charges only execution failures to the failure budget."
-  def defer_retry(run, error, now \\ DateTime.utc_now(:microsecond)) do
-    Repo.assert_outside_transaction!()
+  def defer_retry(run, error, now \\ DateTime.utc_now(:microsecond)),
+    do: run |> Ankole.Sessions.defer_run_retry(error, now) |> Ankole.Errors.reason()
 
-    Repo.transact(fn repo -> defer_retry_in_tx(repo, run, error, now) end)
-    |> then(fn result ->
-      case result do
-        {:ok, event} ->
-          Ankole.Sessions.Events.publish_status(event.agent_uid, event.session_id)
-
-        _ ->
-          :ok
-      end
-
-      result
-    end)
-  end
+  @doc "Publishes the Session status after a committed retry."
+  def publish_retry(%Signal{} = event),
+    do: Ankole.Sessions.Events.publish_status(event.agent_uid, event.session_id)
 
   @doc "Returns the retry Signal for publication by the transaction owner after commit."
   def defer_retry_in_tx(repo, run, error, now) do
@@ -173,8 +164,7 @@ defmodule Ankole.Sessions.Run do
           ) || DateTime.add(now, backoff_seconds(attempt, class))
 
         with {:ok, event} <-
-               event
-               |> Ankole.Ash.update(:defer, %{
+               Ankole.Signals.transition_in_tx(repo, event, :defer, %{
                  available_at: due,
                  provider_capacity?: capacity?
                }),
@@ -217,13 +207,27 @@ defmodule Ankole.Sessions.Run do
 
   @spec restore(t()) :: {:ok, {atom(), t()}} | {:error, term()}
   def restore(%__MODULE__{} = run) do
-    with {:ok, :reclaimed} <- reclaim(run),
-         {:ok, {state, run}} <- restore_tape(run) do
+    with {:ok, _reclaimed} <- run |> Ankole.Sessions.reclaim_run() |> Ankole.Errors.reason(),
+         do: restore_receipts(run)
+  end
+
+  @doc "Restores a run inside the caller's transaction. See `restore/1`."
+  def restore_in_tx(repo, %__MODULE__{} = run) do
+    with {:ok, reclaimed} <- reclaim_in_tx(repo, run) do
+      publish_reclaimed(reclaimed)
+      restore_receipts(run)
+    end
+  end
+
+  defp restore_receipts(run) do
+    with {:ok, {state, run}} <- restore_tape(run) do
       receipts =
         if state == :executing_tools do
           response_id = response_id(run.model_response)
 
-          Repo.all(from(r in Receipts, where: r.response_id == ^response_id))
+          Receipt
+          |> Ash.Query.filter(response_id == ^response_id)
+          |> Ankole.Ash.read!()
           |> Map.new(fn receipt ->
             {receipt.call_id, ToolResult.decode(receipt.result, receipt.inserted_at)}
           end)
@@ -306,13 +310,9 @@ defmodule Ankole.Sessions.Run do
 
   defp retained_event_ids(ids) do
     retained =
-      Repo.all(
-        from(e in Signal,
-          where: e.id in ^ids,
-          select: e.id
-        )
-      )
-      |> MapSet.new()
+      [query: [filter: [id: [in: ids]], select: [:id]]]
+      |> Ankole.Signals.list_signals!()
+      |> MapSet.new(& &1.id)
 
     Enum.filter(ids, &MapSet.member?(retained, &1))
   end
@@ -331,8 +331,9 @@ defmodule Ankole.Sessions.Run do
         request_context: run.spec.request_context
       )
 
-    Repo.transact(fn repo -> record_round_in_tx(repo, %{run | follow_ups: follow_ups}) end)
-    |> publish_journal()
+    %{run | follow_ups: follow_ups}
+    |> Ankole.Sessions.record_run_round()
+    |> Ankole.Errors.reason()
   end
 
   @spec record_round_in_tx(module(), t()) :: {:ok, map()} | {:error, term()}
@@ -368,7 +369,7 @@ defmodule Ankole.Sessions.Run do
          event_ids,
          request
        ) do
-    with %Signal{} = current_event <- repo.get(Signal, current_event_id),
+    with %Signal{} = current_event <- Ankole.Signals.get_signal!(current_event_id),
          :ok <-
            Queue.lock_session_in_tx(
              repo,
@@ -419,7 +420,12 @@ defmodule Ankole.Sessions.Run do
   defp lock_workflow_progress_in_tx(_repo, _run), do: {:ok, nil}
 
   defp touch_workflow_progress_in_tx(repo, call, %{disposition: :inserted}),
-    do: Ankole.Workflow.touch_running_task_in_tx(repo, call, DateTime.utc_now(:microsecond))
+    do:
+      Ankole.Workflow.TaskLifecycle.touch_running_task_in_tx(
+        repo,
+        call,
+        DateTime.utc_now(:microsecond)
+      )
 
   defp touch_workflow_progress_in_tx(_repo, _call, _journal), do: :ok
 
@@ -459,9 +465,9 @@ defmodule Ankole.Sessions.Run do
 
   @spec inject(t(), [Signal.t()], DateTime.t()) :: {:ok, [Signal.t()]} | {:error, term()}
   def inject(run, events, now \\ DateTime.utc_now(:microsecond)) do
-    Repo.assert_outside_transaction!()
-
-    Repo.transact(fn repo -> inject_in_tx(repo, run, events, now) end)
+    run
+    |> Ankole.Sessions.inject_run_input(events, now)
+    |> Ankole.Errors.reason()
     |> after_injection(run)
   end
 
@@ -469,9 +475,7 @@ defmodule Ankole.Sessions.Run do
     ids = Enum.map(events, & &1.id)
 
     events =
-      repo.all(
-        from(input in Signal, where: input.id in ^ids, order_by: [asc: input.queue_sequence])
-      )
+      Ankole.Signals.list_signals!(query: [filter: [id: [in: ids]], sort: [queue_sequence: :asc]])
 
     :ok = Ankole.Principals.WorkAccess.lock_authorizers_in_tx(repo, events)
 
@@ -512,7 +516,7 @@ defmodule Ankole.Sessions.Run do
          {:ok, %Signal{status: live_status} = authorized}
          when live_status in [:queued, :running] <-
            Ankole.Sessions.Admission.authorize_event_in_tx(repo, current) do
-      authorized |> Ankole.Ash.update(:start_attempt, %{last_attempt_at: now})
+      Ankole.Signals.transition_in_tx(repo, authorized, :start_attempt, %{last_attempt_at: now})
     else
       {:error, _} = error -> error
       {:ok, %{signal: _} = result} -> {:ok, result}
@@ -523,8 +527,6 @@ defmodule Ankole.Sessions.Run do
 
   @spec finalize(t(), Outcome.t(), term()) :: {:ok, map()} | {:error, term()}
   def finalize(run, outcome \\ :loop_finished, reason \\ nil) do
-    Repo.assert_outside_transaction!()
-
     with {:ok, images} <- prepare_reply_images(run, outcome) do
       attributes =
         Ankole.Observability.signal_attributes(run.event)
@@ -534,7 +536,9 @@ defmodule Ankole.Sessions.Run do
         "session.finalize.commit",
         attributes,
         fn ->
-          Repo.transact(fn repo -> finalize_in_tx(repo, run, outcome, reason, images) end)
+          run
+          |> Ankole.Sessions.finalize_run(outcome, reason, images)
+          |> Ankole.Errors.reason()
         end,
         run.span
       )
@@ -549,9 +553,7 @@ defmodule Ankole.Sessions.Run do
           # A completed run can outlive its model artifacts. Preserve the
           # authoritative closed/stale rejection when preparation fails, without
           # adding a transaction to successful preparation.
-          Repo.transact(fn repo ->
-            with :ok <- Fence.check_in_tx(repo, run), do: error
-          end)
+          with {:ok, :live} <- check_live(run, :update), do: error
 
         prepared ->
           prepared
@@ -684,8 +686,7 @@ defmodule Ankole.Sessions.Run do
              false
            ),
          outcome when outcome in [:sleeping, :submitted] <- committed_workflow_outcome(run),
-         {:ok, workspace} <-
-           Ankole.Ash.update(workspace, :advance_epoch, %{}) do
+         {:ok, workspace} <- Ankole.Ash.update_atomic(workspace, :advance_epoch) do
       # The existing attempt ended before its input closed. A new claim would
       # change its committed domain state, including during tenant suspension.
       attempt = RoundState.get(run.model_response).workflow_attempt
@@ -717,7 +718,7 @@ defmodule Ankole.Sessions.Run do
 
   defp committed_tool_result(run, call) do
     case Receipts.fetch(response_id(run.model_response), call_id(call)) do
-      {:ok, %Receipts{agent_uid: uid, session_id: session} = receipt}
+      {:ok, %Receipt{agent_uid: uid, session_id: session} = receipt}
       when uid == run.agent_uid and session == run.session_id ->
         ToolResult.decode(receipt.result, receipt.inserted_at)
 
@@ -747,8 +748,7 @@ defmodule Ankole.Sessions.Run do
                  event.session_id,
                  event
                ),
-             {:ok, workspace} <-
-               Ankole.Ash.update(workspace, :advance_epoch, %{}) do
+             {:ok, workspace} <- Ankole.Ash.update_atomic(workspace, :advance_epoch) do
           run = %__MODULE__{
             agent_uid: event.agent_uid,
             session_id: event.session_id,
@@ -793,7 +793,7 @@ defmodule Ankole.Sessions.Run do
          final_text: completion.final_text,
          input_signal_ids: Enum.map(events, & &1.id),
          posted: posted,
-         signal: repo.get!(Signal, run.signal_id),
+         signal: Ankole.Signals.get_signal!(run.signal_id),
          reply_event: reply_event,
          run: run
        }}
@@ -1004,24 +1004,34 @@ defmodule Ankole.Sessions.Run do
     end
   end
 
-  def refund(run, mode) when mode in [:shutdown, :stale_driver] do
-    Repo.transact(fn repo ->
-      workspace = Fence.lock_workspace_in_tx(repo, run)
+  def refund(run, mode) when mode in [:shutdown, :stale_driver],
+    do: run |> Ankole.Sessions.refund_run(mode) |> Ankole.Errors.reason()
 
-      eligible? =
-        workspace &&
-          ((mode == :shutdown and workspace.epoch == run.epoch) or
-             (mode == :stale_driver and workspace.epoch > run.epoch))
+  @doc false
+  def refund_in_tx(repo, run, mode) do
+    workspace = Fence.lock_workspace_in_tx(repo, run)
 
-      with true <- eligible?,
-           %Signal{status: live_status} = event
-           when live_status in [:queued, :running] <-
-             Ankole.Signals.lock_signal_in_tx(repo, run.signal_id) do
-        event |> Ankole.Ash.update(:refund_attempt, %{})
-      else
-        _ -> {:ok, :unchanged}
-      end
-    end)
+    eligible? =
+      workspace &&
+        ((mode == :shutdown and workspace.epoch == run.epoch) or
+           (mode == :stale_driver and workspace.epoch > run.epoch))
+
+    with true <- eligible?,
+         %Signal{status: live_status} = event
+         when live_status in [:queued, :running] <-
+           Ankole.Signals.lock_signal_in_tx(repo, run.signal_id) do
+      Ankole.Signals.transition_in_tx(repo, event, :refund_attempt)
+    else
+      _ -> {:ok, :unchanged}
+    end
+  end
+
+  defp check_live(run, lock),
+    do: run |> Ankole.Sessions.check_run(lock) |> Ankole.Errors.reason()
+
+  @doc false
+  def check_live_in_tx(repo, run, lock) do
+    with :ok <- Fence.check_in_tx(repo, run, lock), do: {:ok, :live}
   end
 
   @spec metadata(t()) :: map()
@@ -1077,39 +1087,30 @@ defmodule Ankole.Sessions.Run do
     }
   end
 
-  defp reclaim(run) do
-    result =
-      Repo.transact(fn repo ->
-        with :ok <- Fence.check_in_tx(repo, run),
-             {:ok, generating} <-
-               AIGateway.list_conversation_responses_in_tx(
-                 repo,
-                 run.agent_uid,
-                 run.conversation.id,
-                 statuses: [:generating],
-                 lock: true
-               ) do
-          Enum.reduce_while(generating, {:ok, []}, fn message, {:ok, reclaimed} ->
-            case AIGateway.reconcile_orphaned_response_in_tx(repo, response_id(message),
-                   force: true
-                 ) do
-              {:ok, {:failed, failed, _error}} -> {:cont, {:ok, [failed | reclaimed]}}
-              {:ok, :already_terminal} -> {:cont, {:ok, reclaimed}}
-              {:error, _} = error -> {:halt, error}
-            end
-          end)
+  @doc false
+  def reclaim_in_tx(repo, run) do
+    with :ok <- Fence.check_in_tx(repo, run),
+         {:ok, generating} <-
+           AIGateway.list_conversation_responses_in_tx(
+             repo,
+             run.agent_uid,
+             run.conversation.id,
+             statuses: [:generating],
+             lock: true
+           ) do
+      Enum.reduce_while(generating, {:ok, []}, fn message, {:ok, reclaimed} ->
+        case AIGateway.reconcile_orphaned_response_in_tx(repo, response_id(message), force: true) do
+          {:ok, {:failed, failed, _error}} -> {:cont, {:ok, [failed | reclaimed]}}
+          {:ok, :already_terminal} -> {:cont, {:ok, reclaimed}}
+          {:error, _} = error -> {:halt, error}
         end
       end)
-
-    case result do
-      {:ok, reclaimed} ->
-        Enum.each(reclaimed, &ModelHistory.publish_failed_response/1)
-        {:ok, :reclaimed}
-
-      error ->
-        error
     end
   end
+
+  @doc "Publishes the responses that a committed reclaim failed."
+  def publish_reclaimed(reclaimed),
+    do: Enum.each(reclaimed, &ModelHistory.publish_failed_response/1)
 
   defp restore_pages(rows, states),
     do: Enum.reduce(rows, %{}, &Map.merge(&2, RoundState.for_message(states, &1).pages))
@@ -1169,10 +1170,6 @@ defmodule Ankole.Sessions.Run do
     end)
   end
 
-  defp publish_journal({:ok, journal} = result) do
-    ToolResultJournal.publish_tool_result_events(journal.message)
-    result
-  end
-
-  defp publish_journal(error), do: error
+  @doc "Publishes the tool result events of a committed journal."
+  def publish_journal(journal), do: ToolResultJournal.publish_tool_result_events(journal.message)
 end

@@ -7,21 +7,23 @@ defmodule Ankole.Sessions.Fence do
   and finalization hold an exclusive lock, so takeover waits for a tool commit.
   """
 
-  import Ecto.Query
+  require Ash.Query
 
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.SessionWorkspace
 
-  def lock_workspace_in_tx(repo, key, lock \\ :update) do
+  def lock_workspace_in_tx(_repo, key, lock \\ :update) do
     SessionWorkspace
-    |> where([w], w.agent_uid == ^key.agent_uid and w.session_id == ^key.session_id)
-    |> lock_query(lock)
-    |> repo.one(lock_identity: {"sessions", {key.agent_uid, key.session_id}})
+    |> Ash.Query.filter(agent_uid == ^key.agent_uid and session_id == ^key.session_id)
+    |> Ash.Query.lock(lock_clause(lock))
+    |> Ankole.Ash.read_one!(lock_identity: {"sessions", {key.agent_uid, key.session_id}})
   end
 
   def current_in_tx(repo, run) do
     workspace =
-      repo.get_by(SessionWorkspace, agent_uid: run.agent_uid, session_id: run.session_id)
+      SessionWorkspace
+      |> Ash.Query.filter(agent_uid == ^run.agent_uid and session_id == ^run.session_id)
+      |> Ankole.Ash.read_one!()
 
     validate_workspace_in_tx(repo, run, workspace)
   end
@@ -30,18 +32,18 @@ defmodule Ankole.Sessions.Fence do
     validate_workspace_in_tx(repo, run, lock_workspace_in_tx(repo, run, lock))
   end
 
-  defp validate_workspace_in_tx(repo, run, workspace) do
+  defp validate_workspace_in_tx(_repo, run, workspace) do
     case workspace do
       %SessionWorkspace{epoch: epoch} when epoch == run.epoch ->
-        check_run_ref_in_tx(repo, run)
+        check_run_ref(run)
 
       _stale ->
         {:error, :stale_driver}
     end
   end
 
-  defp check_run_ref_in_tx(repo, ref) do
-    case repo.get(Signal, ref.signal_id) do
+  defp check_run_ref(ref) do
+    case Ankole.Signals.get_signal!(ref.signal_id) do
       %Signal{
         agent_uid: agent_uid,
         session_id: session_id,
@@ -56,6 +58,6 @@ defmodule Ankole.Sessions.Fence do
     end
   end
 
-  defp lock_query(query, :share), do: lock(query, "FOR SHARE")
-  defp lock_query(query, :update), do: lock(query, "FOR UPDATE")
+  defp lock_clause(:share), do: "FOR SHARE"
+  defp lock_clause(:update), do: :for_update
 end

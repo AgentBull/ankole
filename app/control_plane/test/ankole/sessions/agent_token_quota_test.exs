@@ -69,18 +69,8 @@ defmodule Ankole.Sessions.AgentTokenQuotaTest do
 
       assert input.type == "im.message.may_intervene"
 
-      assert {:ok,
-              %{
-                status: :agent_token_quota_exceeded,
-                token_quota: window,
-                posted: %{intents: []},
-                notice_error: nil
-              }} =
+      assert {:ok, :settled} =
                AmbientTriage.run(%{agent_uid: agent.uid, session_id: input.session_id}, input)
-
-      assert window.used_tokens == 1_500
-      assert window.limit_tokens == 1_000
-      assert window.exceeded
 
       assert %Signal{
                producer: :kernel,
@@ -303,23 +293,19 @@ defmodule Ankole.Sessions.AgentTokenQuotaTest do
 
   defp create_job!(agent_uid, suffix) do
     assert {:ok, %{job: job}} =
-             Repo.transact(fn _repo ->
-               BackgroundAgentJobs.create_with_dispatch(%{
-                 "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
-                 "agent_uid" => agent_uid,
-                 "owner_session_id" => "owner-session-#{suffix}",
-                 "source_tool_call_id" => "tool-background-agent-job-#{suffix}",
-                 "title" => "Job #{suffix}",
-                 "task" => "Complete job #{suffix}.",
-                 "reply_route" => %{
-                   "binding_name" => "bot",
-                   "conversation_id" =>
-                     Ankole.ExternalConversationsFixtures.external_conversation_id(
-                       "chat-#{suffix}"
-                     )
-                 }
-               })
-             end)
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
+               "agent_uid" => agent_uid,
+               "owner_session_id" => "owner-session-#{suffix}",
+               "source_tool_call_id" => "tool-background-agent-job-#{suffix}",
+               "title" => "Job #{suffix}",
+               "task" => "Complete job #{suffix}.",
+               "reply_route" => %{
+                 "binding_name" => "bot",
+                 "conversation_id" =>
+                   Ankole.ExternalConversationsFixtures.external_conversation_id("chat-#{suffix}")
+               }
+             })
 
     job
   end

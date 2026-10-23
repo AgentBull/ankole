@@ -1,15 +1,19 @@
 ---
 title: Console API リファレンス
-description: Console が使用する /api/v1 REST API のリファレンス。認証、リソースの route、authorization action を含みます。
+description: Console が使用する /api/v2 API のリファレンス。認証、リソースの route、authorization action を含みます。
 section: Reference
 order: 203
 ---
 
-Console REST API は browser session cookie を使用します。`RequireSiteAdminSession` は各 request で Console context、Human の失効状態、現在の site administrator membership を確認します。認証に失敗すると `401` を返します。GET と HEAD 以外の request は shell の `x-csrf-token` header が必要です。CSRF 証明がない場合、または無効な場合は `403` を返します。
+Console API は browser session cookie を使用します。`RequireSiteAdminSession` は各 request で Console context、Human の失効状態、現在の site administrator membership を確認します。認証に失敗すると `401` を返します。GET と HEAD 以外の request は shell の `x-csrf-token` header が必要です。CSRF 証明がない場合、または無効な場合は `403` を返します。
 
-表のパスは `/api/v1` からの相対パスです。site 管理 route は `/site/*` にあり、`:session_api` + `:site_admin` pipeline を使用します。tenant データ route は `:session_api` + `:site_admin` + `:data_context` pipeline と `PutDataContext` を使用します。tenant route では `x-ankole-tenant: <tenant UUID>` でデータの tenant を選択します。ヘッダを省略すると呼び出し元の tenant を使用します。無効、利用不可、または削除中の tenant は `404` と `data_tenant_unavailable` を返します。このヘッダは呼び出し元の identity や site 管理権限を変更せず、site route の scope も選択しません。
+Console の設定、集約ビュー、監査対象の secret 操作は `/api/v2` を使用します。site 管理 route は `/api/v2/site`、tenant route は選択したデータ tenant を使用します。表には各 route の完全なパスを示します。
 
-公開 `/api/v1/openapi.json`、runtime AI 呼び出し、webhook はそれぞれの認証規則を使用します。
+v2 request は `application/vnd.api+json` を使用します。各操作の OpenAPI schema が request と response を定義します。resource の作成と更新は `data.type` と `data.attributes` を使用します。generic 操作は action の引数を `data` の直下に置き、JSON:API resource document の代わりに型付き object を返す場合があります。例えば `PUT /api/v2/worker-envs/EXAMPLE` は `{"data":{"value":"example","secret":false}}` を受け取り、`worker_env` object を返します。resource 一覧は schema が keyset pagination を宣言する場合に `page[limit]` と `page[after]` を使用します。
+
+tenant route では `x-ankole-tenant: <tenant UUID>` でデータ tenant を選択します。省略時は呼び出し元の tenant を使用します。無効、利用不可、または削除中の tenant は `404` と `data_tenant_unavailable` を返します。この header は呼び出し元の identity や site 管理権限を変更せず、site route の scope も選択しません。
+
+`/api/v2/openapi.json` と `/api/v2/site/openapi.json` は Console 操作を記述し、それらの route と同じ認証が必要です。file upload と download は下記の native route を使用します。runtime AI 呼び出し、OIDC protocol、webhook、private browser API はそれぞれの契約を使用します。
 
 ## configuration の surface
 
@@ -21,23 +25,23 @@ configuration は controller 単位ではなく、「何を構成するか」で
 
 | メソッド | パス | 用途 |
 |---|---|---|
-| `GET` | `/site/ai-gateway/provider-kinds` | この deployment instance が構成できる provider kind を一覧表示 |
-| `GET` | `/site/ai-gateway/models` | Console 設定用に capability 付き provider model を一覧表示 |
-| `GET` | `/site/ai-gateway/providers` | 構成済みの provider を一覧表示 |
-| `GET` | `/site/ai-gateway/providers/:provider_id` | 1 つの provider とその credential pool の状態を読み取る |
-| `PUT` | `/site/ai-gateway/providers/:provider_id` | provider を作成または置換 |
-| `DELETE` | `/site/ai-gateway/providers/:provider_id` | provider を削除 |
-| `POST` | `/site/ai-gateway/providers/:provider_id/credentials` | credential pool のメンバーを追加 |
-| `PUT` | `/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | pool メンバーを更新または再認証 |
-| `DELETE` | `/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | pool メンバーを削除 |
-| `PUT` | `/site/ai-gateway/providers/:provider_id/credential-pool/strategy` | pool の選択 strategy を設定 |
-| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-login` | ChatGPT の device または browser ログインを 1 回開始 |
-| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-login/poll` | device ログインを 1 回 poll |
-| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | ブラウザ貼り付けの代替経路を完了 |
-| `POST` | `/site/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | Enterprise access token を追加 |
-| `GET` | `/agents/:agent_uid/model-profiles` | agent の model profile を一覧表示 |
-| `PUT` | `/agents/:agent_uid/model-profiles/:profile` | profile を作成または置換 |
-| `DELETE` | `/agents/:agent_uid/model-profiles/:profile` | profile を削除 |
+| `GET` | `/api/v2/site/ai-gateway/provider-kinds` | この deployment instance が構成できる provider kind を一覧表示 |
+| `GET` | `/api/v2/site/ai-gateway/models` | Console 設定用に capability 付き provider model を一覧表示 |
+| `GET` | `/api/v2/site/ai-gateway/providers` | 構成済みの provider を一覧表示 |
+| `GET` | `/api/v2/site/ai-gateway/providers/:provider_id` | 1 つの provider とその credential pool の状態を読み取る |
+| `PATCH` | `/api/v2/site/ai-gateway/providers/:provider_id` | provider を作成または置換 |
+| `DELETE` | `/api/v2/site/ai-gateway/providers/:provider_id` | provider を削除 |
+| `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/credentials` | credential pool のメンバーを追加 |
+| `PATCH` | `/api/v2/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | pool メンバーを更新または再認証 |
+| `DELETE` | `/api/v2/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | pool メンバーを削除 |
+| `PATCH` | `/api/v2/site/ai-gateway/providers/:provider_id/credential-pool/strategy` | pool の選択 strategy を設定 |
+| `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login` | ChatGPT の device または browser ログインを 1 回開始 |
+| `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login/poll` | device ログインを 1 回 poll |
+| `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | ブラウザ貼り付けの代替経路を完了 |
+| `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | Enterprise access token を追加 |
+| `GET` | `/api/v2/agents/:agent_uid/model-profiles` | agent の model profile を一覧表示 |
+| `PUT` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | profile を作成または置換 |
+| `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | profile を削除 |
 
 Provider の credential は暗号化された pool メンバーとして control plane に置かれ、agent の環境には決して置かれません。model profile は agent を provider と model に bind します。AIGateway はその provider 内で健全なメンバーを選択し、projection は安全な account 情報、健康状態、rate limit データ、使用量だけを返します。
 
@@ -47,12 +51,12 @@ agent は、運用者が他のすべてを構成する際の単位です。
 
 | メソッド | パス | 用途 |
 |---|---|---|
-| `GET` | `/agents` | agent を一覧表示 |
-| `POST` | `/agents` | agent を作成 |
-| `GET` | `/agents/:agent_uid` | 1 つの agent を読み取る |
-| `PATCH` | `/agents/:agent_uid` | agent を更新 |
-| `POST` | `/agents/:agent_uid/enable` | 無効化された agent を再有効化 |
-| `DELETE` | `/agents/:agent_uid` | 有効な agent を無効化し、無効化済みの agent は完全に削除 |
+| `GET` | `/api/v2/agents` | agent を一覧表示 |
+| `POST` | `/api/v2/agents` | agent を作成 |
+| `GET` | `/api/v2/agents/:agent_uid` | 1 つの agent を読み取る |
+| `PATCH` | `/api/v2/agents/:agent_uid` | agent を更新 |
+| `POST` | `/api/v2/agents/:agent_uid/enable` | 無効化された agent を再有効化 |
+| `DELETE` | `/api/v2/agents/:agent_uid` | 有効な agent を無効化し、無効化済みの agent は完全に削除 |
 
 ### Worker provider
 
@@ -60,13 +64,13 @@ agent は、運用者が他のすべてを構成する際の単位です。
 
 | メソッド | パス | 用途 |
 |---|---|---|
-| `GET` | `/site/worker-provider-kinds` | provider kind、YAML の例、credential 要件を一覧表示 |
-| `GET` | `/site/worker-providers` | 設定済み Worker provider を一覧表示 |
-| `POST` | `/site/worker-providers` | Worker provider を作成 |
-| `PATCH` | `/site/worker-providers/:provider_id` | 設定または credential を更新 |
-| `GET` | `/site/worker-providers/:provider_id/check` | 接続と権限を確認 |
-| `DELETE` | `/site/worker-providers/:provider_id` | Agent が使用していない provider を削除 |
-| `PUT` | `/agents/:agent_uid/worker-provider` | 移行後に provider が未設定の Agent に割り当て |
+| `GET` | `/api/v2/site/worker-provider-kinds` | provider kind、YAML の例、credential 要件を一覧表示 |
+| `GET` | `/api/v2/site/worker-providers` | 設定済み Worker provider を一覧表示 |
+| `POST` | `/api/v2/site/worker-providers` | Worker provider を作成 |
+| `PATCH` | `/api/v2/site/worker-providers/:provider_id` | 設定または credential を更新 |
+| `GET` | `/api/v2/site/worker-providers/:provider_id/check` | 接続と権限を確認 |
+| `DELETE` | `/api/v2/site/worker-providers/:provider_id` | Agent が使用していない provider を削除 |
+| `PUT` | `/api/v2/agents/:agent_uid/worker-provider` | 移行後に provider が未設定の Agent に割り当て |
 
 ### signal routing rule
 
@@ -74,13 +78,13 @@ signal routing rule（API schema では `Signal Binding`）は provider adapter 
 
 | メソッド | パス | 用途 |
 |---|---|---|
-| `GET` | `/signal-adapters` | この deployment instance が宣言した adapter を一覧表示 |
-| `GET` | `/signal-bindings` | routing rule を一覧表示（`?agent=` で Agent を絞り込み） |
-| `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | routing rule を作成または置換 |
-| `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | routing rule を更新 |
-| `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | routing rule を削除 |
-| `GET` | `/conversations/:conversation_id/standing-orders` | 1 つの Conversation の standing orders を読み取る |
-| `PUT` | `/conversations/:conversation_id/standing-orders` | 1 つの Conversation の standing orders を置換 |
+| `GET` | `/api/v2/signal-adapters` | この deployment instance が宣言した adapter を一覧表示 |
+| `GET` | `/api/v2/signal-bindings` | routing rule を一覧表示（`?agent=` で Agent を絞り込み） |
+| `PUT` | `/api/v2/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | routing rule を作成または置換 |
+| `PATCH` | `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` | routing rule を更新 |
+| `DELETE` | `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` | routing rule を無効化 |
+| `GET` | `/api/v2/conversations/:conversation_id/standing-orders` | 1 つの Conversation の standing orders を読み取る |
+| `PUT` | `/api/v2/conversations/:conversation_id/standing-orders` | 1 つの Conversation の standing orders を置換 |
 
 binding を無効にすると、binding を削除せずに、新しい signal が agent を wake しなくなります。
 
@@ -90,17 +94,17 @@ Library のデフォルトは選択した tenant に属します。Agent の ove
 
 | メソッド | パス | 用途 |
 |---|---|---|
-| `GET` | `/agent-library/capabilities` | tenantな library 能力を一覧表示 |
-| `PUT` | `/agent-library/agent-plugins/:id` | plugin のtenantな既定状態を設定 |
-| `PUT` | `/agent-library/skills/:id` | skill のtenantな既定状態を設定 |
-| `GET` | `/agents/:agent_uid/library-capabilities` | agent の実効能力を一覧表示 |
-| `PUT` | `/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 1 つの agent に対して plugin を override |
-| `PUT` | `/agents/:agent_uid/library-capabilities/skills/:id` | 1 つの agent に対して skill を override |
-| `GET` | `/agents/:agent_uid/library-documents` | agent の library document を一覧表示 |
-| `PUT` | `/agents/:agent_uid/library-documents/:document_kind` | library document を設定 |
-| `GET` | `/agents/:agent_uid/skill-lessons` | 有効な Skill 教訓と廃止済み教訓を一覧表示 |
-| `POST` | `/agents/:agent_uid/skill-lessons` | 有効な Skill に人の教訓を追加 |
-| `POST` | `/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Skill 教訓を廃止 |
+| `GET` | `/api/v2/agent-library/capabilities` | tenantな library 能力を一覧表示 |
+| `PUT` | `/api/v2/agent-library/agent-plugins/:id` | plugin のtenantな既定状態を設定 |
+| `PUT` | `/api/v2/agent-library/skills/:id` | skill のtenantな既定状態を設定 |
+| `GET` | `/api/v2/agents/:agent_uid/library-capabilities` | agent の実効能力を一覧表示 |
+| `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 1 つの agent に対して plugin を override |
+| `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/skills/:id` | 1 つの agent に対して skill を override |
+| `GET` | `/api/v2/agents/:agent_uid/library-documents` | agent の library document を一覧表示 |
+| `PUT` | `/api/v2/agents/:agent_uid/library-documents/:document_kind` | library document を設定 |
+| `GET` | `/api/v2/agents/:agent_uid/skill-lessons` | 有効な Skill 教訓と廃止済み教訓を一覧表示 |
+| `POST` | `/api/v2/agents/:agent_uid/skill-lessons` | 有効な Skill に人の教訓を追加 |
+| `POST` | `/api/v2/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Skill 教訓を廃止 |
 
 能力はまずtenantに有効化され、その後 Agent ごとに狭めたり広げたりできます。Skill 教訓は Skill source を変更せずに、1 つの Agent へ追加の作業指針を渡します。一覧には証拠と廃止履歴も含まれます。廃止された教訓は配信されず、人が取り消した内容は Dreaming の再学習禁止 list に残ります。lifecycle と制限については [Skill 教訓](../skill-lessons/) を参照してください。
 
@@ -110,18 +114,18 @@ WorkerEnv は site のデフォルト、tenant の override、Agent への割り
 
 | メソッド | パス | 用途 |
 |---|---|---|
-| `GET` | `/site/worker-envs` | site デフォルトを一覧表示 |
-| `PUT` | `/site/worker-envs/:name` | site デフォルトを設定 |
-| `DELETE` | `/site/worker-envs/:name` | site デフォルトを削除 |
-| `POST` | `/site/worker-envs/:name/decryptions` | site 値を復号 |
-| `GET` | `/worker-envs` | tenant 値を一覧表示 |
-| `PUT` | `/worker-envs/:name` | tenant 値を設定 |
-| `DELETE` | `/worker-envs/:name` | tenant 値を削除 |
-| `POST` | `/worker-envs/:name/decryptions` | tenant 値を復号 |
-| `GET` | `/agents/:agent_uid/worker-envs` | Agent の割り当てを一覧表示 |
-| `PUT` | `/agents/:agent_uid/worker-envs/:name` | Agent に値を割り当てまたは override |
-| `DELETE` | `/agents/:agent_uid/worker-envs/:name` | Agent の割り当てを削除 |
-| `POST` | `/agents/:agent_uid/worker-envs/:name/decryptions` | Agent 値を復号 |
+| `GET` | `/api/v2/site/worker-envs` | site デフォルトを一覧表示 |
+| `PUT` | `/api/v2/site/worker-envs/:name` | site デフォルトを設定 |
+| `DELETE` | `/api/v2/site/worker-envs/:name` | site デフォルトを削除 |
+| `POST` | `/api/v2/site/worker-envs/:name/decryptions` | site 値を復号 |
+| `GET` | `/api/v2/worker-envs` | tenant 値を一覧表示 |
+| `PUT` | `/api/v2/worker-envs/:name` | tenant 値を設定 |
+| `DELETE` | `/api/v2/worker-envs/:name` | tenant 値を削除 |
+| `POST` | `/api/v2/worker-envs/:name/decryptions` | tenant 値を復号 |
+| `GET` | `/api/v2/agents/:agent_uid/worker-envs` | Agent の割り当てを一覧表示 |
+| `PUT` | `/api/v2/agents/:agent_uid/worker-envs/:name` | Agent に値を割り当てまたは override |
+| `DELETE` | `/api/v2/agents/:agent_uid/worker-envs/:name` | Agent の割り当てを削除 |
+| `POST` | `/api/v2/agents/:agent_uid/worker-envs/:name/decryptions` | Agent 値を復号 |
 
 Agent の割り当ては専用値を使用するか、tenant 値、site デフォルトの順で継承します。Worker の作業開始時に環境を解決します。既存の workspace は作成時の環境を保持します。
 
@@ -129,8 +133,8 @@ Agent の割り当ては専用値を使用するか、tenant 値、site デフ�
 
 | メソッド | パス | 用途 |
 |---|---|---|
-| `GET` | `/site/control-plane-plugins` | Control Plane Plugin とその状態を一覧表示 |
-| `PUT` | `/site/control-plane-plugins` | plugin を有効化または無効化 |
+| `GET` | `/api/v2/site/control-plane-plugins` | Control Plane Plugin とその状態を一覧表示 |
+| `PUT` | `/api/v2/site/control-plane-plugins` | plugin を有効化または無効化 |
 
 Control Plane Plugin は、signals adapter のように、control plane 自身の動作を変えるファーストパーティ拡張です。
 
@@ -138,42 +142,42 @@ Control Plane Plugin は、signals adapter のように、control plane 自身�
 
 | メソッド | パス | 用途 |
 |---|---|---|
-| `GET` | `/identity-provider-adapters` | この deployment instance がサポートする IdP adapter を一覧表示 |
-| `GET` | `/identity-providers` | 構成済みの identity provider を一覧表示 |
-| `PUT` | `/identity-providers/:provider_id` | IdP を作成または置換 |
-| `POST` | `/identity-providers/:provider_id/sync-runs` | IdP から directory group を同期 |
-| `GET` | `/site/app-configurations` | site configuration key を一覧表示 |
-| `PUT` | `/site/app-configurations/:key` | site 値を設定 |
-| `POST` | `/site/app-configurations/:key/decryptions` | site secret を復号 |
-| `GET` | `/app-configurations` | 運用者が管理する configuration key を一覧表示 |
-| `PUT` | `/app-configurations/:key` | configuration の値を設定 |
-| `POST` | `/app-configurations/:key/decryptions` | 1 つの secret configuration 値を復号 |
+| `GET` | `/api/v2/identity-provider-adapters` | この deployment instance がサポートする IdP adapter を一覧表示 |
+| `GET` | `/api/v2/identity-providers` | 構成済みの identity provider を一覧表示 |
+| `PUT` | `/api/v2/identity-providers/:provider_id` | IdP を作成または置換 |
+| `POST` | `/api/v2/identity-providers/:provider_id/sync-runs` | IdP から directory group を同期 |
+| `GET` | `/api/v2/site/app-configurations` | site configuration key を一覧表示 |
+| `PUT` | `/api/v2/site/app-configurations/:key` | site 値を設定 |
+| `POST` | `/api/v2/site/app-configurations/:key/decryptions` | site secret を復号 |
+| `GET` | `/api/v2/app-configurations` | 運用者が管理する configuration key を一覧表示 |
+| `PUT` | `/api/v2/app-configurations/:key` | configuration の値を設定 |
+| `POST` | `/api/v2/app-configurations/:key/decryptions` | 1 つの secret configuration 値を復号 |
 
-`AppConfiguration` は宣言済みの運用設定を site または tenant scope で保存します。`/site/app-configurations` は site key、`/app-configurations` は tenant key を管理します。どちらも一覧、単一 key の読み取り、設定、override の削除、audit 対象の復号をサポートします。起動時の credential と事実は環境変数または secret mount に置きます。
+`AppConfiguration` は宣言済みの運用設定を site または tenant scope で保存します。`/api/v2/site/app-configurations` は site key、`/api/v2/app-configurations` は tenant key を管理します。どちらも一覧、単一 key の読み取り、設定、override の削除、audit 対象の復号をサポートします。起動時の credential と事実は環境変数または secret mount に置きます。
 
 ### Tenant 管理
 
 | メソッド | パス | 用途 |
 |---|---|---|
-| `GET` | `/site/tenants` | tenant を一覧表示 |
-| `POST` | `/site/tenants` | tenant を作成 |
-| `PATCH` | `/site/tenants/:tenant_id` | tenant を更新 |
-| `DELETE` | `/site/tenants/:tenant_id` | tenant の削除を要求 |
-| `PUT` | `/site/tenants/:tenant_id/suspension` | tenant を停止 |
-| `DELETE` | `/site/tenants/:tenant_id/suspension` | tenant を再開 |
-| `GET` | `/site/privileged-tenant` | privileged tenant を読み取る |
-| `PUT` | `/site/privileged-tenant` | 別の tenant に site 管理を移管 |
+| `GET` | `/api/v2/site/tenants` | tenant を一覧表示 |
+| `POST` | `/api/v2/site/tenants` | tenant を作成 |
+| `PATCH` | `/api/v2/site/tenants/:tenant_id` | tenant を更新 |
+| `DELETE` | `/api/v2/site/tenants/:tenant_id` | tenant の削除を要求 |
+| `POST` | `/api/v2/site/tenants/:tenant_id/suspension` | tenant を停止 |
+| `DELETE` | `/api/v2/site/tenants/:tenant_id/suspension` | tenant を再開 |
+| `GET` | `/api/v2/site/privileged-tenant` | privileged tenant を読み取る |
+| `PATCH` | `/api/v2/site/privileged-tenant` | 別の tenant に site 管理を移管 |
 
 ## 読み取り用の surface
 
 configuration に加えて、Console はシステムの残りの部分に対する observability の経路でもあります。既に解説した各 subsystem は、ここに読み取り用の surface を持ちます。
 
-- **処理中の Agent**: `/agents/:agent_uid/sessions`。Agent ごとの cron schedule と checkback の管理。一覧エンドポイントはtenant 全体で、`agent` フィルターを取ります。
-- **Worker**: `/agent-computer-workers` で各 Agent の Worker 状態を一覧表示します。
-- **Agent drive**: `/agents/:agent_uid/files` でファイルの一覧表示、アップロード、削除、`/agents/:agent_uid/files/content` でダウンロード、`/agents/:agent_uid/file-moves` で移動します。これらのファイルは control plane が管理します。
-- **Job**: `/background-agent-jobs`（一覧表示、読み取り、cancel）。
-- **AI の活動**: `/ai-gateway/conversations`。conversation ごとの message。
-- **Principal と AuthZ**: `/principals`、`/principal-groups`、`/permission-grants`。[Principal と AuthZ](../principal-authz/) ページの permission model に対応します。
+- **処理中の Agent**: `/api/v2/agents/:agent_uid/sessions`。Agent ごとの cron schedule と checkback の管理。一覧エンドポイントはtenant 全体で、`agent` フィルターを取ります。
+- **Worker**: `/api/v2/agent-workers` で各 Agent の Worker 状態を一覧表示します。
+- **Agent drive**: `/api/v2/agents/:agent_uid/files` は file の一覧と削除、`/api/v2/agents/:agent_uid/file-moves` は移動に使用します。`POST /api/v1/agents/:agent_uid/files` は multipart upload、`GET /api/v1/agents/:agent_uid/files/content` は byte download です。native 転送も同じ browser session、CSRF、tenant 選択、file 権限を使用します。control plane が file を所有します。
+- **Job**: `/api/v2/background-agent-jobs`（一覧表示、読み取り、cancel）。
+- **AI の活動**: `/api/v2/ai-gateway/conversations`。conversation ごとの message。
+- **Principal と AuthZ**: `/api/v2/principals`、`/api/v2/principal-groups`、`/api/v2/permission-grants`。[Principal と AuthZ](../principal-authz/) ページの permission model に対応します。
 
 ## ここに含まれないものについて
 

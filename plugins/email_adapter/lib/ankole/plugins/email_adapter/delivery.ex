@@ -202,7 +202,7 @@ defmodule Ankole.Plugins.EmailAdapter.Delivery do
   end
 
   defp channel(intent) do
-    case Repo.get_by(Conversation, id: intent.conversation_id) do
+    case Ankole.Conversations.get_conversation!(intent.conversation_id) do
       %Conversation{} = channel -> {:ok, channel}
       nil -> {:error, :signal_channel_not_found}
     end

@@ -1,15 +1,20 @@
 defmodule Ankole.AIGateway do
-  alias Ankole.AIGateway.CompactionRequests
-
   @moduledoc """
   Control-plane owned AI provider gateway.
 
   AIGateway keeps provider credentials and provider differences in Elixir. It
   serves Principal-scoped OpenResponses/OpenRouter-shaped requests without
   depending on caller workflow lifecycle semantics.
+
+  This module is also the Ash domain of the gateway resources. Other domains
+  read the rows through its defines. The response, provider, and artifact
+  writes go through the functions below and their owner modules, which run the
+  generic actions of the resources.
   """
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   alias Ankole.AIGateway.CodexVision
+  alias Ankole.AIGateway.CompactionRequests
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.FailureDiagnostics
@@ -27,6 +32,53 @@ defmodule Ankole.AIGateway do
   alias Ankole.AIGateway.UsageLedger
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Security.SSRFFilter
+
+  resources do
+    resource Ankole.AIGateway.Schemas.Artifact do
+      define(:get_artifact, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_artifacts, action: :read)
+    end
+
+    resource Ankole.AIGateway.Schemas.CompactionArtifact do
+      define(:get_compaction_artifact, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_compaction_artifacts, action: :read)
+    end
+
+    resource Ankole.AIGateway.Schemas.UsageRecord do
+      define(:get_usage_record, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_usage_records, action: :read)
+    end
+
+    resource Ankole.AIGateway.Schemas.Conversation do
+      # `get_conversation/3` reads a conversation of one subject.
+      define(:get_conversation_by_id, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_conversations, action: :read)
+      define(:list_console_conversations, action: :console_list)
+    end
+
+    resource Ankole.AIGateway.Schemas.Message do
+      define(:get_message, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_messages, action: :read)
+    end
+  end
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/ai-gateway/conversations", Ankole.AIGateway.Schemas.Conversation do
+        index(:console_list, name: "list_ai_gateway_conversations", derive_sort?: false)
+        get(:read, name: "get_ai_gateway_conversation")
+      end
+
+      base_route "/ai-gateway/conversations/:conversation_id/messages",
+                 Ankole.AIGateway.Schemas.Message do
+        index(:console_list, name: "list_ai_gateway_messages", derive_sort?: false)
+      end
+    end
+  end
 
   @stateful_http_fields ~w(previous_response_id conversation store)
 

@@ -1,6 +1,9 @@
 defmodule Ankole.OIDC.Client do
   @moduledoc "Operator-managed OAuth client and its authorization boundary."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.OIDC.Domain
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.OIDC,
+    extensions: [AshJsonApi.Resource]
 
   @scopes ~w(openid profile email offline_access ai_gateway.write)
   @lists [:redirect_uris, :scopes, :allowed_identity_provider_ids, :post_logout_redirect_uris]
@@ -102,7 +105,46 @@ defmodule Ankole.OIDC.Client do
       default: false
     )
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps(type: :utc_datetime_usec, public?: true)
+  end
+
+  relationships do
+    has_many :client_groups, Ankole.OIDC.ClientGroup do
+      destination_attribute(:client_id)
+    end
+  end
+
+  aggregates do
+    list :allowed_group_ids, :client_groups, :group_id do
+      public?(true)
+      sort(group_id: :asc)
+    end
+  end
+
+  # The secret ciphertext stays private.
+  json_api do
+    type("oidc_client")
+    derive_filter?(false)
+    derive_sort?(false)
+    hide_fields([:secret_ciphertext])
+
+    default_fields([
+      :id,
+      :name,
+      :enabled,
+      :client_type,
+      :redirect_uris,
+      :scopes,
+      :allowed_group_ids,
+      :model_aliases,
+      :allowed_identity_provider_ids,
+      :backchannel_logout_uri,
+      :backchannel_logout_session_required,
+      :post_logout_redirect_uris,
+      :allow_insecure_local_logout,
+      :inserted_at,
+      :updated_at
+    ])
   end
 
   changes do
@@ -127,30 +169,127 @@ defmodule Ankole.OIDC.Client do
   end
 
   actions do
+    action :login_sources, :map do
+      constraints(
+        fields: [
+          sources: [
+            type: {:array, :map},
+            allow_nil?: false,
+            constraints: [
+              items: [
+                fields: [
+                  provider_id: [type: :string, allow_nil?: false],
+                  enabled: [type: :boolean, allow_nil?: false]
+                ]
+              ]
+            ]
+          ]
+        ]
+      )
+
+      run(__MODULE__.Actions)
+    end
+
+    action :console_rotate_secret, :map do
+      constraints(fields: [client_secret: [type: :string, allow_nil?: false]])
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      run(__MODULE__.Actions)
+    end
+
     defaults([:read])
 
     read :lookup_across_tenants do
       multitenancy(:allow_global)
     end
 
-    create :create_in_tx do
-      accept([:id, :client_type, :secret_ciphertext] ++ @fields)
-      transaction?(false)
+    read :console_list do
+      prepare(build(sort: [inserted_at: :asc]))
     end
 
-    in_tx_update :configure_in_tx do
+    create :create_in_tx do
+      accept([:id, :client_type, :secret_ciphertext] ++ @fields)
+    end
+
+    update :configure_in_tx do
       accept(@fields)
     end
 
-    in_tx_update :rotate_secret_in_tx do
+    update :rotate_secret_in_tx do
       accept([:secret_ciphertext])
       validate(attribute_equals(:client_type, :confidential))
     end
 
-    destroy :delete_in_tx do
-      transaction?(false)
-      require_atomic?(false)
-      atomic_upgrade?(false)
+    destroy(:delete_in_tx)
+
+    # The Console writes. The create result has the plaintext secret of a
+    # confidential client; no other response has it.
+    action :console_create, :map do
+      constraints(
+        fields: [
+          oidc_client: [type: :struct, allow_nil?: false, constraints: [instance_of: __MODULE__]],
+          client_secret: [type: :string]
+        ]
+      )
+
+      argument(:client_type, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:public, :confidential]]
+      )
+
+      argument(:name, :string, allow_nil?: false)
+      argument(:enabled, :boolean, default: true)
+      argument(:redirect_uris, {:array, :string})
+      argument(:scopes, {:array, :string})
+      argument(:allowed_group_ids, {:array, :string})
+      argument(:model_aliases, :map)
+      argument(:allowed_identity_provider_ids, {:array, :string})
+      argument(:backchannel_logout_uri, :string)
+      argument(:backchannel_logout_session_required, :boolean)
+      argument(:post_logout_redirect_uris, {:array, :string})
+      argument(:allow_insecure_local_logout, :boolean)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :console_update, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:name, :string)
+      argument(:enabled, :boolean)
+      argument(:redirect_uris, {:array, :string})
+      argument(:scopes, {:array, :string})
+      argument(:allowed_group_ids, {:array, :string})
+      argument(:model_aliases, :map)
+      argument(:allowed_identity_provider_ids, {:array, :string})
+      argument(:backchannel_logout_uri, :string)
+      argument(:backchannel_logout_session_required, :boolean)
+      argument(:post_logout_redirect_uris, {:array, :string})
+      argument(:allow_insecure_local_logout, :boolean)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :console_delete, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :create_client, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:attrs, :term)
+      argument(:group_ids, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :update_client, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id, :term)
+      argument(:attrs, :term)
+
+      run(__MODULE__.Actions)
     end
   end
 

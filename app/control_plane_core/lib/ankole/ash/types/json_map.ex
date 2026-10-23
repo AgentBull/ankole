@@ -1,6 +1,7 @@
 defmodule Ankole.Ash.Types.JSONMap do
   @moduledoc "Uses the durable JSON object contract for Ash attributes."
   use Ash.Type
+  use AshJsonApi.Type
 
   @impl true
   def constraints do
@@ -14,6 +15,11 @@ defmodule Ankole.Ash.Types.JSONMap do
 
   @impl true
   def storage_type(_constraints), do: :map
+
+  # The value is a JSON object, so map functions such as `get_path` (the
+  # `at_path:` keyword filter) accept it.
+  @impl true
+  def acts_as(_constraints), do: :map
   @impl true
   def cast_input(nil, _constraints), do: {:ok, nil}
   def cast_input(value, constraints), do: normalize(value, constraints)
@@ -48,4 +54,13 @@ defmodule Ankole.Ash.Types.JSONMap do
         if byte_size(encoded) <= maximum, do: {:ok, map}, else: {:error, message: "is too large"}
     end
   end
+
+  # The OpenAPI document reads a schema struct; the request validation reads
+  # a JSON Schema map.
+  @impl AshJsonApi.Type
+  def json_schema(_constraints),
+    do: %OpenApiSpex.Schema{type: :object, additionalProperties: true}
+
+  @impl AshJsonApi.Type
+  def json_write_schema(_constraints), do: %{"type" => "object", "additionalProperties" => true}
 end

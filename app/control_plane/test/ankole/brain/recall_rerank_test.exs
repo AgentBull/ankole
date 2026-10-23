@@ -2,7 +2,6 @@ defmodule Ankole.Brain.RecallRerankTest do
   use Ankole.AIGatewayCase
 
   alias Ankole.AppConfigure
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
   alias Ankole.Brain.SchemaPacks
 
@@ -37,7 +36,7 @@ defmodule Ankole.Brain.RecallRerankTest do
              })
 
     assert {:ok, _} =
-             Objects.create_object(
+             Ankole.Brain.create_object(
                %{
                  slug: "notes/rerank-report",
                  type: "note",

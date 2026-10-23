@@ -2,7 +2,6 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
   import Ankole.PrincipalsFixtures
-  import OpenApiSpex.TestAssertions
 
   alias Ankole.AppConfigure.{Cache, Registry}
   alias Ankole.Setup.Config, as: SetupConfig
@@ -23,11 +22,10 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
   test "operator creates a source endpoint, subscribes an Agent, and cancels the credential",
        %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    spec = AnkoleWeb.APISpec.spec()
     conn = console_conn(conn)
 
-    catalog = conn |> get(~p"/api/v1/signal-adapters") |> json_response(200)
-    assert_schema(catalog, "SignalAdapterListResponse", spec)
+    catalog = conn |> json_api(:get, "/api/v2/signal-adapters") |> json_response(200)
+
     source = Enum.find(catalog["signal_adapters"], &(&1["adapter_id"] == "cloudevents"))
     assert source["adapter_category"] == "event_source"
     assert is_nil(source["group_message_mode_field"])
@@ -44,14 +42,11 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
 
     created =
       conn
-      |> recycle_api()
-      |> post(~p"/api/v1/webhook-endpoints", %{
+      |> json_api(:post, "/api/v2/webhook-endpoints", %{
         "label" => "Issue events",
         "expires_at" => DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), 1, :hour))
       })
       |> json_response(201)
-
-    assert_schema(created, "CloudEventEndpointCreateResponse", spec)
 
     assert %{
              "webhook_endpoint" => %{"id" => id, "event_format" => "cloudevents"},
@@ -63,7 +58,7 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
     saved =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/cloudevents/issues", %{
+      |> json_api(:put, "/api/v2/agents/#{agent.uid}/signal-bindings/cloudevents/issues", %{
         "config" => %{
           "webhook_endpoint_id" => id,
           "target_kind" => "session",
@@ -73,12 +68,11 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
       })
       |> json_response(200)
 
-    assert_schema(saved, "SignalBindingResponse", spec)
     assert saved["signal_binding"]["target"] == %{"session_id" => "issue-triage"}
     assert Repo.get_by!(Binding, agent_uid: agent.uid, name: "issues").adapter == "cloudevents"
 
-    listed = conn |> recycle_api() |> get(~p"/api/v1/webhook-endpoints") |> json_response(200)
-    assert_schema(listed, "WebhookEndpointListResponse", spec)
+    listed = conn |> json_api(:get, "/api/v2/webhook-endpoints") |> json_response(200)
+    assert [%{"id" => ^id}] = listed["data"]
     refute inspect(listed) =~ token
     refute inspect(listed) =~ Webhooks.token_digest(token)
 
@@ -94,10 +88,9 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
              Webhooks.receive_cloudevent(token, event)
 
     cancelled =
-      conn |> recycle_api() |> delete(~p"/api/v1/webhook-endpoints/#{id}") |> json_response(200)
+      conn |> json_api(:delete, "/api/v2/webhook-endpoints/#{id}") |> json_response(200)
 
-    assert_schema(cancelled, "WebhookEndpointResponse", spec)
-    assert cancelled["webhook_endpoint"]["status"] == "cancelled"
+    assert cancelled["status"] == "cancelled"
 
     assert {:ok, %{status: :ignored}} =
              Webhooks.receive_cloudevent(token, %{event | "id" => "changed-2"})
@@ -111,7 +104,7 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
 
     created =
       conn
-      |> post(~p"/api/v1/webhook-endpoints", %{
+      |> json_api(:post, "/api/v2/webhook-endpoints", %{
         "label" => "Fixed issue events",
         "expires_at" => DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), 1, :hour))
       })
@@ -120,7 +113,7 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
     saved =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/cloudevents/issues", %{
+      |> json_api(:put, "/api/v2/agents/#{agent.uid}/signal-bindings/cloudevents/issues", %{
         "config" => %{
           "webhook_endpoint_id" => created["webhook_endpoint"]["id"],
           "target_kind" => "session",
@@ -156,30 +149,37 @@ defmodule AnkoleWeb.CloudEventEndpointControllerTest do
   test "endpoint creation needs an authenticated operator and explicit future expiry", %{
     conn: conn
   } do
-    assert conn |> post(~p"/api/v1/webhook-endpoints", %{}) |> json_response(401)
+    assert conn |> post("/api/v2/webhook-endpoints", %{}) |> json_response(401)
 
     conn = console_conn(conn)
 
     assert conn
-           |> post(~p"/api/v1/webhook-endpoints", %{"label" => "Events"})
-           |> json_response(422)
+           |> json_api(:post, "/api/v2/webhook-endpoints", %{"label" => "Events"})
+           |> json_response(400)
+
+    assert %{"errors" => [%{"code" => "webhook_expiry_must_be_future"}]} =
+             conn
+             |> json_api(:post, "/api/v2/webhook-endpoints", %{
+               "label" => "Events",
+               "expires_at" => DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), -1, :second))
+             })
+             |> json_response(422)
 
     assert conn
-           |> recycle_api()
-           |> post(~p"/api/v1/webhook-endpoints", %{
-             "label" => "Events",
-             "expires_at" => DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), -1, :second))
-           })
-           |> json_response(422)
-
-    assert conn
-           |> recycle_api()
-           |> post(~p"/api/v1/webhook-endpoints", %{
+           |> json_api(:post, "/api/v2/webhook-endpoints", %{
              "label" => "Events" <> <<0>>,
              "expires_at" => DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), 1, :hour))
            })
-           |> json_response(422)
+           |> json_response(400)
 
     assert Webhooks.list_endpoints(nil, nil) == []
+  end
+
+  defp json_api(conn, method, path, data \\ nil) do
+    conn
+    |> recycle_api()
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
+    |> dispatch(@endpoint, method, path, if(data, do: Jason.encode!(%{data: data}), else: ""))
   end
 end

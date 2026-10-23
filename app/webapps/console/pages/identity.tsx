@@ -23,6 +23,8 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   ConfigFields,
+  type ConfigFieldDefinition,
+  type LocalizedText,
   configFieldServerError,
   defaultConfig,
   getPath,
@@ -32,12 +34,12 @@ import {
 import i18n from '../../common/i18n'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
-  ankoleWebIdentityProviderControllerAdaptersOptions,
-  ankoleWebIdentityProviderControllerIndexOptions,
-  ankoleWebIdentityProviderControllerPutProviderMutation,
-  ankoleWebIdentityProviderControllerRunSyncMutation
-} from '../api/generated/@tanstack/react-query.gen'
-import type { IdentityProviderAdapterItem, IdentityProviderItem } from '../api/generated/types.gen'
+  listIdentityProviderAdaptersOptions,
+  listIdentityProvidersOptions,
+  saveIdentityProviderMutation,
+  runIdentityProviderSyncMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import type { ListIdentityProviderAdaptersResponse, ListIdentityProvidersResponse } from '../api/v2/generated/types.gen'
 import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { IdentityEditorModel, type IdentityEditorDraft } from '../state/identity-editor-model'
@@ -45,9 +47,15 @@ import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/re
 import { useEditorDraft } from '../use-editor-draft'
 import { IdentitySubNav } from './identity-mappings'
 
+type IdentityProviderItem = ListIdentityProvidersResponse['identity_providers'][number]
+type IdentityProviderAdapterItem = Omit<
+  ListIdentityProviderAdaptersResponse['identity_provider_adapters'][number],
+  'fields' | 'display_name'
+> & { fields: ConfigFieldDefinition[]; display_name?: LocalizedText }
+
 export function IdentityProvidersListPage() {
   const { t } = useTranslation()
-  const providers = useQuery(ankoleWebIdentityProviderControllerIndexOptions())
+  const providers = useQuery(listIdentityProvidersOptions())
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
@@ -128,14 +136,14 @@ export function IdentityProviderEditorPage() {
   const mode = providerID ? 'edit' : 'new'
   const locale = i18n.language
 
-  const adapters = useQuery(ankoleWebIdentityProviderControllerAdaptersOptions())
+  const adapters = useQuery(listIdentityProviderAdaptersOptions())
   const providers = useQuery({
-    ...ankoleWebIdentityProviderControllerIndexOptions(),
+    ...listIdentityProvidersOptions(),
     // Identity providers do not have a detail endpoint. Refresh the list before
     // the page decides that the provider does not exist.
     refetchOnMount: 'always'
   })
-  const identityAdapters = adapters.data?.identity_provider_adapters ?? []
+  const identityAdapters = (adapters.data?.identity_provider_adapters ?? []) as IdentityProviderAdapterItem[]
   const selected = providers.data?.identity_providers.find(provider => provider.provider_id === providerID)
 
   // The first-adapter fallback is a new-mode default only. In edit mode a
@@ -167,7 +175,7 @@ export function IdentityProviderEditorPage() {
   })
 
   const saveProvider = useMutation({
-    ...ankoleWebIdentityProviderControllerPutProviderMutation(),
+    ...saveIdentityProviderMutation(),
     onMutate: () => model.captureSave(),
     onSuccess: (response, _variables, confirm) => {
       let accepted = false
@@ -184,7 +192,7 @@ export function IdentityProviderEditorPage() {
     }
   })
   const runSync = useMutation({
-    ...ankoleWebIdentityProviderControllerRunSyncMutation(),
+    ...runIdentityProviderSyncMutation(),
     onSuccess: () => {
       toast.success(t('console.identity.sync_started'))
     },
@@ -205,7 +213,9 @@ export function IdentityProviderEditorPage() {
       return
     }
     saveProvider.mutate({
-      body: { adapter_id: activeAdapter.adapter_id, config: model.config.value, enabled: model.enabled.value },
+      body: {
+        data: { adapter_id: activeAdapter.adapter_id, config: model.config.value, enabled: model.enabled.value }
+      },
       path: { provider_id: trimmedID }
     })
   }

@@ -38,7 +38,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     %{principal: agent} = agent_fixture()
     conn = console_conn(conn)
 
-    global = conn |> get(~p"/api/v1/agent-library/capabilities") |> json_response(200)
+    global = conn |> api(:get, ~p"/api/v2/agent-library/capabilities") |> json_response(200)
 
     assert Enum.find(global["agent_plugins"], &(&1["id"] == "github"))[
              "effective_enabled"
@@ -54,7 +54,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     agent_view =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/agents/#{agent.uid}/library-capabilities")
+      |> api(:get, ~p"/api/v2/agents/#{agent.uid}/library-capabilities")
       |> json_response(200)
 
     lark = plugin(agent_view, "lark")
@@ -66,7 +66,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     enabled =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent.uid}/library-capabilities/agent-plugins/lark", %{
+      |> api(:put, ~p"/api/v2/agents/#{agent.uid}/library-capabilities/agent-plugins/lark", %{
         "enabled" => true
       })
       |> json_response(200)
@@ -76,8 +76,9 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     child_disabled =
       conn
       |> recycle_api()
-      |> put(
-        ~p"/api/v1/agents/#{agent.uid}/library-capabilities/skills/lark:lark-im",
+      |> api(
+        :put,
+        ~p"/api/v2/agents/#{agent.uid}/library-capabilities/skills/lark:lark-im",
         %{"enabled" => false}
       )
       |> json_response(200)
@@ -88,7 +89,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     parent_disabled =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent.uid}/library-capabilities/agent-plugins/lark", %{
+      |> api(:put, ~p"/api/v2/agents/#{agent.uid}/library-capabilities/agent-plugins/lark", %{
         "enabled" => false
       })
       |> json_response(200)
@@ -98,7 +99,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     parent_enabled_again =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent.uid}/library-capabilities/agent-plugins/lark", %{
+      |> api(:put, ~p"/api/v2/agents/#{agent.uid}/library-capabilities/agent-plugins/lark", %{
         "enabled" => true
       })
       |> json_response(200)
@@ -108,7 +109,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     inherited =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent.uid}/library-capabilities/agent-plugins/lark", %{
+      |> api(:put, ~p"/api/v2/agents/#{agent.uid}/library-capabilities/agent-plugins/lark", %{
         "enabled" => nil
       })
       |> json_response(200)
@@ -119,7 +120,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     global_lark_enabled =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/agent-library/agent-plugins/lark", %{"enabled" => true})
+      |> api(:put, ~p"/api/v2/agent-library/agent-plugins/lark", %{"enabled" => true})
       |> json_response(200)
 
     assert plugin(global_lark_enabled, "lark")["effective_enabled"] == true
@@ -127,7 +128,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     inherited_enabled =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/agents/#{agent.uid}/library-capabilities")
+      |> api(:get, ~p"/api/v2/agents/#{agent.uid}/library-capabilities")
       |> json_response(200)
 
     assert plugin(inherited_enabled, "lark")["effective_enabled"] == true
@@ -148,7 +149,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     response =
       conn
       |> console_conn()
-      |> get(~p"/api/v1/agents/#{agent.uid}/library-capabilities")
+      |> api(:get, ~p"/api/v2/agents/#{agent.uid}/library-capabilities")
       |> json_response(200)
 
     private = Enum.find(response["skills"], &(&1["id"] == "private-notes"))
@@ -198,19 +199,19 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
   test "capability endpoints require a browser session and reject missing resources", %{
     conn: conn
   } do
-    assert conn |> get(~p"/api/v1/agent-library/capabilities") |> json_response(401)
+    assert conn |> api(:get, ~p"/api/v2/agent-library/capabilities") |> json_response(401)
 
     conn = console_conn(conn)
 
-    assert %{"error" => %{"code" => "not_found"}} =
+    assert %{"errors" => [%{"code" => "not_found"}]} =
              conn
-             |> put(~p"/api/v1/agent-library/agent-plugins/missing", %{"enabled" => true})
+             |> api(:put, ~p"/api/v2/agent-library/agent-plugins/missing", %{"enabled" => true})
              |> json_response(404)
 
-    assert %{"error" => %{"code" => "not_found"}} =
+    assert %{"errors" => [%{"code" => "not_found"}]} =
              conn
              |> recycle_api()
-             |> get(~p"/api/v1/agents/missing-agent/library-capabilities")
+             |> api(:get, ~p"/api/v2/agents/missing-agent/library-capabilities")
              |> json_response(404)
   end
 
@@ -250,7 +251,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     response =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/agents/#{agent.uid}/library-capabilities/skills/pdf", %{
+      |> api(:put, ~p"/api/v2/agents/#{agent.uid}/library-capabilities/skills/pdf", %{
         "enabled" => false
       })
       |> json_response(200)
@@ -304,5 +305,20 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
       "task" => "Complete #{suffix}.",
       "reply_route" => %{"binding_name" => "lark"}
     })
+  end
+
+  defp api(conn, method, path, data \\ nil) do
+    conn =
+      if get_req_header(conn, "x-csrf-token") == [], do: recycle(conn), else: recycle_api(conn)
+
+    conn =
+      conn
+      |> delete_req_header("content-type")
+      |> put_req_header("accept", "application/vnd.api+json")
+
+    conn =
+      if data, do: put_req_header(conn, "content-type", "application/vnd.api+json"), else: conn
+
+    dispatch(conn, @endpoint, method, path, data && Jason.encode!(%{data: data}))
   end
 end

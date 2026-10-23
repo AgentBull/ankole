@@ -5,8 +5,7 @@ defmodule Ankole.Files.Schemas.DriveFile do
   The tenant, nullable Agent, and path form the existing natural identity.
   Pod paths use a nil Agent. Size comes from the referenced content row.
   """
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Files.Domain
-  require Ecto.Query
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Files
 
   resource do
     require_primary_key?(false)
@@ -73,7 +72,7 @@ defmodule Ankole.Files.Schemas.DriveFile do
     validate(byte_size(:sha256, exact: 32))
 
     validate(fn changeset, _context ->
-      case Ankole.Files.normalize_path(Ash.Changeset.get_attribute(changeset, :path)) do
+      case Ankole.Files.Path.normalize(Ash.Changeset.get_attribute(changeset, :path)) do
         {:ok, _path} -> :ok
         {:error, reason} -> {:error, Ankole.Errors.Invalid.Rejected.exception(reason: reason)}
       end
@@ -84,8 +83,6 @@ defmodule Ankole.Files.Schemas.DriveFile do
     defaults([:read])
 
     create :commit do
-      transaction?(false)
-
       accept([
         :agent_uid,
         :path,
@@ -112,8 +109,6 @@ defmodule Ankole.Files.Schemas.DriveFile do
     end
 
     create :move do
-      transaction?(false)
-
       accept([
         :agent_uid,
         :path,
@@ -131,12 +126,47 @@ defmodule Ankole.Files.Schemas.DriveFile do
       upsert_fields([:path])
       upsert_condition(expr(false))
     end
+
+    # Drive operations. Each one owns its transaction and takes the drive lock
+    # before it reads or changes paths.
+    action :commit_paths, :term do
+      argument(:drive, :term)
+      argument(:upserts, :term)
+      argument(:deletes, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :move_paths, :term do
+      argument(:drive, :term)
+      argument(:from, :term)
+      argument(:to, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :delete_paths, :term do
+      argument(:drive, :term)
+      argument(:path, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :list_snapshot, :term do
+      argument(:drive, :term)
+      argument(:prefix, :term)
+      argument(:opts, :term)
+
+      run(__MODULE__.Actions)
+    end
   end
 
   @doc """
   Deletes a drive path and its descendants in the caller's transaction.
 
-  `nil` selects the Pod drive. The result gives the deleted rows.
+  `nil` selects the Pod drive. The result gives the deleted rows. The table has
+  no primary key, so AshPostgres has no destroy action for it; one statement
+  removes the subtree of the current tenant.
   """
   def remove_paths_in_tx(agent_uid, path) do
     unless Ankole.Repo.in_transaction?(),
@@ -145,23 +175,23 @@ defmodule Ankole.Files.Schemas.DriveFile do
           operation: {__MODULE__, :remove_paths_in_tx}
         )
 
-    with {:ok, path} <- Ankole.Files.normalize_path(path) do
+    with {:ok, path} <- Ankole.Files.Path.normalize(path) do
       prefix = Ankole.Repo.escape_like(path) <> "/%"
 
-      query =
-        Ecto.Query.from(file in __MODULE__,
-          where: file.path == ^path or like(file.path, ^prefix),
-          select: file
+      {drive, params} =
+        if agent_uid, do: {"agent_uid = $4", [agent_uid]}, else: {"agent_uid IS NULL", []}
+
+      %{columns: columns, rows: rows} =
+        Ankole.Repo.query!(
+          """
+          DELETE FROM drive_files
+          WHERE tenant_id = $1::text::uuid AND #{drive} AND (path = $2 OR path LIKE $3)
+          RETURNING #{Enum.join(__schema__(:fields), ", ")}
+          """,
+          [Ankole.Repo.tenant_id!(), path, prefix | params]
         )
 
-      query =
-        case agent_uid do
-          nil -> Ecto.Query.where(query, [file], is_nil(file.agent_uid))
-          uid -> Ecto.Query.where(query, [file], file.agent_uid == ^uid)
-        end
-
-      {_count, files} = Ankole.Repo.delete_all(query)
-      {:ok, files}
+      {:ok, Enum.map(rows, &Ankole.Repo.load(__MODULE__, {columns, &1}))}
     end
   end
 

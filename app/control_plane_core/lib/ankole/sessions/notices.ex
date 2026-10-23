@@ -9,7 +9,6 @@ defmodule Ankole.Sessions.Notices do
   alias Ankole.Signals.Sanitizer
   alias Ankole.I18n
   alias Ankole.Logging
-  alias Ankole.Repo
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.Queue
   alias Ankole.Conversations.Delivery.Preview
@@ -22,19 +21,9 @@ defmodule Ankole.Sessions.Notices do
          now
        ) do
     result =
-      Repo.transact(fn repo ->
-        with {:ok, call_id} <- Ankole.Workflow.parse_task_session_id(event.session_id) do
-          Ankole.Workflow.model_unavailable_in_tx(
-            repo,
-            call_id,
-            event.agent_uid,
-            event.session_id,
-            profile,
-            reason,
-            now
-          )
-        end
-      end)
+      event
+      |> Ankole.Sessions.fail_workflow_model(profile, reason, now)
+      |> Ankole.Errors.reason()
       |> Ankole.Workflow.cleanup_terminal_transition()
 
     with {:ok, _} <- result do
@@ -42,6 +31,21 @@ defmodule Ankole.Sessions.Notices do
                                                                                             _ ->
         {:ok, nil}
       end)
+    end
+  end
+
+  @doc false
+  def workflow_model_unavailable_in_tx(repo, event, profile, reason, now) do
+    with {:ok, call_id} <- Ankole.Workflow.parse_task_session_id(event.session_id) do
+      Ankole.Workflow.TaskLifecycle.model_unavailable_in_tx(
+        repo,
+        call_id,
+        event.agent_uid,
+        event.session_id,
+        profile,
+        reason,
+        now
+      )
     end
   end
 
@@ -101,7 +105,9 @@ defmodule Ankole.Sessions.Notices do
   end
 
   def finalize({:error, :tenant_suspended}, %Signal{last_attempt_at: nil} = event, now) do
-    Repo.transact(fn repo -> reject_suspended_input_in_tx(repo, event, now) end)
+    event
+    |> Ankole.Sessions.reject_suspended_input(now)
+    |> Ankole.Errors.reason()
     |> log_notice_failure(:tenant_suspended)
   end
 
@@ -169,7 +175,7 @@ defmodule Ankole.Sessions.Notices do
   defp reject_unstarted_workflow_task(repo, event, now) do
     case Ankole.Workflow.parse_task_session_id(event.session_id) do
       {:ok, call_id} ->
-        case Ankole.Workflow.fail_unstarted_task_in_tx(
+        case Ankole.Workflow.TaskLifecycle.fail_unstarted_task_in_tx(
                repo,
                call_id,
                event.agent_uid,
@@ -213,25 +219,30 @@ defmodule Ankole.Sessions.Notices do
   # Rejection can follow a crashed run. Recover its committed tool results
   # before closing its input and writing the notice.
   defp complete_without_turn(signal, _now, status, fields, commit_notice) do
-    Repo.transact(fn repo ->
-      with {:ok, result} <- Run.reject_input_in_tx(repo, signal, :stopped, status) do
-        if result.status == :completed do
-          notice_result = maybe_commit_notice(repo, result.reply_event, commit_notice)
-
-          {:ok,
-           result
-           |> Map.merge(fields)
-           |> Map.merge(%{
-             status: status,
-             posted: notice_posted(notice_result),
-             notice_error: notice_error(notice_result)
-           })}
-        else
-          {:ok, Map.merge(result, fields)}
-        end
-      end
-    end)
+    signal
+    |> Ankole.Sessions.complete_without_turn(status, fields, commit_notice)
+    |> Ankole.Errors.reason()
     |> log_notice_failure(status)
+  end
+
+  @doc false
+  def complete_without_turn_in_tx(repo, signal, status, fields, commit_notice) do
+    with {:ok, result} <- Run.reject_input_in_tx(repo, signal, :stopped, status) do
+      if result.status == :completed do
+        notice_result = maybe_commit_notice(repo, result.reply_event, commit_notice)
+
+        {:ok,
+         result
+         |> Map.merge(fields)
+         |> Map.merge(%{
+           status: status,
+           posted: notice_posted(notice_result),
+           notice_error: notice_error(notice_result)
+         })}
+      else
+        {:ok, Map.merge(result, fields)}
+      end
+    end
   end
 
   # An ambient group message has not asked the agent to speak. A turn that
@@ -318,12 +329,14 @@ defmodule Ankole.Sessions.Notices do
     |> Enum.uniq_by(& &1.id)
     |> Enum.filter(fn event ->
       Preview.channel_reply_eligible?(event) and
-        Signal.reply_anchor_provider_message_id(event) in Signal.input_provider_message_ids(event)
+        Ankole.Signals.reply_anchor_provider_message_id(event) in Signal.input_provider_message_ids(
+          event
+        )
     end)
     |> Enum.reduce_while({:ok, %Ankole.Conversations.PostResult{}}, fn event, _result ->
       anchor = %{
         event
-        | provider_message_id: Signal.reply_anchor_provider_message_id(event),
+        | provider_message_id: Ankole.Signals.reply_anchor_provider_message_id(event),
           data: %{}
       }
 

@@ -3,7 +3,7 @@ defmodule Ankole.Plugins.LineAdapter.Delivery do
 
   @behaviour Ankole.Conversations.Delivery.Adapter
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Signals.Bindings
   alias Ankole.{Logging, Repo}
   alias Ankole.Plugins.LineAdapter.Client
@@ -149,7 +149,7 @@ defmodule Ankole.Plugins.LineAdapter.Delivery do
        )
        when is_binary(signal_id) and is_binary(provider_message_id) do
     if action_messages(intent) != [] do
-      case PreviewState.record_provider_message(
+      case PreviewStates.record_provider_message(
              signal_id,
              provider_message_id
            ) do

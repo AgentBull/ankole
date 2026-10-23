@@ -26,13 +26,29 @@ A browser and its authentication records belong to the site. A Pod access proof
 belongs to its tenant and requires an explicit Repo context. A Principal belongs
 to one tenant. Its UID remains globally unique and opaque.
 
-The four records use Ash resources and named transaction actions. The aggregate
-keeps the browser row lock before it changes an authentication, login proof, or
-selection. The login resource owns the `pending`, `authenticated`, `consumed`,
-and `cancelled` transitions. Terminal transactions cannot reopen. Cancellation
-uses one atomic update for the matching open transactions. Expiry uses atomic
-deletion, with the retained RP association check in the same browser deletion.
-Ecto migrations own the native keys and constraints.
+The four records are Ash resources of the root domain `Ankole.BrowserSessions`.
+Each public write runs one generic action on the record that it changes, and that
+action owns the transaction: `Session` (`activate`, `logout`), `LoginTransaction`
+(`begin_login`, `bind_provider`, `put_password_ticket`, `complete_login`,
+`complete_site_login`, `select_authorization`, `consume_authorization`,
+`consume_login`), and `Authentication` (`revoke`, `create_pod_access`,
+`connect_pod_access`). The public functions keep their arguments and results.
+A generic action is always the top-level call. Code that already runs in a
+transaction calls the `_in_tx` function of the same step: `activate_in_tx/3`,
+`begin_login_in_tx/4`, `bind_provider_in_tx/5`, `complete_site_login_in_tx/4`,
+`select_authorization_in_tx/3`, `logout_in_tx/2`, and `authorize_in_tx/2`. These
+functions raise `Ankole.Errors.Framework.TransactionRequired` outside a
+transaction. A callback that a caller gives to `complete_login/4`,
+`create_pod_access/2`, `connect_pod_access/4`, `consume_authorization/4`, or
+`consume_login/4` runs in that transaction, so it calls only `_in_tx` functions.
+
+The aggregate keeps the browser row lock before it changes an authentication,
+login proof, or selection. The login resource owns the `pending`,
+`authenticated`, `consumed`, and `cancelled` transitions. Terminal transactions
+cannot reopen. Cancellation uses one atomic update for the matching open
+transactions. Expiry uses atomic deletion, with the retained RP association
+check in the same browser deletion. Ecto migrations own the native keys and
+constraints.
 
 A trusted Pod entry can pass a held authentication reference to `begin_login`
 with `mode: :add`. Under the same browser lock, the owner checks the browser,
@@ -137,8 +153,8 @@ the tenant and resource.
 
 Pod API gates check the selected tenant, authentication, current Human access,
 and binding. Conversation operations check participant membership. A Console
-API requires current siteadmin membership; Pod login does not open its
-`/api/v1` administration scope. Protected responses cannot enter a shared cache.
+API requires current siteadmin membership; Pod login does not grant access to
+v2 management operations or native Console file transfers. Protected responses cannot enter a shared cache.
 Pod query keys include both identity and tenant. Console data selection is local
 to the document's authentication. Switching the browser default does not change
 an open document or cause a failed request to retry as another person.

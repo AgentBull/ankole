@@ -58,6 +58,10 @@ with a local password:
 | `must_change_password` | When true, the next sign-in must set a new password |
 
 Only a human user can hold a local credential; the foreign key enforces this.
+`Ankole.Principals` owns the credential rows. `LocalPassword` hashes a new
+password before the write transaction and gives the Principals domain only
+the hash (`Principals.put_local_credential/3`,
+`Principals.complete_forced_password_change/3`).
 The kernel owns the Argon2id primitives (`argon2id_hash`, `argon2id_verify`).
 The control plane never stores or logs a plain password, and the minimum
 length is 6 characters. Local accounts create no
@@ -70,6 +74,11 @@ holder's first mail follows the Email adapter's unmatched-sender policy unless
 an explicit binding already exists. `manual_review` holds it for an
 administrator; `create_standalone` creates a separate Principal and binds the
 address. The local account's email alone does not link that mail to the account.
+
+The Console reset action is `POST /api/v2/principals/:uid/local-password-resets`.
+It requires the Principal reset permission and an enabled local provider. The
+response returns a new password once and uses `Cache-Control: private, no-store`. List and detail reads return only credential status. The Console
+keeps the result in the reset dialog and clears it before another reset.
 
 ## Sign-in Flow
 

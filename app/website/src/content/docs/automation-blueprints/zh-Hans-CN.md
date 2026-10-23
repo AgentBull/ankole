@@ -39,19 +39,21 @@ Automation Job 不是工作流语言或步骤图。它是 Agent 云盘某个文�
 执行此 Console 请求前，从已登录的浏览器取得会话 cookie 与 `x-csrf-token` 值。
 
 ```bash
-curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules \
+curl -X POST https://ankole.example.com/api/v2/agents/<agent_uid>/cron-schedules \
   -H "Cookie: $CONSOLE_COOKIE" \
   -H "x-csrf-token: $CSRF_TOKEN" \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/vnd.api+json" \
   -d '{
-    "owner_session_id": "<session_id>",
-    "binding_name": "main",
-    "name": "daily-digest",
-    "idempotency_key": "daily-digest-1",
-    "schedule": { "kind": "cron", "expression": "0 9 * * *" },
-    "timezone": "Asia/Shanghai",
-    "delivery": { "targets": [{ "binding_name": "main", "conversation_id": "<conversation_uuid>" }] },
-    "payload": { "task": "产出今天 mission 里那些话题的摘要。" }
+    "data": {
+      "owner_session_id": "<session_id>",
+      "binding_name": "main",
+      "name": "daily-digest",
+      "idempotency_key": "daily-digest-1",
+      "schedule": { "kind": "cron", "expression": "0 9 * * *" },
+      "timezone": "Asia/Shanghai",
+      "delivery": { "targets": [{ "binding_name": "main", "conversation_id": "<conversation_uuid>" }] },
+      "payload": { "task": "产出今天 mission 里那些话题的摘要。" }
+    }
   }'
 ```
 
@@ -73,7 +75,7 @@ Schedule 频繁触发、检查过程机械且通常无结果时，使用 automat
 
 agent 在回合里被问某事，决定稍后再回来。不是固定 cron，agent 自己用 `check_back_later` 设一次性唤醒。agent 那一侧的形态是"一小时后再看"——agent 调工具；运维界面只读。
 
-适合没有固定节奏的工作：”一小时后看部署完成没”、”站会后再读这个 thread”。agent 掌握时机；你通过 `GET /api/v1/checkbacks?agent=<agent_uid>` 查看待执行的 checkback，可用 `DELETE /api/v1/agents/:agent_uid/checkbacks/:scheduled_event_id` 取消某一条。
+适合没有固定节奏的工作：”一小时后看部署完成没”、”站会后再读这个 thread”。agent 掌握时机；你通过 `GET /api/v2/checkbacks?agent=<agent_uid>` 查看待执行的 checkback，可用 `DELETE /api/v2/agents/:agent_uid/checkbacks/:scheduled_event_id` 取消某一条。
 
 ## 蓝图：研究并报告（调度 + 后台任务）
 

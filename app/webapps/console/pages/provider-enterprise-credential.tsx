@@ -13,13 +13,10 @@ import { useMutation } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestErrorMessage } from '../../common/request-errors'
-import { ankoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialMutation as addChatGPTEnterpriseCredentialMutation } from '../api/generated/@tanstack/react-query.gen'
-import type {
-  AiGatewayCredentialPoolEntry as AIGatewayCredentialPoolEntry,
-  AiGatewayProviderItem as AIGatewayProviderItem
-} from '../api/generated/types.gen'
+import { addChatgptEnterpriseCredentialMutation as addChatGPTEnterpriseCredentialMutation } from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { DiscardConfirmDialog, LabeledField, SaveButton, useDialogDiscardGuard } from '../console-form'
 import { EncryptedValueInput } from '../encrypted-value-input'
+import type { AIGatewayProviderItem, AIGatewayCredentialPoolEntry } from '../state/provider-settings'
 
 export function EnterpriseCredentialDialog({
   entry,
@@ -79,13 +76,17 @@ export function EnterpriseCredentialDialog({
     setValidationError(undefined)
     save.mutate({
       body: {
-        id: entry?.id,
-        label: label.trim() || undefined,
-        priority: Number.parseInt(priority, 10) || 0,
-        access_token: accessToken.trim(),
-        account_id: accountID.trim(),
-        plan_type: planType.trim() || undefined,
-        email: email.trim() || undefined
+        data: {
+          credential: {
+            id: entry?.id,
+            label: label.trim() || undefined,
+            priority: Number.parseInt(priority, 10) || 0,
+            access_token: accessToken.trim(),
+            account_id: accountID.trim(),
+            plan_type: planType.trim() || undefined,
+            email: email.trim() || undefined
+          }
+        }
       },
       path: { provider_id: provider.provider_id }
     })

@@ -1,9 +1,7 @@
 defmodule Ankole.Plugins.LineAdapter.Inbound do
   @moduledoc false
 
-  import Ecto.Query, warn: false
-
-  alias Ankole.{Logging, Principals, Repo}
+  alias Ankole.{Logging, Principals}
   alias Ankole.Plugins.LineAdapter.Client
   alias Ankole.Plugins.LineAdapter.Config
   alias Ankole.Plugins.LineAdapter.Presentation
@@ -11,7 +9,6 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   alias Ankole.Plugins.UTF16Text
   alias Ankole.Conversations.AdapterContext
   alias Ankole.Conversations.{Attachments, Observe}
-  alias Ankole.Conversations.Delivery.Intent
   alias Ankole.Conversations.Delivery.ActionToken
 
   @download_limit_bytes 25 * 1024 * 1024
@@ -492,21 +489,23 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   # as the reply surface; without it the buttons were never delivered.
   defp reply_surface_entry_id(consumer, %{"sourceSignalId" => signal_id})
        when is_binary(signal_id) do
-    Intent
-    |> where(
-      [intent],
-      intent.agent_uid == ^consumer.context.agent_uid and
-        intent.binding_name == ^consumer.context.binding_name and
-        intent.source_signal_id == ^signal_id and
-        intent.status == :sent and not is_nil(intent.created_provider_message_id)
+    Ankole.Conversations.list_intents!(
+      query: [
+        filter: [
+          agent_uid: consumer.context.agent_uid,
+          binding_name: consumer.context.binding_name,
+          source_signal_id: signal_id,
+          status: :sent,
+          created_provider_message_id: [is_nil: false]
+        ],
+        sort: [inserted_at: :asc],
+        limit: 1,
+        select: [:created_provider_message_id]
+      ]
     )
-    |> order_by([intent], asc: intent.inserted_at)
-    |> limit(1)
-    |> select([intent], intent.created_provider_message_id)
-    |> Repo.one()
     |> case do
-      nil -> {:error, :reply_surface_not_sent}
-      provider_message_id -> {:ok, provider_message_id}
+      [] -> {:error, :reply_surface_not_sent}
+      [intent] -> {:ok, intent.created_provider_message_id}
     end
   end
 
@@ -520,19 +519,12 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   defp bot_authored?(_consumer, nil), do: false
 
   defp bot_authored?(consumer, quoted_message_id) do
-    Intent
-    |> where(
-      [intent],
-      intent.agent_uid == ^consumer.context.agent_uid and
-        intent.binding_name == ^consumer.context.binding_name and
-        (intent.created_provider_message_id == ^quoted_message_id or
-           fragment(
-             "(? -> 'line_message_ids') @> to_jsonb(?::text)",
-             intent.payload,
-             ^quoted_message_id
-           ))
+    Ankole.Conversations.Delivery.sent_provider_message?(
+      consumer.context.agent_uid,
+      consumer.context.binding_name,
+      quoted_message_id,
+      "line_message_ids"
     )
-    |> Repo.exists?()
   end
 
   defp material_message?(text, attachments), do: is_binary(text) or attachments != []

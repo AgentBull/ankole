@@ -1,6 +1,6 @@
 defmodule Ankole.Pod.Page do
   @moduledoc "One page tree node, its document revision, and its trash state."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod
 
   postgres do
     table("pages")
@@ -58,14 +58,17 @@ defmodule Ankole.Pod.Page do
       source_attribute(:id)
       destination_attribute(:parent_id)
     end
+
+    has_one :content, Ankole.Pod.PageContent do
+      source_attribute(:id)
+      destination_attribute(:page_id)
+    end
   end
 
   actions do
     defaults([:read])
 
     create :create_in_tx do
-      transaction?(false)
-
       accept([
         :id,
         :parent_id,
@@ -87,49 +90,248 @@ defmodule Ankole.Pod.Page do
       validate(Ankole.Pod.Validations.PageState)
     end
 
-    in_tx_update :edit do
+    update :edit do
       accept([:title, :icon, :updated_at])
     end
 
-    in_tx_update :move do
+    update :move do
       accept([:parent_id, :private_owner_uid, :position, :updated_at])
       validate(Ankole.Pod.Validations.PageState)
     end
 
-    atomic_in_tx_update :position do
+    update :position do
+      require_atomic?(true)
       accept([:position])
     end
 
-    atomic_in_tx_update :sharing do
+    update :sharing do
+      require_atomic?(true)
       accept([:inherit_permissions])
     end
 
-    atomic_in_tx_update :trash do
+    update :trash do
+      require_atomic?(true)
       accept([])
       change(set_attribute(:deleted_at, &DateTime.utc_now/0))
     end
 
-    atomic_in_tx_update :restore do
+    update :restore do
+      require_atomic?(true)
       change(filter(expr(not is_nil(deleted_at) and is_nil(purge_started_at))))
       accept([])
       change(set_attribute(:deleted_at, nil))
     end
 
-    atomic_in_tx_update :begin_purge do
+    update :begin_purge do
+      require_atomic?(true)
       change(filter(expr(not is_nil(deleted_at))))
       accept([])
       change(set_attribute(:purge_started_at, &DateTime.utc_now/0))
     end
 
-    atomic_in_tx_update :advance_revision do
+    update :advance_revision do
+      require_atomic?(true)
       accept([:updated_at])
       change(atomic_update(:revision, expr(revision + 1)))
     end
 
     destroy :purge do
-      transaction?(false)
       require_atomic?(true)
       change(filter(expr(not exists(children, true))))
+    end
+
+    # Tree and permission writes. Each action owns its transaction; the body
+    # takes the tree lock before page and permission rows.
+    action :create_page, :term do
+      argument(:uid, :term)
+      argument(:attrs, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Pages, :committed})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :update_page, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:attrs, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Pages, :committed_page})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :move_page, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:attrs, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Pages, :committed})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :delete_page, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Pages, :committed})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :delete_embedded_page, :term do
+      allow_nil?(true)
+      argument(:uid, :term)
+      argument(:parent_id, :term)
+      argument(:child_id, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Pages, :committed})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :restore_page, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Pages, :committed})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :set_page_sharing, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:attrs, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Pages, :committed})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :set_space_role, :term do
+      argument(:uid, :term)
+      argument(:role, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Pages, :committed})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :set_space_agent, :term do
+      argument(:uid, :term)
+      argument(:agent_uid, :term)
+      argument(:role, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Pages, :committed})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :remove_space_agent, :term do
+      argument(:uid, :term)
+      argument(:agent_uid, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Pages, :committed})
+
+      run(__MODULE__.Actions)
+    end
+
+    # Reads under a shared page lock, so the page and its content or files
+    # come from one revision.
+    action :read_page, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :read_page_changes, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:revision, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :read_page_files, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :read_applet, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:revision, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    # Content writes under the page row lock.
+    action :write_document, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:base_revision, :term)
+      argument(:validation, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Documents, :committed})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :apply_document_changes, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:batch, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Documents, :committed})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :commit_page_file, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:upload, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Files, :committed})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :publish_applet, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:base_revision, :term)
+      argument(:upserts, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Files, :committed})
+
+      run(__MODULE__.Actions)
+    end
+
+    # Purge steps of a deleted subtree. Each step commits alone, so an
+    # interrupted purge continues from the remaining rows.
+    action :start_purge, :term do
+      allow_nil?(true)
+      argument(:id, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :purge_page_references, :term do
+      argument(:id, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :purge_pages, :term do
+      argument(:ids, :term)
+
+      run(__MODULE__.Actions)
     end
   end
 

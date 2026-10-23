@@ -1,6 +1,31 @@
 defmodule Ankole.AIGateway.Schemas.Conversation do
   @moduledoc "Durable subject-local conversation identity; response rows own continuation and liveness."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIGateway.Domain
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.AIGateway,
+    extensions: [AshJsonApi.Resource]
+
+  alias Ankole.Sessions.ConsoleQueries.Channel
+
+  json_api do
+    type("ai_gateway_conversation")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :subject_uid,
+      :conversation_key,
+      :kind,
+      :display_name,
+      :channel_kind,
+      :signal_adapter,
+      :message_count,
+      :ended_at,
+      :metadata,
+      :inserted_at,
+      :updated_at
+    ])
+  end
 
   postgres do
     table("ai_gateway_conversations")
@@ -19,21 +44,29 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
     attribute(:id, Ankole.Ash.Types.UUIDv7,
       primary_key?: true,
       allow_nil?: false,
-      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0,
+      public?: true
     )
 
-    attribute(:subject_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
-    attribute(:conversation_key, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:ended_at, :utc_datetime_usec)
+    attribute(:subject_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false, public?: true)
+
+    attribute(:conversation_key, :string,
+      allow_nil?: false,
+      constraints: [trim?: false],
+      public?: true
+    )
+
+    attribute(:ended_at, :utc_datetime_usec, public?: true)
 
     attribute(:metadata, Ankole.Ash.Types.JSONMap,
       allow_nil?: false,
       default: %{},
-      constraints: [allow_datetime?: true]
+      constraints: [allow_datetime?: true],
+      public?: true
     )
 
-    create_timestamp(:inserted_at, type: :utc_datetime_usec)
-    update_timestamp(:updated_at, type: :utc_datetime_usec)
+    create_timestamp(:inserted_at, type: :utc_datetime_usec, public?: true)
+    update_timestamp(:updated_at, type: :utc_datetime_usec, public?: true)
   end
 
   identities do
@@ -41,6 +74,72 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
       all_tenants?: true,
       where: expr(is_nil(ended_at))
     )
+  end
+
+  # Sessions owns these relationships and the console_list read action. They
+  # relate the model history to the display facts of the operator console.
+  relationships do
+    # The public conversation of a channel session: its Session key names the
+    # conversation, or its origin metadata records the conversation.
+    has_one :public_conversation, Ankole.Conversations.Conversation do
+      public?(false)
+      no_attributes?(true)
+
+      filter(
+        expr(
+          parent(conversation_key) ==
+            fragment("? || ?::text", ^Ankole.Sessions.Key.conversation(""), id) or
+            fragment("? -> 'origin' ->> 'conversation_id' = ?::text", parent(metadata), id)
+        )
+      )
+    end
+
+    # The direct-message peer that the origin metadata records.
+    has_one :peer, Ankole.Principals.Principal do
+      public?(false)
+      no_attributes?(true)
+      filter(expr(fragment("? = ? -> 'origin' ->> 'peer_uid'", uid, parent(metadata))))
+    end
+
+    # The Session that this model history belongs to, when a Session owns it.
+    has_one :session_workspace, Ankole.Sessions.SessionWorkspace do
+      public?(false)
+      no_attributes?(true)
+      filter(expr(agent_uid == parent(subject_uid) and session_id == parent(conversation_key)))
+    end
+
+    # The subject UID condition keeps the (subject_uid, conversation_id) index.
+    has_many :messages, Ankole.AIGateway.Schemas.Message do
+      public?(false)
+      destination_attribute(:conversation_id)
+      filter(expr(subject_uid == parent(subject_uid)))
+    end
+  end
+
+  # The display facts of the operator console.
+  calculations do
+    calculate(:kind, :atom, {Channel, field: :kind},
+      public?: true,
+      allow_nil?: false,
+      constraints: [
+        one_of: [:conversation, :signal, :dreaming, :job, :cron, :responses_api, :custom]
+      ]
+    )
+
+    calculate(:display_name, :string, {Channel, field: :display_name}, public?: true)
+
+    calculate(:channel_kind, :atom, {Channel, field: :channel_kind},
+      public?: true,
+      constraints: [
+        one_of: [:im_dm, :im_group, :webhook_endpoint, :issue, :alert_stream, :unknown]
+      ]
+    )
+
+    calculate(:signal_adapter, :string, {Channel, field: :signal_adapter}, public?: true)
+  end
+
+  aggregates do
+    count(:message_count, :messages, public?: true)
   end
 
   validations do
@@ -64,25 +163,35 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
     defaults([:read])
 
     create :open do
-      transaction?(false)
       accept([:subject_uid, :conversation_key, :metadata])
     end
 
     create_if_absent :ensure, upsert_fields: [:metadata] do
-      transaction?(false)
       accept([:subject_uid, :conversation_key, :metadata])
       upsert_identity(:active_key)
     end
 
-    atomic_in_tx_update :touch do
+    update :touch do
+      require_atomic?(true)
       accept([])
       change(set_attribute(:updated_at, &DateTime.utc_now/0))
     end
 
-    in_tx_update :finish do
+    update :finish do
       accept([:ended_at])
       validate(present(:ended_at))
       change(filter(expr(is_nil(ended_at))))
+    end
+
+    # The operator console list. Sessions owns this action and its filters.
+    read :console_list do
+      argument(:subject_uid, :string)
+      argument(:conversation_key, :string, constraints: [trim?: false])
+      argument(:search, :string)
+      argument(:active, :boolean)
+      argument(:min_messages, :integer, constraints: [min: 1])
+      pagination(keyset?: true, default_limit: 50, max_page_size: 100)
+      prepare(Ankole.Sessions.ConsoleQueries.Prepare)
     end
   end
 

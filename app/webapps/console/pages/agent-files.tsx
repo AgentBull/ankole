@@ -31,13 +31,13 @@ import { useTranslation } from 'react-i18next'
 import { Link, useParams } from '@tanstack/react-router'
 import { linkTarget, useSearchParams } from '../../common/router'
 import {
-  ankoleWebAgentControllerShowOptions,
-  ankoleWebAgentFileControllerDeleteMutation,
-  ankoleWebAgentFileControllerIndexOptions,
-  ankoleWebAgentFileControllerMoveMutation
-} from '../api/generated/@tanstack/react-query.gen'
-import { ankoleWebAgentFileControllerDownload, ankoleWebAgentFileControllerUpload } from '../api/generated/sdk.gen'
-import type { AgentFileEntry } from '../api/generated/types.gen'
+  deleteAgentFilesMutation,
+  listAgentFilesOptions,
+  moveAgentFilesMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import { downloadAgentFile, uploadAgentFile } from '../api/agent-files'
+import type { AgentFileEntry } from '../api/runtime-types'
+import { agentOptions } from '../api/agents'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ResourceListPage, ResourceSearch, ScopeBar } from '../console-list-page'
 import { BackLink } from '../console-page'
@@ -59,10 +59,8 @@ export function AgentFilesPage() {
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
 
-  const agent = useQuery(ankoleWebAgentControllerShowOptions({ path: { agent_uid: agentUID } }))
-  const listing = useQuery(
-    ankoleWebAgentFileControllerIndexOptions({ path: { agent_uid: agentUID }, query: path ? { path } : {} })
-  )
+  const agent = useQuery(agentOptions(agentUID))
+  const listing = useQuery(listAgentFilesOptions({ path: { agent_uid: agentUID }, query: path ? { path } : {} }))
 
   const folders = (listing.data?.file_listing.folders ?? []).filter(folder =>
     matchesResourceSearch(searchQuery, folder.name, folder.path)
@@ -85,10 +83,7 @@ export function AgentFilesPage() {
     mutationFn: async (items: UploadItem[]) => {
       const failures: { name: string; reason: string }[] = []
       for (const item of items) {
-        const result = await ankoleWebAgentFileControllerUpload({
-          path: { agent_uid: agentUID },
-          body: { path: item.drivePath, file: item.file }
-        })
+        const result = await uploadAgentFile(agentUID, item.drivePath, item.file)
         if (result.error !== undefined) {
           failures.push({ name: item.drivePath, reason: requestErrorMessage(result.error) })
         }
@@ -108,7 +103,7 @@ export function AgentFilesPage() {
   })
 
   const move = useMutation({
-    ...ankoleWebAgentFileControllerMoveMutation(),
+    ...moveAgentFilesMutation(),
     onSuccess: () => {
       toast.success(t('console.agent_files.moved'))
     },
@@ -116,7 +111,7 @@ export function AgentFilesPage() {
   })
 
   const remove = useMutation({
-    ...ankoleWebAgentFileControllerDeleteMutation(),
+    ...deleteAgentFilesMutation(),
     onSuccess: () => {
       toast.success(t('console.agent_files.deleted'))
     },
@@ -128,7 +123,7 @@ export function AgentFilesPage() {
     setSearchParams(next ? { path: next } : {})
   }
 
-  const agentName = agent.data?.agent.display_name || agentUID
+  const agentName = agent.data?.display_name || agentUID
   const pending = move.isPending || remove.isPending
 
   // Navigation lives in `subNav` so it stays visible over an empty folder: the
@@ -184,7 +179,9 @@ export function AgentFilesPage() {
           path={folder.path}
           pending={pending}
           onNavigate={enterPath}
-          onMove={to => move.mutate({ path: { agent_uid: agentUID }, body: { from_path: folder.path, to_path: to } })}
+          onMove={to =>
+            move.mutate({ path: { agent_uid: agentUID }, body: { data: { from_path: folder.path, to_path: to } } })
+          }
           onDelete={() => remove.mutate({ path: { agent_uid: agentUID }, query: { path: folder.path } })}
         />
       ))}
@@ -196,7 +193,9 @@ export function AgentFilesPage() {
           path={file.path}
           pending={pending}
           onNavigate={enterPath}
-          onMove={to => move.mutate({ path: { agent_uid: agentUID }, body: { from_path: file.path, to_path: to } })}
+          onMove={to =>
+            move.mutate({ path: { agent_uid: agentUID }, body: { data: { from_path: file.path, to_path: to } } })
+          }
           onDelete={() => remove.mutate({ path: { agent_uid: agentUID }, query: { path: file.path } })}
         />
       ))}
@@ -276,11 +275,7 @@ function PathRow({
     if (!agentUID) return
     // The response carries the file's own content type; without `parseAs` the
     // client would return text and JSON files as a string or an object.
-    const result = await ankoleWebAgentFileControllerDownload({
-      path: { agent_uid: agentUID },
-      query: { path },
-      parseAs: 'blob'
-    })
+    const result = await downloadAgentFile(agentUID, path)
     if (result.error !== undefined || !(result.data instanceof Blob)) {
       toast.error(requestErrorMessage(result.error ?? new Error(t('console.agent_files.download_failed'))))
       return

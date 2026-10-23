@@ -1,6 +1,13 @@
 defmodule Ankole.Pod.Pages do
-  @moduledoc "Owns the tenant's page tree, page permissions, and navigation."
-  import Ecto.Query
+  @moduledoc """
+  Owns the tenant's page tree, page permissions, and navigation.
+
+  Each operation that changes the tree or reads under a page lock runs a
+  generic action of `Ankole.Pod.Page`, which owns the transaction. The
+  `*_in_tx` functions are the action bodies. They run in the caller's
+  transaction and do not publish.
+  """
+  require Ash.Query
   alias Ankole.{ActorRef, AuthZ, Repo}
   alias Ankole.Pod.{Access, Page, PageContent, PageUserState, Position}
 
@@ -11,98 +18,100 @@ defmodule Ankole.Pod.Pages do
 
   def fetch(id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         %Page{} = page <- Repo.get(Page, id),
+         %Page{} = page <- Page |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!(),
          do: {:ok, page},
          else: (_ -> {:error, :not_found})
   end
 
-  def create(uid, attrs, authority \\ nil) when is_map(attrs) do
-    mutate(authority, fn ->
-      lock_tree()
+  def create(uid, attrs, authority \\ nil) when is_map(attrs),
+    do: run(:create_page, %{uid: uid, attrs: attrs, authority: authority})
 
-      with {:ok, principal} <- Access.principal(uid),
-           {:ok, _} <- Access.space_group(),
-           :ok <-
-             destination(
-               uid,
-               Ankole.Attrs.get(attrs, :parent_id),
-               Ankole.Attrs.get(attrs, :private_owner_uid)
-             ),
-           {:ok, source} <- source_message(uid, Ankole.Attrs.get(attrs, :saved_from_message_id)) do
-        now = DateTime.utc_now(:microsecond)
+  @doc "Creates a page in the caller's transaction."
+  def create_in_tx(uid, attrs) when is_map(attrs) do
+    lock_tree()
 
-        attrs = %{
-          type: Ankole.Attrs.get(attrs, :type, "doc"),
-          title: Ankole.Attrs.get(attrs, :title, ""),
-          icon: Ankole.Attrs.get(attrs, :icon),
-          parent_id: Ankole.Attrs.get(attrs, :parent_id),
-          private_owner_uid: Ankole.Attrs.get(attrs, :private_owner_uid),
-          position:
-            Ankole.Attrs.get(
-              attrs,
-              :position,
-              next_position(
-                Ankole.Attrs.get(attrs, :parent_id),
-                Ankole.Attrs.get(attrs, :private_owner_uid)
-              )
-            ),
-          saved_from_message_id: source && source.id,
-          created_by: ActorRef.from_principal(principal),
-          created_at: now,
-          updated_at: now
-        }
+    with {:ok, principal} <- Access.principal(uid),
+         {:ok, _} <- Access.space_group(),
+         :ok <-
+           destination(
+             uid,
+             Ankole.Attrs.get(attrs, :parent_id),
+             Ankole.Attrs.get(attrs, :private_owner_uid)
+           ),
+         {:ok, source} <- source_message(uid, Ankole.Attrs.get(attrs, :saved_from_message_id)) do
+      now = DateTime.utc_now(:microsecond)
 
-        with {:ok, page} <- Ankole.Ash.create(Page, :create_in_tx, attrs),
-             :ok <- initial_content(page, uid) do
-          {:ok, page}
-        end
+      attrs = %{
+        type: Ankole.Attrs.get(attrs, :type, "doc"),
+        title: Ankole.Attrs.get(attrs, :title, ""),
+        icon: Ankole.Attrs.get(attrs, :icon),
+        parent_id: Ankole.Attrs.get(attrs, :parent_id),
+        private_owner_uid: Ankole.Attrs.get(attrs, :private_owner_uid),
+        position:
+          Ankole.Attrs.get(
+            attrs,
+            :position,
+            next_position(
+              Ankole.Attrs.get(attrs, :parent_id),
+              Ankole.Attrs.get(attrs, :private_owner_uid)
+            )
+          ),
+        saved_from_message_id: source && source.id,
+        created_by: ActorRef.from_principal(principal),
+        created_at: now,
+        updated_at: now
+      }
+
+      with {:ok, page} <- Ankole.Ash.create(Page, :create_in_tx, attrs),
+           :ok <- initial_content(page, uid) do
+        {:ok, page}
       end
-    end)
+    end
   end
 
-  def update(uid, id, attrs, authority \\ nil) do
-    mutate(
-      authority,
-      fn ->
-        with {:ok, page} <- lock(id), {:ok, _} <- Access.authorize(uid, page, "page_edit") do
-          changes =
-            Map.new([:title, :icon], fn key ->
-              {key, Ankole.Attrs.get(attrs, key, Map.get(page, key))}
-            end)
+  def update(uid, id, attrs, authority \\ nil),
+    do: run(:update_page, %{uid: uid, id: id, attrs: attrs, authority: authority})
 
-          Ankole.Ash.update(
-            page,
-            :edit,
-            Map.put(changes, :updated_at, DateTime.utc_now(:microsecond))
-          )
-        end
-      end,
-      access: false
-    )
+  @doc false
+  def update_in_tx(uid, id, attrs) do
+    with {:ok, page} <- lock(id), {:ok, _} <- Access.authorize(uid, page, "page_edit") do
+      changes =
+        Map.new([:title, :icon], fn key ->
+          {key, Ankole.Attrs.get(attrs, key, Map.get(page, key))}
+        end)
+
+      Ankole.Ash.update(
+        page,
+        :edit,
+        Map.put(changes, :updated_at, DateTime.utc_now(:microsecond))
+      )
+    end
   end
 
-  def move(uid, id, attrs, authority \\ nil) do
-    mutate(authority, fn ->
-      lock_tree()
+  def move(uid, id, attrs, authority \\ nil),
+    do: run(:move_page, %{uid: uid, id: id, attrs: attrs, authority: authority})
 
-      with {:ok, page} <- lock(id),
-           {:ok, _} <- Access.authorize_move_source(uid, page),
-           parent = Ankole.Attrs.get(attrs, :parent_id),
-           owner = Ankole.Attrs.get(attrs, :private_owner_uid),
-           :ok <- destination(uid, parent, owner, false),
-           :ok <- no_cycle(page, parent),
-           {:ok, _} <- Access.authorize_move(uid, page, parent, owner),
-           # Recheck the destination after the complete subtree policy proof.
-           :ok <- destination(uid, parent, owner, false),
-           {:ok, position} <- move_position(page, parent, owner, attrs) do
-        Ankole.Ash.update(page, :move, %{
-          parent_id: parent,
-          private_owner_uid: owner,
-          position: position,
-          updated_at: DateTime.utc_now(:microsecond)
-        })
-      end
-    end)
+  @doc false
+  def move_in_tx(uid, id, attrs) do
+    lock_tree()
+
+    with {:ok, page} <- lock(id),
+         {:ok, _} <- Access.authorize_move_source(uid, page),
+         parent = Ankole.Attrs.get(attrs, :parent_id),
+         owner = Ankole.Attrs.get(attrs, :private_owner_uid),
+         :ok <- destination(uid, parent, owner, false),
+         :ok <- no_cycle(page, parent),
+         {:ok, _} <- Access.authorize_move(uid, page, parent, owner),
+         # Recheck the destination after the complete subtree policy proof.
+         :ok <- destination(uid, parent, owner, false),
+         {:ok, position} <- move_position(page, parent, owner, attrs) do
+      Ankole.Ash.update(page, :move, %{
+        parent_id: parent,
+        private_owner_uid: owner,
+        position: position,
+        updated_at: DateTime.utc_now(:microsecond)
+      })
+    end
   end
 
   # One anchor names the sibling next to the moved page. Without an anchor the
@@ -155,52 +164,60 @@ defmodule Ankole.Pod.Pages do
   end
 
   defp siblings(parent, owner, moving_id) do
-    from(p in Page,
-      where: p.id != ^moving_id and is_nil(p.deleted_at),
-      order_by: [asc: p.position, asc: p.id]
-    )
+    Page
+    |> Ash.Query.filter(id != ^moving_id and is_nil(deleted_at))
     |> in_destination(parent, owner)
-    |> Repo.all()
+    |> Ash.Query.sort(position: :asc, id: :asc)
+    |> Ankole.Ash.read!()
   end
 
   defp in_destination(query, parent, owner) do
     query =
       if parent,
-        do: from(p in query, where: p.parent_id == ^parent),
-        else: from(p in query, where: is_nil(p.parent_id))
+        do: Ash.Query.filter(query, parent_id == ^parent),
+        else: Ash.Query.filter(query, is_nil(parent_id))
 
     if owner,
-      do: from(p in query, where: p.private_owner_uid == ^owner),
-      else: from(p in query, where: is_nil(p.private_owner_uid))
+      do: Ash.Query.filter(query, private_owner_uid == ^owner),
+      else: Ash.Query.filter(query, is_nil(private_owner_uid))
   end
 
-  def delete(uid, id, authority \\ nil) do
-    mutate(authority, fn ->
-      lock_tree()
+  def delete(uid, id, authority \\ nil),
+    do: run(:delete_page, %{uid: uid, id: id, authority: authority})
 
-      with {:ok, page} <- lock(id),
-           {:ok, _} <- Access.authorize(uid, page, "page_manage"),
-           {:ok, page} <-
-             Ankole.Ash.update(page, :trash, %{}),
-           :ok <- schedule_purge(page) do
-        {:ok, page}
-      end
-    end)
+  @doc false
+  def delete_in_tx(uid, id) do
+    lock_tree()
+
+    with {:ok, page} <- lock(id),
+         {:ok, _} <- Access.authorize(uid, page, "page_manage"),
+         {:ok, page} <- Ankole.Ash.update(page, :trash, %{}),
+         :ok <- schedule_purge(page) do
+      {:ok, page}
+    end
   end
 
-  def delete_embed(uid, parent_id, child_id, authority \\ nil) do
-    mutate(authority, fn ->
-      lock_tree()
+  def delete_embed(uid, parent_id, child_id, authority \\ nil),
+    do:
+      run(:delete_embedded_page, %{
+        uid: uid,
+        parent_id: parent_id,
+        child_id: child_id,
+        authority: authority
+      })
 
-      with {:ok, parent} <- authorize(uid, parent_id, "page_edit") do
-        parent_id = parent.id
+  @doc false
+  def delete_embed_in_tx(uid, parent_id, child_id) do
+    lock_tree()
 
-        case lock(child_id) do
-          {:ok, %Page{parent_id: ^parent_id} = child} -> delete_embedded_child(uid, child)
-          _reference -> {:ok, nil}
-        end
+    with {:ok, parent} <- authorize(uid, parent_id, "page_edit") do
+      parent_id = parent.id
+
+      case lock(child_id) do
+        {:ok, %Page{parent_id: ^parent_id} = child} -> delete_embedded_child(uid, child)
+        _reference -> {:ok, nil}
       end
-    end)
+    end
   end
 
   defp delete_embedded_child(uid, child) do
@@ -211,22 +228,24 @@ defmodule Ankole.Pod.Pages do
          do: {:ok, nil}
   end
 
-  def restore(uid, id, authority \\ nil) do
-    mutate(authority, fn ->
-      lock_tree()
+  def restore(uid, id, authority \\ nil),
+    do: run(:restore_page, %{uid: uid, id: id, authority: authority})
 
-      with {:ok, page} <- lock(id),
-           {:ok, _} <- Access.authorize(uid, page, "page_manage", trash: true),
-           true <- not is_nil(page.deleted_at),
-           true <- is_nil(page.purge_started_at),
-           {:ok, path} <- Access.path(page),
-           true <- Enum.all?(Enum.drop(path, -1), &is_nil(&1.deleted_at)) do
-        Ankole.Ash.update(page, :restore, %{})
-      else
-        false -> {:error, :cannot_restore}
-        error -> error
-      end
-    end)
+  @doc false
+  def restore_in_tx(uid, id) do
+    lock_tree()
+
+    with {:ok, page} <- lock(id),
+         {:ok, _} <- Access.authorize(uid, page, "page_manage", trash: true),
+         true <- not is_nil(page.deleted_at),
+         true <- is_nil(page.purge_started_at),
+         {:ok, path} <- Access.path(page),
+         true <- Enum.all?(Enum.drop(path, -1), &is_nil(&1.deleted_at)) do
+      Ankole.Ash.update(page, :restore, %{})
+    else
+      false -> {:error, :cannot_restore}
+      error -> error
+    end
   end
 
   def list(uid, opts \\ %{}) do
@@ -251,11 +270,17 @@ defmodule Ankole.Pod.Pages do
           Map.keys(visible)
         end
 
-      query = from(p in Page, where: p.id in ^ids, order_by: [asc: p.position, asc: p.id])
-      pages = query |> filter_search(Ankole.Attrs.get(opts, :query)) |> Repo.all()
+      pages =
+        Page
+        |> Ash.Query.filter(id in ^ids)
+        |> filter_search(Ankole.Attrs.get(opts, :query))
+        |> Ash.Query.sort(position: :asc, id: :asc)
+        |> Ankole.Ash.read!()
 
       states =
-        Repo.all(from s in PageUserState, where: s.principal_uid == ^uid)
+        PageUserState
+        |> Ash.Query.filter(principal_uid == ^uid)
+        |> Ankole.Ash.read!()
         |> Map.new(&{&1.page_id, &1})
 
       pages = Enum.filter(pages, &in_scope?(&1, uid, scope, visible, states, navigation))
@@ -274,14 +299,18 @@ defmodule Ankole.Pod.Pages do
   end
 
   def get(uid, id) do
-    with {:ok, detail} <-
-           Repo.transact(fn _repo ->
-             with {:ok, page} <- __MODULE__.lock(id, :share),
-                  {:ok, page} <- Access.authorize_with_role(uid, page) do
-               {:ok, %{page: page, content: Repo.get(PageContent, page.id), role: page.role}}
-             end
-           end) do
+    with {:ok, detail} <- run(:read_page, %{uid: uid, id: id}) do
       {:ok, Map.put(detail, :source_conversation, source_status(uid, detail.page))}
+    end
+  end
+
+  @doc false
+  def get_in_tx(uid, id) do
+    with {:ok, page} <- lock(id, :share),
+         {:ok, page} <- Access.authorize_with_role(uid, page),
+         {:ok, content} <-
+           PageContent |> Ash.Query.filter(page_id == ^page.id) |> Ankole.Ash.read_one() do
+      {:ok, %{page: page, content: content, role: page.role}}
     end
   end
 
@@ -298,30 +327,41 @@ defmodule Ankole.Pod.Pages do
           end
         end)
 
-      state = %PageUserState{principal_uid: uid, page_id: id}
-
-      if changes == %{},
-        do: {:ok, Repo.get_by(PageUserState, principal_uid: uid, page_id: id) || state},
-        else: put_state(state, changes)
+      if changes == %{} do
+        with {:ok, state} <-
+               PageUserState
+               |> Ash.Query.filter(principal_uid == ^uid and page_id == ^id)
+               |> Ankole.Ash.read_one(),
+             do: {:ok, state || %PageUserState{principal_uid: uid, page_id: id}}
+      else
+        Ankole.Ash.run_action(PageUserState, :save, %{
+          principal_uid: uid,
+          page_id: id,
+          changes: changes
+        })
+      end
     end
   end
 
-  defp put_state(state, changes) do
-    Repo.transact(fn _repo ->
-      with {:ok, updated} <-
-             Ankole.Ash.create(
-               PageUserState,
-               :put,
-               Map.merge(changes, Map.take(state, [:principal_uid, :page_id])),
-               upsert_fields: Map.keys(changes)
-             ) do
-        if is_nil(updated.favorited_at) and is_nil(updated.visited_at) do
-          {:ok, _} = Ankole.Ash.destroy(updated, :remove_empty)
-        end
+  @doc """
+  Saves one person's page flags in the caller's transaction.
 
-        {:ok, updated}
+  The upsert changes only the supplied fields. A row without flags is removed.
+  """
+  def save_state_in_tx(principal_uid, page_id, changes) do
+    with {:ok, updated} <-
+           Ankole.Ash.create(
+             PageUserState,
+             :put,
+             Map.merge(changes, %{principal_uid: principal_uid, page_id: page_id}),
+             upsert_fields: Map.keys(changes)
+           ) do
+      if is_nil(updated.favorited_at) and is_nil(updated.visited_at) do
+        {:ok, _} = Ankole.Ash.destroy(updated, :remove_empty)
       end
-    end)
+
+      {:ok, updated}
+    end
   end
 
   defp state_flags(attrs) when is_map(attrs) do
@@ -351,24 +391,26 @@ defmodule Ankole.Pod.Pages do
     with {:ok, _} <- Access.principal(uid), do: {:ok, sharing_subjects()}
   end
 
-  def set_sharing(uid, id, attrs, authority \\ nil) do
-    mutate(authority, fn ->
-      lock_tree()
+  def set_sharing(uid, id, attrs, authority \\ nil),
+    do: run(:set_page_sharing, %{uid: uid, id: id, attrs: attrs, authority: authority})
 
-      with {:ok, page} <- lock(id),
-           {:ok, _} <- Access.authorize(uid, page, "page_manage"),
-           :ok <- sharing_cas(page, Ankole.Attrs.get(attrs, :sharing_version)),
-           {:ok, grants} <- normalize_grants(Ankole.Attrs.get(attrs, :grants, :unchanged)),
-           {:ok, page} <-
-             Ankole.Ash.update(page, :sharing, %{
-               inherit_permissions:
-                 Ankole.Attrs.get(attrs, :inherit_permissions, page.inherit_permissions)
-             }),
-           :ok <- replace_grants(id, grants),
-           :ok <- retain_manager(uid, page) do
-        {:ok, page}
-      end
-    end)
+  @doc false
+  def set_sharing_in_tx(uid, id, attrs) do
+    lock_tree()
+
+    with {:ok, page} <- lock(id),
+         {:ok, _} <- Access.authorize(uid, page, "page_manage"),
+         :ok <- sharing_cas(page, Ankole.Attrs.get(attrs, :sharing_version)),
+         {:ok, grants} <- normalize_grants(Ankole.Attrs.get(attrs, :grants, :unchanged)),
+         {:ok, page} <-
+           Ankole.Ash.update(page, :sharing, %{
+             inherit_permissions:
+               Ankole.Attrs.get(attrs, :inherit_permissions, page.inherit_permissions)
+           }),
+         :ok <- replace_grants(page.id, grants),
+         :ok <- retain_manager(uid, page) do
+      {:ok, page}
+    end
   end
 
   def space(uid) do
@@ -385,12 +427,10 @@ defmodule Ankole.Pod.Pages do
         end
 
       agent_grants =
-        Repo.all(
-          from(grant in Ankole.AuthZ.Grant,
-            where:
-              grant.resource_pattern == "pod:space:**" and not is_nil(grant.principal_uid) and
-                grant.action in ~w(page_view page_edit page_manage)
-          )
+        Access.grants(
+          resource_pattern: "pod:space:**",
+          principal_uid: [is_nil: false],
+          action: [in: Access.page_actions()]
         )
 
       agents = agent_grants |> grouped_grants() |> Enum.filter(&(&1.kind == :agent))
@@ -398,49 +438,53 @@ defmodule Ankole.Pod.Pages do
     end
   end
 
-  def set_space(uid, role, authority \\ nil) do
-    mutate(authority, fn ->
-      lock_tree()
+  def set_space(uid, role, authority \\ nil),
+    do: run(:set_space_role, %{uid: uid, role: role, authority: authority})
 
-      with :ok <- AuthZ.authorize(uid, "pod:space", "update"),
-           {:ok, group} <- Access.space_group(),
-           :ok <- Access.put_role(%{group_id: group.id}, "pod:space:**", role),
-           do: {:ok, %{role: role}}
-    end)
+  @doc false
+  def set_space_in_tx(uid, role) do
+    lock_tree()
+
+    with :ok <- AuthZ.authorize(uid, "pod:space", "update"),
+         {:ok, group} <- Access.space_group(),
+         :ok <- Access.put_role(%{group_id: group.id}, "pod:space:**", role),
+         do: {:ok, %{role: role}}
   end
 
-  def space_agent(uid, agent_uid, role, authority \\ nil) do
-    mutate(authority, fn ->
-      lock_tree()
+  def space_agent(uid, agent_uid, role, authority \\ nil),
+    do: run(:set_space_agent, %{uid: uid, agent_uid: agent_uid, role: role, authority: authority})
 
-      with :ok <- AuthZ.authorize(uid, "pod:space", "update"),
-           {:ok, %{type: :agent}} <- Ankole.Principals.get_principal(agent_uid),
-           :ok <- Access.put_role(%{principal_uid: agent_uid}, "pod:space:**", role) do
-        {:ok, %{principal_uid: agent_uid, role: role}}
-      else
-        {:ok, _principal} -> {:error, :invalid_principal}
-        error -> error
-      end
-    end)
+  @doc false
+  def space_agent_in_tx(uid, agent_uid, role) do
+    lock_tree()
+
+    with :ok <- AuthZ.authorize(uid, "pod:space", "update"),
+         {:ok, %{type: :agent}} <- Ankole.Principals.get_principal(agent_uid),
+         :ok <- Access.put_role(%{principal_uid: agent_uid}, "pod:space:**", role) do
+      {:ok, %{principal_uid: agent_uid, role: role}}
+    else
+      {:ok, _principal} -> {:error, :invalid_principal}
+      error -> error
+    end
   end
 
-  def remove_space_agent(uid, agent_uid, authority \\ nil) do
-    mutate(authority, fn ->
-      lock_tree()
+  def remove_space_agent(uid, agent_uid, authority \\ nil),
+    do: run(:remove_space_agent, %{uid: uid, agent_uid: agent_uid, authority: authority})
 
-      with :ok <- AuthZ.authorize(uid, "pod:space", "update") do
-        Repo.all(
-          from(g in Ankole.AuthZ.Grant,
-            where:
-              g.principal_uid == ^agent_uid and g.resource_pattern == "pod:space:**" and
-                g.action in ~w(page_view page_edit page_manage)
-          )
-        )
-        |> Access.remove_grants()
+  @doc false
+  def remove_space_agent_in_tx(uid, agent_uid) do
+    lock_tree()
 
-        {:ok, %{principal_uid: agent_uid}}
-      end
-    end)
+    with :ok <- AuthZ.authorize(uid, "pod:space", "update") do
+      Access.grants(
+        principal_uid: agent_uid,
+        resource_pattern: "pod:space:**",
+        action: [in: Access.page_actions()]
+      )
+      |> Access.remove_grants()
+
+      {:ok, %{principal_uid: agent_uid}}
+    end
   end
 
   def reconcile_versions(uid, page_ids, table_ids)
@@ -451,11 +495,11 @@ defmodule Ankole.Pod.Pages do
       visible = for {id, item} <- navigation, visible?(item), do: id
 
       tables =
-        Repo.all(
-          from t in Ankole.Pod.DbTable,
-            where: t.id in ^table_ids and t.page_id in ^visible,
-            select: %{id: t.id, data_version: t.data_version}
-        )
+        Ankole.Pod.DbTable
+        |> Ash.Query.filter(id in ^table_ids and page_id in ^visible)
+        |> Ash.Query.select([:id, :data_version])
+        |> Ankole.Ash.read!()
+        |> Enum.map(&Map.take(&1, [:id, :data_version]))
 
       {:ok,
        %{
@@ -469,25 +513,26 @@ defmodule Ankole.Pod.Pages do
 
   defp page_versions(ids, navigation) do
     visible = for id <- Enum.uniq(ids), item = navigation[id], item && visible?(item), do: id
-    Map.new(Repo.all(from p in Page, where: p.id in ^visible, select: {p.id, p.revision}))
+
+    Page
+    |> Ash.Query.filter(id in ^visible)
+    |> Ash.Query.select([:id, :revision])
+    |> Ankole.Ash.read!()
+    |> Map.new(&{&1.id, &1.revision})
   end
 
   defp visible?(item),
     do: not item.deleted and not item.ancestor_deleted and Bitwise.band(item.actions, 1) != 0
 
+  @doc "Locks one page row in the caller's transaction."
   def lock(id, mode \\ :update) when mode in [:update, :share] do
-    with {:ok, id} <- Ecto.UUID.cast(id) do
-      query = from(p in Page, where: p.id == ^id)
-
-      query =
-        if mode == :share,
-          do: from(p in query, lock: "FOR SHARE"),
-          else: from(p in query, lock: "FOR UPDATE")
-
-      case Repo.one(query) do
-        %Page{} = page -> {:ok, page}
-        nil -> {:error, :not_found}
-      end
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         %Page{} = page <-
+           Page
+           |> Ash.Query.filter(id == ^id)
+           |> Ash.Query.lock(if(mode == :share, do: "FOR SHARE", else: :for_update))
+           |> Ankole.Ash.read_one!() do
+      {:ok, page}
     else
       _ -> {:error, :not_found}
     end
@@ -508,17 +553,17 @@ defmodule Ankole.Pod.Pages do
     Phoenix.PubSub.broadcast(Ankole.PubSub, "pod-access:" <> Repo.tenant_id!(), :recheck_access)
   end
 
-  defp mutate(authority, fun, opts \\ []) do
-    nested? = Repo.in_transaction?()
-    result = Access.write_transaction(authority, fn _repo -> fun.() end)
-
-    if not nested? and match?({:ok, _}, result) do
-      if Keyword.get(opts, :access, true), do: broadcast_access()
-      if match?({:ok, %Page{}}, result), do: broadcast(elem(result, 1).id)
-    end
-
-    result
+  @doc "Publishes a committed tree or permission change, and the changed page."
+  def committed(result) do
+    broadcast_access()
+    committed_page(result)
   end
+
+  @doc "Publishes a committed change of one page."
+  def committed_page(%Page{id: id}), do: broadcast(id)
+  def committed_page(_result), do: :ok
+
+  defp run(action, arguments), do: Ankole.Ash.run_action(Page, action, arguments)
 
   defp destination(uid, parent, owner, initialize_private \\ true)
 
@@ -564,9 +609,13 @@ defmodule Ankole.Pod.Pages do
 
   defp next_position(parent, owner) do
     last =
-      from(p in Page, order_by: [desc: p.position], limit: 1, select: p.position)
+      Page
       |> in_destination(parent, owner)
-      |> Repo.one()
+      |> Ash.Query.sort(position: :desc)
+      |> Ash.Query.select([:position])
+      |> Ash.Query.limit(1)
+      |> Ankole.Ash.read_one!()
+      |> then(&(&1 && &1.position))
 
     case Position.between(last, nil) do
       {:ok, position} -> position
@@ -591,12 +640,7 @@ defmodule Ankole.Pod.Pages do
 
   defp filter_search(query, term) when is_binary(term) and term != "" do
     term = "%" <> Repo.escape_like(term) <> "%"
-
-    from(p in query,
-      left_join: c in PageContent,
-      on: c.page_id == p.id,
-      where: ilike(p.title, ^term) or ilike(c.plain_text, ^term)
-    )
+    Ash.Query.filter(query, ilike(title, ^term) or exists(content, ilike(plain_text, ^term)))
   end
 
   defp filter_search(query, _term), do: query
@@ -725,8 +769,8 @@ defmodule Ankole.Pod.Pages do
 
   defp source_message(uid, id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         %Ankole.Conversations.Message{} = message <-
-           Repo.get_by(Ankole.Conversations.Message, id: id),
+         {:ok, %Ankole.Conversations.Message{} = message} <-
+           Ankole.Conversations.get_message(id),
          {:ok, _} <- source_conversation(uid, message.conversation_id),
          do: {:ok, message},
          else: (_ -> {:error, :not_found})
@@ -735,7 +779,7 @@ defmodule Ankole.Pod.Pages do
   defp source_status(_uid, %{saved_from_message_id: nil}), do: nil
 
   defp source_status(uid, page) do
-    case Repo.get_by(Ankole.Conversations.Message, id: page.saved_from_message_id) do
+    case Ankole.Conversations.get_message!(page.saved_from_message_id) do
       nil ->
         %{deleted: true}
 
@@ -760,8 +804,7 @@ defmodule Ankole.Pod.Pages do
       if principal.type == :agent do
         Ankole.Conversations.Target.conversation_for_agent_in_tx(Repo, uid, id)
       else
-        with {:ok, %{conversation: conversation}} <- Ankole.Conversations.get(uid, id),
-             do: {:ok, conversation}
+        Ankole.Conversations.visible_native_conversation(uid, id)
       end
     end
   end

@@ -37,12 +37,11 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
 
   @behaviour Ankole.Conversations.Delivery.PreviewAdapter
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Plugins.DingTalkAdapter.InteractiveCard
   alias Ankole.Plugins.DingTalkAdapter.Markdown
   alias Ankole.Plugins.DingTalkAdapter.Delivery
-  alias Ankole.Repo
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.Conversation
   alias Ankole.Conversations.Delivery.ReplyPresentation
@@ -157,7 +156,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     checkpoint
     |> Map.merge(%{"degraded" => true, "degraded_reason" => to_string(reason)})
     |> merge_common(presentation, request, true)
-    |> then(&PreviewState.put_checkpoint(event.id, &1))
+    |> then(&PreviewStates.put_checkpoint(event.id, &1))
   end
 
   defp reconcile_card(
@@ -201,7 +200,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
         )
 
       with {:ok, _event} <-
-             PreviewState.put_checkpoint(event.id, checkpoint) do
+             PreviewStates.put_checkpoint(event.id, checkpoint) do
         {:ok, delivery_result(event, page_records, checkpoint)}
       end
     end
@@ -634,7 +633,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   defp text_or_empty(_other), do: ""
 
   defp resolve_space(%Signal{conversation_id: conversation_id}) do
-    case Repo.get_by(Conversation, id: conversation_id) do
+    case Ankole.Conversations.get_conversation!(conversation_id) do
       %Conversation{external_kind: :im_dm, metadata: metadata} ->
         case metadata["dm_user_id"] do
           user_id when is_binary(user_id) -> {:ok, {:dm, user_id}}
@@ -731,7 +730,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
 
     %{
       created_provider_message_id:
-        PreviewState.get(event).provider_message_id ||
+        PreviewStates.get(event).provider_message_id ||
           first_out_track_id,
       messages:
         Enum.map(page_records, fn record ->
@@ -780,7 +779,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
         |> merge_common(presentation, request, true)
 
       with {:ok, _event} <-
-             PreviewState.put_checkpoint(event.id, checkpoint) do
+             PreviewStates.put_checkpoint(event.id, checkpoint) do
         case failure do
           nil ->
             {:ok,

@@ -4,8 +4,9 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
 import { ErrorBlock } from '../../common/error-block'
-import { ankoleWebWorkerProviderControllerAssignMutation } from '../api/generated/@tanstack/react-query.gen'
-import type { AgentItem, WorkerProvider } from '../api/generated/types.gen'
+import type { AgentItem } from '../api/agents'
+import { assignAgentWorkerProviderMutation } from '../api/v2/generated/@tanstack/react-query.gen'
+import type { WorkerProvider } from '../state/worker-provider-editor-model'
 import { FormSection, LabeledField, ReadOnlyValue } from '../console-form'
 
 export function WorkerProviderSelect({
@@ -50,7 +51,7 @@ export function AgentWorkerProvider({ agent, providers }: { agent: AgentItem; pr
   const { t } = useTranslation()
   const [providerID, setProviderID] = useState('')
   const assign = useMutation({
-    ...ankoleWebWorkerProviderControllerAssignMutation(),
+    ...assignAgentWorkerProviderMutation(),
     onSuccess: () => {
       toast.success(t('console.worker_providers.assigned'))
     }
@@ -79,7 +80,9 @@ export function AgentWorkerProvider({ agent, providers }: { agent: AgentItem; pr
             type="button"
             size="sm"
             disabled={!providerID || assign.isPending}
-            onClick={() => assign.mutate({ path: { agent_uid: agent.uid }, body: { provider_id: providerID } })}>
+            onClick={() =>
+              assign.mutate({ path: { agent_uid: agent.uid }, body: { data: { provider_id: providerID } } })
+            }>
             {t('console.worker_providers.assign')}
           </Button>
         </>

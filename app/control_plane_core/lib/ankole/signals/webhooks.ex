@@ -7,7 +7,6 @@ defmodule Ankole.Signals.Webhooks do
   facts through the external system before it makes a consequential change.
   """
 
-  import Ecto.Query, warn: false
   require Ash.Query
 
   alias Ankole.Signals.Target, as: ExecutionTarget
@@ -41,28 +40,54 @@ defmodule Ankole.Signals.Webhooks do
   def create_endpoint(attrs, opts \\ [])
 
   def create_endpoint(attrs, opts) when is_map(attrs) do
+    with {:ok, attrs, token} <- prepare_endpoint(attrs, opts) do
+      attrs |> Ankole.Signals.create_webhook_endpoint(token) |> Ankole.Errors.reason()
+    end
+  end
+
+  def create_endpoint(_attrs, _opts), do: {:error, :invalid_webhook_endpoint}
+
+  @doc false
+  # The Console creates a standing CloudEvents endpoint for an operator.
+  def create_operator_endpoint_in_tx(repo, %{label: label, expires_at: expires_at}) do
+    with {:ok, attrs, token} <-
+           prepare_endpoint(
+             %{
+               label: label,
+               expires_at: expires_at,
+               mode: "standing",
+               event_format: "cloudevents",
+               source_provenance: %{"kind" => "operator_api"}
+             },
+             []
+           ) do
+      create_endpoint_in_tx(repo, attrs, token)
+    end
+  end
+
+  defp prepare_endpoint(attrs, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
     token = "wh_" <> Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
 
     with {:ok, attrs} <- create_attrs(attrs, token),
          :ok <- validate_public_target(attrs),
          :ok <- validate_expiry(attrs, now) do
-      Repo.transact(fn repo ->
-        with :ok <-
-               AutomationJobs.validate_bindable_in_tx(
-                 repo,
-                 Map.get(attrs, "automation_job_id"),
-                 Map.fetch!(attrs, "agent_uid")
-               ),
-             {:ok, endpoint} <-
-               Ankole.Ash.create(WebhookEndpoint, :create, attrs) do
-          {:ok, %{webhook_endpoint: endpoint, token: token}}
-        end
-      end)
+      {:ok, attrs, token}
     end
   end
 
-  def create_endpoint(_attrs, _opts), do: {:error, :invalid_webhook_endpoint}
+  @doc false
+  def create_endpoint_in_tx(repo, attrs, token) do
+    with :ok <-
+           AutomationJobs.validate_bindable_in_tx(
+             repo,
+             Map.get(attrs, "automation_job_id"),
+             Map.fetch!(attrs, "agent_uid")
+           ),
+         {:ok, endpoint} <- Ankole.Ash.create(WebhookEndpoint, :create, attrs) do
+      {:ok, %{webhook_endpoint: endpoint, token: token}}
+    end
+  end
 
   @doc """
   Lists webhook endpoints for one Agent session, for every session of the
@@ -83,9 +108,9 @@ defmodule Ankole.Signals.Webhooks do
     |> maybe_where_agent(agent_uid)
     |> maybe_where_session(session_id)
     |> maybe_active_only(Keyword.get(opts, :active_only, false), now)
-    |> order_by([endpoint], desc: endpoint.inserted_at, desc: endpoint.id)
-    |> limit(^limit)
-    |> Repo.all()
+    |> Ash.Query.sort(inserted_at: :desc, id: :desc)
+    |> Ash.Query.limit(limit)
+    |> Ankole.Ash.read!()
   end
 
   @doc """
@@ -108,19 +133,30 @@ defmodule Ankole.Signals.Webhooks do
              is_binary(endpoint_id) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    Repo.transact(fn repo ->
-      case lock_endpoint(repo, endpoint_id, agent_uid && String.downcase(agent_uid), session_id) do
-        %WebhookEndpoint{} = endpoint ->
-          cancel_locked_endpoint(repo, endpoint, now)
-
-        nil ->
-          {:error, :webhook_endpoint_not_found}
-      end
-    end)
+    agent_uid
+    |> Ankole.Signals.cancel_webhook_endpoint(session_id, endpoint_id, now)
+    |> Ankole.Errors.reason()
   end
 
   def cancel_endpoint(_agent_uid, _session_id, _endpoint_id, _opts),
     do: {:error, :webhook_endpoint_not_found}
+
+  @doc false
+  # The Console cancels an endpoint of any Agent and gives the endpoint.
+  def cancel_operator_endpoint_in_tx(repo, endpoint_id) do
+    case cancel_endpoint_in_tx(repo, nil, nil, endpoint_id, DateTime.utc_now(:microsecond)) do
+      {:ok, %{webhook_endpoint: endpoint}} -> {:ok, endpoint}
+      error -> Ankole.Errors.not_found(error, [:webhook_endpoint_not_found], WebhookEndpoint)
+    end
+  end
+
+  @doc false
+  def cancel_endpoint_in_tx(_repo, agent_uid, session_id, endpoint_id, now) do
+    case lock_endpoint(endpoint_id, agent_uid && String.downcase(agent_uid), session_id) do
+      %WebhookEndpoint{} = endpoint -> cancel_locked_endpoint(endpoint, now)
+      nil -> {:error, :webhook_endpoint_not_found}
+    end
+  end
 
   @doc """
   Accepts one callback and stores its Signal or automation job run in the
@@ -149,26 +185,40 @@ defmodule Ankole.Signals.Webhooks do
 
   defp receive_at_endpoint(token, format, input, now) do
     with :ok <- validate_token(token),
-         %WebhookEndpoint{tenant_id: tenant_id} <-
-           Repo.across_tenants(fn ->
-             Repo.get_by(WebhookEndpoint, token_digest: token_digest(token))
-           end) do
+         %WebhookEndpoint{tenant_id: tenant_id} <- endpoint_across_tenants(token) do
       Repo.with_tenant(tenant_id, fn ->
-        Repo.transact(fn repo ->
-          case lock_endpoint_by_token(repo, token) do
-            %WebhookEndpoint{event_format: ^format} = endpoint ->
-              receive_locked(repo, endpoint, input, now)
-
-            %WebhookEndpoint{} ->
-              {:error, :webhook_endpoint_not_found}
-
-            nil ->
-              {:error, :webhook_endpoint_not_found}
-          end
-        end)
+        token
+        |> Ankole.Signals.receive_webhook(format, input, now)
+        |> Ankole.Errors.reason()
       end)
     else
       _ -> {:error, :webhook_endpoint_not_found}
+    end
+  end
+
+  # The capability token selects the tenant before any tenant context exists.
+  defp endpoint_across_tenants(token) do
+    digest = token_digest(token)
+
+    Repo.across_tenants(fn ->
+      WebhookEndpoint
+      |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
+      |> Ash.Query.filter(token_digest == ^digest)
+      |> Ash.read_one!(authorize?: false)
+    end)
+  end
+
+  @doc false
+  def receive_in_tx(repo, token, format, input, now) do
+    case lock_endpoint_by_token(token) do
+      %WebhookEndpoint{event_format: ^format} = endpoint ->
+        receive_locked(repo, endpoint, input, now)
+
+      %WebhookEndpoint{} ->
+        {:error, :webhook_endpoint_not_found}
+
+      nil ->
+        {:error, :webhook_endpoint_not_found}
     end
   end
 
@@ -199,50 +249,12 @@ defmodule Ankole.Signals.Webhooks do
   """
   @spec expire_due(DateTime.t()) :: non_neg_integer()
   def expire_due(%DateTime{} = now) do
-    {:ok, count} =
-      Repo.transact(fn repo ->
-        WebhookEndpoint
-        |> Ash.Query.filter(status in ^@active_statuses and expires_at <= ^now)
-        |> Ankole.Ash.bulk_update(:expire, %{},
-          strategy: [:atomic],
-          return_records?: true,
-          return_errors?: true
-        )
-        |> case do
-          %Ash.BulkResult{status: :success, records: records} -> {:ok, length(records)}
-          %Ash.BulkResult{errors: errors} -> repo.rollback(errors)
-        end
-      end)
+    {:ok, expired} =
+      WebhookEndpoint
+      |> Ash.Query.filter(status in ^@active_statuses and expires_at <= ^now)
+      |> Ankole.Ash.update_where(:expire)
 
-    count
-  end
-
-  @doc """
-  Returns the Console-safe endpoint projection.
-  """
-  @spec console_projection(WebhookEndpoint.t()) :: map()
-  def console_projection(%WebhookEndpoint{} = endpoint) do
-    %{
-      id: endpoint.id,
-      agent_uid: endpoint.agent_uid,
-      binding_name: endpoint.binding_name,
-      session_id: endpoint.session_id,
-      conversation_id: endpoint.conversation_id,
-      provider_thread_id: endpoint.provider_thread_id,
-      source_signal_id: endpoint.source_signal_id,
-      event_format: endpoint.event_format,
-      provider_message_id: endpoint.provider_message_id,
-      source_provenance: endpoint.source_provenance || %{},
-      automation_job_id: endpoint.automation_job_id,
-      label: endpoint.label,
-      mode: endpoint.mode,
-      status: Atom.to_string(endpoint.status),
-      expires_at: Ankole.Attrs.datetime_iso8601(endpoint.expires_at),
-      fired_at: Ankole.Attrs.datetime_iso8601(endpoint.fired_at),
-      cancelled_at: Ankole.Attrs.datetime_iso8601(endpoint.cancelled_at),
-      created_at: Ankole.Attrs.datetime_iso8601(endpoint.inserted_at),
-      updated_at: Ankole.Attrs.datetime_iso8601(endpoint.updated_at)
-    }
+    length(expired)
   end
 
   @doc """
@@ -305,7 +317,7 @@ defmodule Ankole.Signals.Webhooks do
 
   defp validate_public_target(_attrs), do: :ok
 
-  defp cancel_locked_endpoint(_repo, endpoint, now) do
+  defp cancel_locked_endpoint(endpoint, now) do
     cond do
       endpoint.status not in @active_statuses ->
         {:ok, %{status: :already_terminal, webhook_endpoint: endpoint}}
@@ -457,43 +469,44 @@ defmodule Ankole.Signals.Webhooks do
   defp maybe_mark_fired(_repo, %WebhookEndpoint{mode: "standing"} = endpoint, _now),
     do: {:ok, endpoint}
 
-  defp lock_endpoint(repo, endpoint_id, agent_uid, session_id) do
-    WebhookEndpoint
-    |> where([endpoint], endpoint.id == ^endpoint_id)
-    |> maybe_where_agent(agent_uid)
-    |> maybe_where_session(session_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
+  defp lock_endpoint(endpoint_id, agent_uid, session_id) do
+    with {:ok, endpoint_id} <- Ecto.UUID.cast(endpoint_id) do
+      WebhookEndpoint
+      |> Ash.Query.filter(id == ^endpoint_id)
+      |> maybe_where_agent(agent_uid)
+      |> maybe_where_session(session_id)
+      |> Ash.Query.lock(:for_update)
+      |> Ankole.Ash.read_one!()
+    else
+      :error -> nil
+    end
   end
 
-  defp lock_endpoint_by_token(repo, token) do
+  defp lock_endpoint_by_token(token) do
     digest = token_digest(token)
 
     WebhookEndpoint
-    |> where([endpoint], endpoint.token_digest == ^digest)
-    |> lock("FOR UPDATE")
-    |> repo.one()
+    |> Ash.Query.filter(token_digest == ^digest)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
   end
 
   defp maybe_where_agent(query, nil), do: query
 
-  defp maybe_where_agent(query, agent_uid),
-    do: where(query, [endpoint], endpoint.agent_uid == ^String.downcase(agent_uid))
+  defp maybe_where_agent(query, agent_uid) do
+    agent_uid = String.downcase(agent_uid)
+    Ash.Query.filter(query, agent_uid == ^agent_uid)
+  end
 
   defp maybe_where_session(query, nil), do: query
 
   defp maybe_where_session(query, session_id),
-    do: where(query, [endpoint], endpoint.session_id == ^session_id)
+    do: Ash.Query.filter(query, session_id == ^session_id)
 
   defp maybe_active_only(query, false, _now), do: query
 
-  defp maybe_active_only(query, true, now) do
-    where(
-      query,
-      [endpoint],
-      endpoint.status in ^@active_statuses and endpoint.expires_at > ^now
-    )
-  end
+  defp maybe_active_only(query, true, now),
+    do: Ash.Query.filter(query, status in ^@active_statuses and expires_at > ^now)
 
   defp allowlisted_header?("content-type"), do: true
   defp allowlisted_header?("x-hub-signature-256"), do: true

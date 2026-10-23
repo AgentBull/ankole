@@ -20,14 +20,24 @@ lifecycle state. Tenant-owned schemas declare that ownership through
 predicate before executing queries. A missing context fails. Site-owned schemas
 and deliberate `Repo.across_tenants` operations are explicit.
 
-The site-owned `Tenant` resource belongs to `Ankole.Tenants.Domain`. Its typed
-actions own profile validation and persistence. Profile writes cannot set
+The site-owned `Tenant` resource belongs to the `Ankole.Tenants` domain. Its
+typed actions own profile validation and persistence. Profile writes cannot set
 suspension or deletion markers. Dedicated lifecycle actions set those markers;
 repeated deletion preserves the first deletion time. The final destroy action
-requires a deletion marker. `Tenants` owns the administration and tenant
-locks, scaffold transaction, protected-tenant checks, and deletion job. The
-deletion job removes external resources and durable child rows in dependency
-order before it calls the final destroy action.
+requires a deletion marker. Each lifecycle operation (scaffold, profile
+change, suspend, resume, begin deletion, site-administration transfer) and the
+creation are generic actions of `Tenant`. A lifecycle action locks the
+site-administration row and then the tenant row in its own transaction, and
+checks the protected tenant. Another domain does the same steps in its
+transaction through the `_in_tx` functions, for example `Tenants.create_in_tx/2`
+in the SaaS Pod creation. The site JSON:API serves these actions at
+`/api/v2/site/tenants` (list, Brain pack names, create, profile change,
+suspension as `POST`/`DELETE …/suspension`, begin deletion) and
+`/api/v2/site/privileged-tenant` (read, transfer). The
+deletion job is a registered set maintenance module: it removes external
+resources and durable child rows in dependency order with tenant-scoped SQL
+before it calls the final destroy action. No generic cascade replaces that
+lifecycle.
 
 Oban job and peer tables are site-owned. The `oban` query option does not skip
 tenant checks on business tables, subqueries or CTEs. Struct writes validate
@@ -55,10 +65,11 @@ process. Site-owned resources have site scope and need no process tenant. Ash
 assigns the tenant attribute. The Repo scopes each Ash read and write, so a
 forged tenant option cannot read or write the rows of another tenant. A
 dedicated global read action reads all tenants only in an explicit
-`Repo.across_tenants` block; in a tenant context, the Repo limits it to that
-tenant. UUID and Principal attributes
-use their domain codecs. Ash state fields use the transition list to
-configure the Ecto enum codec, so Ecto callers also receive canonical atoms.
+`Repo.across_tenants` block, which `Ankole.Ash.read_across_tenants!/2` opens;
+in a tenant context, the Repo limits it to that tenant. UUID and Principal
+attributes use their domain codecs. Ash state fields use the transition list to
+configure the Ecto enum codec, so Ecto callers also receive canonical atoms and
+a query rejects a state value outside the list.
 
 The resource transformer adds a tenant condition to each tenant resource upsert.
 `create_if_absent` keeps the first row and returns it on a repeated creation
@@ -99,9 +110,10 @@ query limits and `SKIP LOCKED` behavior. An application transaction with a track
 row lock and no declared identity fails in tests.
 
 Native constraints can reject a write after validation. They roll back the
-current transaction. After rollback, `Repo.transact` and `Repo.transaction`
-return the same Ash error shape as `Ankole.Ash` (`Ankole.Errors.boundary_result/1`).
-They preserve rollback reasons from other sources.
+current transaction with the Ash changeset. `Repo.transact` and
+`Repo.transaction` give that rollback as its Ash error class
+(`Ankole.Errors.rollback_result/1`) and give other rollback reasons without
+change.
 
 PostgreSQL RLS is not enabled. Repo isolation tests cover every tenant schema,
 query forms, joins, bulk writes, upserts, and stale or foreign-tenant structs.
@@ -159,8 +171,11 @@ session response includes the Console URL only when the current Pod Human is a
 siteadmin. The Pod sidebar then shows a Console link. The Console
 requires its own Console login.
 
-Console data APIs accept `x-ankole-tenant`; without it they use the operator's
-tenant. `/api/v1/site` APIs manage site resources and ignore that header. An
+Console operations under `/api/v2` and native Agent file transfers accept
+`x-ankole-tenant`; without it they use the operator's tenant. `/api/v2/site`
+operations manage site resources and ignore that header. The v2 routers give
+the selected tenant of `Ankole.Repo` to the Ash action
+(`AnkoleWeb.JSONAPI.Policy`); a v2 site route gets no tenant. An
 unknown or deleting selected tenant returns `data_tenant_unavailable`. The
 Console clears an obsolete selection and reloads. Switching tenants reloads the
 Console so drafts and cached results cannot move to another tenant. The URL

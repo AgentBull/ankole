@@ -31,8 +31,9 @@ defmodule Ankole.Plugins.InboundDatabaseFailureTest do
       }
     }
 
+    # The lookup reads through the Conversations domain, so Ash wraps the error.
     Ankole.Repo.with_tenant(Ankole.Ecto.UUIDv7.autogenerate(), fn ->
-      assert_raise DBConnection.OwnershipError, fn ->
+      assert_raise Ash.Error.Unknown, ~r/DBConnection.OwnershipError/, fn ->
         LineInbound.normalize_message_receive(envelope, consumer)
       end
     end)
@@ -53,8 +54,9 @@ defmodule Ankole.Plugins.InboundDatabaseFailureTest do
       }
     }
 
+    # The lookup reads through the Conversations domain, so Ash wraps the error.
     Ankole.Repo.with_tenant(Ankole.Ecto.UUIDv7.autogenerate(), fn ->
-      assert_raise DBConnection.OwnershipError, fn ->
+      assert_raise Ash.Error.Unknown, ~r/DBConnection.OwnershipError/, fn ->
         TelegramInbound.handle_reaction_update("message_reaction", update, [consumer])
       end
     end)

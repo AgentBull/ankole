@@ -7,30 +7,32 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
 
     * A Channel join is the only way into `ready` (`admit_join/2`). The socket
       already proved that the connection holds the credential of the current
-      generation. The join checks, under the row lock, that this generation
+      generation. Under the row lock, the join checks that this generation
       is still current, that the row may accept a process (`starting`,
-      `stale`, or `ready`), and that its protocol version is this node's,
-      rejects a new incarnation while the current connection has a fresh
-      heartbeat, then writes the route and incarnation.
+      `stale`, or `ready`), and that its protocol version is this node's.
+      Then one conditional update writes the route and incarnation. It
+      changes no row while another incarnation has a fresh heartbeat.
     * Heartbeat messages only renew a row that is
       ready or draining on the same route and incarnation. A ready row whose
       capacity changes broadcast to the Agent's drivers.
     * A row whose connection breaks or goes silent becomes `stale`; the control
       plane closes the old connection, and a live process must connect again.
 
-  Connection changes wake the Agent's drivers. A reconnect does not end a
-  Codex attempt or consume input; the driver probes its existing operation.
-  Times are database time.
+  Each change is a generic action of `AgentWorker`, which owns its
+  transaction. Connection changes wake the Agent's drivers after the commit.
+  A reconnect does not end a Codex attempt or consume input; the driver
+  probes its existing operation. Times are database time.
   """
 
-  import Ecto.Query, warn: false
   require Ash.Query
 
-  alias Ankole.Repo
-  alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AgentWorkers
   alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.AgentWorkers.WorkerRoute
+  alias Ankole.Errors
+  alias Ankole.Repo
+  alias Ankole.RuntimeFabric
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
 
   @join_states [:starting, :stale, :ready]
   @connected_states [:ready, :draining]
@@ -55,20 +57,18 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
     with {:ok, %{route: route, agent_uid: agent_uid}} <- authenticated(auth),
          generation when is_binary(generation) and generation != "" <-
            Map.get(auth, :generation) || {:error, :stale_worker_generation},
-         {:ok, attrs} <- ready_attrs(ready) do
-      result =
-        Repo.transact(fn repo -> admit_in_tx(repo, agent_uid, generation, route, attrs) end)
-
-      case result do
-        {:ok, %{worker: worker, replaced_route: replaced_route}} ->
-          AgentWorkers.notify_changed(agent_uid)
-          close_replaced_route(agent_uid, replaced_route, :worker_route_replaced)
-          {:ok, worker}
-
-        {:error, _reason} = error ->
-          error
-      end
-    end
+         {:ok, attrs} <- ready_attrs(ready),
+         {:ok, %{worker: worker}} <-
+           Errors.reason(
+             AgentWorkers.admit_worker(
+               agent_uid,
+               generation,
+               route,
+               attrs.incarnation_id,
+               attrs.capacity
+             )
+           ),
+         do: {:ok, worker}
   end
 
   @doc "Renews the row from a heartbeat on the admitted connection."
@@ -76,12 +76,18 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
           {:ok, AgentWorker.t()} | {:error, term()}
   def handle_worker_heartbeat(%FabricProto.WorkerHeartbeat{} = heartbeat, auth) do
     with {:ok, %{route: route, agent_uid: agent_uid}} <- authenticated(auth),
-         {:ok, incarnation_id} <- required_text(heartbeat.incarnation_id, "incarnation_id") do
-      renew(agent_uid, incarnation_id, route, %{
-        capacity: capacity(heartbeat.max_slots, heartbeat.available_slots),
-        load: load(heartbeat.active_slots, heartbeat.active_tasks, heartbeat.idle_for_ms)
-      })
-    end
+         {:ok, incarnation_id} <- required_text(heartbeat.incarnation_id, "incarnation_id"),
+         {:ok, %{worker: worker}} <-
+           Errors.reason(
+             AgentWorkers.renew_worker_connection(
+               agent_uid,
+               route,
+               incarnation_id,
+               capacity(heartbeat.max_slots, heartbeat.available_slots),
+               load(heartbeat.active_slots, heartbeat.active_tasks, heartbeat.idle_for_ms)
+             )
+           ),
+         do: {:ok, worker}
   end
 
   @doc """
@@ -94,24 +100,8 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
           {:ok, AgentWorker.t()} | {:error, term()}
   def handle_control_shutdown(%FabricProto.ControlShutdown{} = control_shutdown, auth) do
     with {:ok, %{route: route, agent_uid: agent_uid}} <- authenticated(auth),
-         {:ok, reason} <- required_text(control_shutdown.reason, "reason") do
-      Repo.transact(fn repo ->
-        case AgentWorkers.lock_in_tx(repo, agent_uid) do
-          %AgentWorker{state: state, transport_route: ^route} = worker
-          when state in @connected_states ->
-            with {:ok, worker} <- mark_draining(repo, worker, reason) do
-              {:ok, worker}
-            end
-
-          _worker ->
-            {:error, :worker_not_ready}
-        end
-      end)
-      |> tap(fn
-        {:ok, _worker} -> AgentWorkers.notify_changed(agent_uid)
-        _error -> :ok
-      end)
-    end
+         {:ok, reason} <- required_text(control_shutdown.reason, "reason"),
+         do: Errors.reason(AgentWorkers.drain_worker_connection(agent_uid, route, reason))
   end
 
   @doc """
@@ -127,24 +117,10 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
   @spec mark_route_unusable(String.t() | nil, term()) :: :ok | {:ok, term()} | {:error, term()}
   def mark_route_unusable(route, reason)
       when is_binary(route) and reason in [:unknown_route, :socket_closed] do
-    Repo.transact(fn repo ->
-      case lock_by_route(repo, route) do
-        %AgentWorker{} = worker ->
-          with {:ok, {worker, _route}} <- disconnect(repo, worker, Atom.to_string(reason)) do
-            {:ok, worker}
-          end
-
-        nil ->
-          {:ok, :route_not_registered}
-      end
-    end)
-    |> case do
-      {:ok, %AgentWorker{} = worker} ->
-        AgentWorkers.notify_changed(worker.agent_uid)
-        {:ok, :marked_stale}
-
-      result ->
-        result
+    case Errors.reason(AgentWorkers.release_worker_route(route)) do
+      {:ok, %AgentWorker{}} -> {:ok, :marked_stale}
+      {:ok, nil} -> {:ok, :route_not_registered}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -153,56 +129,17 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
   @doc "Expires a connection after 60 seconds without a heartbeat, on any control-plane node."
   @spec expire_connection(String.t()) :: :ok | {:error, term()}
   def expire_connection(agent_uid) do
-    with {:ok, disconnected} <-
-           Repo.transact(fn repo ->
-             worker =
-               repo.one(
-                 from(w in AgentWorker,
-                   where: w.agent_uid == ^agent_uid and w.state in ^@connected_states,
-                   where: not is_nil(w.transport_route),
-                   where:
-                     is_nil(w.last_worker_heartbeat_at) or
-                       w.last_worker_heartbeat_at <=
-                         fragment("clock_timestamp() - interval '60 seconds'"),
-                   lock: "FOR UPDATE"
-                 ),
-                 lock_identity: {"agent_workers", agent_uid}
-               )
-
-             if worker,
-               do: disconnect(repo, worker, "heartbeat_timeout"),
-               else: {:ok, nil}
-           end) do
-      if disconnected do
-        {worker, route} = disconnected
-        AgentWorkers.notify_changed(worker.agent_uid)
-        WorkerRoute.close_connection(worker.agent_uid, route, :worker_heartbeat_timeout)
-      end
-
-      :ok
-    end
+    with {:ok, _expired} <- Errors.reason(AgentWorkers.expire_worker_connection(agent_uid)),
+         do: :ok
   end
 
-  defp admit_in_tx(repo, agent_uid, generation, route, attrs) do
-    case AgentWorkers.lock_in_tx(repo, agent_uid) do
+  @doc false
+  def admit_in_tx(%{agent_uid: agent_uid, generation: generation} = input) do
+    case AgentWorkers.lock_in_tx(Repo, agent_uid) do
       %AgentWorker{state: state, generation: ^generation} = worker when state in @join_states ->
-        replaced_route = if worker.transport_route not in [nil, route], do: worker.transport_route
-
-        with {:ok, worker} <-
-               Ankole.Ash.update(worker, :admit, %{
-                 generation: generation,
-                 incarnation_id: attrs.incarnation_id,
-                 transport_route: route,
-                 capacity: attrs.capacity
-               }) do
-          {:ok, %{worker: worker, replaced_route: replaced_route}}
-        else
-          {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} ->
-            {:error, :worker_incarnation_active}
-
-          {:error, _reason} = error ->
-            error
-        end
+        if worker.protocol_version == RuntimeFabric.protocol_version(),
+          do: admit_locked(worker, input),
+          else: {:error, :protocol_mismatch}
 
       %AgentWorker{} ->
         {:error, :stale_worker_generation}
@@ -212,74 +149,114 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
     end
   end
 
-  # One conditional UPDATE: the row must still be connected on this route
-  # with this incarnation, so a message from an old connection or process
-  # changes nothing.
-  #
-  # A capacity change wakes drivers that are waiting for a slot.
-  defp renew(agent_uid, incarnation_id, route, changes) do
-    result =
-      Repo.transact(fn repo ->
-        previous = AgentWorkers.lock_in_tx(repo, agent_uid)
+  # The locked row is current. A zero-row update means that another
+  # incarnation still has a fresh heartbeat.
+  defp admit_locked(worker, %{route: route} = input) do
+    replaced_route = if worker.transport_route not in [nil, route], do: worker.transport_route
 
-        input =
-          changes
-          |> Map.take([:capacity, :load])
-          |> Map.reject(fn {_key, value} -> is_nil(value) end)
-          |> Map.merge(%{route: route, incarnation: incarnation_id})
+    attrs = %{
+      transport_route: route,
+      incarnation: input.incarnation,
+      capacity: input.capacity
+    }
 
-        case AgentWorker
-             |> Ash.Query.filter(agent_uid == ^agent_uid)
-             |> Ankole.Ash.bulk_update(:heartbeat, input,
-               strategy: [:atomic],
-               return_records?: true,
-               return_errors?: true
-             ) do
-          %Ash.BulkResult{status: :success, records: [worker]} ->
-            {:ok, {worker, previous.capacity != worker.capacity}}
-
-          %Ash.BulkResult{status: :success, records: []} ->
-            {:error, :stale_transport_route}
-
-          %Ash.BulkResult{errors: errors} ->
-            {:error, Ash.Error.to_error_class(errors)}
-        end
-      end)
-
-    case result do
-      {:ok, {worker, changed?}} ->
-        if changed?, do: AgentWorkers.notify_changed(agent_uid)
-        {:ok, worker}
-
-      {:error, _reason} = error ->
-        error
+    case Errors.reason(Ankole.Ash.update_atomic(worker, :admit, attrs)) do
+      {:ok, worker} -> {:ok, %{worker: worker, replaced_route: replaced_route}}
+      {:error, :stale} -> {:error, :worker_incarnation_active}
+      {:error, _reason} = error -> error
     end
   end
 
-  defp mark_draining(_repo, %AgentWorker{} = worker, reason) do
-    Ankole.Ash.update(worker, :drain, %{drain_reason: worker.drain_reason || reason})
+  @doc false
+  def publish_admission(%{worker: worker, replaced_route: replaced_route}) do
+    AgentWorkers.notify_changed(worker.agent_uid)
+
+    if replaced_route,
+      do: WorkerRoute.close_connection(worker.agent_uid, replaced_route, :worker_route_replaced)
+  end
+
+  # One conditional UPDATE: the row must still be connected on this route
+  # with this incarnation, so a message from an old connection or process
+  # changes nothing. The row lock gives the previous capacity; a capacity
+  # change wakes drivers that are waiting for a slot.
+  @doc false
+  def renew_in_tx(%{agent_uid: agent_uid} = input) do
+    previous = AgentWorkers.lock_in_tx(Repo, agent_uid)
+    attrs = Map.take(input, [:route, :incarnation, :capacity, :load])
+    query = Ash.Query.filter(AgentWorker, agent_uid == ^agent_uid)
+
+    case Errors.reason(Ankole.Ash.update_atomic(query, :heartbeat, attrs)) do
+      {:ok, worker} -> {:ok, %{worker: worker, changed?: previous.capacity != worker.capacity}}
+      {:error, :stale} -> {:error, :stale_transport_route}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  def publish_renewal(%{worker: worker, changed?: changed?}),
+    do: if(changed?, do: AgentWorkers.notify_changed(worker.agent_uid))
+
+  @doc false
+  def drain_in_tx(%{agent_uid: agent_uid, route: route, reason: reason}) do
+    case AgentWorkers.lock_in_tx(Repo, agent_uid) do
+      %AgentWorker{state: state, transport_route: ^route} = worker
+      when state in @connected_states ->
+        Ankole.Ash.update(worker, :drain, %{drain_reason: worker.drain_reason || reason})
+
+      _worker ->
+        {:error, :worker_not_ready}
+    end
+  end
+
+  @doc false
+  def release_route_in_tx(%{route: route}) do
+    AgentWorker
+    |> Ash.Query.filter(transport_route == ^route)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read!(lock_identity: {:rows, "agent_workers", :agent_uid})
+    |> case do
+      [worker] -> with {:ok, {worker, _route}} <- disconnect(worker), do: {:ok, worker}
+      [] -> {:ok, nil}
+    end
+  end
+
+  @doc false
+  def publish_worker(nil), do: :ok
+
+  def publish_worker(%AgentWorker{agent_uid: agent_uid}),
+    do: AgentWorkers.notify_changed(agent_uid)
+
+  @doc false
+  def expire_in_tx(%{agent_uid: agent_uid}) do
+    AgentWorker
+    |> Ash.Query.filter(
+      agent_uid == ^agent_uid and state in ^@connected_states and not is_nil(transport_route) and
+        (is_nil(last_worker_heartbeat_at) or
+           last_worker_heartbeat_at <= fragment("clock_timestamp() - interval '60 seconds'"))
+    )
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!(lock_identity: {"agent_workers", agent_uid})
+    |> case do
+      %AgentWorker{} = worker -> disconnect(worker)
+      nil -> {:ok, nil}
+    end
+  end
+
+  @doc false
+  def publish_expiry(nil), do: :ok
+
+  def publish_expiry({worker, route}) do
+    AgentWorkers.notify_changed(worker.agent_uid)
+    WorkerRoute.close_connection(worker.agent_uid, route, :worker_heartbeat_timeout)
   end
 
   # A draining connection loses its route without reopening placement.
-  defp disconnect(_repo, %AgentWorker{} = worker, _reason) do
+  defp disconnect(%AgentWorker{} = worker) do
     route = worker.transport_route
 
     with {:ok, updated} <- Ankole.Ash.update(worker, :disconnect, %{}),
          do: {:ok, {updated, route}}
   end
-
-  defp lock_by_route(repo, route) do
-    AgentWorker
-    |> where([worker], worker.transport_route == ^route)
-    |> lock("FOR UPDATE")
-    |> repo.lock_all("agent_workers", :agent_uid)
-    |> List.first()
-  end
-
-  defp close_replaced_route(_agent_uid, nil, _reason), do: :ok
-
-  defp close_replaced_route(agent_uid, route, reason),
-    do: WorkerRoute.close_connection(agent_uid, route, reason)
 
   defp authenticated(%{transport_route: route, worker_id: agent_uid})
        when is_binary(route) and route != "" and is_binary(agent_uid) and agent_uid != "",

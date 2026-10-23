@@ -1,3 +1,4 @@
+import { listIdentityProvidersOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import { IDLE_REFRESH_MS, LIST_REFRESH_MS } from '../refresh-intervals'
 import { Button, buttonVariants, Skeleton, cn } from '@ankole/uikit'
 import {
@@ -19,16 +20,13 @@ import { Link, useLocation } from '@tanstack/react-router'
 import { requestErrorMessage } from '../../common/request-errors'
 import { linkTarget } from '../../common/router'
 import {
-  ankoleWebAgentWorkerControllerIndexOptions,
-  ankoleWebAgentControllerIndexOptions,
-  ankoleWebAiGatewayConversationControllerIndexOptions,
-  ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
-  ankoleWebBackgroundAgentJobControllerIndexOptions,
-  ankoleWebBackgroundAgentJobControllerHealthOptions,
-  ankoleWebConsoleReadinessControllerShowOptions,
-  ankoleWebIdentityProviderControllerIndexOptions
-} from '../api/generated/@tanstack/react-query.gen'
-import type { BackgroundAgentJobItem } from '../api/generated/types.gen'
+  getBackgroundAgentJobHealthOptions,
+  getConsoleReadinessOptions
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import { agentWorkerListOptions } from '../api/agent-workers'
+import { agentListOptions } from '../api/agents'
+import { aiGatewayConversationsOptions } from '../api/ai-gateway-conversations'
+import { backgroundAgentJobsOptions, type BackgroundAgentJobItem } from '../api/background-agent-jobs'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate } from '../console-primitives'
 import { conversationDisplayName } from '../conversation-presentation'
@@ -37,6 +35,8 @@ import { PageHeader, PageStack, RefreshButton } from '../console-page'
 import { readinessSteps, type ReadinessStep } from '../console-readiness'
 import { workerNeedsAttention } from './workers'
 import { BackgroundActivity } from './background-activity'
+import { listAiGatewayProvidersOptions } from '../api/v2-site/generated/@tanstack/react-query.gen'
+import { aiGatewayProviders } from '../state/provider-settings'
 
 const NEXT_STEP_ICONS: Record<ReadinessStep['key'], ComponentType<{ className?: string }>> = {
   provider: RiSparkling2Line,
@@ -51,30 +51,31 @@ export function HomePage() {
 
   // Refresh each Attention source every 15 seconds so the page updates after
   // a condition changes.
-  const agents = useQuery({ ...ankoleWebAgentControllerIndexOptions(), refetchInterval: LIST_REFRESH_MS })
+  const agents = useQuery({ ...agentListOptions(), refetchInterval: LIST_REFRESH_MS })
   const workers = useQuery({
-    ...ankoleWebAgentWorkerControllerIndexOptions(),
+    ...agentWorkerListOptions(),
     refetchInterval: LIST_REFRESH_MS
   })
   const providers = useQuery({
-    ...ankoleWebAIGatewayProviderControllerIndexOptions(),
+    ...listAiGatewayProvidersOptions(),
+    select: aiGatewayProviders,
     refetchInterval: LIST_REFRESH_MS
   })
   const identityProviders = useQuery({
-    ...ankoleWebIdentityProviderControllerIndexOptions(),
+    ...listIdentityProvidersOptions(),
     refetchInterval: LIST_REFRESH_MS
   })
   const jobs = useQuery({
-    ...ankoleWebBackgroundAgentJobControllerIndexOptions({ query: { limit: 20 } }),
+    ...backgroundAgentJobsOptions({ limit: 20 }),
     refetchInterval: LIST_REFRESH_MS
   })
   const jobHealth = useQuery({
-    ...ankoleWebBackgroundAgentJobControllerHealthOptions(),
+    ...getBackgroundAgentJobHealthOptions(),
     refetchInterval: LIST_REFRESH_MS
   })
   // Use the header readiness query key so both views share cached data.
   const readiness = useQuery({
-    ...ankoleWebConsoleReadinessControllerShowOptions(),
+    ...getConsoleReadinessOptions(),
     refetchInterval: IDLE_REFRESH_MS
   })
   // `min_messages: 2` matches the conversation list's own default. Without it the
@@ -83,16 +84,16 @@ export function HomePage() {
   // A slow-moving summary: the min-message filter counts per conversation
   // server-side, so this panel polls at the relaxed cadence.
   const conversations = useQuery({
-    ...ankoleWebAiGatewayConversationControllerIndexOptions({ query: { limit: 5, min_messages: 2 } }),
+    ...aiGatewayConversationsOptions({ limit: 5, min_messages: 2 }),
     refetchInterval: IDLE_REFRESH_MS
   })
 
   const queries = [agents, workers, providers, identityProviders, jobs, jobHealth, conversations, readiness]
   const error = queries.find(query => query.error)?.error
 
-  const agentRows = agents.data?.agents ?? []
-  const workerRows = workers.data?.workers ?? []
-  const providerRows = providers.data?.ai_gateway_providers ?? []
+  const agentRows = agents.data ?? []
+  const workerRows = workers.data ?? []
+  const providerRows = providers.data ?? []
   const jobRows = jobs.data?.jobs ?? []
 
   const activeAgents = agentRows.filter(agent => agent.status === 'active').length

@@ -8,17 +8,12 @@ defmodule Ankole.Brain.RequestContext do
   a typed internal option; public AIGateway caller metadata does not grant it.
   """
 
-  import Ecto.Query, warn: false
-
   alias Ankole.Brain.Access
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Tools.Context
-  alias Ankole.Principals.Agent
-  alias Ankole.Principals.Principal
-  alias Ankole.Repo
   alias Ankole.Schedule.Delivery
   alias Ankole.Signals.Signal
-  alias Ankole.Conversations.{Conversation, Message, Participant}
+  alias Ankole.Conversations.Conversation
 
   @doc """
   Builds the context from an owned runtime Signal reference.
@@ -65,10 +60,10 @@ defmodule Ankole.Brain.RequestContext do
   defp owned_event(subject_uid, signal_id) do
     case Ecto.UUID.cast(signal_id) do
       {:ok, id} ->
-        case Repo.get(Signal, id) do
-          %Signal{agent_uid: ^subject_uid} = event -> {:ok, event}
-          %Signal{} -> {:error, :signal_not_owned}
-          nil -> {:error, :signal_not_found}
+        case Ankole.Signals.get_signal(id) do
+          {:ok, %Signal{agent_uid: ^subject_uid} = event} -> {:ok, event}
+          {:ok, %Signal{}} -> {:error, :signal_not_owned}
+          {:ok, nil} -> {:error, :signal_not_found}
         end
 
       :error ->
@@ -80,28 +75,39 @@ defmodule Ankole.Brain.RequestContext do
   # owners define deduplication across Response retries; this is not a Driver
   # epoch or Worker route fence.
   defp live_turn_fence(agent_uid, signal_id) do
-    live? =
-      Repo.exists?(
-        from e in Signal,
-          where:
-            e.id == ^signal_id and e.agent_uid == ^agent_uid and e.status in [:queued, :running]
-      )
-
-    if live?, do: :ok, else: {:error, :turn_not_live}
+    [
+      query: [
+        filter: [id: signal_id, agent_uid: agent_uid, status: [in: [:queued, :running]]],
+        select: [:id]
+      ]
+    ]
+    |> Ankole.Signals.list_signals!()
+    |> case do
+      [_live] -> :ok
+      [] -> {:error, :turn_not_live}
+    end
   end
 
   defp participant_uids(%Signal{} = event) do
     author =
       if event.message_id && event_conversation_id(event),
-        do:
-          Repo.one(
-            from m in Message,
-              where:
-                m.id == ^event.message_id and m.conversation_id == ^event_conversation_id(event),
-              select: m.author_uid
-          )
+        do: message_author_uid(event.message_id, event_conversation_id(event))
 
     Enum.filter([asker_uid(event), author], &is_binary/1) |> Enum.uniq()
+  end
+
+  defp message_author_uid(message_id, conversation_id) do
+    [
+      query: [
+        filter: [id: message_id, conversation_id: conversation_id],
+        select: [:author_uid]
+      ]
+    ]
+    |> Ankole.Conversations.list_messages!()
+    |> case do
+      [message] -> message.author_uid
+      [] -> nil
+    end
   end
 
   defp asker_uid(%Signal{
@@ -156,9 +162,7 @@ defmodule Ankole.Brain.RequestContext do
   defp disclosure_channels(%Signal{} = event) do
     with {:ok, conversation_ids} <- disclosure_conversation_ids(event) do
       channels =
-        Conversation
-        |> where([channel], channel.id in ^conversation_ids)
-        |> Repo.all()
+        Ankole.Conversations.list_conversations!(query: [filter: [id: [in: conversation_ids]]])
 
       if length(channels) == length(conversation_ids),
         do: {:ok, channels},
@@ -222,7 +226,9 @@ defmodule Ankole.Brain.RequestContext do
 
   defp strict_channel_recipient_uids(%Conversation{kind: :native, id: id}, _asker) do
     recipients =
-      Repo.all(from p in Participant, where: p.conversation_id == ^id, select: p.principal_uid)
+      [query: [filter: [conversation_id: id], select: [:principal_uid]]]
+      |> Ankole.Conversations.list_participants!()
+      |> Enum.map(& &1.principal_uid)
 
     if recipients == [], do: {:error, :empty_native_recipient_set}, else: {:ok, recipients}
   end
@@ -245,19 +251,33 @@ defmodule Ankole.Brain.RequestContext do
   defp closed_disclosure, do: %{mode: :strict, asker_uid: nil, present_uids: []}
 
   defp human_speaker_uids(conversation_id) do
-    Message
-    |> join(:inner, [entry], principal in Principal, on: principal.uid == entry.author_uid)
-    |> where([entry, _principal], entry.conversation_id == ^conversation_id)
-    |> where([_entry, principal], principal.type == :human)
-    |> select([_entry, principal], principal.uid)
-    |> distinct(true)
-    |> Repo.all()
+    author_uids =
+      [
+        query: [
+          filter: [conversation_id: conversation_id, author_uid: [is_nil: false]],
+          distinct: [:author_uid],
+          select: [:author_uid]
+        ]
+      ]
+      |> Ankole.Conversations.list_messages!()
+      |> Enum.map(& &1.author_uid)
+
+    case author_uids do
+      [] ->
+        []
+
+      uids ->
+        Ankole.Principals.list_principals!(
+          query: [filter: [uid: [in: uids], type: :human], select: [:uid], sort: [uid: :asc]]
+        )
+        |> Enum.map(& &1.uid)
+    end
   end
 
   defp agent_disclosure_mode(agent_uid) do
-    case Repo.get(Agent, agent_uid) do
-      %Agent{group_memory_disclosure_mode: mode} -> mode
-      nil -> :strict
+    case Ankole.Principals.get_agent(agent_uid) do
+      {:ok, %{agent: agent}} -> agent.group_memory_disclosure_mode
+      {:error, _not_an_agent} -> :strict
     end
   end
 
@@ -276,7 +296,10 @@ defmodule Ankole.Brain.RequestContext do
   # bounds how far a poisoned claim or misjudged source can reach.
   defp derived_conversation_scope(%Signal{} = event, agent_uid) do
     channel =
-      event_conversation_id(event) && Repo.get_by(Conversation, id: event_conversation_id(event))
+      case event_conversation_id(event) do
+        nil -> nil
+        id -> Ankole.Conversations.get_conversation!(id)
+      end
 
     asker = asker_uid(event)
 

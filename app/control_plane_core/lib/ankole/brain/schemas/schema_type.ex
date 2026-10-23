@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Schemas.SchemaType do
   @moduledoc "A registered object type with additive subtype vocabulary."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
     table("brain_schema_types")
@@ -45,8 +45,6 @@ defmodule Ankole.Brain.Schemas.SchemaType do
     defaults([:read])
 
     create :register do
-      transaction?(false)
-
       accept([
         :id,
         :name,
@@ -60,7 +58,8 @@ defmodule Ankole.Brain.Schemas.SchemaType do
       ])
     end
 
-    atomic_in_tx_update :add_subtypes do
+    update :add_subtypes do
+      require_atomic?(true)
       accept([])
       argument(:subtypes, Ankole.Ash.Types.StringList, allow_nil?: false)
 

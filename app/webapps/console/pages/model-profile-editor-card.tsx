@@ -1,4 +1,4 @@
-import type { AiGatewayModelCatalogEntry as AIGatewayModelCatalogEntry } from '../api/generated/types.gen'
+import type { AIGatewayModelCatalogEntry } from '../state/provider-settings'
 import {
   Badge,
   Button,
@@ -18,11 +18,8 @@ import { RiArrowDownSLine } from '@remixicon/react'
 import type { TFunction } from 'i18next'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import type {
-  AiGatewayProviderItem as AIGatewayProviderItem,
-  AiGatewayProviderKindItem as AIGatewayProviderKindItem,
-  ModelProfileWriteRequest
-} from '../api/generated/types.gen'
+import type { AIGatewayProviderKindItem } from '../state/provider-settings'
+import type { ModelProfileWriteRequest } from '../state/model-profiles-model'
 import { ErrorBlock } from '../../common/error-block'
 import { ConfirmDeleteButton, LabeledField, SaveButton } from '../console-form'
 import type { ProfileDraft } from '../state/model-profiles-model'
@@ -39,6 +36,7 @@ import {
   settingValidationMessage,
   type ProviderSetting
 } from '../state/provider-settings'
+import type { AIGatewayProviderItem } from '../state/provider-settings'
 
 export function ModelProfileEditorCard({
   profile,

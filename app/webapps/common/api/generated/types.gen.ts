@@ -91,7 +91,7 @@ export type AuthSessionDeleteResponse = {
 /**
  * JSONValue
  *
- * Any JSON-compatible value. AppConfigure validates the concrete key schema.
+ * Any JSON-compatible value.
  */
 export type JsonValue = unknown
 
@@ -188,13 +188,6 @@ export type SetupAuthorization = {
 }
 
 /**
- * ConsoleApiErrorEnvelope
- */
-export type ConsoleApiErrorEnvelope = {
-  error: ConsoleApiError
-}
-
-/**
  * ConversationAttachmentReceipt
  */
 export type ConversationAttachmentReceipt = {
@@ -202,6 +195,15 @@ export type ConversationAttachmentReceipt = {
   name: string
   receipt: string
   size: number
+}
+
+/**
+ * BrowserError
+ */
+export type BrowserError = {
+  code: string
+  details?: Array<BrowserErrorDetail> | null
+  message: string
 }
 
 /**
@@ -580,6 +582,13 @@ export type PodViewWrite = {
 }
 
 /**
+ * BrowserErrorEnvelope
+ */
+export type BrowserErrorEnvelope = {
+  error: BrowserError
+}
+
+/**
  * InternalOK
  */
 export type InternalOk = {
@@ -758,6 +767,16 @@ export type PodPageResult = {
 }
 
 /**
+ * BrowserErrorDetail
+ */
+export type BrowserErrorDetail = {
+  line?: number | null
+  message: string
+  path?: string | null
+  [key: string]: unknown
+}
+
+/**
  * PodView
  */
 export type PodView = {
@@ -820,15 +839,6 @@ export type PodPageCreate = {
   saved_from_message_id?: string | null
   title?: string
   type?: 'doc' | 'database' | 'applet' | 'file'
-}
-
-/**
- * ConsoleApiError
- */
-export type ConsoleApiError = {
-  code: string
-  details?: Array<ConsoleApiErrorDetail> | null
-  message: string
 }
 
 /**
@@ -1216,16 +1226,6 @@ export type PodFieldUpdate = PodFieldWrite & {
 export type ConversationAttachmentUpload = {
   file: Blob | File
   fileID: string
-}
-
-/**
- * ConsoleApiErrorDetail
- */
-export type ConsoleApiErrorDetail = {
-  line?: number | null
-  message: string
-  path?: string | null
-  [key: string]: unknown
 }
 
 /**
@@ -1744,23 +1744,23 @@ export type PodConversationsErrors = {
   /**
    * Error
    */
-  401: ConsoleApiErrorEnvelope
+  401: BrowserErrorEnvelope
   /**
    * Error
    */
-  403: ConsoleApiErrorEnvelope
+  403: BrowserErrorEnvelope
   /**
    * Error
    */
-  404: ConsoleApiErrorEnvelope
+  404: BrowserErrorEnvelope
   /**
    * Error
    */
-  409: ConsoleApiErrorEnvelope
+  409: BrowserErrorEnvelope
   /**
    * Error
    */
-  422: ConsoleApiErrorEnvelope
+  422: BrowserErrorEnvelope
 }
 
 export type PodConversationsError = PodConversationsErrors[keyof PodConversationsErrors]
@@ -1788,23 +1788,23 @@ export type CreateConversationErrors = {
   /**
    * Error
    */
-  401: ConsoleApiErrorEnvelope
+  401: BrowserErrorEnvelope
   /**
    * Error
    */
-  403: ConsoleApiErrorEnvelope
+  403: BrowserErrorEnvelope
   /**
    * Error
    */
-  404: ConsoleApiErrorEnvelope
+  404: BrowserErrorEnvelope
   /**
    * Error
    */
-  409: ConsoleApiErrorEnvelope
+  409: BrowserErrorEnvelope
   /**
    * Error
    */
-  422: ConsoleApiErrorEnvelope
+  422: BrowserErrorEnvelope
 }
 
 export type CreateConversationError = CreateConversationErrors[keyof CreateConversationErrors]
@@ -1934,27 +1934,27 @@ export type PodConversationEventsErrors = {
   /**
    * Error
    */
-  401: ConsoleApiErrorEnvelope
+  401: BrowserErrorEnvelope
   /**
    * Error
    */
-  403: ConsoleApiErrorEnvelope
+  403: BrowserErrorEnvelope
   /**
    * Error
    */
-  404: ConsoleApiErrorEnvelope
+  404: BrowserErrorEnvelope
   /**
    * Error
    */
-  409: ConsoleApiErrorEnvelope
+  409: BrowserErrorEnvelope
   /**
    * Error
    */
-  413: ConsoleApiErrorEnvelope
+  413: BrowserErrorEnvelope
   /**
    * Error
    */
-  422: ConsoleApiErrorEnvelope
+  422: BrowserErrorEnvelope
 }
 
 export type PodConversationEventsError = PodConversationEventsErrors[keyof PodConversationEventsErrors]
@@ -2082,11 +2082,11 @@ export type PodModelProfilesErrors = {
   /**
    * Error
    */
-  401: ConsoleApiErrorEnvelope
+  401: BrowserErrorEnvelope
   /**
    * Error
    */
-  404: ConsoleApiErrorEnvelope
+  404: BrowserErrorEnvelope
 }
 
 export type PodModelProfilesError = PodModelProfilesErrors[keyof PodModelProfilesErrors]
@@ -2320,15 +2320,15 @@ export type DeleteConversationErrors = {
   /**
    * Error
    */
-  401: ConsoleApiErrorEnvelope
+  401: BrowserErrorEnvelope
   /**
    * Error
    */
-  404: ConsoleApiErrorEnvelope
+  404: BrowserErrorEnvelope
   /**
    * Error
    */
-  409: ConsoleApiErrorEnvelope
+  409: BrowserErrorEnvelope
 }
 
 export type DeleteConversationError = DeleteConversationErrors[keyof DeleteConversationErrors]
@@ -2358,23 +2358,23 @@ export type ConversationDetailErrors = {
   /**
    * Error
    */
-  401: ConsoleApiErrorEnvelope
+  401: BrowserErrorEnvelope
   /**
    * Error
    */
-  403: ConsoleApiErrorEnvelope
+  403: BrowserErrorEnvelope
   /**
    * Error
    */
-  404: ConsoleApiErrorEnvelope
+  404: BrowserErrorEnvelope
   /**
    * Error
    */
-  409: ConsoleApiErrorEnvelope
+  409: BrowserErrorEnvelope
   /**
    * Error
    */
-  422: ConsoleApiErrorEnvelope
+  422: BrowserErrorEnvelope
 }
 
 export type ConversationDetailError = ConversationDetailErrors[keyof ConversationDetailErrors]
@@ -2561,23 +2561,23 @@ export type PodAgentsErrors = {
   /**
    * Error
    */
-  401: ConsoleApiErrorEnvelope
+  401: BrowserErrorEnvelope
   /**
    * Error
    */
-  403: ConsoleApiErrorEnvelope
+  403: BrowserErrorEnvelope
   /**
    * Error
    */
-  404: ConsoleApiErrorEnvelope
+  404: BrowserErrorEnvelope
   /**
    * Error
    */
-  409: ConsoleApiErrorEnvelope
+  409: BrowserErrorEnvelope
   /**
    * Error
    */
-  422: ConsoleApiErrorEnvelope
+  422: BrowserErrorEnvelope
 }
 
 export type PodAgentsError = PodAgentsErrors[keyof PodAgentsErrors]
@@ -2942,15 +2942,15 @@ export type UploadConversationAttachmentErrors = {
   /**
    * Error
    */
-  401: ConsoleApiErrorEnvelope
+  401: BrowserErrorEnvelope
   /**
    * Error
    */
-  413: ConsoleApiErrorEnvelope
+  413: BrowserErrorEnvelope
   /**
    * Error
    */
-  422: ConsoleApiErrorEnvelope
+  422: BrowserErrorEnvelope
 }
 
 export type UploadConversationAttachmentError =
@@ -3774,23 +3774,23 @@ export type UpdateConversationQueueErrors = {
   /**
    * Error
    */
-  401: ConsoleApiErrorEnvelope
+  401: BrowserErrorEnvelope
   /**
    * Error
    */
-  403: ConsoleApiErrorEnvelope
+  403: BrowserErrorEnvelope
   /**
    * Error
    */
-  404: ConsoleApiErrorEnvelope
+  404: BrowserErrorEnvelope
   /**
    * Error
    */
-  409: ConsoleApiErrorEnvelope
+  409: BrowserErrorEnvelope
   /**
    * Error
    */
-  422: ConsoleApiErrorEnvelope
+  422: BrowserErrorEnvelope
 }
 
 export type UpdateConversationQueueError = UpdateConversationQueueErrors[keyof UpdateConversationQueueErrors]
@@ -4044,11 +4044,11 @@ export type ConversationAttachmentDownloadErrors = {
   /**
    * Error
    */
-  401: ConsoleApiErrorEnvelope
+  401: BrowserErrorEnvelope
   /**
    * Error
    */
-  404: ConsoleApiErrorEnvelope
+  404: BrowserErrorEnvelope
 }
 
 export type ConversationAttachmentDownloadError =
@@ -4374,23 +4374,23 @@ export type PostConversationMessageErrors = {
   /**
    * Error
    */
-  401: ConsoleApiErrorEnvelope
+  401: BrowserErrorEnvelope
   /**
    * Error
    */
-  403: ConsoleApiErrorEnvelope
+  403: BrowserErrorEnvelope
   /**
    * Error
    */
-  404: ConsoleApiErrorEnvelope
+  404: BrowserErrorEnvelope
   /**
    * Error
    */
-  409: ConsoleApiErrorEnvelope
+  409: BrowserErrorEnvelope
   /**
    * Error
    */
-  422: ConsoleApiErrorEnvelope
+  422: BrowserErrorEnvelope
 }
 
 export type PostConversationMessageError = PostConversationMessageErrors[keyof PostConversationMessageErrors]
@@ -4588,11 +4588,11 @@ export type PodModelSelectionErrors = {
   /**
    * Error
    */
-  401: ConsoleApiErrorEnvelope
+  401: BrowserErrorEnvelope
   /**
    * Error
    */
-  404: ConsoleApiErrorEnvelope
+  404: BrowserErrorEnvelope
 }
 
 export type PodModelSelectionError = PodModelSelectionErrors[keyof PodModelSelectionErrors]
@@ -4622,15 +4622,15 @@ export type SetPodModelSelectionErrors = {
   /**
    * Error
    */
-  401: ConsoleApiErrorEnvelope
+  401: BrowserErrorEnvelope
   /**
    * Error
    */
-  404: ConsoleApiErrorEnvelope
+  404: BrowserErrorEnvelope
   /**
    * Error
    */
-  422: ConsoleApiErrorEnvelope
+  422: BrowserErrorEnvelope
 }
 
 export type SetPodModelSelectionError = SetPodModelSelectionErrors[keyof SetPodModelSelectionErrors]

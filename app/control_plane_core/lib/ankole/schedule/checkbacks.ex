@@ -1,74 +1,69 @@
 defmodule Ankole.Schedule.Checkbacks do
   @moduledoc false
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.AutomationJobs
-  alias Ankole.Repo
   alias Ankole.Sessions.Jobs.FireScheduledEvent
   alias Ankole.Schedule.Attrs
   alias Ankole.Schedule.Normalizer
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ankole.Schedule.Store
 
-  @spec create_check_back_later(map(), keyword()) ::
+  @spec create_check_back_later_in_tx(module(), map(), keyword()) ::
           {:ok, %{status: :scheduled | :already_scheduled, scheduled_event: ScheduledEvent.t()}}
           | {:error, term()}
-  def create_check_back_later(attrs, opts \\ []) when is_map(attrs) do
+  def create_check_back_later_in_tx(repo, attrs, opts) when is_map(attrs) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, attrs} <- Normalizer.checkback_attrs(attrs, now, opts) do
-      Repo.transact(fn repo ->
-        attrs = Ankole.Principals.WorkAccess.inherit(repo, attrs)
+      attrs = Ankole.Principals.WorkAccess.inherit(repo, attrs)
 
-        with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
-             :ok <-
-               AutomationJobs.validate_bindable_in_tx(
-                 repo,
-                 attrs.automation_job_id,
-                 attrs.agent_uid
-               ) do
-          Store.insert_idempotent_event_and_wake_in_tx(repo, attrs, opts)
-        end
-      end)
+      with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
+           :ok <-
+             AutomationJobs.validate_bindable_in_tx(
+               repo,
+               attrs.automation_job_id,
+               attrs.agent_uid
+             ) do
+        Store.insert_idempotent_event_and_wake_in_tx(repo, attrs, opts)
+      end
     end
   end
 
-  @spec update_checkback(pos_integer(), map(), keyword()) ::
+  @spec update_checkback_in_tx(module(), pos_integer(), map(), keyword()) ::
           {:ok, %{status: :updated, scheduled_event: ScheduledEvent.t()}}
           | {:error, term()}
-  def update_checkback(scheduled_event_id, attrs, opts \\ [])
+  def update_checkback_in_tx(repo, scheduled_event_id, attrs, opts)
       when is_integer(scheduled_event_id) and scheduled_event_id > 0 and is_map(attrs) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    Repo.transact(fn repo ->
-      with {:ok, snapshot} <- fetch_checkback_in_tx(repo, scheduled_event_id, false),
-           :ok <- Ankole.Principals.WorkAccess.check_in_tx(repo, snapshot),
-           :ok <- require_pending(snapshot),
-           {:ok, updated_attrs} <- Normalizer.checkback_update_attrs(snapshot, attrs, now, opts),
-           :ok <-
-             validate_updated_automation_job(
-               repo,
-               attrs,
-               updated_attrs.automation_job_id,
-               snapshot.agent_uid
-             ),
-           {:ok, event} <- fetch_checkback_in_tx(repo, scheduled_event_id, true),
-           true <- event == snapshot,
-           {:ok, event} <- Ankole.Ash.update(event, :reschedule, updated_attrs),
-           :ok <-
-             Ankole.Job.schedule_in_tx(
-               repo,
-               FireScheduledEvent,
-               %{"scheduled_event_id" => event.id},
-               event.due_at
-             ) do
-        {:ok, %{status: :updated, scheduled_event: event}}
-      else
-        false -> {:error, :scheduled_event_changed}
-        {:error, _reason} = error -> error
-      end
-    end)
+    with {:ok, snapshot} <- fetch_checkback(scheduled_event_id),
+         :ok <- Ankole.Principals.WorkAccess.check_in_tx(repo, snapshot),
+         :ok <- require_pending(snapshot),
+         {:ok, updated_attrs} <- Normalizer.checkback_update_attrs(snapshot, attrs, now, opts),
+         :ok <-
+           validate_updated_automation_job(
+             repo,
+             attrs,
+             updated_attrs.automation_job_id,
+             snapshot.agent_uid
+           ),
+         {:ok, event} <- lock_checkback(repo, scheduled_event_id),
+         true <- event == snapshot,
+         {:ok, event} <- Ankole.Ash.update(event, :reschedule, updated_attrs),
+         :ok <-
+           Ankole.Job.schedule_in_tx(
+             repo,
+             FireScheduledEvent,
+             %{"scheduled_event_id" => event.id},
+             event.due_at
+           ) do
+      {:ok, %{status: :updated, scheduled_event: event}}
+    else
+      false -> {:error, :scheduled_event_changed}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp require_pending(%ScheduledEvent{status: :scheduled}), do: :ok
@@ -76,35 +71,46 @@ defmodule Ankole.Schedule.Checkbacks do
   defp require_pending(%ScheduledEvent{status: status}),
     do: {:error, {:checkback_not_pending, status}}
 
-  @spec cancel_checkback(pos_integer(), keyword()) :: {:ok, ScheduledEvent.t()} | {:error, term()}
-  def cancel_checkback(scheduled_event_id, opts \\ [])
+  @spec cancel_checkback_in_tx(module(), pos_integer(), keyword()) ::
+          {:ok, ScheduledEvent.t()} | {:error, term()}
+  def cancel_checkback_in_tx(repo, scheduled_event_id, opts)
       when is_integer(scheduled_event_id) and scheduled_event_id > 0 do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    Repo.transact(fn repo ->
-      with {:ok, event} <- fetch_checkback_in_tx(repo, scheduled_event_id, true) do
-        case event do
-          %ScheduledEvent{status: :scheduled} ->
-            cancel_locked_checkback(repo, event, now, "user_cancelled")
+    with {:ok, event} <- lock_checkback(repo, scheduled_event_id) do
+      case event do
+        %ScheduledEvent{status: :scheduled} ->
+          cancel_locked_checkback(event, now, "user_cancelled")
 
-          %ScheduledEvent{status: :cancelled} ->
-            {:ok, event}
+        %ScheduledEvent{status: :cancelled} ->
+          {:ok, event}
 
-          %ScheduledEvent{status: status} ->
-            {:error, {:checkback_not_pending, status}}
-        end
+        %ScheduledEvent{status: status} ->
+          {:error, {:checkback_not_pending, status}}
       end
-    end)
+    end
+  end
+
+  @doc false
+  # The Console addresses a checkback through its Agent. The checkback of
+  # another Agent reads as not found.
+  def console_cancel_in_tx(repo, %{agent_uid: agent_uid, id: id}) do
+    case Store.get_scheduled_event(id) do
+      %ScheduledEvent{agent_uid: ^agent_uid} ->
+        repo
+        |> cancel_checkback_in_tx(id, [])
+        |> Ankole.Errors.not_found([:scheduled_event_not_found], ScheduledEvent)
+
+      _other ->
+        {:error, Ankole.Errors.Invalid.NotFound.exception(resource: ScheduledEvent, id: id)}
+    end
   end
 
   @spec get_checkback(pos_integer()) ::
           {:ok, ScheduledEvent.t()} | {:error, term()}
   def get_checkback(scheduled_event_id)
-      when is_integer(scheduled_event_id) and scheduled_event_id > 0 do
-    Repo.transact(fn repo ->
-      fetch_checkback_in_tx(repo, scheduled_event_id, false)
-    end)
-  end
+      when is_integer(scheduled_event_id) and scheduled_event_id > 0,
+      do: fetch_checkback(scheduled_event_id)
 
   @spec cancel_checkbacks_for_provider_entry_in_tx(module(), map(), DateTime.t()) ::
           {:ok, non_neg_integer()}
@@ -116,18 +122,19 @@ defmodule Ankole.Schedule.Checkbacks do
     provider_message_id = Attrs.map_text(attrs, "provider_message_id")
 
     if Enum.all?([agent_uid, session_id, binding_name, provider_message_id], &is_binary/1) do
+      agent_uid = String.downcase(agent_uid)
+
       query =
-        ScheduledEvent
-        |> where([event], event.kind == "check_back_later")
-        |> where([event], event.status == :scheduled)
-        |> where([event], event.agent_uid == ^String.downcase(agent_uid))
-        |> where([event], event.session_id == ^session_id)
-        |> where([event], event.binding_name == ^binding_name)
-        |> where([event], event.provider_message_id == ^provider_message_id)
+        Ash.Query.filter(
+          ScheduledEvent,
+          kind == "check_back_later" and status == :scheduled and agent_uid == ^agent_uid and
+            session_id == ^session_id and binding_name == ^binding_name and
+            provider_message_id == ^provider_message_id
+        )
 
-      {count, _rows} = Store.cancel_matching_in_tx(repo, query, now, "source_entry_tombstoned")
-
-      {:ok, count}
+      with {:ok, events} <-
+             Store.cancel_matching_in_tx(repo, query, now, "source_entry_tombstoned"),
+           do: {:ok, length(events)}
     else
       {:ok, 0}
     end
@@ -136,9 +143,11 @@ defmodule Ankole.Schedule.Checkbacks do
   # Models can still hold ids cancelled by the replacement implementation.
   # Remove this clause when no pending checkback has
   # source_provenance.replaces_scheduled_event_id.
-  defp fetch_checkback_in_tx(repo, id, lock?) do
-    event = if lock?, do: Store.lock_scheduled_event(repo, id), else: repo.get(ScheduledEvent, id)
+  defp fetch_checkback(id), do: id |> Store.get_scheduled_event() |> checkback()
 
+  defp lock_checkback(repo, id), do: repo |> Store.lock_scheduled_event(id) |> checkback()
+
+  defp checkback(event) do
     case event do
       nil ->
         {:error, :scheduled_event_not_found}
@@ -154,7 +163,7 @@ defmodule Ankole.Schedule.Checkbacks do
     end
   end
 
-  defp cancel_locked_checkback(_repo, event, now, reason) do
+  defp cancel_locked_checkback(event, now, reason) do
     Ankole.Ash.update(event, :cancel, %{
       cancelled_at: now,
       last_fire_error: %{"reason" => reason}
@@ -168,13 +177,15 @@ defmodule Ankole.Schedule.Checkbacks do
        else: :ok
   end
 
+  @doc "Cancels the pending events of a Human whose access version is older than `version`."
   def stop_human_work_in_tx(repo, uid, version, now) do
     query =
-      from(e in ScheduledEvent,
-        where:
-          e.human_uid == ^uid and e.human_access_version < ^version and e.status == :scheduled
+      Ash.Query.filter(
+        ScheduledEvent,
+        human_uid == ^uid and human_access_version < ^version and status == :scheduled
       )
 
-    Store.cancel_matching_in_tx(repo, query, now, "human_access_revoked")
+    {:ok, events} = Store.cancel_matching_in_tx(repo, query, now, "human_access_revoked")
+    {length(events), events}
   end
 end

@@ -26,8 +26,8 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
 import { linkTarget } from '../common/router'
-import { ankoleWebConsoleReadinessControllerShowOptions } from './api/generated/@tanstack/react-query.gen'
-import type { ConsoleReadinessResponse } from './api/generated/types.gen'
+import { getConsoleReadinessOptions } from './api/v2/generated/@tanstack/react-query.gen'
+import type { ConsoleReadinessResponse } from './api/runtime-types'
 
 const AUTO_OPEN_STORAGE_KEY = 'ankole.console.readiness.seen.v1'
 
@@ -39,7 +39,7 @@ export function ConsoleReadiness() {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const query = useQuery({
-    ...ankoleWebConsoleReadinessControllerShowOptions(),
+    ...getConsoleReadinessOptions(),
     refetchInterval: open ? WAITING_REFRESH_MS : IDLE_REFRESH_MS,
     refetchOnReconnect: 'always',
     refetchOnWindowFocus: 'always'

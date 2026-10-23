@@ -1,9 +1,7 @@
 defmodule Ankole.Sessions.SessionReset do
   @moduledoc false
 
-  import Ecto.Query
-  alias Ankole.AIGateway.Schemas.Conversation
-  alias Ankole.Sessions.SessionWorkspace
+  import Ash.Expr, only: [expr: 1]
   alias Ankole.BackgroundAgentJobs
 
   import Ankole.Sessions.Common, only: [collect_results: 1]
@@ -13,7 +11,6 @@ defmodule Ankole.Sessions.SessionReset do
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.ModelHistory
   alias Ankole.Conversations.Delivery.Interactions
-  alias Ankole.Repo
   alias Ankole.SystemConfig
   alias Ankole.TimeZone
 
@@ -37,30 +34,35 @@ defmodule Ankole.Sessions.SessionReset do
   @spec enqueue_daily_session_resets(DateTime.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def enqueue_daily_session_resets(%DateTime{} = boundary_at, opts) when is_list(opts) do
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-    timezone = Keyword.get(opts, :timezone, SystemConfig.default_timezone())
+    opts =
+      opts
+      |> Keyword.put_new(:now, DateTime.utc_now(:microsecond))
+      |> Keyword.put_new(:timezone, SystemConfig.default_timezone())
 
-    Repo.transact(fn repo ->
-      conversations = due_daily_reset_conversations(repo, boundary_at, opts)
+    boundary_at |> Ankole.Sessions.enqueue_session_resets(opts) |> Ankole.Errors.reason()
+  end
 
-      conversations
-      |> Enum.map(&enqueue_session_reset_due_in_tx(repo, &1, boundary_at, now, opts))
-      |> collect_results()
-      |> case do
-        {:ok, events} ->
-          {:ok,
-           %{
-             status: :enqueued,
-             boundary_at: boundary_at,
-             timezone: timezone,
-             due_sessions: length(conversations),
-             signals: events
-           }}
+  @doc false
+  def enqueue_in_tx(repo, %DateTime{} = boundary_at, opts) do
+    conversations = due_daily_reset_conversations(boundary_at, opts)
 
-        {:error, _reason} = error ->
-          error
-      end
-    end)
+    conversations
+    |> Enum.map(&enqueue_session_reset_due_in_tx(repo, &1, boundary_at, opts[:now], opts))
+    |> collect_results()
+    |> case do
+      {:ok, events} ->
+        {:ok,
+         %{
+           status: :enqueued,
+           boundary_at: boundary_at,
+           timezone: opts[:timezone],
+           due_sessions: length(conversations),
+           signals: events
+         }}
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   defp daily_reset_boundary_at(%DateTime{} = now, opts) do
@@ -107,41 +109,30 @@ defmodule Ankole.Sessions.SessionReset do
     end
   end
 
-  defp due_daily_reset_conversations(repo, %DateTime{} = boundary_at, opts) do
+  # A Session conversation is due when it is open, started before the
+  # boundary, and does not serve a native conversation or a background Job.
+  defp due_daily_reset_conversations(%DateTime{} = boundary_at, opts) do
     limit =
       case Keyword.get(opts, :limit, 1_000) do
         value when is_integer(value) and value > 0 -> value
         _invalid -> 1_000
       end
 
-    Conversation
-    |> join(:inner, [conversation], workspace in SessionWorkspace,
-      on:
-        workspace.agent_uid == conversation.subject_uid and
-          workspace.session_id == conversation.conversation_key
+    job_prefix = BackgroundAgentJobs.job_session_prefix()
+
+    Ankole.AIGateway.list_conversations!(
+      query: [
+        filter:
+          expr(
+            is_nil(ended_at) and inserted_at < ^boundary_at and
+              not string_starts_with(conversation_key, ^job_prefix) and
+              exists(session_workspace, not exists(conversation, kind == :native))
+          ),
+        sort: [subject_uid: :asc, conversation_key: :asc],
+        limit: limit,
+        lock: :for_update
+      ]
     )
-    |> where([conversation], is_nil(conversation.ended_at))
-    |> where([conversation], conversation.inserted_at < ^boundary_at)
-    |> where(
-      [_conversation, workspace],
-      is_nil(workspace.conversation_id) or
-        workspace.conversation_id not in subquery(Ankole.Conversations.native_ids_query())
-    )
-    |> where(
-      [conversation],
-      not like(
-        conversation.conversation_key,
-        ^"#{BackgroundAgentJobs.job_session_prefix()}%"
-      )
-    )
-    |> order_by(
-      [conversation],
-      asc: conversation.subject_uid,
-      asc: conversation.conversation_key
-    )
-    |> limit(^limit)
-    |> lock("FOR UPDATE")
-    |> repo.all()
   end
 
   defp enqueue_session_reset_due_in_tx(
@@ -199,35 +190,41 @@ defmodule Ankole.Sessions.SessionReset do
   end
 
   def process_due(session_key, %Signal{} = input, opts) do
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    session_key
+    |> Ankole.Sessions.reset_session(
+      input,
+      Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    )
+    |> Ankole.Errors.reason()
+  end
 
-    Repo.transact(fn repo ->
-      with :ok <- Queue.lock_session_in_tx(repo, input.agent_uid, input.session_id),
-           %Signal{} = input <- Ankole.Signals.lock_signal_in_tx(repo, input.id),
-           {:ok, closed_conversation} <- close_current_session_for_reset(repo, session_key, now),
-           {:ok, conversation} <-
-             ensure_successor_conversation(repo, session_key, closed_conversation),
-           {:ok, superseded_interactions} <-
-             Interactions.supersede_for_session_reset_in_tx(repo, input, now),
-           {:ok, completed_event} <-
-             Queue.complete_session_lifecycle_event_in_tx(repo, input, completed_at: now) do
-        {:ok,
-         %{
-           status: :session_reset,
-           reset_event: input,
-           closed_conversation: closed_conversation,
-           conversation: conversation,
-           superseded_reply_interactions: length(superseded_interactions),
-           signal: completed_event
-         }}
-      else
-        nil ->
-          {:ok, %{status: :idle}}
+  @doc false
+  def process_due_in_tx(repo, session_key, %Signal{} = input, now) do
+    with :ok <- Queue.lock_session_in_tx(repo, input.agent_uid, input.session_id),
+         %Signal{} = input <- Ankole.Signals.lock_signal_in_tx(repo, input.id),
+         {:ok, closed_conversation} <- close_current_session_for_reset(repo, session_key, now),
+         {:ok, conversation} <-
+           ensure_successor_conversation(repo, session_key, closed_conversation),
+         {:ok, superseded_interactions} <-
+           Interactions.supersede_for_session_reset_in_tx(repo, input, now),
+         {:ok, completed_event} <-
+           Queue.complete_session_lifecycle_event_in_tx(repo, input, completed_at: now) do
+      {:ok,
+       %{
+         status: :session_reset,
+         reset_event: input,
+         closed_conversation: closed_conversation,
+         conversation: conversation,
+         superseded_reply_interactions: length(superseded_interactions),
+         signal: completed_event
+       }}
+    else
+      nil ->
+        {:ok, %{status: :idle}}
 
-        {:error, _reason} = error ->
-          error
-      end
-    end)
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   defp close_current_session_for_reset(repo, session_key, now) do

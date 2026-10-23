@@ -9,7 +9,6 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Principals
   alias Ankole.Principals.Agent
-  alias Ankole.Repo
 
   def apply_adds_in_tx(agent_uid, adds, context, now, catalog) do
     state = %{
@@ -28,43 +27,51 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   end
 
   defp ensure_agent(agent_uid) do
-    case Agent |> Ash.Query.filter(uid == ^agent_uid) |> Ankole.Ash.read_one!() do
-      %Agent{} -> :ok
-      nil -> {:error, :not_found}
+    case Principals.get_agent(agent_uid) do
+      {:ok, %{agent: %Agent{}}} -> :ok
+      {:error, _error} = error -> error
     end
   end
 
   def apply_skill_lesson_reviews(agent_uid, reviews, docket_ids, context, opts \\ [])
       when is_list(reviews) do
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
-      Repo.transact(fn ->
-        lock_review_lessons(agent_uid, reviews)
-
-        state = %{
-          now: now,
-          context: context,
-          docket_ids: docket_ids,
-          renewed: 0,
-          retired_skills: [],
-          lapsed: 0,
-          obsoleted: 0,
-          rejected: []
-        }
-
-        state = Enum.reduce(reviews, state, &apply_lesson_review(agent_uid, &1, &2))
-
-        {:ok,
-         %{
-           renewed: state.renewed,
-           obsoleted: state.obsoleted,
-           lapsed: state.lapsed,
-           rejected: Enum.reverse(state.rejected),
-           retired_skills: Enum.uniq(state.retired_skills)
-         }}
-      end)
+      Ankole.Ash.run_action(AgentSkillLesson, :apply_reviews, %{
+        agent_uid: agent_uid,
+        reviews: reviews,
+        docket_ids: docket_ids,
+        context: context,
+        now: Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+      })
     end
+  end
+
+  @doc false
+  # Runs the `:apply_reviews` action.
+  def apply_reviews(%{agent_uid: agent_uid, reviews: reviews} = arguments) do
+    lock_review_lessons(agent_uid, reviews)
+
+    state = %{
+      now: arguments.now,
+      context: arguments.context,
+      docket_ids: arguments.docket_ids,
+      renewed: 0,
+      retired_skills: [],
+      lapsed: 0,
+      obsoleted: 0,
+      rejected: []
+    }
+
+    state = Enum.reduce(reviews, state, &apply_lesson_review(agent_uid, &1, &2))
+
+    {:ok,
+     %{
+       renewed: state.renewed,
+       obsoleted: state.obsoleted,
+       lapsed: state.lapsed,
+       rejected: Enum.reverse(state.rejected),
+       retired_skills: Enum.uniq(state.retired_skills)
+     }}
   end
 
   def skill_lesson_review_docket(agent_uid, horizon, current_release) do
@@ -96,26 +103,49 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   def retire_skill_lesson(agent_uid, lesson_id) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          :ok <- ensure_agent(agent_uid) do
-      Repo.transact(fn ->
-        case AgentSkillLesson
-             |> Ash.Query.filter(id == ^lesson_id and agent_uid == ^agent_uid)
-             |> Ash.Query.lock(:for_update)
-             |> Ankole.Ash.read_one!() do
-          nil ->
-            {:error, :skill_lesson_not_found}
-
-          %AgentSkillLesson{retired_at: %DateTime{}} ->
-            {:error, :skill_lesson_already_retired}
-
-          %AgentSkillLesson{} = lesson ->
-            Ankole.Ash.update(lesson, :retire, %{
-              retired_at: DateTime.utc_now(:microsecond),
-              retire_reason: :human_revoked
-            })
-        end
-      end)
+      Ankole.Ash.run_action(AgentSkillLesson, :revoke, %{
+        agent_uid: agent_uid,
+        lesson_id: lesson_id
+      })
     end
   end
+
+  @doc false
+  # Runs the `:revoke` action.
+  def revoke(%{agent_uid: agent_uid, lesson_id: lesson_id}) do
+    case AgentSkillLesson
+         |> Ash.Query.filter(id == ^lesson_id and agent_uid == ^agent_uid)
+         |> Ash.Query.lock(:for_update)
+         |> Ankole.Ash.read_one!() do
+      nil ->
+        {:error, :skill_lesson_not_found}
+
+      %AgentSkillLesson{retired_at: %DateTime{}} ->
+        {:error, :skill_lesson_already_retired}
+
+      %AgentSkillLesson{} = lesson ->
+        Ankole.Ash.update(lesson, :retire, %{
+          retired_at: DateTime.utc_now(:microsecond),
+          retire_reason: :human_revoked
+        })
+    end
+  end
+
+  @doc """
+  Gives the answer of a rejected lesson write for `Ankole.Errors.wrap/2`: an
+  unknown skill or lesson is not found, as in the v1 Console API.
+  """
+  def rejection(:skill_not_found),
+    do: Ankole.Errors.Invalid.NotFound.exception(resource: AgentSkill)
+
+  def rejection(:skill_lesson_not_found),
+    do: Ankole.Errors.Invalid.NotFound.exception(resource: AgentSkillLesson)
+
+  def rejection(:skill_lesson_already_retired), do: {"skill lesson is already retired", []}
+  def rejection(:skill_not_enabled), do: {"skill is not enabled for this agent", []}
+  def rejection(:blank_content), do: {"lesson content is required", []}
+  def rejection(:content_contains_url), do: {"lesson content must not contain a URL", []}
+  def rejection(_reason), do: nil
 
   def active_skill_lessons(agent_uid) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do

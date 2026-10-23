@@ -123,8 +123,8 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
     assert {:ok, _worker} = admit_worker(route, %{worker_id: agent.uid})
 
     assert {:ok, %{job: job, dispatch_event: event}} =
-             Repo.transact(fn _repo ->
-               BackgroundAgentJobs.create_with_dispatch(%{
+             Repo.transact(fn repo ->
+               BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(repo, %{
                  "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                  "agent_uid" => agent.uid,
                  "owner_session_id" => "owner-session-stall-#{suffix}",

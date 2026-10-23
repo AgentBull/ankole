@@ -8,6 +8,9 @@ defmodule Ankole.Brain.Recall do
   RRF, apply graph, recency, and salience boosts, optionally rerank, then
   run the disclosure filter before assembly. One parameter set, constants in
   code: values follow GBrain balanced mode.
+
+  The candidate, boost, and neighborhood queries are Ecto queries that select
+  only identifiers and values (M9 retrieval). The ranked rows load through Ash.
   """
 
   import Ecto.Query, warn: false
@@ -115,8 +118,8 @@ defmodule Ankole.Brain.Recall do
 
     rows =
       Claim
-      |> where([claim], claim.id in ^fused_ids)
-      |> Repo.all()
+      |> Ash.Query.filter(id in ^fused_ids)
+      |> Ankole.Ash.read!()
       |> Map.new(&{&1.id, &1})
 
     forgetting = Config.forgetting()
@@ -207,11 +210,10 @@ defmodule Ankole.Brain.Recall do
 
     rows =
       Chunk
-      |> join(:inner, [chunk], object in Object, on: object.id == chunk.object_id)
-      |> where([chunk, _object], chunk.id in ^fused_ids)
-      |> select([chunk, object], {chunk, object})
-      |> Repo.all()
-      |> Map.new(fn {chunk, object} -> {chunk.id, {chunk, object}} end)
+      |> Ash.Query.filter(id in ^fused_ids)
+      |> Ash.Query.load(:object)
+      |> Ankole.Ash.read!()
+      |> Map.new(fn chunk -> {chunk.id, {chunk, chunk.object}} end)
 
     hits =
       fused_ids
@@ -520,20 +522,12 @@ defmodule Ankole.Brain.Recall do
     if slugs != [] do
       threshold = DateTime.add(DateTime.utc_now(), -@retrieved_throttle_seconds, :second)
 
-      result =
+      {:ok, _touched} =
         Object
         |> Ash.Query.filter(
           slug in ^slugs and (is_nil(last_retrieved_at) or last_retrieved_at < ^threshold)
         )
-        |> Ankole.Ash.bulk_update(:touch_retrieved, %{},
-          strategy: [:atomic],
-          return_errors?: true
-        )
-
-      case result do
-        %Ash.BulkResult{status: :success} -> :ok
-        %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
-      end
+        |> Ankole.Ash.update_where(:touch_retrieved, %{}, select: [:id])
     end
 
     :ok

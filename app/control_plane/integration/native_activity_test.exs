@@ -174,7 +174,7 @@ defmodule AnkoleWeb.NativeActivityTest do
     end
 
     {:executing_tools, data} = :sys.get_state(driver)
-    assert {:ok, _} = Run.finalize(data.run, :silent)
+    assert {:ok, _} = Run.finalize(data.turn.run, :silent)
     settled = sse_snapshot(conn, id)
     assert settled["state"] == "settled"
     assert settled["tools"] == []
@@ -191,7 +191,7 @@ defmodule AnkoleWeb.NativeActivityTest do
                    {:tool_progress,
                     %Proto.ToolProgress{
                       run: opened.run,
-                      response_id: Run.response_id(data.run.model_response),
+                      response_id: Run.response_id(data.turn.run.model_response),
                       call_id: "native-read-one",
                       presentation_json:
                         Ankole.JSON.encode!(%{

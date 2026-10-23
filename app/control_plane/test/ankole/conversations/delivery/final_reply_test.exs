@@ -1,5 +1,5 @@
 defmodule Ankole.Conversations.Delivery.FinalReplyTest do
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.AIGateway.ResponseCommit
   use Ankole.SessionsCase
 
@@ -63,7 +63,7 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
 
     defp settle(state) do
       :ok =
-        PreviewState.record_provider_message(
+        PreviewStates.record_provider_message(
           state.signal_id,
           state.preview_provider_message_id
         )

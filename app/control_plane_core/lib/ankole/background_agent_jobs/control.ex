@@ -3,13 +3,11 @@ defmodule Ankole.BackgroundAgentJobs.Control do
 
   require Ankole.ModelIntegerID
 
-  import Ecto.Query
-
   alias Ankole.Signals.Signal
   alias Ankole.Principals
-  alias Ankole.Repo
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
+  alias Ankole.BackgroundAgentJobs.Dispatch
   alias Ankole.BackgroundAgentJobs.JobState
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
@@ -18,16 +16,15 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   alias Ankole.BackgroundAgentJobs.WorkerWait
   alias Ankole.Sessions.JobTurnRef
 
-  @spec request_stop(pos_integer(), map()) ::
+  @doc "Requests cancellation inside the `request_stop` action of the Job."
+  @spec request_stop_in_tx(module(), pos_integer(), map()) ::
           {:ok, %{job: Job.t(), turn: JobTurnRef.t() | nil}}
           | {:error, term()}
-  def request_stop(job_id, attrs)
+  def request_stop_in_tx(repo, job_id, attrs)
       when Ankole.ModelIntegerID.valid?(job_id) and is_map(attrs) do
-    Repo.transact(fn repo ->
-      with {:ok, sessions, commit} <- prepare_stop_in_tx(repo, job_id, attrs),
-           :ok <- Ankole.Sessions.Queue.lock_sessions_in_tx(repo, sessions),
-           do: commit.()
-    end)
+    with {:ok, sessions, commit} <- prepare_stop_in_tx(repo, job_id, attrs),
+         :ok <- Ankole.Sessions.Queue.lock_sessions_in_tx(repo, sessions),
+         do: commit.()
   end
 
   def prepare_stop_in_tx(repo, job_id, attrs) do
@@ -35,8 +32,8 @@ defmodule Ankole.BackgroundAgentJobs.Control do
 
     with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
          :ok <- Lifecycle.lock_agent_slots(repo, agent_uid),
-         %Job{} = job <- Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
-         :ok <- Turns.lock_active_for_current_attempt_in_tx(repo, job) do
+         %Job{} = job <- Queries.lock_for_agent_in_tx(job_id, agent_uid),
+         :ok <- Turns.lock_active_for_current_attempt_in_tx(job) do
       {:ok, job_sessions(job), fn -> request_stop_locked_in_tx(repo, job, attrs, now()) end}
     else
       nil -> {:error, :job_not_found}
@@ -51,7 +48,8 @@ defmodule Ankole.BackgroundAgentJobs.Control do
 
       job.status in [:queued, :waiting_on_user] ->
         with {:ok, job} <- stop_without_live_turn(repo, job, attrs, now),
-             :ok <- complete_pending_job_events(repo, job, now) do
+             {:ok, :ok} <-
+               Dispatch.complete_all_open_events_in_tx(repo, job.id, job.agent_uid, now) do
           {:ok, %{job: job, turn: nil}}
         end
 
@@ -73,63 +71,125 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   steers close with the completion itself; an external completion never seeds a
   successor.
   """
-  @spec request_complete(pos_integer(), map()) ::
+  @spec request_complete_in_tx(module(), pos_integer(), map()) ::
           {:ok, %{job: Job.t(), turn: JobTurnRef.t() | nil}}
           | {:error, term()}
-  def request_complete(job_id, attrs)
+  def request_complete_in_tx(repo, job_id, attrs)
       when Ankole.ModelIntegerID.valid?(job_id) and is_map(attrs) do
     attrs = Attrs.normalize(attrs)
 
-    result =
-      with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
-           {:ok, summary} <- require_result_summary(attrs) do
-        now = now()
+    with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
+         {:ok, summary} <- require_result_summary(attrs) do
+      case Queries.get_for_agent(job_id, agent_uid) do
+        nil ->
+          {:error, :job_not_found}
 
-        Repo.transact(fn repo ->
-          case Queries.get_for_agent(repo, job_id, agent_uid, []) do
-            nil ->
-              {:error, :job_not_found}
+        %Job{status: :succeeded} = job ->
+          {:ok, %{job: job, turn: nil}}
 
-            %Job{status: :succeeded} = job ->
-              {:ok, %{job: job, turn: nil}}
+        %Job{status: status} when status in [:failed, :stopped] ->
+          {:error, :background_agent_job_terminal}
 
-            %Job{status: status} when status in [:failed, :stopped] ->
-              {:error, :background_agent_job_terminal}
+        %Job{status: pre_status} = job ->
+          turn = if pre_status == :running, do: live_turn_ref_in_tx(repo, job)
 
-            %Job{status: pre_status} = job ->
-              turn = if pre_status == :running, do: live_turn_ref_in_tx(repo, job)
-              completed_by = Attrs.text(attrs, "completed_by")
+          result =
+            Attrs.reject_nil_values(%{
+              "summary" => summary,
+              "completed_by" => Attrs.text(attrs, "completed_by")
+            })
 
-              result =
-                Attrs.reject_nil_values(%{
-                  "summary" => summary,
-                  "completed_by" => completed_by
-                })
-
-              with {:ok, %{job: job, wakeup_event: wakeup_event}} <-
-                     Lifecycle.commit_status_with_wakeup_in_tx(
-                       repo,
-                       job_id,
-                       agent_uid,
-                       %{"status" => :succeeded, "result" => result},
-                       now,
-                       nil,
-                       nil,
-                       %{
-                         "code" => "background_agent_job_succeeded",
-                         "summary" =>
-                           "The Job was completed externally before this runtime Turn reported completion."
-                       },
-                       external_completion: true
-                     ) do
-                {:ok, %{job: job, turn: turn, wakeup_event: wakeup_event}}
-              end
+          with {:ok, %{job: job, wakeup_event: wakeup_event}} <-
+                 Lifecycle.commit_status_with_wakeup_in_tx(
+                   repo,
+                   job_id,
+                   agent_uid,
+                   %{"status" => :succeeded, "result" => result},
+                   now(),
+                   nil,
+                   nil,
+                   %{
+                     "code" => "background_agent_job_succeeded",
+                     "summary" =>
+                       "The Job was completed externally before this runtime Turn reported completion."
+                   },
+                   transition_action: :external_complete
+                 ) do
+            {:ok, %{job: job, turn: turn, wakeup_event: wakeup_event}}
           end
-        end)
       end
-
-    result
+    end
   end
+
+  @doc """
+  Stops one Job for a Console operator in the `console_cancel` action.
+
+  The result Job keeps the Turn to stop in its `:turn` metadata, so that
+  `stop_console_turn/1` stops it after the commit.
+  """
+  @spec console_cancel_in_tx(module(), pos_integer(), Ankole.Principals.Principal.t()) ::
+          {:ok, Job.t()} | {:error, term()}
+  def console_cancel_in_tx(repo, job_id, principal) do
+    with {:ok, job} <- console_job(job_id),
+         {:ok, %{job: job, turn: turn}} <-
+           request_stop_in_tx(repo, job_id, %{
+             "agent_uid" => job.agent_uid,
+             "cancel_requested_by" => operator(principal),
+             "reason" => "Cancelled from the operator console"
+           }) do
+      {:ok, Ash.Resource.put_metadata(job, :turn, turn)}
+    end
+  end
+
+  @doc """
+  Completes one Job for a Console operator in the `console_complete` action.
+
+  The result Job keeps the Turn to stop in its `:turn` metadata.
+  """
+  @spec console_complete_in_tx(
+          module(),
+          pos_integer(),
+          String.t(),
+          Ankole.Principals.Principal.t()
+        ) :: {:ok, Job.t()} | {:error, term()}
+  def console_complete_in_tx(repo, job_id, result_summary, principal) do
+    with {:ok, job} <- console_job(job_id),
+         {:ok, %{job: job, turn: turn}} <-
+           request_complete_in_tx(repo, job_id, %{
+             "agent_uid" => job.agent_uid,
+             "completed_by" => operator(principal),
+             "result_summary" => result_summary
+           }) do
+      {:ok, Ash.Resource.put_metadata(job, :turn, turn)}
+    end
+  end
+
+  @doc "Stops the Turn of a Job that a Console operator cancelled or completed."
+  @spec stop_console_turn(Job.t()) :: :ok
+  def stop_console_turn(%Job{} = job),
+    do: Ankole.Sessions.stop_job_turn(job, job.__metadata__[:turn])
+
+  @doc """
+  Gives the answer of a rejected Console operation for `Ankole.Errors.wrap/2`:
+  a missing Job is not found, and a Job that already failed or stopped is a
+  conflict, as in the v1 Console API.
+  """
+  def console_rejection(:job_not_found),
+    do: Ankole.Errors.Invalid.NotFound.exception(resource: Job)
+
+  def console_rejection(:background_agent_job_terminal),
+    do: {:conflict, "background Agent Job already failed or stopped", []}
+
+  def console_rejection(_reason), do: nil
+
+  defp console_job(job_id) do
+    case Queries.get(job_id) do
+      %Job{} = job -> {:ok, job}
+      nil -> {:error, :job_not_found}
+    end
+  end
+
+  defp operator(principal), do: principal |> Ankole.ActorRef.from_principal() |> to_string()
 
   defp require_result_summary(attrs) do
     case Attrs.text(attrs, "result_summary") do
@@ -138,16 +198,14 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     end
   end
 
-  @spec send_message(pos_integer(), map()) ::
+  @spec send_message_in_tx(module(), pos_integer(), map()) ::
           {:ok, %{job: Job.t(), command_event: Signal.t()}}
           | {:error, term()}
-  def send_message(job_id, attrs)
+  def send_message_in_tx(repo, job_id, attrs)
       when Ankole.ModelIntegerID.valid?(job_id) and is_map(attrs) do
-    Repo.transact(fn repo ->
-      with {:ok, sessions, commit} <- prepare_message_in_tx(repo, job_id, attrs),
-           :ok <- Ankole.Sessions.Queue.lock_sessions_in_tx(repo, sessions),
-           do: commit.()
-    end)
+    with {:ok, sessions, commit} <- prepare_message_in_tx(repo, job_id, attrs),
+         :ok <- Ankole.Sessions.Queue.lock_sessions_in_tx(repo, sessions),
+         do: commit.()
   end
 
   def prepare_message_in_tx(repo, job_id, attrs) do
@@ -156,7 +214,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
          {:ok, request_id} <- require_source_tool_call_id(attrs),
          {:ok, message} <- require_message(Map.get(attrs, "message")),
-         %Job{} = job <- Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
+         %Job{} = job <- Queries.lock_for_agent_in_tx(job_id, agent_uid),
          :ok <- ensure_messageable(job) do
       {:ok, job_sessions(job),
        fn ->
@@ -190,10 +248,9 @@ defmodule Ankole.BackgroundAgentJobs.Control do
           String.t(),
           pos_integer()
         ) :: Job.t() | nil
-  def lock_ambient_handoff_target_in_tx(repo, agent_uid, job_id)
-      when is_binary(agent_uid) and Ankole.ModelIntegerID.valid?(job_id) do
-    Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE")
-  end
+  def lock_ambient_handoff_target_in_tx(_repo, agent_uid, job_id)
+      when is_binary(agent_uid) and Ankole.ModelIntegerID.valid?(job_id),
+      do: Queries.lock_for_agent_in_tx(job_id, agent_uid)
 
   @doc false
   @spec handoff_ambient_message_in_tx(
@@ -268,7 +325,14 @@ defmodule Ankole.BackgroundAgentJobs.Control do
         })
       )
 
-    with {:ok, :stopped} <- JobState.transition(:stop, job.status, :stopped),
+    with {:ok, stopped} <-
+           Ankole.Errors.reason(
+             Ankole.Ash.update(
+               job,
+               :stop,
+               WorkerWait.clear(%{completed_at: now, metadata: metadata})
+             )
+           ),
          :ok <-
            Turns.interrupt_active_for_current_attempt_in_tx(
              repo,
@@ -279,31 +343,8 @@ defmodule Ankole.BackgroundAgentJobs.Control do
              },
              now
            ) do
-      Ankole.Ash.update(
-        job,
-        :stop,
-        WorkerWait.clear(%{
-          completed_at: now,
-          metadata: metadata
-        })
-      )
+      {:ok, stopped}
     end
-  end
-
-  defp complete_pending_job_events(repo, job, now) do
-    Signal
-    |> where([event], event.agent_uid == ^job.agent_uid)
-    |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job.id))
-    |> where([event], event.type in ["background_agent_job.dispatch", "command.steer"])
-    |> where([event], event.status in [:queued, :running])
-    |> lock("FOR UPDATE")
-    |> repo.lock_all("signals")
-    |> Enum.reduce_while(:ok, fn event, :ok ->
-      case Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, event, now) do
-        {:ok, %Signal{}} -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
   end
 
   defp require_source_tool_call_id(attrs) do

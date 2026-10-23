@@ -62,6 +62,29 @@ defmodule Ankole.BrowserSessionsTest do
     assert Repo.get!(BrowserSessions.LoginTransaction, transaction.id).status == :consumed
   end
 
+  test "a browser write owns its transaction; another transaction composes its _in_tx step", %{
+    browser: browser
+  } do
+    {:ok, transaction} = BrowserSessions.begin_login(browser, :pod, %{})
+
+    assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
+      Repo.transact(fn -> BrowserSessions.bind_provider(browser, transaction.id, "local") end)
+    end
+
+    assert_raise Ankole.Errors.Framework.TransactionRequired, fn ->
+      BrowserSessions.bind_provider_in_tx(browser, transaction.id, "local")
+    end
+
+    assert Repo.get!(BrowserSessions.LoginTransaction, transaction.id).provider_id == nil
+
+    assert {:ok, bound} =
+             Repo.transact(fn ->
+               BrowserSessions.bind_provider_in_tx(browser, transaction.id, "local")
+             end)
+
+    assert bound.provider_id == "local"
+  end
+
   test "trusted Pod entry binds the held proof without refreshing it and rejects another browser",
        %{
          browser: browser
@@ -363,8 +386,9 @@ defmodule Ankole.BrowserSessionsTest do
 
     assert {:ok, created} =
              BrowserSessions.create_pod_access(reference, fn authentication ->
+               # The callback runs in the BrowserSessions transaction.
                with {:ok, tenant} <-
-                      Ankole.Tenants.create(%{
+                      Ankole.Tenants.create_in_tx(Repo, %{
                         slug: "pod-#{Ecto.UUID.generate()}",
                         display_name: "New Pod"
                       }) do
@@ -385,7 +409,7 @@ defmodule Ankole.BrowserSessionsTest do
 
     assert {:error, :creation_failed} =
              BrowserSessions.create_pod_access(reference, fn _ ->
-               Ankole.Tenants.create(%{
+               Ankole.Tenants.create_in_tx(Repo, %{
                  slug: "rollback-#{Ecto.UUID.generate()}",
                  display_name: "Roll back"
                })

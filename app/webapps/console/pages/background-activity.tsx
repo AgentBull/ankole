@@ -9,15 +9,15 @@ import {
   backgroundActivityJobsOptions,
   backgroundActivityWorkflowOptions,
   backgroundActivityAutomationRunsOptions
-} from '../api/generated/@tanstack/react-query.gen'
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import type { AgentItem } from '../api/agents'
 import type {
-  AgentItem,
   BackgroundActivityJob,
   BackgroundActivityWorkflowCall,
   BackgroundActivityWorkflowRun,
   BackgroundActivityAutomationRun,
   WorkflowActivityCounts
-} from '../api/generated/types.gen'
+} from '../api/runtime-types'
 import { resolveAgentUID } from '../console-agent-scope'
 import { StatusIndicator } from '../console-form'
 import { CursorPagination } from '../console-list-page'

@@ -14,8 +14,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   binding's app.
   """
 
-  import Ecto.Query, warn: false
-
   alias Ankole.Signals.Bindings
   alias Ankole.{Logging, Principals, Repo}
   alias Ankole.Plugins.ChannelSync
@@ -305,23 +303,21 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   def upsert_channel_projection(context, mirror, group_id) do
     fact = channel_fact(mirror, group_id)
 
-    Repo.transact(fn repo ->
-      External.observe_conversation_in_tx(
-        repo,
-        %{agent_uid: context.agent_uid, name: context.binding_name},
-        %{
-          provider_conversation_id: fact.provider_conversation_id,
-          external_kind: fact.channel_kind,
-          title: fact.channel_name,
-          reply_mode: fact.reply_mode,
-          visibility: fact.channel_visibility,
-          principal_group_id: group_id,
-          metadata: fact.channel_metadata,
-          raw_payload: fact.channel_raw_payload
-        },
-        DateTime.utc_now(:microsecond)
-      )
-    end)
+    Ankole.Conversations.observe_external_conversation(
+      %{agent_uid: context.agent_uid, name: context.binding_name},
+      %{
+        provider_conversation_id: fact.provider_conversation_id,
+        external_kind: fact.channel_kind,
+        title: fact.channel_name,
+        reply_mode: fact.reply_mode,
+        visibility: fact.channel_visibility,
+        principal_group_id: group_id,
+        metadata: fact.channel_metadata,
+        raw_payload: fact.channel_raw_payload
+      },
+      DateTime.utc_now(:microsecond)
+    )
+    |> Ankole.Errors.reason()
   end
 
   defp left_result({:ok, %{status: :all_left_members_cleared} = result}, status),
@@ -462,15 +458,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   end
 
   defp mirrored_teams(config) do
-    Conversation
-    |> where(
-      [channel],
-      channel.kind == :external and like(channel.provider_conversation_id, "teams:%")
-    )
-    |> where_visible_to_app(config)
-    |> select([channel], channel.metadata)
-    |> Repo.all()
-    |> Enum.flat_map(fn metadata ->
+    teams_mirrors()
+    |> Enum.flat_map(fn %Conversation{metadata: metadata} ->
       metadata = metadata || %{}
       team_id = MapHelpers.optional_text(metadata, "team_id")
       service_url = MapHelpers.optional_text(metadata, "service_url")
@@ -484,15 +473,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   end
 
   defp mirrored_group_chats(config) do
-    Conversation
-    |> where(
-      [channel],
-      channel.kind == :external and like(channel.provider_conversation_id, "teams:%")
-    )
-    |> where_visible_to_app(config)
-    |> select([channel], {channel.title, channel.metadata})
-    |> Repo.all()
-    |> Enum.flat_map(fn {name, metadata} ->
+    teams_mirrors()
+    |> Enum.flat_map(fn %Conversation{title: name, metadata: metadata} ->
       metadata = metadata || %{}
 
       with true <- mirror_visible_to_app?(metadata, config),
@@ -519,32 +501,21 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   defp mirror_visible_to_app?(metadata, config),
     do: MapHelpers.optional_text(metadata, "app_id") == config["appID"]
 
-  defp where_visible_to_app(query, %{"appID" => app_id}) when is_binary(app_id) do
-    where(
-      query,
-      [channel],
-      fragment(
-        "jsonb_typeof(?->'app_id') = 'string' AND btrim(?->>'app_id') = ?",
-        channel.metadata,
-        channel.metadata,
-        ^app_id
-      )
+  # Each caller keeps only the mirrors of its app with `mirror_visible_to_app?/2`.
+  defp teams_mirrors do
+    Ankole.Conversations.list_conversations!(
+      query: [
+        filter: [kind: :external, provider_conversation_id: [string_starts_with: "teams:"]],
+        select: [:title, :metadata]
+      ]
     )
   end
-
-  defp where_visible_to_app(query, _config), do: query
 
   defp mark_team_channels_left(_config, nil), do: {:ok, %{status: :ignored_missing_team}}
 
   defp mark_team_channels_left(config, team_id) do
-    Conversation
-    |> where(
-      [channel],
-      channel.kind == :external and like(channel.provider_conversation_id, "teams:%")
-    )
-    |> where_visible_to_app(config)
-    |> select([channel], channel.metadata)
-    |> Repo.all()
+    teams_mirrors()
+    |> Enum.map(& &1.metadata)
     |> Enum.filter(fn metadata ->
       metadata = metadata || %{}
 

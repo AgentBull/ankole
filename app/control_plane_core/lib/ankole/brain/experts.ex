@@ -8,16 +8,15 @@ defmodule Ankole.Brain.Experts do
   evidence before it counts.
   """
 
-  import Ecto.Query, warn: false
   require Ash.Query
 
   alias Ankole.Brain.Calibration
   alias Ankole.Brain.Access
+  alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.SchemaType
-  alias Ankole.Repo
 
   @default_limit 5
   @freshness_halflife_days 90
@@ -44,10 +43,10 @@ defmodule Ankole.Brain.Experts do
 
       expert_slugs =
         Object
-        |> where([object], object.type in ^expert_types and is_nil(object.deleted_at))
-        |> select([object], object.slug)
-        |> Repo.all()
-        |> MapSet.new()
+        |> Ash.Query.filter(type in ^expert_types and is_nil(deleted_at))
+        |> Ash.Query.select([:slug])
+        |> Ankole.Ash.read!()
+        |> MapSet.new(& &1.slug)
 
       now = DateTime.utc_now()
 
@@ -91,10 +90,10 @@ defmodule Ankole.Brain.Experts do
   defp holder_calibration(holder, access, disclosure) do
     resolved =
       Claim
-      |> where([claim], claim.claim_type == :take and claim.holder == ^holder)
-      |> where([claim], claim.resolved_quality in ["correct", "incorrect"])
+      |> Ash.Query.filter(claim_type == :take and holder == ^holder)
+      |> Ash.Query.filter(resolved_quality in ["correct", "incorrect"])
       |> Access.filter_claims(access)
-      |> Repo.all()
+      |> Ankole.Ash.read!()
       |> Access.filter_disclosable(& &1.audience_scope, disclosure)
 
     case resolved do
@@ -107,9 +106,9 @@ defmodule Ankole.Brain.Experts do
   end
 
   defp add_holder_card(expert) do
-    case Repo.get_by(Object, slug: expert.holder) do
-      %Object{} = object -> Map.merge(expert, %{title: object.title, type: object.type})
-      nil -> Map.merge(expert, %{title: expert.holder, type: nil})
+    case Objects.get_by_slug(expert.holder) do
+      {:ok, object} -> Map.merge(expert, %{title: object.title, type: object.type})
+      {:error, :not_found} -> Map.merge(expert, %{title: expert.holder, type: nil})
     end
   end
 end

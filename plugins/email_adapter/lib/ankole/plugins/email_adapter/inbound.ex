@@ -1,9 +1,7 @@
 defmodule Ankole.Plugins.EmailAdapter.Inbound do
   @moduledoc false
 
-  import Ecto.Query, warn: false
-
-  alias Ankole.{Logging, Repo}
+  alias Ankole.Logging
   alias Ankole.Plugins.EmailAdapter.Address
   alias Ankole.Plugins.EmailAdapter.Authentication
   alias Ankole.Plugins.EmailAdapter.Config
@@ -11,7 +9,6 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
   alias Ankole.Plugins.EmailAdapter.ReplyText
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Conversations.AdapterContext
-  alias Ankole.Conversations.{Conversation, ExternalMessageRef}
   alias Ankole.Conversations.{Attachments, Observe}
 
   @references_limit 40
@@ -195,19 +192,28 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
   defp existing_channel(_address, []), do: nil
 
   defp existing_channel(address, references) do
-    prefix = channel_prefix(address)
+    refs =
+      Ankole.Conversations.list_external_message_refs!(
+        query: [
+          filter: [provider_message_id: [in: references]],
+          sort: [first_seen_at: :asc],
+          select: [:conversation_id]
+        ]
+      )
 
-    Repo.one(
-      from ref in ExternalMessageRef,
-        join: conversation in Conversation,
-        on: conversation.id == ref.conversation_id,
-        where:
-          ref.provider_message_id in ^references and
-            fragment("starts_with(?, ?)", conversation.provider_conversation_id, ^prefix),
-        order_by: [asc: ref.first_seen_at],
-        limit: 1,
-        select: conversation.provider_conversation_id
-    )
+    channels =
+      Ankole.Conversations.list_conversations!(
+        query: [
+          filter: [
+            id: [in: Enum.map(refs, & &1.conversation_id)],
+            provider_conversation_id: [string_starts_with: channel_prefix(address)]
+          ],
+          select: [:id, :provider_conversation_id]
+        ]
+      )
+      |> Map.new(&{&1.id, &1.provider_conversation_id})
+
+    Enum.find_value(refs, &Map.get(channels, &1.conversation_id))
   end
 
   defp participants(%Message{} = message, address) do

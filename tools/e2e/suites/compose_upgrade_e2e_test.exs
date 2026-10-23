@@ -11,19 +11,26 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
   test "default Compose images migrate an empty database and retain setup after restart" do
     {deployment, owner} = Compose.start!() |> Compose.setup_admin!()
 
-    assert %{"worker_providers" => [%{"provider_id" => "docker"}]} =
-             Compose.api!(deployment, :get, "/api/v1/site/worker-providers")
+    assert %{"data" => [%{"attributes" => %{"provider_id" => "docker"}}]} =
+             Compose.api!(deployment, :get, "/api/v2/site/worker-providers")
 
-    assert %{"agent" => %{"uid" => uid}} =
-             Compose.api!(deployment, :post, "/api/v1/agents", %{
-               handle: "fresh-install-agent",
-               display_name: "Fresh installation Agent",
-               role: "Verify installation",
-               owner_principal_uid: owner
-             })
+    assert %{"uid" => uid} =
+             Compose.api!(
+               deployment,
+               :post,
+               "/api/v2/agents",
+               %{
+                 data: %{
+                   handle: "fresh-install-agent",
+                   display_name: "Fresh installation Agent",
+                   role: "Verify installation",
+                   owner_principal_uid: owner
+                 }
+               },
+               201
+             )
 
-    assert %{"workers" => [%{"agent_uid" => ^uid, "state" => "absent"}]} =
-             Compose.api!(deployment, :get, "/api/v1/agent-workers")
+    assert [%{"agent_uid" => ^uid, "state" => "absent"}] = list_workers(deployment)
 
     extensions =
       Compose.compose!(deployment, [
@@ -51,8 +58,8 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
 
     assert compose_query!(deployment, unicode_path_query) == "子目录"
 
-    assert %{"agent" => %{"uid" => ^uid}} =
-             Compose.api!(deployment, :get, "/api/v1/agents/#{uid}")
+    assert %{"data" => %{"id" => ^uid}} =
+             Compose.api!(deployment, :get, "/api/v2/agents/#{uid}")
 
     Compose.compose!(deployment, ["up", "--no-deps", "--force-recreate", "migrate"])
     migration = String.trim(Compose.compose!(deployment, ["ps", "-aq", "migrate"]))
@@ -65,20 +72,27 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
 
     workers =
       for handle <- ["automatic-worker-a", "automatic-worker-b"] do
-        assert %{"agent" => %{"uid" => uid}} =
-                 Compose.api!(deployment, :post, "/api/v1/agents", %{
-                   handle: handle,
-                   display_name: handle,
-                   role: "Verify automatic startup",
-                   owner_principal_uid: owner
-                 })
+        assert %{"uid" => uid} =
+                 Compose.api!(
+                   deployment,
+                   :post,
+                   "/api/v2/agents",
+                   %{
+                     data: %{
+                       handle: handle,
+                       display_name: handle,
+                       role: "Verify automatic startup",
+                       owner_principal_uid: owner
+                     }
+                   },
+                   201
+                 )
 
         # No model, environment call, or explicit Worker request starts this Agent.
         assert {:ok, worker} =
                  wait_until(deadline(120_000), fn ->
                    deployment
-                   |> Compose.api!(:get, "/api/v1/agent-workers")
-                   |> Map.fetch!("workers")
+                   |> list_workers()
                    |> Enum.find(&(&1["agent_uid"] == uid and &1["state"] == "ready"))
                  end)
 
@@ -136,13 +150,13 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
       refute recreated[service] in ["", container]
     end
 
-    assert length(Compose.api!(deployment, :get, "/api/v1/agents")["agents"]) == 2
+    assert length(Compose.api!(deployment, :get, "/api/v2/agents")["data"]) == 2
 
     for {uid, name, volumes, generation} <- workers do
       assert {:ok, _worker} =
                wait_until(deadline(120_000), fn ->
                  Enum.find(
-                   Compose.api!(deployment, :get, "/api/v1/agent-workers")["workers"],
+                   list_workers(deployment),
                    &(&1["agent_uid"] == uid and &1["generation"] == generation and
                        &1["state"] == "ready")
                  )
@@ -154,14 +168,14 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     end
 
     for {uid, name, volumes, _generation} <- workers do
-      assert %{"agent" => %{"status" => "disabled"}} =
-               Compose.api!(deployment, :delete, "/api/v1/agents/#{uid}")
+      assert %{"status" => "disabled"} =
+               Compose.api!(deployment, :delete, "/api/v2/agents/#{uid}")
 
-      Compose.api!(deployment, :delete, "/api/v1/agents/#{uid}")
+      Compose.api!(deployment, :delete, "/api/v2/agents/#{uid}")
 
       assert {:ok, true} =
                wait_until(deadline(120_000), fn ->
-                 remaining = Compose.api!(deployment, :get, "/api/v1/agent-workers")["workers"]
+                 remaining = list_workers(deployment)
                  Enum.all?(remaining, &(&1["agent_uid"] != uid))
                end)
 
@@ -172,21 +186,21 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
       for {other_uid, other_name, _, generation} <- workers,
           other_uid != uid,
           Enum.any?(
-            Compose.api!(deployment, :get, "/api/v1/agents")["agents"],
-            &(&1["uid"] == other_uid)
+            Compose.api!(deployment, :get, "/api/v2/agents")["data"],
+            &(&1["id"] == other_uid)
           ) do
         assert Compose.docker!(["exec", other_name, "cat", "/workspace/creation-proof"]) ==
                  other_uid
 
         assert Enum.any?(
-                 Compose.api!(deployment, :get, "/api/v1/agent-workers")["workers"],
+                 list_workers(deployment),
                  &(&1["agent_uid"] == other_uid and &1["generation"] == generation and
                      &1["state"] == "ready")
                )
       end
     end
 
-    assert %{"workers" => []} = Compose.api!(deployment, :get, "/api/v1/agent-workers")
+    assert [] = list_workers(deployment)
   end
 
   @tag :compose_upgrade
@@ -222,8 +236,8 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
 
     deployment = Compose.upgrade!(old)
 
-    assert %{"agent" => %{"uid" => ^uid, "worker_provider_id" => "docker"}} =
-             Compose.api!(deployment, :get, "/api/v1/agents/#{uid}")
+    assert %{"data" => %{"id" => ^uid, "attributes" => %{"worker_provider_id" => "docker"}}} =
+             Compose.api!(deployment, :get, "/api/v2/agents/#{uid}")
 
     assert {:ok, _state} = FakeOpenAIState.start_link(self())
 
@@ -232,17 +246,27 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
 
     {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
 
-    Compose.api!(deployment, :put, "/api/v1/site/ai-gateway/providers/compose-model", %{
-      provider_kind: "openai_compatible",
-      base_url: "http://host.docker.internal:#{port}",
-      credential_pool: %{entries: [%{label: "Test", api_key: "compose-test-only"}]}
+    Compose.api!(deployment, :patch, "/api/v2/site/ai-gateway/providers/compose-model", %{
+      data: %{
+        id: "compose-model",
+        type: "ai_gateway_provider",
+        attributes: %{
+          provider_kind: "openai_compatible",
+          base_url: "http://host.docker.internal:#{port}",
+          credential_pool: %{entries: [%{label: "Test", api_key: "compose-test-only"}]}
+        }
+      }
     })
 
     for profile <- ["primary", "light"] do
-      Compose.api!(deployment, :put, "/api/v1/agents/#{uid}/model-profiles/#{profile}", %{
-        provider_id: "compose-model",
-        model: "fake-main-chaos",
-        context_length: 131_072
+      Compose.api!(deployment, :put, "/api/v2/agents/#{uid}/model-profiles/#{profile}", %{
+        data: %{
+          attrs: %{
+            provider_id: "compose-model",
+            model: "fake-main-chaos",
+            context_length: 131_072
+          }
+        }
       })
     end
 
@@ -275,25 +299,33 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
 
     # Scheduled input alone does not need a Worker. Its command must request
     # the migrated Agent's computer through the production tool path.
-    assert %{"cron_schedule" => %{"id" => schedule_id}} =
-             Compose.api!(deployment, :post, "/api/v1/agents/#{uid}/cron-schedules", %{
-               owner_session_id: "conversation:#{target_conversation_id}",
-               name: "read-migrated-work",
-               schedule: %{kind: "cron", expression: "* * * * *"},
-               timezone: "UTC",
-               payload: %{task: "COMPOSE_UPGRADE_READ: read the migrated workspace file."},
-               delivery: %{
-                 targets: [
-                   %{conversation_id: target_conversation_id}
-                 ]
+    assert %{"id" => schedule_id} =
+             Compose.api!(
+               deployment,
+               :post,
+               "/api/v2/agents/#{uid}/cron-schedules",
+               %{
+                 data: %{
+                   owner_session_id: "conversation:#{target_conversation_id}",
+                   name: "read-migrated-work",
+                   schedule: %{kind: "cron", expression: "* * * * *"},
+                   timezone: "UTC",
+                   payload: %{task: "COMPOSE_UPGRADE_READ: read the migrated workspace file."},
+                   delivery: %{
+                     targets: [
+                       %{conversation_id: target_conversation_id}
+                     ]
+                   },
+                   idempotency_key: "compose-upgrade"
+                 }
                },
-               idempotency_key: "compose-upgrade"
-             })
+               201
+             )
 
     assert {:ok, worker} =
              wait_until(deadline(120_000), fn ->
                Enum.find(
-                 Compose.api!(deployment, :get, "/api/v1/agent-workers")["workers"],
+                 list_workers(deployment),
                  &(&1["agent_uid"] == uid and &1["state"] == "ready")
                )
              end)
@@ -374,15 +406,14 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
              "/workspace/sessions/unfinished/read-count"
            ]) == "x"
 
-    assert %{"workers" => workers} =
-             Compose.api!(deployment, :get, "/api/v1/agent-workers")
+    workers = list_workers(deployment)
 
     assert Enum.any?(workers, fn current ->
              current["agent_uid"] == uid and current["generation"] == worker["generation"] and
                current["state"] == "ready"
            end)
 
-    Compose.api!(deployment, :delete, "/api/v1/agents/#{uid}/cron-schedules/#{schedule_id}")
+    Compose.api!(deployment, :delete, "/api/v2/agents/#{uid}/cron-schedules/#{schedule_id}")
 
     assert Compose.docker!([
              "exec",
@@ -451,16 +482,16 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     volumes = for mount <- inspection["Mounts"], mount["Type"] == "volume", do: mount["Name"]
     assert length(volumes) == 2
 
-    assert %{"agent" => %{"status" => "disabled"}} =
-             Compose.api!(deployment, :delete, "/api/v1/agents/#{uid}")
+    assert %{"status" => "disabled"} =
+             Compose.api!(deployment, :delete, "/api/v2/agents/#{uid}")
 
-    assert %{"agent" => %{"uid" => ^uid}} =
-             Compose.api!(deployment, :delete, "/api/v1/agents/#{uid}")
+    assert %{"uid" => ^uid} =
+             Compose.api!(deployment, :delete, "/api/v2/agents/#{uid}")
 
     assert {:ok, true} =
              wait_until(deadline(120_000), fn ->
                Enum.all?(
-                 Compose.api!(deployment, :get, "/api/v1/agent-workers")["workers"],
+                 list_workers(deployment),
                  &(&1["agent_uid"] != uid)
                )
              end)
@@ -571,31 +602,43 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     work = Ankole.AgentHomePaths.session_workspace(workspace_id)
     compose_public_network_diagnostic!(deployment)
 
-    Compose.api!(deployment, :put, "/api/v1/site/ai-gateway/providers/compose-real-model", %{
-      provider_kind: "openrouter",
-      base_url: "https://openrouter.ai/api/v1",
-      credential_pool: %{
-        entries: [%{label: "Test", api_key: Ankole.E2E.Harness.openrouter_api_key!()}]
+    Compose.api!(deployment, :patch, "/api/v2/site/ai-gateway/providers/compose-real-model", %{
+      data: %{
+        id: "compose-real-model",
+        type: "ai_gateway_provider",
+        attributes: %{
+          provider_kind: "openrouter",
+          base_url: "https://openrouter.ai/api/v1",
+          credential_pool: %{
+            entries: [%{label: "Test", api_key: Ankole.E2E.Harness.openrouter_api_key!()}]
+          }
+        }
       }
     })
 
     for profile <- ["primary", "light"] do
-      Compose.api!(deployment, :put, "/api/v1/agents/#{uid}/model-profiles/#{profile}", %{
-        provider_id: "compose-real-model",
-        model: "deepseek/deepseek-v4.1-flash",
-        context_length: 131_072
+      Compose.api!(deployment, :put, "/api/v2/agents/#{uid}/model-profiles/#{profile}", %{
+        data: %{
+          attrs: %{
+            provider_id: "compose-real-model",
+            model: "deepseek/deepseek-v4.1-flash",
+            context_length: 131_072
+          }
+        }
       })
     end
 
-    Compose.api!(deployment, :put, "/api/v1/agents/#{uid}/signal-bindings/lark/compose-real", %{
-      config: %{
-        appID: app_id,
-        appSecret: app_secret,
-        domain: "feishu",
-        userName: "Compose recovery bot"
-      },
-      group_message_mode: "addressed_only",
-      unmatched_sender_policy: "create_standalone"
+    Compose.api!(deployment, :put, "/api/v2/agents/#{uid}/signal-bindings/lark/compose-real", %{
+      data: %{
+        config: %{
+          appID: app_id,
+          appSecret: app_secret,
+          domain: "feishu",
+          userName: "Compose recovery bot"
+        },
+        group_message_mode: "addressed_only",
+        unmatched_sender_policy: "create_standalone"
+      }
     })
 
     assert {:ok, true} =
@@ -635,7 +678,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     assert {:ok, worker} =
              wait_until(deadline(120_000), fn ->
                Enum.find(
-                 Compose.api!(deployment, :get, "/api/v1/agent-workers")["workers"],
+                 list_workers(deployment),
                  &(&1["agent_uid"] == uid and &1["state"] == "ready")
                )
              end)
@@ -775,10 +818,16 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     assert sent_file_id == file_message.id
 
     assert Enum.any?(
-             Compose.api!(deployment, :get, "/api/v1/agent-workers")["workers"],
+             list_workers(deployment),
              &(&1["agent_uid"] == uid and &1["generation"] == worker["generation"] and
                  &1["state"] == "ready")
            )
+  end
+
+  # A v2 Worker record is named by the UID of its Agent.
+  defp list_workers(deployment) do
+    for worker <- Compose.api!(deployment, :get, "/api/v2/agent-workers")["data"],
+        do: Map.put(worker["attributes"], "agent_uid", worker["id"])
   end
 
   defp compose_input!(deployment, uid, message_id) do
@@ -818,12 +867,12 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
             %{
               state: state,
               stream_open: not is_nil(data.stream),
-              run: if(data.run, do: Map.take(data.run,
+              run: if(data.turn.run, do: Map.take(data.turn.run,
                 [:signal_id, :epoch, :iteration, :workspace_id, :workspace_open?, :recovered?])),
               tasks: Enum.map(data.tasks, fn {_ref, {kind, task}} ->
                 %{kind: kind, current_function: Process.info(task, :current_function)}
               end),
-              pending: Enum.map(data.pending, fn {id, pending} ->
+              pending: Enum.map(data.turn.pending, fn {id, pending} ->
                 %{call_id: id, status: pending.status, tool: pending.worker_name,
                   mode: pending.mode, probe: pending.probe?,
                   arguments: Map.take(pending.args || %{},

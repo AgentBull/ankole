@@ -1,13 +1,11 @@
 defmodule Ankole.Schedule.Cron do
   @moduledoc false
 
-  import Ecto.Query, warn: false
   require Ash.Query
 
   alias Ankole.Conversations.Target, as: StatementTarget
   alias Ankole.AIGateway
   alias Ankole.AutomationJobs
-  alias Ankole.Repo
   alias Ankole.Schedule.Attrs
   alias Ankole.Schedule.Delivery
   alias Ankole.Schedule.Normalizer
@@ -42,27 +40,25 @@ defmodule Ankole.Schedule.Cron do
   @spec execution_session_prefix() :: String.t()
   def execution_session_prefix, do: Ankole.Sessions.Key.cron("")
 
-  @spec create_cron_schedule(map(), keyword()) ::
+  @spec create_cron_schedule_in_tx(module(), map(), keyword()) ::
           {:ok, %{status: :created | :already_exists, cron_schedule: CronSchedule.t()}}
           | {:error, term()}
-  def create_cron_schedule(attrs, opts \\ []) when is_map(attrs) do
+  def create_cron_schedule_in_tx(repo, attrs, opts) when is_map(attrs) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, attrs} <- Normalizer.cron_schedule_attrs(attrs, now, opts) do
-      Repo.transact(fn repo ->
-        attrs = Ankole.Principals.WorkAccess.inherit(repo, attrs)
+      attrs = Ankole.Principals.WorkAccess.inherit(repo, attrs)
 
-        with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
-             :ok <- validate_native_delivery_in_tx(repo, attrs.agent_uid, attrs.delivery),
-             :ok <-
-               AutomationJobs.validate_bindable_in_tx(
-                 repo,
-                 attrs.automation_job_id,
-                 attrs.agent_uid
-               ) do
-          insert_cron_schedule_in_tx(repo, attrs)
-        end
-      end)
+      with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
+           :ok <- validate_native_delivery_in_tx(repo, attrs.agent_uid, attrs.delivery),
+           :ok <-
+             AutomationJobs.validate_bindable_in_tx(
+               repo,
+               attrs.automation_job_id,
+               attrs.agent_uid
+             ) do
+        insert_cron_schedule_in_tx(repo, attrs)
+      end
     end
   end
 
@@ -75,93 +71,90 @@ defmodule Ankole.Schedule.Cron do
     end)
   end
 
-  @spec update_cron_schedule(Ecto.UUID.t(), map(), keyword()) ::
+  @spec update_cron_schedule_in_tx(module(), Ecto.UUID.t(), map(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
-  def update_cron_schedule(cron_schedule_id, attrs, opts \\ [])
+  def update_cron_schedule_in_tx(repo, cron_schedule_id, attrs, opts)
       when is_binary(cron_schedule_id) and is_map(attrs) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    Repo.transact(fn repo ->
-      with %CronSchedule{} = snapshot <- repo.get(CronSchedule, cron_schedule_id),
-           {:ok, job_id} <- Normalizer.automation_job_id(attrs),
-           :ok <- AutomationJobs.validate_bindable_in_tx(repo, job_id, snapshot.agent_uid),
-           %CronSchedule{} = schedule <-
-             Store.lock_cron_schedule(repo, cron_schedule_id, job_id),
-           true <- schedule.agent_uid == snapshot.agent_uid,
-           :ok <- Store.reject_terminal(schedule),
-           {:ok, attrs} <- Normalizer.cron_schedule_update_attrs(schedule, attrs, now, opts),
-           :ok <-
-             validate_native_delivery_in_tx(
-               repo,
-               schedule.agent_uid,
-               attrs[:delivery] || schedule.delivery
-             ),
-           changeset = Ankole.Ash.for_update(schedule, :update_definition, attrs),
-           recurrence_changed? =
-             Ash.Changeset.changing_attribute?(changeset, :schedule) or
-               Ash.Changeset.changing_attribute?(changeset, :timezone),
-           task_context_changed? =
-             Ash.Changeset.changing_attribute?(changeset, :payload) or
-               Ash.Changeset.changing_attribute?(changeset, :delivery),
-           {:ok, schedule} <- Ankole.Ash.update(changeset),
-           :ok <-
-             maybe_end_execution_conversation_in_tx(repo, schedule, task_context_changed?, now),
-           {:ok, schedule} <-
-             sync_after_update_in_tx(repo, schedule, recurrence_changed?, now, opts) do
-        {:ok, schedule}
-      else
-        nil -> {:error, :cron_schedule_not_found}
-        false -> {:error, :cron_schedule_changed}
-        {:error, _reason} = error -> error
-      end
-    end)
+    with %CronSchedule{} = snapshot <- Store.get_cron_schedule(cron_schedule_id),
+         {:ok, job_id} <- Normalizer.automation_job_id(attrs),
+         :ok <- AutomationJobs.validate_bindable_in_tx(repo, job_id, snapshot.agent_uid),
+         %CronSchedule{} = schedule <-
+           Store.lock_cron_schedule(repo, cron_schedule_id, job_id),
+         true <- schedule.agent_uid == snapshot.agent_uid,
+         :ok <- Store.reject_terminal(schedule),
+         {:ok, attrs} <- Normalizer.cron_schedule_update_attrs(schedule, attrs, now, opts),
+         :ok <-
+           validate_native_delivery_in_tx(
+             repo,
+             schedule.agent_uid,
+             attrs[:delivery] || schedule.delivery
+           ),
+         changeset = Ankole.Ash.for_update(schedule, :update_definition, attrs),
+         recurrence_changed? =
+           Ash.Changeset.changing_attribute?(changeset, :schedule) or
+             Ash.Changeset.changing_attribute?(changeset, :timezone),
+         task_context_changed? =
+           Ash.Changeset.changing_attribute?(changeset, :payload) or
+             Ash.Changeset.changing_attribute?(changeset, :delivery),
+         {:ok, schedule} <- Ankole.Ash.update(changeset),
+         :ok <-
+           maybe_end_execution_conversation_in_tx(repo, schedule, task_context_changed?, now),
+         {:ok, schedule} <-
+           sync_after_update_in_tx(repo, schedule, recurrence_changed?, now, opts) do
+      {:ok, schedule}
+    else
+      nil -> {:error, :cron_schedule_not_found}
+      false -> {:error, :cron_schedule_changed}
+      {:error, _reason} = error -> error
+    end
   end
 
-  @spec pause_cron_schedule(Ecto.UUID.t(), keyword()) ::
+  @spec pause_cron_schedule_in_tx(module(), Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
-  def pause_cron_schedule(cron_schedule_id, _opts \\ []) when is_binary(cron_schedule_id) do
-    Repo.transact(fn repo ->
-      with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
-           :ok <- Store.reject_terminal(schedule),
-           {:ok, schedule} <- put_schedule_status(repo, schedule, :paused) do
-        {:ok, schedule}
-      else
-        nil -> {:error, :cron_schedule_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
+  def pause_cron_schedule_in_tx(repo, cron_schedule_id, _opts) when is_binary(cron_schedule_id) do
+    with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
+         :ok <- Store.reject_terminal(schedule),
+         {:ok, schedule} <- put_schedule_status(repo, schedule, :paused) do
+      {:ok, schedule}
+    else
+      nil -> {:error, :cron_schedule_not_found}
+      {:error, _reason} = error -> error
+    end
   end
 
-  @spec resume_cron_schedule(Ecto.UUID.t(), keyword()) ::
+  @spec resume_cron_schedule_in_tx(module(), Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
-  def resume_cron_schedule(cron_schedule_id, opts \\ []) when is_binary(cron_schedule_id) do
+  def resume_cron_schedule_in_tx(repo, cron_schedule_id, opts) when is_binary(cron_schedule_id) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    Repo.transact(fn repo ->
-      with :ok <-
-             Ankole.Principals.WorkAccess.check_record_in_tx(repo, CronSchedule, cron_schedule_id) do
-        case Store.lock_cron_schedule(repo, cron_schedule_id) do
-          %CronSchedule{status: :paused} = schedule ->
-            resume_paused_in_tx(repo, schedule, now, opts)
+    with :ok <-
+           Ankole.Principals.WorkAccess.check_record_in_tx(repo, CronSchedule, cron_schedule_id) do
+      case Store.lock_cron_schedule(repo, cron_schedule_id) do
+        %CronSchedule{status: :paused} = schedule ->
+          resume_paused_in_tx(repo, schedule, now, opts)
 
-          %CronSchedule{status: :active} = schedule ->
-            with :ok <-
-                   Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
-                 :ok <- schedule_wake_in_tx(repo, schedule) do
-              {:ok, schedule}
-            end
+        %CronSchedule{status: :active} = schedule ->
+          with :ok <-
+                 Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
+               :ok <- schedule_wake_in_tx(repo, schedule) do
+            {:ok, schedule}
+          end
 
-          %CronSchedule{status: :completed} ->
-            {:error, :cron_schedule_completed}
+        %CronSchedule{status: :completed} ->
+          {:error, :cron_schedule_completed}
 
-          %CronSchedule{status: :deleted} ->
-            {:error, :cron_schedule_deleted}
+        %CronSchedule{status: :deleted} ->
+          {:error, :cron_schedule_deleted}
 
-          nil ->
-            {:error, :cron_schedule_not_found}
-        end
+        nil ->
+          {:error, :cron_schedule_not_found}
+
+        {:error, _reason} = error ->
+          error
       end
-    end)
+    end
   end
 
   defp resume_paused_in_tx(repo, schedule, now, _opts) do
@@ -181,46 +174,114 @@ defmodule Ankole.Schedule.Cron do
     end
   end
 
-  @spec remove_cron_schedule(Ecto.UUID.t(), keyword()) ::
+  @spec remove_cron_schedule_in_tx(module(), Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
-  def remove_cron_schedule(cron_schedule_id, opts \\ []) when is_binary(cron_schedule_id) do
+  def remove_cron_schedule_in_tx(repo, cron_schedule_id, opts) when is_binary(cron_schedule_id) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    Repo.transact(fn repo ->
-      with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
-           {:ok, schedule} <- put_schedule_status(repo, schedule, :deleted),
-           :ok <- end_execution_conversation_in_tx(repo, schedule, now),
-           {:ok, _events} <- Store.cancel_pending_cron_events(repo, schedule, now) do
-        {:ok, schedule}
-      else
-        nil -> {:error, :cron_schedule_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
+    with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
+         {:ok, schedule} <- put_schedule_status(repo, schedule, :deleted),
+         :ok <- end_execution_conversation_in_tx(repo, schedule, now),
+         {:ok, _events} <- Store.cancel_pending_cron_events(repo, schedule, now) do
+      {:ok, schedule}
+    else
+      nil -> {:error, :cron_schedule_not_found}
+      {:error, _reason} = error -> error
+    end
   end
 
-  @spec run_cron_schedule(Ecto.UUID.t(), keyword()) ::
+  @spec run_cron_schedule_in_tx(module(), Ecto.UUID.t(), keyword()) ::
           {:ok, %{status: :scheduled | :already_scheduled, scheduled_event: ScheduledEvent.t()}}
           | {:error, term()}
-  def run_cron_schedule(cron_schedule_id, opts \\ []) when is_binary(cron_schedule_id) do
+  def run_cron_schedule_in_tx(repo, cron_schedule_id, opts) when is_binary(cron_schedule_id) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    Repo.transact(fn repo ->
-      with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
-           :ok <-
-             Ankole.Principals.WorkAccess.check_record_in_tx(repo, CronSchedule, cron_schedule_id),
-           %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
-           :ok <- Store.reject_terminal(schedule),
-           :ok <- Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
-           {:ok, request_id} <- manual_request_id(opts),
-           {:ok, result} <- arm_manual_cron_fire_in_tx(repo, schedule, request_id, now, opts) do
-        {:ok, result}
-      else
-        nil -> {:error, :cron_schedule_not_found}
-        {:error, _reason} = error -> error
+    with :ok <- Ankole.Tenants.check_work_admission(Ankole.Repo.tenant_id!()),
+         :ok <-
+           Ankole.Principals.WorkAccess.check_record_in_tx(repo, CronSchedule, cron_schedule_id),
+         %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
+         :ok <- Store.reject_terminal(schedule),
+         :ok <- Normalizer.validate_cron_task(schedule.payload, schedule.automation_job_id),
+         {:ok, request_id} <- manual_request_id(opts),
+         {:ok, result} <- arm_manual_cron_fire_in_tx(repo, schedule, request_id, now, opts) do
+      {:ok, result}
+    else
+      nil -> {:error, :cron_schedule_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  # The Console creates a schedule for the Console Principal (the actor).
+  def console_create_in_tx(repo, args, actor) do
+    created_by =
+      if actor,
+        do: %{
+          "kind" => "operator_api",
+          "principal_uid" => actor |> Ankole.ActorRef.from_principal() |> to_string()
+        },
+        else: %{"kind" => "operator_api"}
+
+    case create_cron_schedule_in_tx(repo, args, created_by: created_by) do
+      {:ok, %{cron_schedule: schedule}} -> {:ok, console_result(schedule)}
+      error -> Ankole.Errors.not_found(error, [:not_found], CronSchedule)
+    end
+  end
+
+  @doc false
+  def console_update_in_tx(repo, args),
+    do:
+      for_agent(
+        args,
+        &update_cron_schedule_in_tx(repo, &1, Map.drop(args, [:agent_uid, :id]), [])
+      )
+
+  @doc false
+  def console_pause_in_tx(repo, args),
+    do: for_agent(args, &pause_cron_schedule_in_tx(repo, &1, []))
+
+  @doc false
+  def console_resume_in_tx(repo, args),
+    do: for_agent(args, &resume_cron_schedule_in_tx(repo, &1, []))
+
+  @doc false
+  def console_remove_in_tx(repo, args),
+    do: for_agent(args, &remove_cron_schedule_in_tx(repo, &1, []))
+
+  @doc false
+  def console_run_in_tx(repo, args) do
+    for_agent(args, fn id ->
+      with {:ok, %{scheduled_event: event}} <-
+             run_cron_schedule_in_tx(repo, id, idempotency_key: args.idempotency_key) do
+        {:ok, event}
       end
     end)
   end
+
+  # The Console addresses a schedule through its Agent. The schedule of another
+  # Agent reads as not found.
+  defp for_agent(%{agent_uid: agent_uid, id: id}, operation) do
+    case Store.get_cron_schedule(id) do
+      %CronSchedule{agent_uid: ^agent_uid} ->
+        case operation.(id) do
+          {:ok, %CronSchedule{} = schedule} ->
+            {:ok, console_result(schedule)}
+
+          result ->
+            Ankole.Errors.not_found(result, [:cron_schedule_not_found, :not_found], CronSchedule)
+        end
+
+      _other ->
+        {:error, Ankole.Errors.Invalid.NotFound.exception(resource: CronSchedule, id: id)}
+    end
+  end
+
+  defp console_result(schedule),
+    do:
+      Ash.load!(schedule, [:execution_session_id],
+        tenant: Ankole.Repo.tenant_id(),
+        authorize?: false
+      )
 
   @spec validate_fire_schedule(CronSchedule.t()) :: :ok | {:cancel, atom()}
   def validate_fire_schedule(%CronSchedule{status: status} = schedule)
@@ -516,19 +577,15 @@ defmodule Ankole.Schedule.Cron do
     DateTime.compare(left, right) == :eq
   end
 
-  def stop_human_work_in_tx(repo, uid, version, _now) do
-    CronSchedule
-    |> Ash.Query.filter(
-      human_uid == ^uid and human_access_version < ^version and status == :active
-    )
-    |> Ankole.Ash.bulk_update(:stop_human_work, %{},
-      strategy: [:atomic],
-      return_records?: true,
-      return_errors?: true
-    )
-    |> case do
-      %Ash.BulkResult{status: :success, records: records} -> {length(records), nil}
-      %Ash.BulkResult{errors: errors} -> repo.rollback(errors)
-    end
+  @doc "Pauses the active schedules of a Human whose access version is older than `version`."
+  def stop_human_work_in_tx(_repo, uid, version, _now) do
+    {:ok, schedules} =
+      CronSchedule
+      |> Ash.Query.filter(
+        human_uid == ^uid and human_access_version < ^version and status == :active
+      )
+      |> Ankole.Ash.update_where(:stop_human_work, %{})
+
+    {length(schedules), nil}
   end
 end

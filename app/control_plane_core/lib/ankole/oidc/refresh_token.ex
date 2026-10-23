@@ -1,6 +1,6 @@
 defmodule Ankole.OIDC.RefreshToken do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.OIDC.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.OIDC
 
   postgres do
     table("oidc_refresh_tokens")
@@ -55,6 +55,14 @@ defmodule Ankole.OIDC.RefreshToken do
     identity(:generation, [:family_id, :generation], all_tenants?: true)
   end
 
+  relationships do
+    belongs_to :family, Ankole.OIDC.RefreshTokenFamily do
+      source_attribute(:family_id)
+      define_attribute?(false)
+      attribute_type(:string)
+    end
+  end
+
   actions do
     defaults([:read])
 
@@ -70,11 +78,10 @@ defmodule Ankole.OIDC.RefreshToken do
         :context,
         :expires_at
       ])
-
-      transaction?(false)
     end
 
-    atomic_in_tx_update :consume_in_tx do
+    update :consume_in_tx do
+      require_atomic?(true)
       accept([])
       argument(:at, :utc_datetime_usec, allow_nil?: false)
 
@@ -91,7 +98,8 @@ defmodule Ankole.OIDC.RefreshToken do
       change(set_attribute(:successor_retry_until, arg(:successor_retry_until)))
     end
 
-    atomic_in_tx_update :redact_successor_in_tx do
+    update :redact_successor_in_tx do
+      require_atomic?(true)
       accept([])
       argument(:at, :utc_datetime_usec, allow_nil?: false)
       change(filter(expr(successor_retry_until < ^arg(:at) and not is_nil(successor_ciphertext))))
@@ -99,8 +107,24 @@ defmodule Ankole.OIDC.RefreshToken do
     end
 
     destroy :remove_in_tx do
-      transaction?(false)
       require_atomic?(true)
+    end
+
+    action :rotate, :term do
+      argument(:digest, :term)
+      argument(:child, :term)
+      argument(:successor, :term)
+      argument(:ciphertext, :term)
+      argument(:now, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :refresh, :term do
+      argument(:client, :term)
+      argument(:rotated, :term)
+
+      run(__MODULE__.Actions)
     end
   end
 end

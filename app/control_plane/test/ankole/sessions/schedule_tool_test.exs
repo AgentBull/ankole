@@ -117,10 +117,7 @@ defmodule Ankole.Sessions.ScheduleToolTest do
     for _ <- 1..28 do
       {:ok, current} = Schedule.get_cron_schedule(rule.id)
 
-      assert {:ok, _} =
-               Repo.transact(fn _repo ->
-                 Ankole.Schedule.Fire.fire_cron(rule.id, now: current.next_fire_at)
-               end)
+      assert {:ok, _} = Ankole.Schedule.fire_cron(rule.id, now: current.next_fire_at)
     end
 
     assert length(

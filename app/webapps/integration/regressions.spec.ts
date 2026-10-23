@@ -26,15 +26,18 @@ test('selecting either Agent in a compiled Pod enables sending and retains the s
 
 test('tenant slugs use browser validation before a request', async ({ page }) => {
   const writes: Route[] = []
-  await page.route('**/api/v1/**', route => {
+  await page.route('**/api/v2/site/**', route => {
     if (route.request().method() !== 'GET') {
       writes.push(route)
       return route.fulfill({ status: 422, json: {} })
     }
+    const path = new URL(route.request().url()).pathname
     return route.fulfill({
-      json: route.request().url().includes('privileged')
-        ? { tenant: { id: 'privileged' } }
-        : { tenants: [], brain_packs: [] }
+      json: path.endsWith('/privileged-tenant')
+        ? { data: { id: 'privileged', type: 'tenant', attributes: {} } }
+        : path.endsWith('/brain-packs')
+          ? []
+          : { data: [] }
     })
   })
   await page.goto('/tenants/new')
@@ -53,9 +56,13 @@ test('tenant slugs use browser validation before a request', async ({ page }) =>
 })
 
 test('the first Webhook result survives the list switching from empty to populated', async ({ page }) => {
-  const rows: object[] = []
-  await page.route('**/api/v1/webhook-endpoints**', async route => {
-    if (route.request().method() === 'GET') return route.fulfill({ json: { webhook_endpoints: rows } })
+  const rows: { id: string }[] = []
+  await page.route('**/api/v2/webhook-endpoints**', async route => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({
+        json: { data: rows.map(({ id, ...attributes }) => ({ id, type: 'webhook_endpoint', attributes })) }
+      })
+    }
     const item = {
       id: 'endpoint-one',
       label: 'Fixture',
@@ -73,24 +80,24 @@ test('the first Webhook result survives the list switching from empty to populat
     rows.push(item)
     return route.fulfill({ status: 201, json: { webhook_endpoint: item, token: 'synthetic-capability' } })
   })
-  await page.route('**/api/v1/agents', route => route.fulfill({ json: { agents: [] } }))
+  await page.route('**/api/v2/agents', route => route.fulfill({ json: { data: [] } }))
   await page.goto('/webhooks')
   await page.getByRole('button', { name: 'Create CloudEvents endpoint', exact: true }).click()
   await page.getByLabel('Label', { exact: true }).fill('Fixture')
   await page.getByLabel('Expires', { exact: true }).fill('2030-01-01T12:00')
   await page.getByRole('dialog').getByRole('button', { name: 'Create CloudEvents endpoint', exact: true }).click()
   await expect(page.getByLabel('Capability URL (shown once)', { exact: true })).toHaveValue(
-    'http://127.0.0.1:3198/signals/v1/cloudevents/synthetic-capability'
+    new URL('/signals/v1/cloudevents/synthetic-capability', page.url()).href
   )
   await expect(page.getByLabel('Endpoint ID', { exact: true })).toHaveValue('endpoint-one')
   await expect(page.getByRole('row').filter({ hasText: 'Fixture' })).toHaveCount(1)
 })
 
 async function files(page: Page) {
-  await page.route('**/api/v1/agents/agent-one', route =>
-    route.fulfill({ json: { agent: { uid: 'agent-one', display_name: 'Files Agent' } } })
+  await page.route('**/api/v2/agents/agent-one', route =>
+    route.fulfill({ json: { data: { id: 'agent-one', type: 'agent', attributes: { display_name: 'Files Agent' } } } })
   )
-  await page.route('**/api/v1/agents/agent-one/files**', route =>
+  await page.route('**/api/v2/agents/agent-one/files**', route =>
     route.fulfill({
       json: {
         file_listing: { folders: [{ name: 'Folder', path: 'Folder' }], files: [], truncated: false }
@@ -152,12 +159,15 @@ const setting = (key: string, value: unknown) => ({
 
 test('a rejected save notification does not cover the corrected Save action', async ({ page }) => {
   let attempts = 0
-  await page.route(/\/api\/v1\/(?:site\/)?app-configurations/, route => {
+  await page.route(/\/api\/v2\/(?:site\/)?app-configurations/, route => {
     const item = setting('worker.test_limit', 10)
     if (route.request().method() === 'PUT') {
       attempts++
       return attempts === 1
-        ? route.fulfill({ status: 422, json: { error: { code: 'invalid', message: 'Fixture rejected' } } })
+        ? route.fulfill({
+            status: 422,
+            json: { errors: [{ code: 'invalid', detail: 'Fixture rejected', status: '422' }] }
+          })
         : route.fulfill({ json: { app_configuration: setting(item.key, 20) } })
     }
     return route.fulfill({
@@ -194,7 +204,7 @@ test('a library reload keeps edits made while the response is pending', async ({
   const release = Promise.withResolvers<void>()
   let reloading = false
   let failRead = false
-  await page.route('**/api/v1/agents/agent-one/library-documents**', async route => {
+  await page.route('**/api/v2/agents/agent-one/library-documents**', async route => {
     if (route.request().method() === 'PUT') {
       return route.fulfill({
         status: 409,
@@ -251,14 +261,14 @@ test('a library save completed after leaving the editor supplies the next visit 
     ])
   )
   const writes: Route[] = []
-  await page.route('**/api/v1/agents/agent-one/library-documents**', route => {
+  await page.route('**/api/v2/agents/agent-one/library-documents**', route => {
     if (route.request().method() === 'PUT') {
       writes.push(route)
       return
     }
     return route.fulfill({ json: { library_documents: documents } })
   })
-  await page.route(/\/api\/v1\/(?:site\/)?app-configurations/, route =>
+  await page.route(/\/api\/v2\/(?:site\/)?app-configurations/, route =>
     route.fulfill({ json: { app_configurations: [] } })
   )
   await page.goto('/library/agent-one')
@@ -279,7 +289,9 @@ test('a library save completed after leaving the editor supplies the next visit 
   await panel.getByRole('textbox').fill('Next revision')
   await panel.getByRole('button', { name: 'Save', exact: true }).click()
   await expect.poll(() => writes.length).toBe(2)
-  expect(writes[1]!.request().postDataJSON()).toEqual({ content: 'Next revision', expected_content_hash: 'saved-hash' })
+  expect(writes[1]!.request().postDataJSON()).toEqual({
+    data: { content: 'Next revision', expected_content_hash: 'saved-hash' }
+  })
   await writes[1]!.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'Fixture stopped' } } })
 })
 
@@ -288,11 +300,11 @@ test('saving a revealed Agent secret masks the old value and a later reveal load
 }) => {
   let value = 'old-fixture'
   const item = { name: 'QA_SECRET', source: 'agent', secret: true, value: null }
-  await page.route('**/api/v1/agents/agent-one/worker-envs**', route => {
+  await page.route('**/api/v2/agents/agent-one/worker-envs**', route => {
     const method = route.request().method()
     if (method === 'GET') return route.fulfill({ json: { worker_envs: [item] } })
     if (method === 'POST') return route.fulfill({ json: { decrypted_value: { name: item.name, value } } })
-    value = route.request().postDataJSON().value
+    value = route.request().postDataJSON().data.value
     return route.fulfill({ json: { worker_env: item } })
   })
   await page.goto('/worker-env')
@@ -312,10 +324,10 @@ test('compaction accepts domain-valid decimals and large integers, and rejects i
   page
 }) => {
   const writes: unknown[] = []
-  await page.route(/\/api\/v1\/(?:site\/)?app-configurations/, route => {
+  await page.route(/\/api\/v2\/(?:site\/)?app-configurations/, route => {
     const item = setting('ai_gateway.compaction', compaction)
     if (route.request().method() === 'PUT') {
-      const value = route.request().postDataJSON().value
+      const value = route.request().postDataJSON().data.value
       writes.push(value)
       return route.fulfill({ json: { app_configuration: setting(item.key, value) } })
     }
@@ -353,7 +365,7 @@ test('compaction accepts domain-valid decimals and large integers, and rejects i
 test('a setting reopened during a save waits for the persisted value', async ({ page }) => {
   let value = 10
   const writes: Route[] = []
-  await page.route(/\/api\/v1\/(?:site\/)?app-configurations/, route => {
+  await page.route(/\/api\/v2\/(?:site\/)?app-configurations/, route => {
     if (route.request().method() === 'PUT') {
       writes.push(route)
       return
@@ -405,30 +417,35 @@ test('schedule names reject whitespace and reopening waits for a completed updat
   const writes: Route[] = []
   const reads: Route[] = []
   let holdReads = false
-  await page.route('**/api/v1/**', route => {
-    const path = new URL(route.request().url()).pathname
-    if (path.endsWith('/cron-one')) {
-      if (route.request().method() === 'PATCH') {
-        writes.push(route)
-        return
+  const document = () => {
+    const { id, ...attributes } = cron
+    return { data: { id, type: 'cron_schedule', attributes } }
+  }
+  await page.route(
+    url => url.pathname.startsWith('/api/v2/'),
+    route => {
+      const path = new URL(route.request().url()).pathname
+      if (path.endsWith('/cron-one')) {
+        if (route.request().method() === 'PATCH') {
+          writes.push(route)
+          return
+        }
+        if (holdReads) {
+          reads.push(route)
+          return
+        }
+        return route.fulfill({ json: document() })
       }
-      if (holdReads) {
-        reads.push(route)
-        return
+      if (path === '/api/v2/agents') {
+        return route.fulfill({
+          json: {
+            data: [{ id: 'agent-one', type: 'agent', attributes: { display_name: 'Fixture', status: 'active' } }]
+          }
+        })
       }
-      return route.fulfill({ json: { cron_schedule: cron } })
+      return route.fulfill({ json: { data: [] } })
     }
-    return route.fulfill({
-      json: {
-        agents: [{ uid: 'agent-one', display_name: 'Fixture', status: 'active' }],
-        signal_bindings: [],
-        schedule_runs: [],
-        app_configurations: [],
-        cron_schedules: [],
-        schedule_events: []
-      }
-    })
-  })
+  )
   await page.goto('/schedules/new?agent=agent-one&cron=cron-one')
   const name = page.getByRole('textbox', { name: /^Name/ })
   await expect(name).toHaveValue('Original')
@@ -449,12 +466,12 @@ test('schedule names reject whitespace and reopening waits for a completed updat
   await expect.poll(() => writes.length).toBe(1)
   cron = { ...cron, name: 'Persisted' }
   holdReads = true
-  await writes[0]!.fulfill({ json: { cron_schedule: cron } })
+  await writes[0]!.fulfill({ json: cron })
   await expect(page).toHaveURL(/\/schedules\?agent=/)
   await page.getByRole('link', { name: 'Schedule', exact: true }).click()
   await expect.poll(() => reads.length).toBeGreaterThan(0)
   holdReads = false
-  for (const read of reads) await read.fulfill({ json: { cron_schedule: cron } })
+  for (const read of reads) await read.fulfill({ json: document() })
   await expect(name).toHaveValue('Persisted')
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled()
 })
@@ -462,7 +479,7 @@ test('schedule names reject whitespace and reopening waits for a completed updat
 test('a settings group reopened during a save does not reuse its old draft', async ({ page }) => {
   let endpoint = 'https://old.example.test'
   const writes: Route[] = []
-  await page.route(/\/api\/v1\/(?:site\/)?app-configurations/, route => {
+  await page.route(/\/api\/v2\/(?:site\/)?app-configurations/, route => {
     if (route.request().method() === 'PUT') {
       writes.push(route)
       return

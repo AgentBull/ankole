@@ -2,7 +2,7 @@ defmodule Ankole.Pod.PageUserState do
   @moduledoc "One person's favorite and visit times for one page."
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.Pod.Domain,
+    domain: Ankole.Pod,
     tenant_in_primary_key: true
 
   postgres do
@@ -28,21 +28,26 @@ defmodule Ankole.Pod.PageUserState do
     defaults([:read])
 
     create :put do
-      transaction?(false)
       accept([:principal_uid, :page_id, :favorited_at, :visited_at])
       upsert?(true)
       upsert_fields([:favorited_at, :visited_at])
     end
 
     destroy :remove_empty do
-      transaction?(false)
       require_atomic?(true)
       change(filter(expr(is_nil(favorited_at) and is_nil(visited_at))))
     end
 
     destroy :purge do
-      transaction?(false)
       require_atomic?(true)
+    end
+
+    action :save, :term do
+      argument(:principal_uid, :term)
+      argument(:page_id, :term)
+      argument(:changes, :term)
+
+      run(__MODULE__.Actions)
     end
   end
 

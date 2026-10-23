@@ -143,17 +143,17 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.ReplyPreview do
       |> Map.delete("refresh_reason")
 
     with :ok <-
-           Ankole.Conversations.Delivery.PreviewState.record_provider_message(
+           Ankole.Conversations.Delivery.PreviewStates.record_provider_message(
              event.id,
              message_id
            ),
          {:ok, event} <-
-           Ankole.Conversations.Delivery.PreviewState.put_checkpoint(event.id, checkpoint) do
+           Ankole.Conversations.Delivery.PreviewStates.put_checkpoint(event.id, checkpoint) do
       {:ok,
        %{
          created_provider_message_id: message_id,
          reply_preview_checkpoint:
-           Ankole.Conversations.Delivery.PreviewState.get(event).checkpoint,
+           Ankole.Conversations.Delivery.PreviewStates.get(event).checkpoint,
          raw_payload: %{"provider" => "mock-signal-provider"}
        }}
     end

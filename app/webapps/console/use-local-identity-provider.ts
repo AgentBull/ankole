@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { ankoleWebIdentityProviderControllerIndexOptions } from './api/generated/@tanstack/react-query.gen'
+import { listIdentityProvidersOptions } from './api/v2/generated/@tanstack/react-query.gen'
 
 /**
  * Tells whether the built-in local password provider is enabled. Local
@@ -8,7 +8,7 @@ import { ankoleWebIdentityProviderControllerIndexOptions } from './api/generated
  * appear once the load confirms the provider.
  */
 export function useLocalIdentityProvider(): { enabled: boolean } {
-  const providers = useQuery(ankoleWebIdentityProviderControllerIndexOptions())
+  const providers = useQuery(listIdentityProvidersOptions())
   const enabled = (providers.data?.identity_providers ?? []).some(
     provider => provider.adapter_id === 'local' && provider.enabled
   )

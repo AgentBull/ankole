@@ -9,7 +9,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Delivery do
   alias Ankole.Plugins.Microsoft365Adapter.Config
   alias Ankole.Plugins.Microsoft365Adapter.Conversations
   alias Ankole.Plugins.Microsoft365Adapter.Markdown
-  alias Ankole.Repo
   alias Ankole.Conversations.Conversation
   alias Ankole.Conversations.Delivery.Intent
   alias MicrosoftOpenAPI.BotConnector
@@ -305,7 +304,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Delivery do
   @spec delivery_target(Intent.t()) :: {:ok, map()} | {:error, term()}
   def delivery_target(%Intent{conversation_id: conversation_id}) do
     with %Conversation{kind: :external} = channel <-
-           Repo.get_by(Conversation, id: conversation_id) || :missing_channel,
+           Ankole.Conversations.get_conversation!(conversation_id) || :missing_channel,
          conversation_id when is_binary(conversation_id) <-
            Conversations.conversation_id_from_signal(channel.provider_conversation_id) || :invalid,
          metadata <- channel.metadata || %{},

@@ -6,7 +6,6 @@ defmodule Ankole.Sessions.Workspaces do
   `{agent_uid, session_id}` return the same PostgreSQL-owned identity.
   """
 
-  import Ecto.Query, only: [from: 2, where: 3]
   require Ash.Query
 
   alias Ankole.Sessions.Queue
@@ -72,28 +71,42 @@ defmodule Ankole.Sessions.Workspaces do
 
   defp lock_owner_in_tx(_repo, _agent_uid, %{kind: :named}), do: :ok
 
-  defp lock_owner_in_tx(repo, agent_uid, %{kind: kind} = identity) do
-    {resource, field} =
+  # The owner row keeps its key while the workspace exists. Each owner domain
+  # reads its row; the lock identity keeps the work lock order.
+  defp lock_owner_in_tx(_repo, agent_uid, %{kind: kind} = identity) do
+    owner =
       case kind do
-        :conversation -> {Ankole.Conversations.Conversation, :conversation_id}
-        :background_job -> {Ankole.BackgroundAgentJobs.Schemas.Job, :background_job_id}
-        :workflow_task -> {Ankole.Workflow.Schemas.AgentCall, :workflow_agent_call_id}
-        :cron -> {Ankole.Schedule.Schemas.CronSchedule, :cron_schedule_id}
+        :conversation ->
+          Ankole.Conversations.get_conversation!(identity.conversation_id,
+            query: key_share()
+          )
+
+        :background_job ->
+          locked_owner("background_agent_jobs", identity.background_job_id, fn query ->
+            filter = [id: identity.background_job_id, agent_uid: agent_uid]
+            List.first(Ankole.BackgroundAgentJobs.list_jobs!(query: [{:filter, filter} | query]))
+          end)
+
+        :workflow_task ->
+          locked_owner("workflow_agent_calls", identity.workflow_agent_call_id, fn query ->
+            Ankole.Workflow.get_agent_call!(identity.workflow_agent_call_id,
+              query: [{:filter, [agent_uid: agent_uid]} | query]
+            )
+          end)
+
+        :cron ->
+          locked_owner("cron_schedules", identity.cron_schedule_id, fn query ->
+            Ankole.Schedule.get_cron_schedule_record!(identity.cron_schedule_id,
+              query: [{:filter, [agent_uid: agent_uid]} | query]
+            )
+          end)
       end
 
-    id = Map.fetch!(identity, field)
-
-    query =
-      from(owner in resource, where: owner.id == ^id, select: owner.id, lock: "FOR KEY SHARE")
-
-    query =
-      if kind == :conversation,
-        do: query,
-        else: where(query, [owner], owner.agent_uid == ^agent_uid)
-
-    case repo.one(query, lock_identity: {resource.__schema__(:source), id}) do
-      nil -> {:error, :session_owner_not_found}
-      _id -> :ok
-    end
+    if owner, do: :ok, else: {:error, :session_owner_not_found}
   end
+
+  defp locked_owner(table, id, read),
+    do: Ankole.LockOrder.with_identity({table, id}, fn -> read.(key_share()) end)
+
+  defp key_share, do: [lock: "FOR KEY SHARE", select: [:id]]
 end

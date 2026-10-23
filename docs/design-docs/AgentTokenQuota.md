@@ -89,7 +89,8 @@ next to `models` and `provider_hosted`:
 
 An Agent without this object has no limit. `Ankole.AIAgent.TokenQuota`
 validates and writes the object in one transaction that locks the Agent row,
-in the same shape as model profiles.
+in the same shape as model profiles. The generic actions of
+`Ankole.AIAgent.Operations` own these transactions.
 
 ## Periods
 
@@ -205,12 +206,13 @@ when the picker value did not change.
 
 The routes are:
 
-- `GET /api/v1/agents/:agent_uid/token-quota`
-- `PUT /api/v1/agents/:agent_uid/token-quota`
-- `DELETE /api/v1/agents/:agent_uid/token-quota`
-- `POST /api/v1/agents/:agent_uid/token-quota/reset`
+- `GET /api/v2/agents/:agent_uid/token-quota`
+- `PUT /api/v2/agents/:agent_uid/token-quota`
+- `DELETE /api/v2/agents/:agent_uid/token-quota`
+- `POST /api/v2/agents/:agent_uid/token-quota/reset`
 
-`PUT` requires `period_days` and `limit_tokens`. If `period_start_at` is
+The write body puts the action arguments inside `data`. `PUT` requires
+`period_days` and `limit_tokens`. If `period_start_at` is
 absent, the control plane keeps the stored start time under the Agent row lock.
 An Agent without a quota must supply a valid start time. An explicit start
 time replaces the stored instant; `null` and invalid values are rejected.

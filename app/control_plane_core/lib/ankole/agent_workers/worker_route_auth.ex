@@ -1,20 +1,22 @@
 defmodule Ankole.AgentWorkers.WorkerRouteAuth do
   @moduledoc "Accepts Worker RPC only for its bound Agent and current durable input or Job attempt."
-  import Ecto.Query
-  alias Ankole.{Repo, Principals.WorkAccess}
+  alias Ankole.{Errors, Principals.WorkAccess}
   alias Ankole.Sessions.JobTurnRef
   alias Ankole.Sessions.RunRef
+  alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Signals.Signal
   alias Ankole.AgentWorkers
 
-  def authorize_turn(ref, worker_id, effect) do
-    case Repo.transact(fn repo -> authorize_turn_in_tx(repo, ref, worker_id, effect) end) do
-      {:ok, :authorized} -> :ok
-      error -> error
-    end
-  end
+  @doc """
+  Authorizes one Worker RPC in its own transaction.
+
+  The transaction takes the same locks as a terminal write, so the check
+  waits for a concurrent cancellation or terminal write to commit.
+  """
+  def authorize_turn(ref, worker_id, effect),
+    do: Errors.reason(AgentWorkers.authorize_worker_turn(ref, worker_id, effect))
 
   def authorize_turn_in_tx(repo, ref, worker_id, effect, opts \\ [])
 
@@ -51,27 +53,22 @@ defmodule Ankole.AgentWorkers.WorkerRouteAuth do
     Lifecycle.lock_agent_slots(repo, uid)
   end
 
-  defp job(repo, ref, effect) do
-    query = from j in Job, where: j.id == ^ref.job_id and j.agent_uid == ^ref.agent_uid
-    query = if effect == :read, do: query, else: lock(query, "FOR UPDATE")
-    repo.one(query, lock_identity: {"background_agent_jobs", ref.job_id})
-  end
+  defp job(_repo, ref, :read),
+    do: BackgroundAgentJobs.get_job_for_agent(ref.job_id, ref.agent_uid)
+
+  defp job(repo, ref, _effect),
+    do: BackgroundAgentJobs.lock_job_in_tx(repo, ref.job_id, ref.agent_uid)
 
   defp admitted_access(_repo, %{last_attempt_at: %DateTime{}}), do: :ok
   defp admitted_access(repo, event), do: WorkAccess.check_in_tx(repo, event)
 
   defp input(repo, ref, terminal?, opts) do
-    query =
-      from e in Signal,
-        where:
-          e.id == ^ref.signal_id and e.agent_uid == ^ref.agent_uid and
-            e.session_id == ^ref.session_id
-
-    case repo.one(query) do
-      %Signal{} = snapshot ->
-        with :ok <- input_open(snapshot, terminal?),
+    case Ankole.Signals.get_signal(ref.signal_id) do
+      {:ok, %Signal{} = snapshot} ->
+        with true <- same_input?(snapshot, ref),
+             :ok <- input_open(snapshot, terminal?),
              :ok <- admitted_access(repo, snapshot),
-             %Signal{} = event <- lock_input(repo, query, snapshot, opts),
+             %Signal{} = event <- lock_input(repo, snapshot, opts),
              true <- WorkAccess.fields(event) == WorkAccess.fields(snapshot),
              :ok <- input_open(event, terminal?) do
           :ok
@@ -80,14 +77,17 @@ defmodule Ankole.AgentWorkers.WorkerRouteAuth do
           _ -> {:error, :run_closed}
         end
 
-      nil ->
+      _missing ->
         {:error, :run_closed}
     end
   end
 
-  defp lock_input(repo, query, snapshot, opts) do
+  defp same_input?(%Signal{} = event, ref),
+    do: event.agent_uid == ref.agent_uid and event.session_id == ref.session_id
+
+  defp lock_input(repo, snapshot, opts) do
     if Keyword.get(opts, :lock, false),
-      do: repo.one(lock(query, "FOR UPDATE"), lock_identity: {"signals", snapshot.id}),
+      do: Ankole.Signals.lock_signal_in_tx(repo, snapshot.id),
       else: snapshot
   end
 

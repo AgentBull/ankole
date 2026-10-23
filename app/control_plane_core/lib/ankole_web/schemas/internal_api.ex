@@ -1,7 +1,272 @@
 defmodule AnkoleWeb.Schemas.InternalAPI do
   @moduledoc "Build-time HTTP contracts for the browser applications."
+  alias OpenApiSpex, as: OpenAPISpex
   alias OpenApiSpex.Schema
-  alias AnkoleWeb.Schemas.ConsoleAPI
+  alias AnkoleWeb.Schemas.InternalAPI
+
+  defmodule JSONValue do
+    @moduledoc """
+    Any JSON-compatible value.
+    """
+
+    @behaviour OpenAPISpex.Schema
+
+    # Adapter defaults can have any JSON-compatible shape.
+    @impl OpenAPISpex.Schema
+    def schema do
+      %Schema{
+        title: "JSONValue",
+        nullable: true,
+        description: "Any JSON-compatible value."
+      }
+    end
+  end
+
+  defmodule LocalizedText do
+    @moduledoc """
+    Locale-keyed operator-facing text with a required default fallback.
+    """
+
+    @behaviour OpenAPISpex.Schema
+
+    @impl OpenAPISpex.Schema
+    def schema do
+      %Schema{
+        title: "LocalizedText",
+        type: :object,
+        properties: %{
+          default: %Schema{type: :string}
+        },
+        required: [:default],
+        additionalProperties: %Schema{type: :string}
+      }
+    end
+  end
+
+  defmodule ErrorDetail do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrowserErrorDetail",
+        type: :object,
+        properties: %{
+          path: %Schema{type: :string, nullable: true},
+          line: %Schema{type: :integer, nullable: true},
+          message: %Schema{type: :string}
+        },
+        required: [:message],
+        additionalProperties: true
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ErrorObject do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrowserError",
+        type: :object,
+        properties: %{
+          code: %Schema{type: :string},
+          message: %Schema{type: :string},
+          details: %Schema{type: :array, items: ErrorDetail, nullable: true}
+        },
+        required: [:code, :message],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ErrorEnvelope do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrowserErrorEnvelope",
+        type: :object,
+        properties: %{
+          error: ErrorObject
+        },
+        required: [:error],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalAdapterFieldOption do
+    alias OpenApiSpex, as: OpenAPISpex
+    alias OpenAPISpex.Schema
+    alias AnkoleWeb.Schemas.InternalAPI.LocalizedText
+
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalAdapterFieldOption",
+        type: :object,
+        properties: %{
+          value: %Schema{type: :string},
+          label: LocalizedText,
+          description: LocalizedText
+        },
+        required: [:value],
+        additionalProperties: true
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalAdapterFieldRequirement do
+    alias OpenApiSpex, as: OpenAPISpex
+    alias OpenAPISpex.Schema
+    alias AnkoleWeb.Schemas.InternalAPI.JSONValue
+
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalAdapterFieldRequirement",
+        type: :object,
+        properties: %{
+          path: %Schema{type: :string},
+          value: JSONValue
+        },
+        required: [:path, :value],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalAdapterPatternValidation do
+    alias OpenApiSpex, as: OpenAPISpex
+    alias OpenAPISpex.Schema
+    alias AnkoleWeb.Schemas.InternalAPI.LocalizedText
+
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalAdapterPatternValidation",
+        type: :object,
+        properties: %{
+          kind: %Schema{type: :string, enum: ["pattern"]},
+          message: LocalizedText,
+          pattern: %Schema{type: :string}
+        },
+        required: [:kind, :message, :pattern],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalAdapterJSONObjectValidation do
+    alias OpenApiSpex, as: OpenAPISpex
+    alias OpenAPISpex.Schema
+    alias AnkoleWeb.Schemas.InternalAPI.LocalizedText
+
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalAdapterJSONObjectValidation",
+        type: :object,
+        properties: %{
+          kind: %Schema{type: :string, enum: ["json_object"]},
+          message: LocalizedText,
+          requiredStringProperties: %Schema{type: :array, items: %Schema{type: :string}},
+          stringPrefixes: %Schema{type: :object, additionalProperties: %Schema{type: :string}}
+        },
+        required: [:kind, :message],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalAdapterField do
+    alias OpenApiSpex, as: OpenAPISpex
+    alias OpenAPISpex.Schema
+    alias AnkoleWeb.Schemas.InternalAPI.JSONValue
+    alias AnkoleWeb.Schemas.InternalAPI.LocalizedText
+    alias AnkoleWeb.Schemas.InternalAPI.SignalAdapterFieldOption
+    alias AnkoleWeb.Schemas.InternalAPI.SignalAdapterFieldRequirement
+    alias AnkoleWeb.Schemas.InternalAPI.SignalAdapterJSONObjectValidation
+    alias AnkoleWeb.Schemas.InternalAPI.SignalAdapterPatternValidation
+
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalAdapterField",
+        type: :object,
+        properties: %{
+          path: %Schema{type: :string},
+          type: %Schema{type: :string},
+          label: LocalizedText,
+          description: LocalizedText,
+          default: JSONValue,
+          advanced: %Schema{type: :boolean},
+          required: %Schema{type: :boolean},
+          requiredWhen: %Schema{type: :array, items: SignalAdapterFieldRequirement},
+          encrypted: %Schema{type: :boolean},
+          min: %Schema{type: :integer},
+          max: %Schema{type: :integer},
+          options: %Schema{type: :array, items: SignalAdapterFieldOption},
+          validation: %Schema{
+            oneOf: [SignalAdapterPatternValidation, SignalAdapterJSONObjectValidation]
+          }
+        },
+        required: [:path, :type],
+        additionalProperties: true
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AuthSessionDeleteResponse do
+    alias OpenApiSpex, as: OpenAPISpex
+    alias OpenAPISpex.Schema
+
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AuthSessionDeleteResponse",
+        type: :object,
+        properties: %{
+          ok: %Schema{type: :boolean}
+        },
+        required: [:ok],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
 
   defmodule InternalError do
     @moduledoc false
@@ -401,8 +666,8 @@ defmodule AnkoleWeb.Schemas.InternalAPI do
         type: :object,
         properties: %{
           id: %Schema{type: :string},
-          displayName: ConsoleAPI.LocalizedText,
-          description: %Schema{allOf: [ConsoleAPI.LocalizedText], nullable: true}
+          displayName: InternalAPI.LocalizedText,
+          description: %Schema{allOf: [InternalAPI.LocalizedText], nullable: true}
         },
         required: [:id, :displayName, :description],
         additionalProperties: false
@@ -529,8 +794,8 @@ defmodule AnkoleWeb.Schemas.InternalAPI do
         properties: %{
           adapterID: %Schema{type: :string},
           pluginID: %Schema{type: :string},
-          displayName: ConsoleAPI.LocalizedText,
-          fields: %Schema{type: :array, items: ConsoleAPI.SignalAdapterField},
+          displayName: InternalAPI.LocalizedText,
+          fields: %Schema{type: :array, items: InternalAPI.SignalAdapterField},
           defaultProviderID: %Schema{type: :string}
         },
         required: [:adapterID, :pluginID, :displayName, :fields, :defaultProviderID],

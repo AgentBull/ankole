@@ -13,11 +13,28 @@ The Console Job board lists the newest matching Jobs in the selected tenant.
 Its optional Agent filter and search combine. Search matches an exact
 Job ID or a case-insensitive title fragment before the 100-row page limit is
 applied, so an older matching Job is not hidden by newer unrelated work.
+The board reads the `console_list` read action of the Job resource through the
+Console JSON:API (`GET /api/v2/background-agent-jobs`, arguments `agent_uid`,
+`status`, and `search`), ordered by queue time and then Job ID, with keyset
+pagination (`page[limit]`, `page[after]`). The action reads only the board
+columns and the calculated `duration_seconds`. The Job detail is the JSON:API
+record (`GET /api/v2/background-agent-jobs/:id`). The generic actions
+`console_cancel` and `console_complete` (`POST …/:id/cancel`, `…/:id/complete`)
+record the Console Principal (the Ash actor) as the operator and stop the live
+Turn after the commit. A missing Job is not found (404); completing a failed or
+stopped Job is a conflict (409, `background_agent_job_terminal`).
+The background activity list keeps its opaque cursor: it carries a version, the
+list parameters that it belongs to, and the keyset of the last row, so a cursor
+of another list or of an earlier format is rejected. The
+`list_background_jobs` tool reads the `list_for_agent` action the same way.
 
-The Job detail shows the runtime Turn trajectory in bounded pages. The first
-page holds the newest Turns. Each page contains at most 20 semantic item groups
-within 24 KiB, and the pager walks back into the older history. A Turn that
-recorded no readable item still appears on its page with its status and error.
+The Job detail shows the runtime Turn trajectory in bounded pages. The
+trajectory is a typed read model of the Turns and their items. The Job Ash
+domain exposes it through JSON:API
+(`GET /api/v2/background-agent-jobs/:job_id/turns`). The first page holds the
+newest Turns. Each page contains at most 20 semantic item groups within 24 KiB,
+and the pager walks back into the older history. A Turn that recorded no
+readable item still appears on its page with its status and error.
 
 ## What the Main Agent Can Do
 
@@ -779,22 +796,44 @@ queued
 The message tool stores input for any live Job. It cannot resume a terminal
 Job. Respawning a terminal Job creates a new queued Job and never changes the
 source Job. The Job resource declares each allowed transition with
-`AshStateMachine`. `JobState` reads that declaration for policy checks. Each
-lifecycle entry point runs the declared action directly. The action accepts
+`AshStateMachine`, and this declaration is the only transition table. Each
+lifecycle step runs one declared transition action. The state machine rejects
+a transition that the action does not declare, and the domain reason of the
+rejection is `{:invalid_status_transition, from, to}`. The action accepts
 only the fields that it owns. Status reports cannot change authorization,
 ownership, runtime configuration, or attempt counters. Unknown fields fail
 validation before the write. A terminal Job cannot return to `queued` or
 `running`.
 The Console query, list, and detail schemas share one status projection from
-this declaration. Turn schemas also read their enum from the Turn resource.
+this declaration. Turn schemas also read their enum from the Turn resource,
+and the Turn state machine also decides each checkpoint transition.
 
-The caller owns each lifecycle transaction. Action rejection runs before SQL
-and does not roll back that transaction. `CodexJob.abort` can therefore commit
-its Signal settlement and owner wakeup after a rejected transition. Worker
-authorization reads the input under the locked Job and attempt fence; the
-mutation locks its input after Turn and Session locks. A successful Turn
+The transition action is the only discriminator of a status commit.
+`worker_report` takes its target from the reported status; a report without a
+status fails with `background_agent_job_status_missing`. `external_complete`,
+`fail_admission`, `fail_turn`, `requeue`, `stop`, and `stop_human_work` have a
+fixed target. Only a `worker_report` success seeds a steer successor.
+`external_complete` answers open steers with its own wakeup, and
+`external_complete` and `fail_admission` do not require a closed lead Turn.
+
+Each operation that changes more than one row runs one generic action of the
+Job or Turn resource: `create_with_dispatch`, `respawn_with_dispatch`,
+`request_stop`, `request_complete`, `send_message`, `commit_status_with_wakeup`
+(its `after_commit` wakes the Job driver), `upsert_turn_from_worker`,
+`complete_signal`, `WorkerWait.resolve_timeout`, and the lock phase of
+`TurnWatchdog.reconcile_stuck_job`. The action owns its transaction, so the
+operation must be the top-level call. Another domain composes these steps
+inside its own operation with the `_in_tx` functions, for example
+`Lifecycle.claim_attempt_in_tx/6`, `Lifecycle.commit_status_with_wakeup_in_tx`,
+`Dispatch.prepare_create_in_tx/2`, and `lock_job_in_tx/3`. Action rejection runs before SQL and
+does not roll back the enclosing transaction. `CodexJob.abort` can therefore
+commit its Signal settlement and owner wakeup after a rejected transition.
+Worker authorization reads the input under the locked Job and attempt fence;
+the mutation locks its input after Turn and Session locks. A successful Turn
 reserves any steer successor identity before it locks Signals, so the new
 Job's Session lock joins the current and owner Session locks in sorted order.
+This domain reads Signal rows only through the Signals code interface and the
+Signals composition functions.
 
 The `agent_computer.background_agent_job.max_running_per_agent` setting caps how
 many Jobs of one Agent run at once, with a default of three. One Job spends at
@@ -1214,7 +1253,14 @@ inspection surface for those facts. An absent error summary stays unknown.
 The Background Job health metrics describe this domain only. The
 activity area separately displays [Workflow](Workflow.md#console-activity-inspection)
 and [Automation runs](AutomationJobs.md#live-activity-in-console-home), with their
-own permissions, observation times and page cursors. It does not total parent
+own permissions, observation times and page cursors. The three JSON:API reads
+are under `/api/v2/agents/:agent_uid/background-activities`: `background-jobs`,
+`workflow`, and `automation-runs`. The aggregation action calls each owning
+domain query in the active tenant. Job health uses
+`GET /api/v2/background-agent-jobs/health`. Console readiness uses
+`GET /api/v2/console-readiness` and reports the existing runtime prerequisites.
+These transport reads keep the domain's admission and observation rules.
+The area does not total parent
 Workflow rows, child calls and delegated Jobs as execution slots, and it does not
 cover all conversation Turns, Worker processes or resource utilization.
 

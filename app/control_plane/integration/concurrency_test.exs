@@ -5,9 +5,11 @@ defmodule Ankole.ConcurrencyIntegrationTest do
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias Ankole.Brain.Claims
   alias Ankole.Brain.LibraryKnowledge
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Chunk
+  alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.ObjectVersion
   alias Ankole.Brain.Schemas.Source
@@ -15,7 +17,6 @@ defmodule Ankole.ConcurrencyIntegrationTest do
   alias Ankole.Brain.Schemas.SchemaLinkType
   alias Ankole.Brain.Schemas.SchemaPack
   alias Ankole.Brain.Schemas.SchemaType
-  alias Ankole.Brain.Sources
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.RuntimeFabric.V1, as: FabricProto
@@ -37,7 +38,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
   alias Ankole.IdentityProviders.Config, as: ProviderConfig
 
   test "attempt admission waits for a pending tenant suspension", %{tenant: tenant} do
-    suspension = hold_transaction(fn -> Ankole.Tenants.suspend(tenant) end)
+    suspension = hold_transaction(fn -> Ankole.Tenants.suspend_in_tx(Repo, tenant.id) end)
 
     admission =
       start_unboxed(fn ->
@@ -114,7 +115,11 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       {:ok, _quota} = TokenQuota.put(agent_uid, quota_attrs(100))
     end)
 
-    quota_write = hold_transaction(fn -> TokenQuota.put(agent_uid, quota_attrs(200)) end)
+    quota_write =
+      hold_transaction(fn ->
+        TokenQuota.put_locked(%{agent_uid: agent_uid, attrs: quota_attrs(200)})
+      end)
+
     edit = start_unboxed(fn -> Principals.update_agent(agent_uid, %{options: %{}}) end)
     assert_blocked_by(edit, quota_write)
     release(quota_write)
@@ -376,7 +381,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
           end
         )
 
-      archived = Sandbox.unboxed_run(Repo, fn -> Sources.archive(ctx.source.id) end)
+      archived = Sandbox.unboxed_run(Repo, fn -> Ankole.Brain.archive_source(ctx.source.id) end)
       assert {:ok, %Source{archived_at: %DateTime{}}} = archived
       send(sync.task.pid, :continue_query)
 
@@ -390,13 +395,25 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
     test "archive waits for an in-flight projection and withdraws the committed page", ctx do
       set = library_skill_set(ctx.name, "New shipped body.")
-      sync = hold_transaction(fn -> LibraryKnowledge.sync(sets: [set]) end)
-      archive = start_unboxed(fn -> Sources.archive(ctx.source.id) end)
-      assert_blocked_by(archive, sync)
-      release(sync)
 
-      assert {:ok, %{reports: [%{projected: 1}]}} = finish(sync)
+      # The projection action pauses after its page write, in its own
+      # transaction, while it holds the Source and Object locks.
+      sync =
+        pause_after_query(
+          fn -> LibraryKnowledge.sync(sets: [set]) end,
+          fn metadata ->
+            metadata.source == "brain_objects" and String.starts_with?(metadata.query, "UPDATE")
+          end
+        )
+
+      archive = start_unboxed(fn -> Ankole.Brain.archive_source(ctx.source.id) end)
+      assert_blocked_by(archive, sync)
+      send(sync.task.pid, :continue_query)
+
+      # The page commits first. The archive waits in the Source lock queue
+      # before the revision step of the sync, so the sync reports the archive.
       assert {:ok, %Source{archived_at: %DateTime{}}} = finish(archive)
+      assert {:ok, %{reports: [%{status: :archived}]}} = finish(sync)
 
       object = Repo.get_by!(Object, slug: ctx.slug)
       assert object.deleted_at != nil
@@ -407,6 +424,84 @@ defmodule Ankole.ConcurrencyIntegrationTest do
                from(version in ObjectVersion, where: version.object_id == ^object.id),
                :count
              ) == 0
+    end
+  end
+
+  describe "Brain Fact dedup during a concurrent supersede" do
+    setup do
+      {:ok, _packs} = SchemaPacks.install_packs([])
+      slug = "companies/race-#{System.unique_integer([:positive])}"
+
+      {:ok, _object} =
+        Ankole.Brain.create_object(%{slug: slug, type: "company", title: "Race"}, :system)
+
+      embedding = {Pgvector.new([1.0 | List.duplicate(0.0, 4095)]), "race-model"}
+      attrs = &race_fact_attrs(slug, &1)
+
+      {:ok, %{claim: original, status: :inserted}} =
+        Ankole.Brain.write_fact(attrs.("Acme opened its Singapore office"), :system, %{
+          options: [embedding: embedding]
+        })
+
+      %{slug: slug, embedding: embedding, attrs: attrs, original: original}
+    end
+
+    # A learning slice writes its items in one transaction and keeps the
+    # transaction after a rejected item. The second write reads the original
+    # Fact as current, then waits for the row that the first write supersedes.
+    test "a waiting Fact write supersedes the committed replacement, not the replaced row",
+         ctx do
+      first =
+        pause_after_query(
+          fn ->
+            Ankole.Brain.write_fact(
+              ctx.attrs.("Acme opened a Singapore office in May"),
+              :system,
+              %{
+                options: [embedding: ctx.embedding]
+              }
+            )
+          end,
+          fn metadata ->
+            metadata.source == "brain_claims" and String.starts_with?(metadata.query, "UPDATE")
+          end
+        )
+
+      second =
+        start_unboxed(fn ->
+          Repo.transact(fn _repo ->
+            result =
+              Claims.write_fact_in_tx(
+                ctx.attrs.("Acme opened a Singapore office in June"),
+                :system,
+                embedding: ctx.embedding
+              )
+
+            {:ok, result}
+          end)
+        end)
+
+      assert_blocked_by(second, first)
+      send(first.task.pid, :continue_query)
+
+      assert {:ok, %{claim: replacement, status: :superseded}} = finish(first)
+
+      assert {:ok, {:ok, %{claim: latest, status: :superseded, superseded_claim_id: replaced}}} =
+               finish(second)
+
+      assert replaced == replacement.id
+
+      current =
+        Repo.all(
+          from(claim in Claim,
+            where:
+              claim.object_slug == ^ctx.slug and is_nil(claim.expired_at) and
+                is_nil(claim.superseded_by),
+            select: claim.id
+          )
+        )
+
+      assert current == [latest.id]
     end
   end
 
@@ -658,20 +753,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     end
 
     test "terminal RPC takes the Worker lock before a waiting steer takes its event", ctx do
-      terminal =
-        pause_after_query(
-          fn -> terminal_job_rpc(ctx) end,
-          fn metadata ->
-            if metadata.source == "background_agent_jobs" and
-                 String.contains?(metadata.query, "FOR UPDATE") do
-              count = Process.get(:job_locks, 0) + 1
-              Process.put(:job_locks, count)
-              count == 2
-            else
-              false
-            end
-          end
-        )
+      terminal = pause_after_query(fn -> terminal_job_rpc(ctx) end, &second_job_lock?/1)
 
       steer =
         start_unboxed(fn -> CodexJob.admit(ctx.actor_key, ctx.steer, []) end)
@@ -709,10 +791,11 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     end
 
     test "duplicate terminal RPCs commit once and seed one successor for unapplied input", ctx do
-      first = hold_transaction(fn -> terminal_job_rpc(ctx) end)
+      # The RPC owns its transaction, so the test pauses it while it holds the Job lock.
+      first = pause_after_query(fn -> terminal_job_rpc(ctx) end, &second_job_lock?/1)
       repeated = start_unboxed(fn -> terminal_job_rpc(ctx) end)
       assert_blocked_by(repeated, first)
-      release(first)
+      send(first.task.pid, :continue_query)
       assert_terminal_rpc(finish(first))
       assert_terminal_rpc(finish(repeated))
       assert Repo.get!(Job, ctx.job.id).status == :succeeded
@@ -864,6 +947,19 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     RPCLane.handle_request(request, %{transport_route: ctx.route, worker_id: ctx.agent.uid})
   end
 
+  # The terminal RPC holds the Job row lock in its transaction after its second
+  # Job lock query.
+  defp second_job_lock?(metadata) do
+    if metadata.source == "background_agent_jobs" and
+         String.contains?(metadata.query, "FOR UPDATE") do
+      count = Process.get(:job_locks, 0) + 1
+      Process.put(:job_locks, count)
+      count == 2
+    else
+      false
+    end
+  end
+
   defp assert_terminal_rpc({:ok, envelope}) do
     response = RuntimeCase.rpc_response_payload!(envelope, FabricProto.BackgroundAgentJobResponse)
     assert response.status == "succeeded"
@@ -893,6 +989,20 @@ defmodule Ankole.ConcurrencyIntegrationTest do
         select: chunk.chunk_text
       )
     )
+  end
+
+  defp race_fact_attrs(slug, text) do
+    %{
+      object_slug: slug,
+      claim: text,
+      kind: "event",
+      holder: "world",
+      audience_scope: "world",
+      notability: "medium",
+      confidence: 0.75,
+      valid_from: DateTime.utc_now(:microsecond),
+      provenance: "concurrency test"
+    }
   end
 
   defp quota_attrs(limit_tokens) do

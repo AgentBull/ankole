@@ -25,7 +25,7 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
   end
 
   test "admin sees incomplete deployment instance facts", %{conn: conn} do
-    conn = console_conn(conn) |> get(~p"/api/v1/console-readiness")
+    conn = console_conn(conn) |> api_get(~p"/api/v2/console-readiness")
 
     assert %{
              "ready" => false,
@@ -91,7 +91,7 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
              },
              "worker" => %{"complete" => true, "ready_count" => 1},
              "signal_route" => %{"complete" => true}
-           } = conn |> get(~p"/api/v1/console-readiness") |> json_response(200)
+           } = conn |> api_get(~p"/api/v2/console-readiness") |> json_response(200)
 
     assert {:ok, _principal} =
              Ankole.PrincipalsFixtures.disable_principal_fixture(route_agent.uid)
@@ -101,11 +101,11 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
              "completed_core_steps" => 4,
              "total_core_steps" => 5,
              "signal_route" => %{"complete" => false}
-           } = conn |> get(~p"/api/v1/console-readiness") |> json_response(200)
+           } = conn |> api_get(~p"/api/v2/console-readiness") |> json_response(200)
   end
 
   test "missing browser session is rejected", %{conn: conn} do
-    conn = get(conn, ~p"/api/v1/console-readiness")
+    conn = api_get(conn, ~p"/api/v2/console-readiness")
     assert json_response(conn, 401)
   end
 
@@ -127,4 +127,33 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
 
     binding
   end
+
+  defp api_request(conn, method, path, body \\ nil) do
+    if String.starts_with?(path, "/api/v2/") do
+      body =
+        case body do
+          nil ->
+            nil
+
+          value when is_binary(value) ->
+            value
+
+          value ->
+            Jason.encode!(
+              if Map.has_key?(value, :data) or Map.has_key?(value, "data"),
+                do: value,
+                else: %{data: value}
+            )
+        end
+
+      conn
+      |> put_req_header("accept", "application/vnd.api+json")
+      |> put_req_header("content-type", "application/vnd.api+json")
+      |> dispatch(@endpoint, method, path, body)
+    else
+      conn |> dispatch(@endpoint, method, path, body)
+    end
+  end
+
+  defp api_get(conn, path), do: api_request(conn, :get, path)
 end

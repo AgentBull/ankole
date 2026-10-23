@@ -23,6 +23,7 @@ defmodule Ankole.PluginsTest do
   alias Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin
   alias Ankole.PluginFixtures.UnknownSignalsOutboundCapabilityPlugin
   alias Ankole.Plugins.Config
+  alias Ankole.Plugins.Contracts
   alias Ankole.Plugins.Registry
   alias Ankole.Plugins.Spec
 
@@ -257,6 +258,15 @@ defmodule Ankole.PluginsTest do
 
     assert {:error, {:invalid_plugin_id, "Not-A-Plugin"}} =
              Config.put_enabled_ids(["Not-A-Plugin"])
+  end
+
+  test "the contract table validates a known contract and leaves another to the generic shape" do
+    assert :ok = Contracts.validate("example.unknown", %{contract_id: "example.unknown", id: "x"})
+
+    declaration = %{contract_id: "agent_workers.provider_kind"}
+
+    assert {:error, {:invalid_worker_provider_declaration, ^declaration}} =
+             Contracts.validate("agent_workers.provider_kind", declaration)
   end
 
   defp start_registry! do

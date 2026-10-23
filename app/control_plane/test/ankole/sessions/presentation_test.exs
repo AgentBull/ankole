@@ -516,7 +516,7 @@ defmodule Ankole.Sessions.PresentationTest do
       assert %DateTime{} = persisted.completed_at
 
       assert %{"state" => "pending"} =
-               Ankole.Conversations.Delivery.PreviewState.get(persisted).checkpoint[
+               Ankole.Conversations.Delivery.PreviewStates.get(persisted).checkpoint[
                  "interactions"
                ]["clarify:call-clarify-only"]
     end
@@ -570,7 +570,7 @@ defmodule Ankole.Sessions.PresentationTest do
                finalize_run(run, final)
 
       checkpoint =
-        Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, event.id)).checkpoint
+        Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, event.id)).checkpoint
 
       assert checkpoint["interactions"]["clarify:call-already-superseded"]["state"] ==
                "superseded"
@@ -835,7 +835,7 @@ defmodule Ankole.Sessions.PresentationTest do
     last = List.last(appended)
 
     generation =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.reload!(last)).checkpoint[
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.reload!(last)).checkpoint[
         "owner_generation"
       ]
 
@@ -870,7 +870,7 @@ defmodule Ankole.Sessions.PresentationTest do
     assert [{recovered, _}] = Preview.lookup(event.id)
     assert :sys.get_state(recovered).signal.id == last.id
 
-    assert Ankole.Conversations.Delivery.PreviewState.get(Repo.reload!(last)).checkpoint[
+    assert Ankole.Conversations.Delivery.PreviewStates.get(Repo.reload!(last)).checkpoint[
              "owner_generation"
            ] > generation
 

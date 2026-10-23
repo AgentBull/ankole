@@ -4,10 +4,9 @@ defmodule Ankole.Conversations.External do
   also admits a Signal or commits a Delivery. Platform IDs remain opaque at this
   boundary; readers receive a Message and its adapter-owned reference.
   """
-  import Ecto.Query
+  require Ash.Query
   alias Ankole.Conversations.{Conversation, ExternalMessageRef, Message, Participant}
   alias Ankole.Conversations.Attachments
-  alias Ankole.Principals.Principal
 
   @message_fields [
     :text,
@@ -64,16 +63,18 @@ defmodule Ankole.Conversations.External do
     )
   end
 
-  def get_conversation(repo, provider_conversation_id),
-    do:
-      repo.get_by(Conversation,
-        kind: :external,
-        provider_conversation_id: provider_conversation_id
-      )
+  def get_conversation(_repo, provider_conversation_id) do
+    Conversation
+    |> Ash.Query.filter(
+      kind == :external and provider_conversation_id == ^provider_conversation_id
+    )
+    |> Ankole.Ash.read_one!()
+  end
 
   def fetch_conversation(id) do
     with {:ok, id} <- Ankole.Ecto.UUIDv7.cast(id),
-         %Conversation{kind: :external} = conversation <- Ankole.Repo.get_by(Conversation, id: id) do
+         %Conversation{kind: :external} = conversation <-
+           Conversation |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!() do
       {:ok, conversation}
     else
       _ -> {:error, :external_conversation_not_found}
@@ -88,18 +89,18 @@ defmodule Ankole.Conversations.External do
   end
 
   def existing_direct_conversation(binding, principal_uid) do
-    Ankole.Repo.all(
-      from(c in Conversation,
-        join: event in Ankole.Signals.Signal,
-        on: event.tenant_id == c.tenant_id and event.conversation_id == c.id,
-        distinct: true,
-        where:
-          c.kind == :external and c.external_kind == :im_dm and
-            event.agent_uid == ^binding.agent_uid and event.reply_binding_name == ^binding.name and
-            fragment("?->>'dm_peer_principal_uid'", c.metadata) == ^principal_uid,
-        limit: 2
-      )
+    Conversation
+    |> Ash.Query.filter(
+      kind == :external and external_kind == :im_dm and
+        fragment("?->>'dm_peer_principal_uid'", metadata) == ^principal_uid and
+        exists(
+          Ankole.Signals.Signal,
+          conversation_id == parent(id) and agent_uid == ^binding.agent_uid and
+            reply_binding_name == ^binding.name
+        )
     )
+    |> Ash.Query.limit(2)
+    |> Ankole.Ash.read!()
     |> case do
       [conversation] -> {:ok, conversation}
       [] -> {:error, :principal_conversation_not_observed}
@@ -107,18 +108,24 @@ defmodule Ankole.Conversations.External do
     end
   end
 
+  @doc "Changes the metadata of an external conversation under its row lock."
   def update_metadata(conversation_id, fun) when is_function(fun, 1) do
-    Ankole.Repo.transact(fn repo ->
-      case lock_conversation(repo, conversation_id) do
-        %Conversation{kind: :external} = conversation ->
-          Ankole.Ash.update(conversation, :put_metadata, %{
-            metadata: fun.(conversation.metadata || %{})
-          })
+    conversation_id
+    |> Ankole.Conversations.update_external_metadata(fun)
+    |> Ankole.Errors.reason()
+  end
 
-        _ ->
-          {:error, :external_conversation_not_found}
-      end
-    end)
+  @doc false
+  def update_metadata_in_tx(_repo, conversation_id, fun) do
+    case lock_conversation(conversation_id) do
+      %Conversation{kind: :external} = conversation ->
+        Ankole.Ash.update(conversation, :put_metadata, %{
+          metadata: fun.(conversation.metadata || %{})
+        })
+
+      _ ->
+        {:error, :external_conversation_not_found}
+    end
   end
 
   def observe_conversation_in_tx(repo, %{agent_uid: agent_uid}, observation, now) do
@@ -151,7 +158,7 @@ defmodule Ankole.Conversations.External do
     provider_id = Ankole.Attrs.get(observation, :provider_message_id)
 
     with :ok <- validate_provider_message_id(provider_id),
-         %Conversation{kind: :external} = conversation <- lock_conversation(repo, conversation_id) do
+         %Conversation{kind: :external} = conversation <- lock_conversation(conversation_id) do
       existing = get_message(repo, conversation_id, provider_id)
 
       if stale?(existing, Ankole.Attrs.get(observation, :provider_time)) do
@@ -169,21 +176,26 @@ defmodule Ankole.Conversations.External do
   def record_delivery_in_tx(repo, conversation_id, observation, now),
     do: observe_in_tx(repo, conversation_id, observation, now)
 
-  def get_message(repo, conversation_id, provider_message_id) do
-    repo.one(
-      from(message in Message,
-        join: ref in ExternalMessageRef,
-        on: ref.message_id == message.id and ref.tenant_id == message.tenant_id,
-        where:
-          ref.conversation_id == ^conversation_id and
-            ref.provider_message_id == ^provider_message_id,
-        select: %{message: message, external_ref: ref}
-      )
+  def get_message(_repo, conversation_id, provider_message_id) do
+    ExternalMessageRef
+    |> Ash.Query.filter(
+      conversation_id == ^conversation_id and provider_message_id == ^provider_message_id
     )
+    |> Ankole.Ash.read_one!()
+    |> case do
+      %ExternalMessageRef{message_id: message_id} = ref ->
+        case Message |> Ash.Query.filter(id == ^message_id) |> Ankole.Ash.read_one!() do
+          %Message{} = message -> %{message: message, external_ref: ref}
+          nil -> nil
+        end
+
+      nil ->
+        nil
+    end
   end
 
   def remove_in_tx(repo, conversation_id, provider_message_id) do
-    with %Conversation{kind: :external} <- lock_conversation(repo, conversation_id),
+    with %Conversation{kind: :external} <- lock_conversation(conversation_id),
          %{message: message} <- get_message(repo, conversation_id, provider_message_id),
          :ok <-
            Ankole.Conversations.message_changed_in_tx(
@@ -203,7 +215,7 @@ defmodule Ankole.Conversations.External do
 
   @doc "Folds a provider reaction under the conversation lock without creating a statement or Signal."
   def fold_reaction_in_tx(repo, conversation_id, provider_message_id, reaction, now) do
-    with %Conversation{kind: :external} <- lock_conversation(repo, conversation_id),
+    with %Conversation{kind: :external} <- lock_conversation(conversation_id),
          %{external_ref: ref} <- get_message(repo, conversation_id, provider_message_id) do
       actors = ref.reactions |> Map.get(reaction.reaction_key, []) |> List.wrap() |> MapSet.new()
 
@@ -241,7 +253,7 @@ defmodule Ankole.Conversations.External do
 
     with {:ok, sequence} <- message_sequence(repo, conversation, message) do
       author = Ankole.Attrs.get(observation, :author) || ref.author || %{}
-      {author_type, author_uid} = author_identity(repo, author)
+      {author_type, author_uid} = author_identity(author)
 
       {author_type, author_uid} =
         if author_type == :unknown and message.author_type == :agent,
@@ -306,12 +318,12 @@ defmodule Ankole.Conversations.External do
     end
   end
 
-  defp author_identity(repo, author) do
+  defp author_identity(author) do
     uid = Map.get(author, "principal_uid") || Map.get(author, "agent_uid")
 
-    case is_binary(uid) && repo.get_by(Principal, uid: uid) do
-      %Principal{uid: uid, type: :human} -> {:human, uid}
-      %Principal{uid: uid, type: :agent} -> {:agent, uid}
+    case is_binary(uid) and uid != "" and Ankole.Principals.get_principal_record!(uid) do
+      %{uid: uid, type: :human} -> {:human, uid}
+      %{uid: uid, type: :agent} -> {:agent, uid}
       _ -> {:unknown, nil}
     end
   end
@@ -378,11 +390,12 @@ defmodule Ankole.Conversations.External do
     Ankole.AdvisoryLock.lock!(repo, "external-conversation:" <> key, hash: :extended)
   end
 
-  defp lock_conversation(repo, id),
-    do:
-      repo.one(
-        from(conversation in Conversation, where: conversation.id == ^id, lock: "FOR UPDATE")
-      )
+  defp lock_conversation(id) do
+    Conversation
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
+  end
 
   defp message_sequence(repo, conversation, %Message{seq: nil}),
     do: Ankole.Conversations.next_sequence_in_tx(repo, conversation)

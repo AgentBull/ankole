@@ -7,7 +7,7 @@ defmodule Ankole.Brain.OIDCClientLearning do
   when a conversation first enters Brain; later edits do not widen its audience.
   """
 
-  import Ecto.Query
+  require Ash.Query
 
   alias Ankole.AIGateway.OIDCClientConversations
   alias Ankole.Brain.Claims
@@ -22,7 +22,6 @@ defmodule Ankole.Brain.OIDCClientLearning do
   alias Ankole.JSON
   alias Ankole.Logging
   alias Ankole.OIDC
-  alias Ankole.Repo
 
   def sweep do
     if Config.enabled?() do
@@ -88,9 +87,9 @@ defmodule Ankole.Brain.OIDCClientLearning do
   defp pending_conversations(source) do
     objects =
       Object
-      |> where([object], object.managed_by_source_id == ^source.id)
-      |> select([object], struct(object, [:id, :slug, :meta, :content_hash, :deleted_at]))
-      |> Repo.all()
+      |> Ash.Query.filter(managed_by_source_id == ^source.id)
+      |> Ash.Query.select([:id, :slug, :meta, :content_hash, :deleted_at])
+      |> Ankole.Ash.read!()
       |> Map.new(&{&1.meta["conversation_id"], &1})
 
     OIDCClientConversations.conversations(source.upstream_id)
@@ -129,20 +128,16 @@ defmodule Ankole.Brain.OIDCClientLearning do
 
     with {:ok, extraction} <-
            SourceLearning.extract_items(slug, title, conversation_excerpts(material.requests)),
-         {:ok, {object, written}} <-
-           Repo.transact(fn repo ->
-             with {:ok, current} <- Sources.lock_active(repo, source),
-                  :ok <- ensure_current(repo, current, source, attrs.slug, previous),
-                  {:ok, object} <- Objects.upsert_source_projection(current, attrs),
-                  session = "source:#{source.id}",
-                  _expired = Claims.expire_source_session_facts(repo, object.slug, session),
-                  {:ok, written} <-
-                    SourceLearning.write_claims(object, extraction.items, scope, session),
-                  {:ok, _source} <-
-                    Ankole.Ash.update(current, :record_sync, %{}) do
-               {:ok, {object, written}}
-             end
-           end) do
+         {:ok, %{object: object, written: written}} <-
+           Ankole.Ash.run_action(Source, :learn_oidc_conversation, %{
+             run: %{
+               source: source,
+               attrs: attrs,
+               previous: previous,
+               items: extraction.items,
+               scope: scope
+             }
+           }) do
       if written.rejected > 0 do
         Logging.warning(
           "brain.oidc_client_items_rejected",
@@ -160,6 +155,23 @@ defmodule Ankole.Brain.OIDCClientLearning do
     end
   end
 
+  @doc false
+  # Replaces the page and the Claims of one conversation in the transaction of
+  # the `:learn_oidc_conversation` action. The locked Source and page fence an
+  # archive and a concurrent run.
+  def learn_conversation_in_tx(%{source: source, attrs: attrs} = run) do
+    session = "source:#{source.id}"
+
+    with {:ok, current} <- Sources.lock_active(Ankole.Repo, source),
+         :ok <- ensure_current(current, source, attrs.slug, run.previous),
+         {:ok, object} <- Objects.upsert_source_projection_in_tx(current, attrs),
+         _expired = Claims.expire_source_session_facts(Ankole.Repo, object.slug, session),
+         {:ok, written} <- SourceLearning.write_claims(object, run.items, run.scope, session),
+         {:ok, _source} <- Ankole.Ash.update(current, :record_sync, %{}) do
+      {:ok, %{object: object, written: written}}
+    end
+  end
+
   defp conversation_excerpts(requests) do
     for request <- requests,
         origin <- [:input, :output],
@@ -172,8 +184,12 @@ defmodule Ankole.Brain.OIDCClientLearning do
     end
   end
 
-  defp ensure_current(repo, current, source, slug, previous) do
-    object = Object |> where([object], object.slug == ^slug) |> lock("FOR UPDATE") |> repo.one()
+  defp ensure_current(current, source, slug, previous) do
+    object =
+      Object
+      |> Ash.Query.filter(slug == ^slug)
+      |> Ash.Query.lock(:for_update)
+      |> Ankole.Ash.read_one!()
 
     case {object, previous} do
       {nil, nil} when current.default_audience_scope == source.default_audience_scope ->

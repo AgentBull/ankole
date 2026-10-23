@@ -36,7 +36,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     assert %{"file_listing" => root} =
              conn
              |> recycle_api()
-             |> get(~p"/api/v1/agents/#{agent_uid}/files")
+             |> api_get(~p"/api/v2/agents/#{agent_uid}/files")
              |> json_response(200)
 
     assert root["folders"] == [%{"name" => "reports", "path" => "reports"}]
@@ -45,7 +45,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     assert %{"file_listing" => reports} =
              conn
              |> recycle_api()
-             |> get(~p"/api/v1/agents/#{agent_uid}/files?path=reports")
+             |> api_get(~p"/api/v2/agents/#{agent_uid}/files?path=reports")
              |> json_response(200)
 
     assert reports["folders"] == [%{"name" => "archive", "path" => "reports/archive"}]
@@ -73,11 +73,11 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     assert %{"moved_files" => 1} =
              conn
              |> recycle_api()
-             |> post(~p"/api/v1/agents/#{agent_uid}/file-moves", %{
+             |> api_post(~p"/api/v2/agents/#{agent_uid}/file-moves", %{
                from_path: "inbox/attachment.txt",
                to_path: "kept/attachment.txt"
              })
-             |> json_response(200)
+             |> json_response(201)
 
     assert %{
              "file_listing" => %{
@@ -92,17 +92,17 @@ defmodule AnkoleWeb.AgentFileControllerTest do
            } =
              conn
              |> recycle_api()
-             |> get(~p"/api/v1/agents/#{agent_uid}/files?path=kept")
+             |> api_get(~p"/api/v2/agents/#{agent_uid}/files?path=kept")
              |> json_response(200)
   end
 
   test "answers 404 for an Agent that does not exist", %{conn: conn} do
     conn = console_conn(conn)
 
-    assert %{"error" => %{"code" => "agent_not_found"}} =
+    assert %{"errors" => [%{"code" => "not_found"}]} =
              conn
              |> recycle_api()
-             |> get(~p"/api/v1/agents/agent-missing/files")
+             |> api_get(~p"/api/v2/agents/agent-missing/files")
              |> json_response(404)
   end
 
@@ -126,7 +126,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     download =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/agents/#{agent_uid}/files/content?path=inbox/brief.txt")
+      |> api_get(~p"/api/v1/agents/#{agent_uid}/files/content?path=inbox/brief.txt")
 
     assert response(download, 200) == "brief"
     assert [disposition] = get_resp_header(download, "content-disposition")
@@ -135,8 +135,47 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     assert %{"error" => %{"code" => "not_found"}} =
              conn
              |> recycle_api()
-             |> get(~p"/api/v1/agents/#{agent_uid}/files/content?path=inbox/missing.txt")
+             |> api_get(~p"/api/v1/agents/#{agent_uid}/files/content?path=inbox/missing.txt")
              |> json_response(404)
+  end
+
+  test "downloads the exact path when file names have leading or trailing spaces", %{
+    conn: conn,
+    agent_uid: agent_uid
+  } do
+    conn = console_conn(conn)
+    drive_file_fixture(agent_uid, "report.txt", "ordinary file")
+
+    for {path, content} <- [{" report.txt", "leading space"}, {"report.txt ", "trailing space"}] do
+      drive_file_fixture(agent_uid, path, content)
+
+      assert conn
+             |> recycle_api()
+             |> api_get(~p"/api/v1/agents/#{agent_uid}/files/content?path=#{path}")
+             |> response(200) == content
+    end
+  end
+
+  test "uploads preserve spaces in a path and leave the ordinary name unchanged", %{
+    conn: conn,
+    agent_uid: agent_uid
+  } do
+    conn = console_conn(conn)
+    drive_file_fixture(agent_uid, "report.txt", "ordinary file")
+
+    for {path, content} <- [{" report.txt", "leading space"}, {"report.txt ", "trailing space"}] do
+      assert %{"uploaded_file" => %{"path" => ^path}} =
+               conn
+               |> recycle_api()
+               |> multipart(~p"/api/v1/agents/#{agent_uid}/files",
+                 path: path,
+                 file: build_upload!(content)
+               )
+               |> json_response(200)
+
+      assert {:ok, _file, ^content} = Files.read(agent_uid, path)
+      assert {:ok, _file, "ordinary file"} = Files.read(agent_uid, "report.txt")
+    end
   end
 
   test "rejects an upload over the transfer limit", %{conn: conn, agent_uid: agent_uid} do
@@ -173,10 +212,10 @@ defmodule AnkoleWeb.AgentFileControllerTest do
              )
              |> json_response(409)
 
-    assert %{"error" => %{"code" => "path_conflict"}} =
+    assert %{"errors" => [%{"code" => "path_conflict"}]} =
              conn
              |> recycle_api()
-             |> post(~p"/api/v1/agents/#{agent_uid}/file-moves", %{
+             |> api_post(~p"/api/v2/agents/#{agent_uid}/file-moves", %{
                from_path: "from",
                to_path: "existing"
              })
@@ -196,11 +235,11 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     assert %{"moved_files" => 2} =
              conn
              |> recycle_api()
-             |> post(~p"/api/v1/agents/#{agent_uid}/file-moves", %{
+             |> api_post(~p"/api/v2/agents/#{agent_uid}/file-moves", %{
                from_path: "drafts",
                to_path: "final"
              })
-             |> json_response(200)
+             |> json_response(201)
 
     assert {:ok, %{files: files}} = Files.list(agent_uid)
     assert Enum.map(files, & &1.path) == ["final/a.md", "final/b.md"]
@@ -208,7 +247,7 @@ defmodule AnkoleWeb.AgentFileControllerTest do
     assert %{"deleted_files" => 2} =
              conn
              |> recycle_api()
-             |> delete(~p"/api/v1/agents/#{agent_uid}/files?path=final")
+             |> api_delete(~p"/api/v2/agents/#{agent_uid}/files?path=final")
              |> json_response(200)
 
     assert {:ok, %{files: []}} = Files.list(agent_uid)
@@ -228,15 +267,15 @@ defmodule AnkoleWeb.AgentFileControllerTest do
                metadata: %{}
              })
 
-    assert %{"error" => %{"code" => "forbidden"}} =
+    assert %{"errors" => [%{"code" => "forbidden"}]} =
              conn
              |> recycle_api()
-             |> get(~p"/api/v1/agents/#{agent_uid}/files")
+             |> api_get(~p"/api/v2/agents/#{agent_uid}/files")
              |> json_response(403)
 
     assert conn
            |> recycle_api()
-           |> get(~p"/api/v1/agents/#{other_agent.uid}/files")
+           |> api_get(~p"/api/v2/agents/#{other_agent.uid}/files")
            |> json_response(200)
   end
 
@@ -277,6 +316,37 @@ defmodule AnkoleWeb.AgentFileControllerTest do
 
     conn
     |> put_req_header("content-type", "multipart/form-data; boundary=#{boundary}")
-    |> post(path, IO.iodata_to_binary(body))
+    |> api_post(path, IO.iodata_to_binary(body))
   end
+
+  defp api_request(conn, method, path, body \\ nil) do
+    if String.starts_with?(path, "/api/v2/") do
+      body =
+        case body do
+          nil ->
+            nil
+
+          value when is_binary(value) ->
+            value
+
+          value ->
+            Jason.encode!(
+              if Map.has_key?(value, :data) or Map.has_key?(value, "data"),
+                do: value,
+                else: %{data: value}
+            )
+        end
+
+      conn
+      |> put_req_header("accept", "application/vnd.api+json")
+      |> put_req_header("content-type", "application/vnd.api+json")
+      |> dispatch(@endpoint, method, path, body)
+    else
+      conn |> dispatch(@endpoint, method, path, body)
+    end
+  end
+
+  defp api_get(conn, path), do: api_request(conn, :get, path)
+  defp api_post(conn, path, body), do: api_request(conn, :post, path, body)
+  defp api_delete(conn, path), do: api_request(conn, :delete, path)
 end

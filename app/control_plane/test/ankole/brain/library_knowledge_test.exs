@@ -11,8 +11,6 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
   alias Ankole.Brain.Dreaming
   alias Ankole.Brain.Forget
   alias Ankole.Brain.LibraryKnowledge
-  alias Ankole.Brain.Objects
-  alias Ankole.Brain.Promotion
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Object
@@ -425,7 +423,7 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
     write_agent_plugin!(root, "self-healing-inventory-plugin", name)
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "notes/self-healing-probe", type: "note", title: "Self-healing probe"},
         :system
       )
@@ -456,29 +454,35 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
     set: set
   } do
     assert {:error, {:reserved_object_type, "agent-skills"}} =
-             Objects.create_object(
-               %{
-                 slug: "concepts/forged-agent-skill",
-                 type: "agent-skills",
-                 title: "Forged"
-               },
-               :system
+             Ankole.Errors.reason(
+               Ankole.Brain.create_object(
+                 %{
+                   slug: "concepts/forged-agent-skill",
+                   type: "agent-skills",
+                   title: "Forged"
+                 },
+                 :system
+               )
              )
 
     assert {:error, {:reserved_object_slug, "lazyload-agent-skills/forged"}} =
-             Objects.create_object(
-               %{
-                 slug: "lazyload-agent-skills/forged",
-                 type: "note",
-                 title: "Forged"
-               },
-               :system
+             Ankole.Errors.reason(
+               Ankole.Brain.create_object(
+                 %{
+                   slug: "lazyload-agent-skills/forged",
+                   type: "note",
+                   title: "Forged"
+                 },
+                 :system
+               )
              )
 
     assert {:error, {:unknown_object_type, "invented", guidance}} =
-             Objects.create_object(
-               %{slug: "invented/example", type: "invented", title: "Invented"},
-               :system
+             Ankole.Errors.reason(
+               Ankole.Brain.create_object(
+                 %{slug: "invented/example", type: "invented", title: "Invented"},
+                 :system
+               )
              )
 
     refute "agent-skills" in guidance.installed_types
@@ -535,7 +539,7 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
     %{principal: human} = human_fixture()
 
     {:ok, _object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "concepts/gamma-method", type: "concept", title: "Mine", body: "Instance body."},
         human.uid
       )
@@ -549,9 +553,11 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
     write_page!(dir, "delta-method")
     sync!(set)
 
-    assert {:ok, forked} = Objects.fork_library_page("concepts/delta-method")
+    assert {:ok, forked} = Ankole.Brain.fork_library_page("concepts/delta-method")
     assert forked.managed_by_source_id == nil
-    assert {:error, :not_library_managed} = Objects.fork_library_page("concepts/delta-method")
+
+    assert {:error, :not_library_managed} =
+             Ankole.Errors.reason(Ankole.Brain.fork_library_page("concepts/delta-method"))
 
     write_page!(dir, "delta-method", "\n\nUpstream revision after fork.")
     assert [%{shadowed: 1}] = sync!(set).reports
@@ -566,7 +572,7 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
     assert object.managed_by_source_id != nil
 
     assert {:error, {:reserved_object_type, "agent-skills"}} =
-             Objects.fork_library_page(slug)
+             Ankole.Errors.reason(Ankole.Brain.fork_library_page(slug))
 
     assert Repo.get_by!(Object, slug: slug).managed_by_source_id == object.managed_by_source_id
   end
@@ -578,8 +584,12 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
     reserved_route = pending_type_suggestion("reserved-route")
 
     assert {:error, {:reserved_object_slug_prefix, "lazyload-agent-skills/"}} =
-             Promotion.approve(reserved_route.id, Ankole.ActorRef.from_principal(human),
-               slug_prefix: "lazyload-agent-skills/"
+             Ankole.Errors.reason(
+               Ankole.Brain.approve_promotion(
+                 reserved_route.id,
+                 Ankole.ActorRef.from_principal(human),
+                 %{attrs: %{slug_prefix: "lazyload-agent-skills/"}}
+               )
              )
 
     slug = "lazyload-agent-skills/voice-drafting-method"
@@ -595,7 +605,7 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
     methodology = pending_type_suggestion("methodology")
 
     assert {:ok, %{status: :type_created, type: "methodology", migrated: 0}} =
-             Promotion.approve(methodology.id, Ankole.ActorRef.from_principal(human))
+             Ankole.Brain.approve_promotion(methodology.id, Ankole.ActorRef.from_principal(human))
 
     projected = Repo.get_by!(Object, slug: slug)
     assert projected.type == "agent-skills"
@@ -608,17 +618,19 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
     %{principal: human} = human_fixture()
 
     assert {:error, {:library_managed, _slug, _hint}} =
-             Objects.update_object(
-               "concepts/epsilon-method",
-               %{body: "edited", expected_content_hash: "x"},
-               human.uid
+             Ankole.Errors.reason(
+               Ankole.Brain.update_object(
+                 "concepts/epsilon-method",
+                 %{body: "edited", expected_content_hash: "x"},
+                 human.uid
+               )
              )
 
     assert {:error, {:library_managed, _slug, _hint}} =
              Forget.forget_object("concepts/epsilon-method", "cleanup", human.uid)
 
     assert {:error, {:library_managed, _slug, _hint}} =
-             Objects.restore("concepts/epsilon-method")
+             Ankole.Errors.reason(Ankole.Brain.restore_object("concepts/epsilon-method"))
 
     assert {:ok, _timeline} =
              Ankole.Brain.Timelines.write_timeline(
@@ -668,7 +680,7 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
 
     source = Repo.get_by!(Source, kind: "library", upstream_id: set.set_id)
 
-    assert {:ok, _archived} = Ankole.Brain.Sources.archive(source.id)
+    assert {:ok, _archived} = Ankole.Brain.archive_source(source.id)
     assert Repo.get_by!(Object, slug: "concepts/eta-method").deleted_at != nil
 
     write_page!(dir, "eta-method", "A later shipped revision.")

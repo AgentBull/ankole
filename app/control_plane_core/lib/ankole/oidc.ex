@@ -1,15 +1,17 @@
 defmodule Ankole.OIDC do
   @moduledoc """
   Owns OIDC clients, their group and model policy, and client-origin projection.
-  """
 
-  import Ecto.Query, warn: false
+  A Client write that has more than one step runs as a generic action on
+  `Ankole.OIDC.Client`, and that action owns its transaction.
+  """
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
+
   require Ash.Query
 
   alias Ankole.SecretKeyBase
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AuthZ
-  alias Ankole.AuthZ.Group
   alias Ankole.OIDC.AuthorizationCode
   alias Ankole.OIDC.Client
   alias Ankole.OIDC.ClientGroup
@@ -18,6 +20,45 @@ defmodule Ankole.OIDC do
   alias Ankole.OIDC.Session
   alias Ankole.OIDC.RefreshToken
   alias Ankole.Repo
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/oidc-clients", Client do
+        route(:get, "/login-sources", :login_sources, name: "list_oidc_login_sources")
+
+        route(:post, "/:id/secret-rotations", :console_rotate_secret,
+          name: "rotate_oidc_client_secret"
+        )
+
+        index(:console_list, name: "list_oidc_clients", derive_sort?: false)
+        route(:post, "/", :console_create, name: "create_oidc_client")
+        get(:read, name: "get_oidc_client")
+        route(:patch, "/:id", :console_update, name: "update_oidc_client")
+        route(:delete, "/:id", :console_delete, name: "delete_oidc_client")
+      end
+
+      base_route "/oidc-clients/:client_id/logout-deliveries", Ankole.OIDC.LogoutDelivery do
+        index(:console_list, name: "list_oidc_logout_deliveries", derive_sort?: false)
+        route(:post, "/:id/retries", :console_retry, name: "retry_oidc_logout_delivery")
+      end
+    end
+  end
+
+  resources do
+    resource(Ankole.OIDC.Client)
+    resource(Ankole.OIDC.ClientGroup)
+    resource(Ankole.OIDC.SigningKeyRecord)
+    resource(Ankole.OIDC.AuthorizationCode)
+    resource(Ankole.OIDC.RefreshToken)
+    resource(Ankole.OIDC.RefreshTokenFamily)
+    resource(Ankole.OIDC.Session)
+    resource(Ankole.OIDC.LogoutRequest)
+    resource(Ankole.OIDC.LogoutDelivery)
+  end
 
   @allow_http_issuer Mix.env() in [:dev, :test]
 
@@ -177,21 +218,38 @@ defmodule Ankole.OIDC do
   end
 
   defp find_client(id, active?) do
-    action = if Repo.across_tenants?(), do: :lookup_across_tenants, else: :read
-
-    query =
-      Client
-      |> Ash.Query.for_read(action, %{}, tenant: Repo.tenant_id(), authorize?: false)
-      |> Ash.Query.filter(id == ^id)
-
+    query = Ash.Query.filter(client_query(), id == ^id)
     query = if active?, do: Ash.Query.filter(query, enabled == true), else: query
     Ash.read_one!(query, authorize?: false)
+  end
+
+  # A caller that selected all tenants reads the clients of every tenant.
+  defp client_query do
+    action = if Repo.across_tenants?(), do: :lookup_across_tenants, else: :read
+    Ash.Query.for_read(Client, action, %{}, tenant: Repo.tenant_id(), authorize?: false)
   end
 
   @doc "Creates a client and returns its one-time secret when confidential."
   @spec create_client(map()) ::
           {:ok, %{client: map(), client_secret: String.t() | nil}} | {:error, term()}
   def create_client(attrs) when is_map(attrs) do
+    with {:ok, args, secret} <- prepare_create(attrs),
+         {:ok, client} <- Ankole.Ash.run_action(Client, :create_client, args) do
+      {:ok, %{client: projection(client), client_secret: secret}}
+    end
+  end
+
+  def create_client(_attrs), do: {:error, :invalid_request_body}
+
+  @doc false
+  def console_create_in_tx(attrs) do
+    with {:ok, %{attrs: attrs, group_ids: group_ids}, secret} <- prepare_create(attrs),
+         {:ok, client} <- create_client_in_tx(attrs, group_ids) do
+      {:ok, %{oidc_client: load_console_fields(client), client_secret: secret}}
+    end
+  end
+
+  defp prepare_create(attrs) do
     id = Ankole.Ecto.UUIDv7.autogenerate()
     client_type = Ankole.Attrs.get(attrs, :type) || Ankole.Attrs.get(attrs, :client_type)
     secret = if client_type in [:confidential, "confidential"], do: opaque_token(), else: nil
@@ -199,67 +257,85 @@ defmodule Ankole.OIDC do
     with {:ok, secret_ciphertext} <- maybe_seal_secret(secret, id),
          normalized <- normalize_write_attrs(attrs, secret_ciphertext),
          {:ok, normalized} <- normalize_model_aliases(normalized),
-         {:ok, group_ids} <- group_ids(normalized),
-         {:ok, client} <-
-           Repo.transact(fn repo ->
-             with :ok <- validate_group_ids(repo, group_ids, normalized),
-                  :ok <- validate_identity_provider_ids(normalized),
-                  {:ok, client} <-
-                    Ankole.Ash.create(
-                      Client,
-                      :create_in_tx,
-                      normalized |> Map.drop([:allowed_group_ids]) |> Map.put(:id, id)
-                    ),
-                  :ok <- replace_group_links(repo, client.id, group_ids) do
-               {:ok, client}
-             end
-           end) do
-      {:ok, %{client: projection(client), client_secret: secret}}
+         {:ok, group_ids} <- group_ids(normalized) do
+      {:ok, %{attrs: Map.put(normalized, :id, id), group_ids: group_ids}, secret}
     end
   end
 
-  def create_client(_attrs), do: {:error, :invalid_request_body}
+  @doc false
+  def create_client_in_tx(attrs, group_ids) do
+    with :ok <- validate_group_ids(group_ids, attrs),
+         :ok <- validate_identity_provider_ids(attrs),
+         {:ok, client} <-
+           Ankole.Ash.create(Client, :create_in_tx, Map.drop(attrs, [:allowed_group_ids])),
+         :ok <- replace_group_links(client.id, group_ids) do
+      {:ok, client}
+    end
+  end
 
   @doc "Updates a client without changing its public or confidential type."
   @spec update_client(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def update_client(id, attrs) when is_map(attrs) do
     with {:ok, id} <- cast_uuid(id),
-         {:ok, updated} <-
-           Repo.transact(fn repo ->
-             with %Client{} = client <- lock_client(repo, id),
-                  :ok <- ensure_unchanged_type(client, attrs),
-                  normalized <-
-                    normalize_write_attrs(attrs, nil) |> Map.delete(:secret_ciphertext),
-                  normalized <- preserve_missing_write_fields(client, normalized),
-                  {:ok, normalized} <- normalize_model_aliases(normalized),
-                  {:ok, group_ids} <- group_ids(normalized),
-                  :ok <- validate_group_ids(repo, group_ids, normalized),
-                  :ok <- validate_identity_provider_ids(normalized),
-                  {:ok, updated} <-
-                    Ankole.Ash.update(
-                      client,
-                      :configure_in_tx,
-                      Map.drop(normalized, [:allowed_group_ids, :client_type])
-                    ),
-                  :ok <- replace_group_links(repo, updated.id, group_ids) do
-               {:ok, updated}
-             else
-               nil -> {:error, :not_found}
-               {:error, reason} -> {:error, reason}
-             end
-           end) do
+         {:ok, updated} <- Ankole.Ash.run_action(Client, :update_client, %{id: id, attrs: attrs}) do
       {:ok, projection(updated)}
     end
   end
 
   def update_client(_id, _attrs), do: {:error, :invalid_request_body}
 
+  @doc false
+  def update_client_in_tx(id, attrs) do
+    with %Client{} = client <- lock_client(id),
+         :ok <- ensure_unchanged_type(client, attrs),
+         normalized <- normalize_write_attrs(attrs, nil) |> Map.delete(:secret_ciphertext),
+         normalized <- preserve_missing_write_fields(client, normalized),
+         {:ok, normalized} <- normalize_model_aliases(normalized),
+         {:ok, group_ids} <- group_ids(normalized),
+         :ok <- validate_group_ids(group_ids, normalized),
+         :ok <- validate_identity_provider_ids(normalized),
+         {:ok, updated} <-
+           Ankole.Ash.update(
+             client,
+             :configure_in_tx,
+             Map.drop(normalized, [:allowed_group_ids, :client_type])
+           ),
+         :ok <- replace_group_links(updated.id, group_ids) do
+      {:ok, updated}
+    else
+      nil -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc false
+  def console_update_in_tx(%{id: id} = args) do
+    case update_client_in_tx(id, Map.delete(args, :id)) do
+      {:ok, client} -> {:ok, load_console_fields(client)}
+      error -> Ankole.Errors.not_found(error, [:not_found], Client)
+    end
+  end
+
+  @doc false
+  # The result keeps the allowed groups that the client had before the delete.
+  def console_delete_in_tx(id) do
+    with {:ok, client} <- get_client(id),
+         client = load_console_fields(client),
+         {:ok, _deleted} <- Ankole.Ash.destroy(client, :delete_in_tx) do
+      {:ok, client}
+    else
+      error -> Ankole.Errors.not_found(error, [:not_found], Client)
+    end
+  end
+
+  defp load_console_fields(client),
+    do: Ash.load!(client, [:allowed_group_ids], tenant: Repo.tenant_id(), authorize?: false)
+
   @doc "Deletes a client and all of its OAuth credentials, but no Principal data."
   @spec delete_client(String.t()) :: {:ok, map()} | {:error, term()}
   def delete_client(id) do
     with {:ok, client} <- get_client(id),
-         {:ok, deleted} <-
-           Repo.transact(fn _repo -> Ankole.Ash.destroy(client, :delete_in_tx) end) do
+         {:ok, deleted} <- Ankole.Ash.destroy(client, :delete_in_tx) do
       {:ok, projection(deleted)}
     end
   end
@@ -272,9 +348,7 @@ defmodule Ankole.OIDC do
          secret <- opaque_token(),
          {:ok, ciphertext} <- seal(secret, "client_secret", client.id),
          {:ok, updated} <-
-           Repo.transact(fn _repo ->
-             Ankole.Ash.update(client, :rotate_secret_in_tx, %{secret_ciphertext: ciphertext})
-           end) do
+           Ankole.Ash.update(client, :rotate_secret_in_tx, %{secret_ciphertext: ciphertext}) do
       {:ok, %{client: projection(updated), client_secret: secret}}
     else
       {:ok, %Client{client_type: :public}} -> {:error, :public_client}
@@ -310,11 +384,11 @@ defmodule Ankole.OIDC do
   @doc "Lists every HTTP origin currently registered by an active client."
   @spec active_origins() :: [String.t()]
   def active_origins do
-    Client
-    |> where([client], client.enabled == true)
-    |> select([client], client.redirect_uris)
-    |> Repo.all()
-    |> List.flatten()
+    client_query()
+    |> Ash.Query.filter(enabled == true)
+    |> Ash.Query.select([:redirect_uris])
+    |> Ash.read!(authorize?: false)
+    |> Enum.flat_map(& &1.redirect_uris)
     |> Enum.map(&ClientPolicy.redirect_origin/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
@@ -333,10 +407,10 @@ defmodule Ankole.OIDC do
   @spec allowed_group_ids(String.t()) :: [String.t()]
   def allowed_group_ids(client_id) do
     ClientGroup
-    |> where([link], link.client_id == ^client_id)
-    |> order_by([link], asc: link.group_id)
-    |> select([link], link.group_id)
-    |> Repo.all()
+    |> Ash.Query.filter(client_id == ^client_id)
+    |> Ash.Query.sort(group_id: :asc)
+    |> Ankole.Ash.read!()
+    |> Enum.map(& &1.group_id)
   end
 
   @doc "Checks tenant admission, the active Client, group membership, and the optional model policy. Callers verify the token or session, the Human, and the scope."
@@ -404,20 +478,12 @@ defmodule Ankole.OIDC do
   end
 
   defp expire_records(query, action \\ :expire_in_tx) do
-    case Repo.transact(fn ->
-           query = Ash.Query.select(query, Ash.Resource.Info.primary_key(query.resource))
-
-           case Ankole.Ash.bulk_destroy(query, action, %{},
-                  strategy: [:atomic],
-                  return_records?: true,
-                  return_errors?: true
-                ) do
-             %Ash.BulkResult{status: :success, records: records} -> {:ok, length(records)}
-             %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
-           end
-         end) do
-      {:ok, count} -> count
-      {:error, error} -> raise Ash.Error.to_error_class(error)
+    query
+    |> Ash.Query.select(Ash.Resource.Info.primary_key(query.resource))
+    |> Ankole.Ash.destroy_where(action)
+    |> case do
+      {:ok, records} -> length(records)
+      {:error, error} -> raise error
     end
   end
 
@@ -586,37 +652,37 @@ defmodule Ankole.OIDC do
     end
   end
 
-  defp validate_group_ids(_repo, [], %{scopes: scopes}) when is_list(scopes) do
+  defp validate_group_ids([], %{scopes: scopes}) when is_list(scopes) do
     if @ai_gateway_scope in scopes, do: {:error, :allowed_group_required}, else: :ok
   end
 
-  defp validate_group_ids(repo, group_ids, _attrs) do
-    found =
-      Group
-      |> where([group], group.id in ^group_ids)
-      |> select([group], group.id)
-      |> repo.all()
+  # AuthZ owns the groups.
+  defp validate_group_ids(group_ids, _attrs) do
+    case AuthZ.list_groups(query: [filter: [id: [in: group_ids]], select: [:id]]) do
+      {:ok, groups} ->
+        found = MapSet.new(groups, & &1.id)
+        if found == MapSet.new(group_ids), do: :ok, else: {:error, :unknown_group}
 
-    if MapSet.new(found) == MapSet.new(group_ids), do: :ok, else: {:error, :unknown_group}
+      {:error, _invalid_id} ->
+        {:error, :unknown_group}
+    end
   end
 
-  defp replace_group_links(_repo, client_id, group_ids) do
-    query = ClientGroup |> Ash.Query.filter(client_id == ^client_id)
-
-    case Ankole.Ash.bulk_destroy(query, :unlink_in_tx, %{},
-           strategy: [:atomic],
-           return_errors?: true
-         ) do
-      %Ash.BulkResult{status: :success} -> :ok
-      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+  defp replace_group_links(client_id, group_ids) do
+    with {:ok, _unlinked} <-
+           ClientGroup
+           |> Ash.Query.filter(client_id == ^client_id)
+           |> Ankole.Ash.destroy_where(:unlink_in_tx) do
+      Enum.reduce_while(group_ids, :ok, fn group_id, :ok ->
+        case Ankole.Ash.create(ClientGroup, :link_in_tx, %{
+               client_id: client_id,
+               group_id: group_id
+             }) do
+          {:ok, _link} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
     end
-
-    Enum.reduce_while(group_ids, :ok, fn group_id, :ok ->
-      case Ankole.Ash.create(ClientGroup, :link_in_tx, %{client_id: client_id, group_id: group_id}) do
-        {:ok, _link} -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
   end
 
   defp authorize_group(client_id, principal_uid) do
@@ -644,8 +710,11 @@ defmodule Ankole.OIDC do
 
   defp authorize_model(_client, _selector), do: {:error, :model_not_allowed}
 
-  defp lock_client(repo, id) do
-    repo.one(from(client in Client, where: client.id == ^id, lock: "FOR UPDATE"))
+  defp lock_client(id) do
+    Client
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
   end
 
   defp maybe_seal_secret(nil, _id), do: {:ok, nil}

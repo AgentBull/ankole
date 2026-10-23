@@ -3,11 +3,9 @@ defmodule Ankole.Sessions.Scheduled do
   use Ankole.Sessions.RunType
   @behaviour Ankole.Sessions.Tool
 
-  import Ecto.Query
   import Ankole.Sessions.Common, only: [reject_nil_values: 1]
+  import Ash.Expr, only: [expr: 1]
 
-  alias Ankole.Repo
-  alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.Delivery.Text
 
@@ -29,14 +27,22 @@ defmodule Ankole.Sessions.Scheduled do
              type in ["cron.fire", "check_back_later.wakeup"] do
     kind = if type == "cron.fire", do: "cron_fire", else: "check_back_later"
 
-    Repo.exists?(
-      from(event in ScheduledEvent,
-        where:
-          event.signal_id == ^id and event.agent_uid == ^agent and
-            event.session_id == ^session and event.kind == ^kind and
-            event.status == :fired and not is_nil(event.fired_at)
-      )
-    )
+    [
+      query: [
+        filter: [
+          signal_id: id,
+          agent_uid: agent,
+          session_id: session,
+          kind: kind,
+          status: :fired,
+          fired_at: [is_nil: false]
+        ],
+        select: [:id],
+        limit: 1
+      ]
+    ]
+    |> Ankole.Schedule.list_scheduled_events!()
+    |> Enum.any?()
   end
 
   def produced_signal?(_event), do: false
@@ -222,20 +228,21 @@ defmodule Ankole.Sessions.Scheduled do
 
   defp identical_reply_streak(%Signal{} = input, schedule_name) do
     signal_ids =
-      Signal
-      |> where([event], event.agent_uid == ^input.agent_uid)
-      |> where([event], event.session_id == ^input.session_id)
-      |> where([event], event.type == "cron.fire" and event.producer == :kernel)
-      |> where([event], event.id != ^input.id)
-      |> where(
-        [event],
-        fragment("? #>> '{wake_payload,cron_schedule_name}'", event.data) ==
-          ^schedule_name
-      )
-      |> order_by([event], desc: event.queue_sequence)
-      |> limit(@identical_reply_scan_limit)
-      |> select([event], event.id)
-      |> Repo.all()
+      [
+        query: [
+          filter:
+            expr(
+              agent_uid == ^input.agent_uid and session_id == ^input.session_id and
+                type == "cron.fire" and producer == :kernel and id != ^input.id and
+                fragment("? #>> '{wake_payload,cron_schedule_name}'", data) == ^schedule_name
+            ),
+          sort: [queue_sequence: :desc],
+          limit: @identical_reply_scan_limit,
+          select: [:id]
+        ]
+      ]
+      |> Ankole.Signals.list_signals!()
+      |> Enum.map(& &1.id)
 
     candidates = Ankole.Conversations.reply_candidate_texts(signal_ids)
     replies = Enum.map(signal_ids, &Map.get(candidates, &1))

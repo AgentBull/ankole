@@ -1,12 +1,12 @@
 defmodule AnkoleWeb.ConsoleErrors do
   @moduledoc """
-  Shared action fallback and renderer for console REST API errors.
+  Shared action fallback and renderer for browser HTTP errors.
   """
 
   import Plug.Conn, only: [put_status: 2]
   import Phoenix.Controller, only: [json: 2]
 
-  alias Ankole.Errors.Invalid.{NotFound, Rejected, Stale, StatusTransition}
+  alias Ankole.Errors.Invalid.{Conflict, NotFound, Rejected, Stale, StatusTransition}
 
   @conflicts [
     Stale,
@@ -28,8 +28,8 @@ defmodule AnkoleWeb.ConsoleErrors do
 
   Authorization failures share one response. An `Ash.Error.Invalid` error uses
   the declared vocabulary of `Ankole.Errors`: a stale write or a refused state
-  transition gives 409, a missing target gives 404, a declared rejection goes
-  to the controller's local handler as its reason, and other errors are field
+  transition gives 409, a missing target gives 404, a declared rejection or
+  conflict goes to the controller's local handler as its reason, and other errors are field
   validation failures (422). Framework and unknown errors are logged and give
   a generic response.
 
@@ -66,6 +66,7 @@ defmodule AnkoleWeb.ConsoleErrors do
   defp declared_error(errors) do
     Enum.find_value(errors, fn
       %Rejected{reason: reason} -> {:rejected, reason}
+      %Conflict{reason: reason} -> {:rejected, reason}
       %module{} when module in @conflicts -> :conflict
       %NotFound{} -> :not_found
       _error -> nil
@@ -135,42 +136,6 @@ defmodule AnkoleWeb.ConsoleErrors do
 
     render(conn, 422, code, message)
   end
-
-  @doc """
-  Renders the shared adapter configuration decode failures as field-scoped
-  validation errors.
-
-  `Ankole.Plugins.MapHelpers` and the adapter config validators return these
-  reason shapes for one named field. The details carry the field path so the
-  console can point at the field instead of showing a generic message. Returns
-  `:unhandled` for every other reason, so the caller keeps its own fallback.
-  """
-  def render_config_field_error(conn, reason) do
-    case config_field_error(reason) do
-      {message, details} -> render(conn, 422, "validation_failed", message, details)
-      :unhandled -> :unhandled
-    end
-  end
-
-  defp config_field_error({:missing, key}) when is_binary(key),
-    do: {"#{key} is required", [%{path: key, kind: "missing"}]}
-
-  defp config_field_error({:invalid_string, key}) when is_binary(key),
-    do: {"#{key} is invalid", [%{path: key, kind: "invalid"}]}
-
-  defp config_field_error({:invalid_field, key}) when is_binary(key),
-    do: {"#{key} is invalid", [%{path: key, kind: "invalid"}]}
-
-  defp config_field_error({:invalid_boolean, key}) when is_binary(key),
-    do: {"#{key} must be true or false", [%{path: key, kind: "invalid"}]}
-
-  defp config_field_error({:invalid_integer_range, key, min, max}) when is_binary(key),
-    do: {"#{key} must be an integer between #{min} and #{max}", [%{path: key, kind: "invalid"}]}
-
-  defp config_field_error({:invalid_enum, key, values}) when is_binary(key) and is_list(values),
-    do: {"#{key} must be one of: #{Enum.join(values, ", ")}", [%{path: key, kind: "invalid"}]}
-
-  defp config_field_error(_reason), do: :unhandled
 
   @doc """
   Converts changeset errors into the console API detail list.

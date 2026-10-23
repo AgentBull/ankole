@@ -460,15 +460,12 @@ defmodule Ankole.Sessions.AIGatewayMainChainTest do
   end
 
   defp admit_event(agent_uid, event_attrs) do
-    {:ok, %{signal: event}} =
-      Repo.transact(fn _repo ->
-        {:ok,
-         Ankole.SignalsFixtures.emit_addressed_signal(
-           agent_uid,
-           "mock",
-           Ankole.SignalsFixtures.group_entry(event_attrs)
-         )}
-      end)
+    %{signal: event} =
+      Ankole.SignalsFixtures.emit_addressed_signal(
+        agent_uid,
+        "mock",
+        Ankole.SignalsFixtures.group_entry(event_attrs)
+      )
 
     refute preview_handler_started?(event.id)
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { AiGatewayConversationItem as AIGatewayConversationItem } from './api/generated/types.gen'
+import type { AIGatewayConversationItem } from './api/ai-gateway-conversations'
 import { conversationDisplayName } from './conversation-presentation'
 import i18n from '../common/i18n'
 

@@ -190,7 +190,7 @@ earlier install keeps its row, and a later pack can only widen subtype
 suggestions. Conflicting declarations fail the install.
 
 The pack, type, relation, calibration-domain, and Take-assignment rows are Ash
-resources in `Ankole.Brain.Domain`. Register actions keep the first declaring
+resources of the `Ankole.Brain` domain. Register actions keep the first declaring
 pack and core type facts immutable. Subtype additions use one SQL union that
 preserves first-seen order and cannot lose a concurrent addition. Take/domain
 assignment retries return the first stored provenance and confidence. Native
@@ -409,11 +409,11 @@ one failing phase is recorded without blocking the rest:
    of `correct`, `incorrect`, or `partial` on an expired Take is also its
    resolution: the same commit writes `resolved_at`, `resolved_quality`,
    `resolved_outcome` (`true`, `false`, or NULL for `partial`),
-   and `resolution_provenance` `dreaming grade` through the same
-   `Claims.resolve_take/4` that the Console uses, with the Brain maintainer
-   Agent's actor reference in `resolved_by`, and deactivates the Take, so it
-   leaves the candidate set and enters the scorecards without a manual
-   resolve. A Console resolve stores the Human's actor reference instead.
+   and `resolution_provenance` `dreaming grade` through the same resolve
+   step (`Claims.resolve_take_in_tx/3`) that the Console uses, with the Brain
+   maintainer Agent's actor reference in `resolved_by`, and deactivates the
+   Take, so it leaves the candidate set and enters the scorecards without a
+   manual resolve. A Console resolve stores the Human's actor reference instead.
    Resolution stays immutable, so a Take that a Human resolved during the
    model call keeps the Human's verdict. An
    `unresolvable` verdict keeps the Take in the queue for later evidence, and
@@ -541,12 +541,107 @@ with segment preview, diagnostics, and server-authoritative save validation.
 
 ### Resource write contracts
 
-All Brain rows use Ash resources in `Ankole.Brain.Domain`. Object actions keep
-content edits, Source projections, ownership changes, and maintenance stamps
+All Brain rows use Ash resources of the `Ankole.Brain` domain. Object actions
+keep content edits, Source projections, ownership changes, and maintenance stamps
 separate. Content edits compare the stored content hash. Projection writes check
 the stored Source owner. Maintenance stamps do not advance the content clock.
 Source actions keep upstream identity immutable and reject sync and extraction
 writes after archive. Registration retries keep the first Source facts.
+
+`Ankole.Brain` is the code interface of the domain. A read define gives one
+resource. An operation define runs a generic action that owns its transaction.
+The action locks its rows, runs its write steps, and commits them together:
+
+| Resource | Operations |
+|---|---|
+| Object | `create_object`, `update_object`, `upsert_source_projection`, `upsert_library_projection`, `soft_delete_object`, `rollback_object`, `fork_library_page`, `restore_object`, `reconcile_chunks`, `reconcile_object_links` |
+| Claim | `write_fact`, `supersede_claim`, `expire_fact`, `deactivate_take`, `resolve_take`, `attach_claim_embedding`, `consolidate_facts` |
+| Source | `archive_source`, `update_source_default_scope` |
+| SchemaSuggestion, MergeSuggestion, Contradiction | `approve_promotion`, `reject_promotion`, `approve_merge`, `reject_merge`, `decide_contradiction` |
+
+The Console API at `/api/v2/brain` (`AnkoleWeb.JSONAPI.ConsoleRouter`) gives
+the `json_api` routes of `Ankole.Brain`. Each list is a `:console_list` read
+action that gives the first 100 rows. A Console write that records its
+operator is a `console_*` generic action: the Principal of the session is the
+Ash actor of the action (`Ankole.Brain.Console`), and the action runs the same
+`_in_tx` steps as the operation define. A missing target gives 404, and a
+reason that conflicts with the current state (`content_hash_conflict`,
+`object_deleted`, `slug_taken`, `conflict`) gives 409; another domain reason
+gives 422 with the reason as the code. The routes for
+`fork_library_page`, `restore_object`, `decide`, `archive_source`, and
+`update_default_scope` give the operation actions directly.
+
+`Ankole.Brain.ConsoleViews` supplies the health snapshot, the object page, the
+object types, the search preview, the per-principal audit, and the Dreaming
+trigger at `/api/v2/brain`. These generic transport actions return typed maps.
+They use the simple data layer and do not start a transaction. The Brain
+operations that they call own their transactions. The object page accepts
+`slug` as a query parameter, so slugs can contain `/`. Search preview applies
+the selected Principal's knowledge and disclosure boundaries; the operator
+audit can read the full claim detail.
+
+The background writes of the Brain modules are generic actions without a
+define. Each module function keeps its name and runs its action with
+`Ankole.Ash.run_action/4`:
+
+| Resource | Action | Module function |
+|---|---|---|
+| Claim | `commit_grade` | `Calibration.grade_takes/0` (one grade) |
+| Claim | `forget_claim` | `Forget.forget_claim/3` |
+| Timeline | `write_timeline` | `Timelines.write_timeline/3` |
+| Object | `write_patterns` | `Patterns.run/0` (the pages of one audience) |
+| Source | `commit_learning_run` | `SourceLearning.learn/1` (file and URL Sources) |
+| Source | `learn_oidc_conversation` | `OIDCClientLearning.learn/1` (one conversation) |
+| Source | `finalize_conversation_slice` | `ConversationsLearning.process_conversation/1` |
+| Source | `finish_library_projection` | `LibraryKnowledge.sync/1` (one set) |
+| SchemaPack | `install_packs` | `SchemaPacks.install_packs/1` |
+
+Tenant creation and setup completion install the schema packs in their own
+transaction with `SchemaPacks.install_packs_in_tx/2`.
+
+A conversation slice writes its memory items in one transaction and keeps the
+transaction after an item fails validation. So an item write gives an error
+only before its first write. A Fact write locks its semantic dedup target and
+reads it again before it inserts the new Fact. When a concurrent write
+superseded or expired the target, the dedup query runs again and finds the
+replacement, so a slice never commits two current Facts. When the old Fact
+cannot be marked after the insert, the Fact write rolls back the transaction of
+its caller. A timeline write rolls back the same way when the chunk projection
+of its host fails after the insert.
+
+A generic action is always the top-level call. A failed operation gives an
+`Ash.Error.Invalid` error; `Ankole.Errors.reason/1` gives back the domain
+reason. Callers outside the Brain directory use only the defines. Brain modules
+run the same actions with `Ankole.Ash.run_action/4`, which gives the domain
+reason. A step that runs in the transaction of another action is an `_in_tx`
+function of the owning module, for example `Objects.create_object_in_tx/2` or
+`Chunks.reconcile_in_tx/2`. An `_in_tx` function refuses to run outside a
+transaction. The embedding of a new claim text comes from the network in the
+`before_transaction` hook of `write_fact` and `supersede_claim`, so no
+transaction waits for the network.
+
+The knowledge boundary (`Access`) and the lazy Skill projection
+(`LazySkillVisibility`) filter Ash queries. Their filters use the Claim
+calculations `current?`, `live_parent?`, and `current_external_fact?`, and the
+`object` relationships of Chunk and Timeline. Conversations, Messages,
+Participants, Signals, Principals, Agents, Jobs, and Agent Skills are read
+through the defines and functions of their own domains.
+
+Some reads are not reads of one resource. They stay Ecto or SQL queries, give
+values and not resource rows, and are registered in the persistence boundary
+(`app/control_plane/test/ankole/persistence_boundary.exs`):
+
+- Read models (M4): the Dreaming bucket and term-usage counts, the
+  duplicate-page scan, and the known pages of a learning transcript
+  (`ConversationsLearning.known_pages/1`, Objects and their ranked aliases).
+- Retrieval (M9): the candidate, boost, and neighborhood queries of `Recall`,
+  and the semantic Fact dedup query of `Claims`. They select identifiers and
+  values; the ranked Claims, Chunks, and dedup targets load through Ash. The
+  Ecto forms of `Claims.filter_live_parents/1`, `Claims.current_external_facts/1`,
+  and of the Claim, Chunk, and Link filters of `Access` and
+  `LazySkillVisibility` serve only these queries.
+- Set maintenance (M8): the merge repoint statements and the index DDL of
+  `SearchIndexes` (site scope: the indexes cover the tables of all tenants).
 
 Brain aggregates, Ash actions, row locks, and native queries use `Ankole.Repo`
 in the same process transaction. The process tenant and dynamic repository apply

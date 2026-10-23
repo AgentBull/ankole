@@ -39,19 +39,21 @@ schedule が 1 日に 1 回 Agent を起こします。Agent は依頼された�
 この Console request の前に、ログイン済み browser から session cookie と `x-csrf-token` の値を取得してください。
 
 ```bash
-curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules \
+curl -X POST https://ankole.example.com/api/v2/agents/<agent_uid>/cron-schedules \
   -H "Cookie: $CONSOLE_COOKIE" \
   -H "x-csrf-token: $CSRF_TOKEN" \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/vnd.api+json" \
   -d '{
-    "owner_session_id": "<session_id>",
-    "binding_name": "main",
-    "name": "daily-digest",
-    "idempotency_key": "daily-digest-1",
-    "schedule": { "kind": "cron", "expression": "0 9 * * *" },
-    "timezone": "Asia/Shanghai",
-    "delivery": { "targets": [{ "binding_name": "main", "conversation_id": "<conversation_uuid>" }] },
-    "payload": { "task": "Produce today'\''s digest of the topics in your mission." }
+    "data": {
+      "owner_session_id": "<session_id>",
+      "binding_name": "main",
+      "name": "daily-digest",
+      "idempotency_key": "daily-digest-1",
+      "schedule": { "kind": "cron", "expression": "0 9 * * *" },
+      "timezone": "Asia/Shanghai",
+      "delivery": { "targets": [{ "binding_name": "main", "conversation_id": "<conversation_uuid>" }] },
+      "payload": { "task": "Produce today'\''s digest of the topics in your mission." }
+    }
   }'
 ```
 
@@ -73,7 +75,7 @@ schedule が頻繁に発火するものの、確認が機械的で通常は結�
 
 agent が turn の中で何かを尋ねられ、後でそれに戻ることにします。固定の cron ではなく、agent 自身が `check_back_later` で一度だけの wakeup を設定します。agent 側の形は「1 時間後にもう一度見る」です。agent がツールを呼び、運用者側のサーフェスは読み取り専用です。
 
-これは周期を持たない作業に合います。「デプロイが 1 時間後に完了したか確認する」「スタンドアップの後にこの thread を読み直す」などです。タイミングを所有するのは agent であり、保留中の checkback は `GET /api/v1/checkbacks?agent=<agent_uid>` で確認でき、`DELETE /api/v1/agents/:agent_uid/checkbacks/:scheduled_event_id` で 1 つキャンセルできます。
+これは周期を持たない作業に合います。「デプロイが 1 時間後に完了したか確認する」「スタンドアップの後にこの thread を読み直す」などです。タイミングを所有するのは agent であり、保留中の checkback は `GET /api/v2/checkbacks?agent=<agent_uid>` で確認でき、`DELETE /api/v2/agents/:agent_uid/checkbacks/:scheduled_event_id` で 1 つキャンセルできます。
 
 ## ブループリント: 調査して報告（schedule + background job）
 

@@ -13,8 +13,8 @@ import {
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ankoleWebPrincipalControllerCreateLocalPasswordResetMutation } from '../api/generated/@tanstack/react-query.gen'
-import type { PrincipalItem } from '../api/generated/types.gen'
+import { resetLocalPasswordMutation } from '../api/v2/generated/@tanstack/react-query.gen'
+import type { PrincipalRecord } from './principals'
 import { ErrorBlock } from '../../common/error-block'
 import { StatusIndicator } from '../console-form'
 import { InitialPasswordReveal } from '../initial-password-reveal'
@@ -26,15 +26,15 @@ import { MustChangePasswordField } from './principal-create'
  * must-change choice, then the one-time password. Closing it discards the
  * password for good.
  */
-export function LocalPasswordSection({ principal }: { principal: PrincipalItem }) {
+export function LocalPasswordSection({ principal }: { principal: PrincipalRecord }) {
   const { t } = useTranslation()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [mustChange, setMustChange] = useState(true)
   const reset = useMutation({
-    ...ankoleWebPrincipalControllerCreateLocalPasswordResetMutation()
+    ...resetLocalPasswordMutation()
     // The status badge reflects the new credential as soon as the dialog shows it.
   })
-  const credential = principal.local_credential
+  const credential = principal.local_credential_status
   const actionLabel = credential ? t('console.principals.reset_password') : t('console.principals.generate_password')
 
   const openDialog = () => {
@@ -52,9 +52,9 @@ export function LocalPasswordSection({ principal }: { principal: PrincipalItem }
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        <StatusIndicator tone={credential ? (credential.status === 'must_change' ? 'warning' : 'positive') : 'neutral'}>
+        <StatusIndicator tone={credential ? (credential === 'must_change' ? 'warning' : 'positive') : 'neutral'}>
           {credential
-            ? credential.status === 'must_change'
+            ? credential === 'must_change'
               ? t('console.principals.password_status_must_change')
               : t('console.principals.password_status_active')
             : t('console.principals.password_status_absent')}
@@ -107,7 +107,7 @@ export function LocalPasswordSection({ principal }: { principal: PrincipalItem }
                   size="sm"
                   type="button"
                   onClick={() =>
-                    reset.mutate({ body: { must_change_password: mustChange }, path: { uid: principal.uid } })
+                    reset.mutate({ body: { data: { must_change_password: mustChange } }, path: { uid: principal.id } })
                   }>
                   {actionLabel}
                 </Button>

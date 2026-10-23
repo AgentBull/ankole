@@ -11,7 +11,13 @@ defmodule Ankole.Brain.Merge do
   holder attributions, timelines, aliases, and links repoint to the
   surviving page, the duplicate's name stays matchable as a natural alias,
   the duplicate row is deleted, and its slug becomes a `brain_slug_aliases`
-  redirect so stored references keep resolving.
+  redirect so stored references keep resolving. A generic action on
+  `Ankole.Brain.Schemas.MergeSuggestion` owns the transaction of each
+  decision.
+
+  The duplicate scan is a read model over pairs of rows (M4), and the
+  repoint steps are set maintenance in the owning domain (M8). Both stay SQL
+  and are registered in the persistence boundary.
   """
 
   import Ecto.Query, warn: false
@@ -20,7 +26,6 @@ defmodule Ankole.Brain.Merge do
   alias Ankole.Brain.Chunks
   alias Ankole.Brain.Links
   alias Ankole.Brain.Objects
-  alias Ankole.Brain.Scope
   alias Ankole.Brain.Schemas.MergeSuggestion
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.ObjectAlias
@@ -32,16 +37,16 @@ defmodule Ankole.Brain.Merge do
   @candidate_scan_limit 200
   @suggestion_batch_limit 50
 
-  @doc "Lists merge suggestions for the Console read model."
-  @spec list_for_console(String.t(), keyword()) :: {:ok, [MergeSuggestion.t()]} | {:error, term()}
-  def list_for_console(status, opts) when is_binary(status) and is_list(opts) do
-    limit = Keyword.fetch!(opts, :limit)
-
-    MergeSuggestion
-    |> Ash.Query.filter(status == ^status)
-    |> Ash.Query.sort(created_at: :desc)
-    |> Ash.Query.limit(limit)
-    |> Ankole.Ash.read()
+  @doc """
+  Gives the slug, the title, and the type of the page that a suggestion
+  names. A missing page keeps only its slug.
+  """
+  @spec page_summary(String.t()) :: map()
+  def page_summary(slug) do
+    case Objects.resolve_slug(slug) do
+      {:ok, object} -> %{slug: object.slug, title: object.title, type: object.type}
+      {:error, :not_found} -> %{slug: slug, title: nil, type: nil}
+    end
   end
 
   @doc """
@@ -61,14 +66,14 @@ defmodule Ankole.Brain.Merge do
 
     written =
       Enum.count(fresh, fn {a, b, reason} ->
-        case Ankole.Ash.create(MergeSuggestion, :suggest, %{
+        case Ankole.Ash.insert_if_absent(MergeSuggestion, :suggest, %{
                a_slug: a,
                b_slug: b,
                reason: reason,
                created_at: now
              }) do
-          {:ok, suggestion} -> not Map.get(suggestion.__metadata__, :upsert_skipped, false)
-          {:error, error} -> raise Ash.Error.to_error_class(error)
+          {:ok, _suggestion, status} -> status == :created
+          {:error, error} -> raise error
         end
       end)
 
@@ -76,61 +81,61 @@ defmodule Ankole.Brain.Merge do
   end
 
   @doc """
-  Approves one pending suggestion and merges the pair. `attrs.canonical_slug`
-  names the surviving page and must be one of the pair; the other page is
-  the duplicate that merges away.
+  Approves one pending suggestion and merges the pair in the caller's
+  transaction. `attrs.canonical_slug` names the surviving page and must be
+  one of the pair; the other page is the duplicate that merges away.
   """
-  @spec approve(Ecto.UUID.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def approve(suggestion_id, decided_by, attrs \\ %{}) do
-    Repo.transact(fn repo ->
-      with {:ok, suggestion} <- fetch_pending(repo, suggestion_id),
-           {:ok, target_slug} <- required_canonical(attrs),
-           {:ok, first} <- resolve_live(suggestion.a_slug),
-           {:ok, second} <- resolve_live(suggestion.b_slug),
-           :ok <- guard_pair_unmanaged(first, second) do
-        if first.id == second.id do
-          # Both slugs already resolve to one page: an earlier merge or slug
-          # redirect settled this pair, so approval only closes the row.
-          with {:ok, _suggestion} <-
-                 Ankole.Ash.update(suggestion, :approve, %{decided_by: decided_by}) do
-            {:ok, %{status: :already_merged, canonical_slug: first.slug}}
-          end
-        else
-          with {:ok, canonical, duplicate} <- orient(first, second, target_slug),
-               {:ok, canonical, duplicate} <- lock_pair(repo, canonical, duplicate),
-               :ok <- guard_duplicate_mergeable(duplicate),
-               {:ok, moved} <- repoint_children(repo, canonical, duplicate),
-               {:ok, _alias} <- keep_duplicate_name(canonical, duplicate),
-               {:ok, _duplicate} <- Ankole.Ash.destroy(duplicate, :merge_duplicate),
-               {:ok, _redirect} <- insert_redirect(repo, canonical, duplicate),
-               {:ok, canonical} <- Objects.refresh_content_hash_in_tx(repo, canonical),
-               {:ok, _object} <- Chunks.reconcile(canonical),
-               {:ok, _suggestion} <-
-                 Ankole.Ash.update(suggestion, :approve, %{decided_by: decided_by}) do
-            {:ok,
-             %{
-               status: :merged,
-               canonical_slug: canonical.slug,
-               merged_slug: duplicate.slug,
-               moved: moved
-             }}
-          end
+  @spec approve_in_tx(Ecto.UUID.t(), Ankole.ActorRef.t(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def approve_in_tx(suggestion_id, decided_by, attrs) do
+    with :ok <- Repo.require_transaction(Repo),
+         {:ok, suggestion} <- fetch_pending(suggestion_id),
+         {:ok, target_slug} <- required_canonical(attrs),
+         {:ok, first} <- resolve_live(suggestion.a_slug),
+         {:ok, second} <- resolve_live(suggestion.b_slug),
+         :ok <- guard_pair_unmanaged(first, second) do
+      if first.id == second.id do
+        # Both slugs already resolve to one page: an earlier merge or slug
+        # redirect settled this pair, so approval only closes the row.
+        with {:ok, _suggestion} <-
+               Ankole.Ash.update(suggestion, :approve, %{decided_by: decided_by}) do
+          {:ok, %{status: :already_merged, canonical_slug: first.slug}}
+        end
+      else
+        with {:ok, canonical, duplicate} <- orient(first, second, target_slug),
+             {:ok, canonical, duplicate} <- lock_pair(canonical, duplicate),
+             :ok <- guard_duplicate_mergeable(duplicate),
+             {:ok, moved} <- repoint_children(canonical, duplicate),
+             {:ok, _alias} <- keep_duplicate_name(canonical, duplicate),
+             {:ok, _duplicate} <- Ankole.Ash.destroy(duplicate, :merge_duplicate),
+             {:ok, _redirect} <- insert_redirect(canonical, duplicate),
+             {:ok, canonical} <- Objects.refresh_content_hash_in_tx(Repo, canonical),
+             {:ok, _object} <- Chunks.reconcile_in_tx(canonical),
+             {:ok, _suggestion} <-
+               Ankole.Ash.update(suggestion, :approve, %{decided_by: decided_by}) do
+          {:ok,
+           %{
+             status: :merged,
+             canonical_slug: canonical.slug,
+             merged_slug: duplicate.slug,
+             moved: moved
+           }}
         end
       end
-    end)
+    end
   end
 
   @doc """
-  Rejects one pending suggestion; the record stays, so the same pair is not
-  suggested again.
+  Rejects one pending suggestion in the caller's transaction; the record
+  stays, so the same pair is not suggested again.
   """
-  @spec reject(Ecto.UUID.t(), String.t()) :: {:ok, MergeSuggestion.t()} | {:error, term()}
-  def reject(suggestion_id, decided_by) do
-    Repo.transact(fn repo ->
-      with {:ok, suggestion} <- fetch_pending(repo, suggestion_id) do
-        Ankole.Ash.update(suggestion, :reject, %{decided_by: decided_by})
-      end
-    end)
+  @spec reject_in_tx(Ecto.UUID.t(), Ankole.ActorRef.t()) ::
+          {:ok, MergeSuggestion.t()} | {:error, term()}
+  def reject_in_tx(suggestion_id, decided_by) do
+    with :ok <- Repo.require_transaction(Repo),
+         {:ok, suggestion} <- fetch_pending(suggestion_id) do
+      Ankole.Ash.update(suggestion, :reject, %{decided_by: decided_by})
+    end
   end
 
   defp alias_candidates do
@@ -243,13 +248,13 @@ defmodule Ankole.Brain.Merge do
     end
   end
 
-  defp lock_pair(repo, canonical, duplicate) do
+  defp lock_pair(canonical, duplicate) do
     locked =
       Object
-      |> where([object], object.slug in ^[canonical.slug, duplicate.slug])
-      |> order_by([object], asc: object.slug)
-      |> lock("FOR UPDATE")
-      |> repo.all()
+      |> Ash.Query.filter(slug in ^[canonical.slug, duplicate.slug])
+      |> Ash.Query.sort(slug: :asc)
+      |> Ash.Query.lock(:for_update)
+      |> Ankole.Ash.read!()
       |> Map.new(&{&1.slug, &1})
 
     with %Object{} = canonical <- Map.get(locked, canonical.slug) || {:error, :not_found},
@@ -260,7 +265,7 @@ defmodule Ankole.Brain.Merge do
 
   defp guard_duplicate_mergeable(%Object{} = duplicate) do
     cond do
-      canonical_principal_page?(duplicate.slug) ->
+      Objects.canonical_principal_page?(duplicate.slug) ->
         {:error, {:principal_canonical_page, duplicate.slug}}
 
       String.trim(duplicate.body) != "" ->
@@ -284,7 +289,7 @@ defmodule Ankole.Brain.Merge do
   defp guard_pair_unmanaged(_canonical, %Object{slug: slug}),
     do: {:error, {:library_managed, slug}}
 
-  defp repoint_children(repo, canonical, duplicate) do
+  defp repoint_children(canonical, duplicate) do
     canon = canonical.slug
     dup = duplicate.slug
 
@@ -293,18 +298,14 @@ defmodule Ankole.Brain.Merge do
     redirects =
       SlugAlias
       |> Ash.Query.filter(canonical_slug == ^dup)
-      |> Ankole.Ash.bulk_update(:repoint, %{canonical_slug: canon},
-        strategy: [:atomic],
-        return_records?: true,
-        return_errors?: true
-      )
+      |> Ankole.Ash.update_where(:repoint, %{canonical_slug: canon})
 
     case redirects do
-      %Ash.BulkResult{status: :success, records: redirects} ->
-        timelines = repoint_timelines(repo, canon, dup)
-        aliases = repoint_unique_rows(repo, "brain_object_aliases", "alias_norm", canon, dup)
-        tags = repoint_unique_rows(repo, "brain_tags", "tag", canon, dup)
-        links = repoint_links(repo, canon, dup)
+      {:ok, redirects} ->
+        timelines = repoint_timelines(Repo, canon, dup)
+        aliases = repoint_unique_rows(Repo, "brain_object_aliases", "alias_norm", canon, dup)
+        tags = repoint_unique_rows(Repo, "brain_tags", "tag", canon, dup)
+        links = repoint_links(Repo, canon, dup)
 
         {:ok,
          %{
@@ -317,8 +318,8 @@ defmodule Ankole.Brain.Merge do
            links: links
          }}
 
-      %Ash.BulkResult{errors: errors} ->
-        {:error, Ash.Error.to_error_class(errors)}
+      {:error, _error} = error ->
+        error
     end
   end
 
@@ -446,7 +447,7 @@ defmodule Ankole.Brain.Merge do
     end
   end
 
-  defp insert_redirect(_repo, canonical, duplicate) do
+  defp insert_redirect(canonical, duplicate) do
     Ankole.Ash.create(SlugAlias, :add, %{
       alias_slug: duplicate.slug,
       canonical_slug: canonical.slug,
@@ -455,25 +456,11 @@ defmodule Ankole.Brain.Merge do
     })
   end
 
-  defp canonical_principal_page?(slug) do
-    case Scope.parse_principal_page_slug(slug) do
-      {:ok, {type, uid}} -> principal_type(uid) == type
-      :error -> false
-    end
-  end
-
-  defp principal_type(uid) do
-    Principal
-    |> where([principal], principal.uid == ^uid)
-    |> select([principal], principal.type)
-    |> Repo.one()
-  end
-
-  defp fetch_pending(repo, suggestion_id) do
+  defp fetch_pending(suggestion_id) do
     MergeSuggestion
-    |> where([suggestion], suggestion.id == ^suggestion_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
+    |> Ash.Query.filter(id == ^suggestion_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
     |> case do
       %MergeSuggestion{status: :pending} = suggestion -> {:ok, suggestion}
       %MergeSuggestion{} -> {:error, :suggestion_not_pending}

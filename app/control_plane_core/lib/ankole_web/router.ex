@@ -1,7 +1,4 @@
 defmodule AnkoleWeb.Router do
-  alias OpenApiSpex, as: OpenAPISpex
-  alias OpenAPISpex.Plug.PutApiSpec, as: PutAPISpec
-
   @moduledoc """
   Routes the Phoenix shell, setup API, and admin auth API.
 
@@ -22,14 +19,10 @@ defmodule AnkoleWeb.Router do
     plug :private_response
   end
 
-  pipeline :openapi do
-    plug :accepts, ["json"]
-    plug :put_api_spec
-  end
-
   pipeline :session_api do
     # Setup, authentication, and Console JSON requests share cookie and CSRF protection.
-    plug :accepts, ["json"]
+    # The v2 Console API uses the JSON:API media type.
+    plug :accepts, ["json", "json_api"]
     plug :fetch_session
     plug :browser_csrf
     plug :put_secure_browser_headers
@@ -44,7 +37,6 @@ defmodule AnkoleWeb.Router do
   end
 
   pipeline :site_admin do
-    plug :put_api_spec
     plug :require_site_admin_session
   end
 
@@ -68,7 +60,6 @@ defmodule AnkoleWeb.Router do
   pipeline :ai_gateway_api do
     # Runtime AI calls are stateless HTTP requests authenticated as an Agent,
     # an authorized OIDC Human.
-    plug :put_api_spec
     plug :oidc_cors
     plug :require_ai_gateway_access_token
   end
@@ -188,391 +179,26 @@ defmodule AnkoleWeb.Router do
     get "/conversations/:id/events", PodController, :events
   end
 
-  # The spec document is public (no bearer token) so tooling can read it without
-  # credentials; the API endpoints it describes still require one below.
-  scope "/api/v1" do
-    pipe_through :openapi
+  # Native file transfers use the same browser and tenant protection as Console operations.
+  scope "/api/v1", AnkoleWeb do
+    pipe_through([:session_api, :site_admin, :data_context])
 
-    get "/openapi.json", OpenAPISpex.Plug.RenderSpec, []
+    get("/agents/:agent_uid/files/content", AgentFileController, :download)
+    post("/agents/:agent_uid/files", AgentFileController, :upload)
   end
 
-  scope "/api/v1/site", AnkoleWeb do
+  # The JSON:API routers serve the routes that the Ash domains declare. The site
+  # router comes first because the Console router serves all other v2 paths.
+  scope "/api/v2/site" do
     pipe_through [:session_api, :site_admin]
 
-    get "/app-configurations", AppConfigurationController, :index
-    get "/app-configurations/:key", AppConfigurationController, :show
-    put "/app-configurations/:key", AppConfigurationController, :update
-    delete "/app-configurations/:key", AppConfigurationController, :delete
-    post "/app-configurations/:key/decryptions", AppConfigurationController, :decrypt
-    get "/worker-envs", WorkerEnvController, :index
-    put "/worker-envs/:name", WorkerEnvController, :update
-    delete "/worker-envs/:name", WorkerEnvController, :delete
-    post "/worker-envs/:name/decryptions", WorkerEnvController, :decrypt
-    get "/control-plane-plugins", ControlPlanePluginController, :index
-    put "/control-plane-plugins", ControlPlanePluginController, :update
-    get "/worker-provider-kinds", WorkerProviderController, :kinds
-    get "/worker-providers", WorkerProviderController, :index
-    post "/worker-providers", WorkerProviderController, :create
-    patch "/worker-providers/:provider_id", WorkerProviderController, :update
-    get "/worker-providers/:provider_id/check", WorkerProviderController, :check
-    delete "/worker-providers/:provider_id", WorkerProviderController, :delete
-    get "/ai-gateway/models", AIGatewayProviderController, :models
-    get "/ai-gateway/provider-kinds", AIGatewayProviderController, :provider_kinds
-    get "/ai-gateway/providers", AIGatewayProviderController, :index
-    get "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :show
-    put "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :put_provider
-    delete "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :delete_provider
-
-    post "/ai-gateway/providers/:provider_id/enable",
-         AIGatewayProviderController,
-         :enable_provider
-
-    post "/ai-gateway/providers/:provider_id/credentials",
-         AIGatewayProviderController,
-         :add_credential
-
-    put "/ai-gateway/providers/:provider_id/credentials/:credential_id",
-        AIGatewayProviderController,
-        :put_credential
-
-    delete "/ai-gateway/providers/:provider_id/credentials/:credential_id",
-           AIGatewayProviderController,
-           :delete_credential
-
-    put "/ai-gateway/providers/:provider_id/credential-pool/strategy",
-        AIGatewayProviderController,
-        :put_credential_strategy
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-login",
-         AIGatewayProviderController,
-         :start_chatgpt_login
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-login/poll",
-         AIGatewayProviderController,
-         :poll_chatgpt_login
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback",
-         AIGatewayProviderController,
-         :complete_chatgpt_browser_login
-
-    post "/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials",
-         AIGatewayProviderController,
-         :add_chatgpt_enterprise_credential
-
-    get "/tenants", TenantController, :index
-    post "/tenants", TenantController, :create
-    patch "/tenants/:tenant_id", TenantController, :update
-    delete "/tenants/:tenant_id", TenantController, :delete
-    put "/tenants/:tenant_id/suspension", TenantController, :suspend
-    delete "/tenants/:tenant_id/suspension", TenantController, :resume
-    get "/privileged-tenant", TenantController, :privileged
-    put "/privileged-tenant", TenantController, :transfer
+    AnkoleWeb.runtime_forward("/", AnkoleWeb.JSONAPI.SiteRouter)
   end
 
-  scope "/api/v1", AnkoleWeb do
+  scope "/api/v2" do
     pipe_through [:session_api, :site_admin, :data_context]
 
-    get "/app-configurations", AppConfigurationController, :index_tenant
-    get "/app-configurations/:key", AppConfigurationController, :show_tenant
-    put "/app-configurations/:key", AppConfigurationController, :update_tenant
-    delete "/app-configurations/:key", AppConfigurationController, :delete_tenant
-    post "/app-configurations/:key/decryptions", AppConfigurationController, :decrypt_tenant
-
-    get "/worker-envs", WorkerEnvController, :index_tenant
-    put "/worker-envs/:name", WorkerEnvController, :update_tenant
-    delete "/worker-envs/:name", WorkerEnvController, :delete_tenant
-    post "/worker-envs/:name/decryptions", WorkerEnvController, :decrypt_tenant
-
-    get "/agents/:agent_uid/worker-envs", WorkerEnvController, :index_for_agent
-    put "/agents/:agent_uid/worker-envs/:name", WorkerEnvController, :update_for_agent
-    delete "/agents/:agent_uid/worker-envs/:name", WorkerEnvController, :delete_for_agent
-
-    post "/agents/:agent_uid/worker-envs/:name/decryptions",
-         WorkerEnvController,
-         :decrypt_for_agent
-
-    get "/principals", PrincipalController, :index
-    post "/principals", PrincipalController, :create
-    get "/work-access-reviews", HumanAccessController, :unresolved_work
-    post "/work-access-reviews", HumanAccessController, :classify_work
-    get "/principals/:uid/access", HumanAccessController, :show
-    post "/principals/:uid/access-disables", HumanAccessController, :disable
-    post "/principals/:uid/access-restorations", HumanAccessController, :restore
-
-    post "/principals/:uid/access-restrictions/:restriction_id/clear",
-         HumanAccessController,
-         :clear_restriction
-
-    post "/principals/:uid/work-cleanup-retries", HumanAccessController, :retry_cleanup
-    get "/principals/:uid", PrincipalController, :show
-    patch "/principals/:uid", PrincipalController, :update
-    get "/principals/:uid/groups", PrincipalController, :groups
-    get "/principals/:uid/grants", PrincipalController, :grants
-
-    post "/principals/:uid/local-password-resets",
-         PrincipalController,
-         :create_local_password_reset
-
-    get "/oidc-clients", OIDCClientController, :index
-    post "/oidc-clients", OIDCClientController, :create
-    get "/oidc-clients/login-sources", OIDCClientController, :login_sources
-    get "/oidc-clients/:id", OIDCClientController, :show
-    patch "/oidc-clients/:id", OIDCClientController, :update
-    delete "/oidc-clients/:id", OIDCClientController, :delete
-    post "/oidc-clients/:id/secret-rotations", OIDCClientController, :rotate_secret
-    get "/oidc-clients/:id/logout-deliveries", OIDCClientController, :logout_deliveries
-
-    post "/oidc-clients/:id/logout-deliveries/:delivery_id/retries",
-         OIDCClientController,
-         :retry_logout
-
-    get "/principal-groups", AuthZGroupController, :index
-    post "/principal-groups", AuthZGroupController, :create
-
-    post "/principal-groups/computed-member-previews",
-         AuthZGroupController,
-         :preview_computed_members
-
-    get "/principal-groups/:name", AuthZGroupController, :show
-    patch "/principal-groups/:name", AuthZGroupController, :update
-    delete "/principal-groups/:name", AuthZGroupController, :delete
-    get "/principal-groups/:name/members", AuthZGroupController, :members
-    put "/principal-groups/:name/members/:principal_uid", AuthZGroupController, :add_member
-    delete "/principal-groups/:name/members/:principal_uid", AuthZGroupController, :remove_member
-    get "/principal-groups/:name/grants", AuthZGroupController, :grants
-
-    post "/permission-grants", PermissionGrantController, :create
-    get "/permission-grants/:id", PermissionGrantController, :show
-    patch "/permission-grants/:id", PermissionGrantController, :update
-    delete "/permission-grants/:id", PermissionGrantController, :delete
-
-    get "/brain/health", BrainController, :health
-    post "/brain/dream", BrainController, :dream
-    get "/brain/objects", BrainController, :list_objects
-    get "/brain/object-types", BrainController, :object_types
-    post "/brain/objects", BrainController, :create_object
-    put "/brain/objects", BrainController, :update_object
-    post "/brain/search-preview", BrainController, :search_preview
-    post "/brain/objects/fork", BrainController, :fork_object
-    get "/brain/suggestions", BrainController, :list_suggestions
-    post "/brain/suggestions/:suggestion_id/decide", BrainController, :decide_suggestion
-    get "/brain/claims", BrainController, :list_claims
-    post "/brain/claims/:claim_id/supersede", BrainController, :supersede_claim
-    post "/brain/claims/:claim_id/forget", BrainController, :forget_claim
-    post "/brain/claims/:claim_id/resolve", BrainController, :resolve_take
-    get "/brain/contradictions", BrainController, :list_contradictions
-    post "/brain/contradictions/:contradiction_id/decide", BrainController, :decide_contradiction
-    get "/brain/merge-suggestions", BrainController, :list_merge_suggestions
-
-    post "/brain/merge-suggestions/:suggestion_id/decide",
-         BrainController,
-         :decide_merge_suggestion
-
-    get "/brain/sources", BrainController, :list_sources
-    post "/brain/sources", BrainController, :create_source
-    patch "/brain/sources/:source_id", BrainController, :update_source
-    post "/brain/sources/:source_id/learn", BrainController, :learn_source
-    post "/brain/sources/:source_id/archive", BrainController, :archive_source
-    get "/brain/principals/:principal_uid/knowledge", BrainController, :principal_knowledge
-    # Object slugs contain `/`, so these operations carry the slug as a query
-    # parameter or in the body instead of a wildcard path segment, which the
-    # OpenAPI document could not express.
-    get "/brain/objects/show", BrainController, :show_object
-    get "/brain/objects/versions", BrainController, :object_versions
-    post "/brain/objects/rollback", BrainController, :rollback_object
-    post "/brain/objects/forget", BrainController, :forget_object
-    post "/brain/objects/restore", BrainController, :restore_object
-
-    get "/agents", AgentController, :index
-    post "/agents", AgentController, :create
-    get "/agents/:agent_uid", AgentController, :show
-    patch "/agents/:agent_uid", AgentController, :update
-    delete "/agents/:agent_uid", AgentController, :delete
-    post "/agents/:agent_uid/enable", AgentController, :enable
-    put "/agents/:agent_uid/worker-provider", WorkerProviderController, :assign
-
-    get "/agent-library/capabilities", AgentLibraryCapabilityController, :global_index
-
-    put "/agent-library/agent-plugins/:id",
-        AgentLibraryCapabilityController,
-        :put_global_agent_plugin
-
-    put "/agent-library/skills/:id",
-        AgentLibraryCapabilityController,
-        :put_global_skill
-
-    get "/agents/:agent_uid/library-capabilities",
-        AgentLibraryCapabilityController,
-        :agent_index
-
-    put "/agents/:agent_uid/library-capabilities/agent-plugins/:id",
-        AgentLibraryCapabilityController,
-        :put_agent_plugin_override
-
-    put "/agents/:agent_uid/library-capabilities/skills/:id",
-        AgentLibraryCapabilityController,
-        :put_agent_skill_override
-
-    get "/agents/:agent_uid/library-documents", AgentLibraryController, :index
-
-    put "/agents/:agent_uid/library-documents/:document_kind",
-        AgentLibraryController,
-        :update
-
-    get "/agents/:agent_uid/skill-lessons",
-        AgentSkillLessonController,
-        :index
-
-    post "/agents/:agent_uid/skill-lessons",
-         AgentSkillLessonController,
-         :create
-
-    post "/agents/:agent_uid/skill-lessons/:lesson_id/retire",
-         AgentSkillLessonController,
-         :retire
-
-    get "/console-readiness", ConsoleReadinessController, :show
-
-    get "/agent-workers", AgentWorkerController, :index
-
-    get "/agents/:agent_uid/background-activities/background-jobs",
-        BackgroundActivityController,
-        :jobs
-
-    get "/agents/:agent_uid/background-activities/workflow",
-        BackgroundActivityController,
-        :workflow
-
-    get "/agents/:agent_uid/background-activities/automation-runs",
-        BackgroundActivityController,
-        :automation_runs
-
-    get "/background-agent-jobs", BackgroundAgentJobController, :index
-
-    get "/background-agent-jobs/health", BackgroundAgentJobController, :health
-    get "/background-agent-jobs/:job_id", BackgroundAgentJobController, :show
-    post "/background-agent-jobs/:job_id/cancel", BackgroundAgentJobController, :cancel
-    post "/background-agent-jobs/:job_id/complete", BackgroundAgentJobController, :complete
-
-    get "/ai-gateway/conversations", AIGatewayConversationController, :index
-
-    get "/ai-gateway/conversations/:conversation_id",
-        AIGatewayConversationController,
-        :show
-
-    get "/ai-gateway/conversations/:conversation_id/messages",
-        AIGatewayConversationController,
-        :messages
-
-    get "/agents/:agent_uid/files", AgentFileController, :index
-    get "/agents/:agent_uid/files/content", AgentFileController, :download
-    post "/agents/:agent_uid/files", AgentFileController, :upload
-    post "/agents/:agent_uid/file-moves", AgentFileController, :move
-    delete "/agents/:agent_uid/files", AgentFileController, :delete
-
-    get "/agents/:agent_uid/model-profiles", AgentController, :index_model_profiles
-
-    get "/identity-provider-adapters", IdentityProviderController, :adapters
-    get "/identity-providers/:provider_id/directory", DirectoryAccessController, :show
-    post "/identity-providers/:provider_id/directory-reviews", DirectoryAccessController, :approve
-
-    post "/identity-providers/:provider_id/directory-events/:event_id/reviews",
-         DirectoryAccessController,
-         :review_event
-
-    get "/identity-providers", IdentityProviderController, :index
-    put "/identity-providers/:provider_id", IdentityProviderController, :put_provider
-    post "/identity-providers/:provider_id/sync-runs", IdentityProviderController, :run_sync
-
-    get "/identity-mapping-requests", IdentityMappingRequestController, :index
-    post "/identity-mapping-requests/:id/bind", IdentityMappingRequestController, :bind
-    delete "/identity-mapping-requests/:id", IdentityMappingRequestController, :delete
-    post "/identity-mappings", IdentityMappingRequestController, :create_mapping
-
-    put "/agents/:agent_uid/provider-hosted", AgentController, :put_provider_hosted
-
-    put "/agents/:agent_uid/model-profiles/:profile",
-        AgentController,
-        :put_model_profile
-
-    delete "/agents/:agent_uid/model-profiles/:profile",
-           AgentController,
-           :delete_model_profile
-
-    get "/agents/:agent_uid/token-quota", AgentController, :show_token_quota
-    put "/agents/:agent_uid/token-quota", AgentController, :put_token_quota
-    delete "/agents/:agent_uid/token-quota", AgentController, :delete_token_quota
-    post "/agents/:agent_uid/token-quota/reset", AgentController, :reset_token_quota
-
-    get "/signal-adapters", SignalBindingController, :adapters
-
-    get "/signal-bindings", SignalBindingController, :index
-
-    get "/agents/:agent_uid/signal-bindings/:binding_name",
-        SignalBindingController,
-        :show
-
-    put "/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name",
-        SignalBindingController,
-        :put_binding
-
-    patch "/agents/:agent_uid/signal-bindings/:binding_name",
-          SignalBindingController,
-          :update_binding
-
-    delete "/agents/:agent_uid/signal-bindings/:binding_name",
-           SignalBindingController,
-           :delete
-
-    post "/agents/:agent_uid/signal-deliveries/requeue",
-         SignalBindingController,
-         :requeue_delivery
-
-    get "/conversations/:conversation_id/standing-orders",
-        SignalBindingController,
-        :show_conversation_standing_orders
-
-    put "/conversations/:conversation_id/standing-orders",
-        SignalBindingController,
-        :put_conversation_standing_orders
-
-    get "/agents/:agent_uid/sessions", AgentSessionController, :index
-
-    get "/cron-schedules", ScheduleController, :index_cron
-    post "/agents/:agent_uid/cron-schedules", ScheduleController, :create_cron
-    get "/agents/:agent_uid/cron-schedules/:cron_schedule_id", ScheduleController, :show_cron
-    patch "/agents/:agent_uid/cron-schedules/:cron_schedule_id", ScheduleController, :update_cron
-
-    post "/agents/:agent_uid/cron-schedules/:cron_schedule_id/pause",
-         ScheduleController,
-         :pause_cron
-
-    post "/agents/:agent_uid/cron-schedules/:cron_schedule_id/resume",
-         ScheduleController,
-         :resume_cron
-
-    delete "/agents/:agent_uid/cron-schedules/:cron_schedule_id", ScheduleController, :remove_cron
-    post "/agents/:agent_uid/cron-schedules/:cron_schedule_id/runs", ScheduleController, :run_cron
-    get "/agents/:agent_uid/cron-schedules/:cron_schedule_id/runs", ScheduleController, :cron_runs
-    get "/checkbacks", ScheduleController, :index_checkbacks
-
-    delete "/agents/:agent_uid/checkbacks/:scheduled_event_id",
-           ScheduleController,
-           :cancel_checkback
-
-    get "/webhook-endpoints", WebhookEndpointController, :index
-    post "/webhook-endpoints", WebhookEndpointController, :create
-    delete "/webhook-endpoints/:webhook_endpoint_id", WebhookEndpointController, :cancel
-
-    delete "/agents/:agent_uid/webhook-endpoints/:webhook_endpoint_id",
-           WebhookEndpointController,
-           :delete
-
-    get "/automation-jobs", AutomationJobController, :index
-
-    get "/agents/:agent_uid/automation-jobs/:automation_job_id",
-        AutomationJobController,
-        :show
+    AnkoleWeb.runtime_forward("/", AnkoleWeb.JSONAPI.ConsoleRouter)
   end
 
   scope "/api/v1/ai-gateway", AnkoleWeb do
@@ -655,9 +281,6 @@ defmodule AnkoleWeb.Router do
   # Function plugs preserve runtime dependencies on business code in production too.
   defp browser_csrf(conn, opts),
     do: AnkoleWeb.Plugs.BrowserCSRF.call(conn, AnkoleWeb.Plugs.BrowserCSRF.init(opts))
-
-  defp put_api_spec(conn, _opts),
-    do: PutAPISpec.call(conn, PutAPISpec.init(module: AnkoleWeb.APISpec))
 
   defp oidc_cors(conn, opts),
     do: AnkoleWeb.Plugs.OIDCCORS.call(conn, AnkoleWeb.Plugs.OIDCCORS.init(opts))

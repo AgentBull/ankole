@@ -11,7 +11,7 @@ defmodule Ankole.SignalsTest do
   end
 
   test "the public intake rejects a caller-owned transaction", context do
-    assert_raise ArgumentError, ~r/publish after commit/, fn ->
+    assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
       Repo.transact(fn _ -> Signals.accept(attrs(context)) end)
     end
 
@@ -338,7 +338,46 @@ defmodule Ankole.SignalsTest do
     :ok = Ankole.Sessions.Events.unsubscribe(agent_uid, session_id)
   end
 
+  test "list acceptance keeps the input order, Session sequences, and deduplication", context do
+    attrs = attrs(context)
+    assert {:ok, existing} = accept_in_tx(attrs)
+    other_target = %{attrs.target | session_id: "case:two"}
+
+    assert {:ok, [first, again, second, other, repeated]} =
+             accept_all_in_tx([
+               %{attrs | id: "list-one"},
+               attrs,
+               %{attrs | id: "list-two"},
+               %{attrs | id: "list-three", target: other_target},
+               %{attrs | id: "list-one", data: %{"redelivered" => true}}
+             ])
+
+    assert again.id == existing.id
+    assert repeated.id == first.id
+    assert repeated.data == first.data
+    assert {first.session_id, first.queue_sequence} == {"case:one", 2}
+    assert {second.session_id, second.queue_sequence} == {"case:one", 3}
+    assert {other.session_id, other.queue_sequence} == {"case:two", 1}
+    assert Repo.aggregate(Signal, :count) == 4
+
+    assert_enqueued(
+      worker: Ankole.Sessions.Jobs.EnsureDriver,
+      args: %{agent_uid: context.agent.uid, session_id: "case:two"}
+    )
+
+    assert {:error, :signal_producer_conflict} =
+             accept_all_in_tx([
+               %{attrs | id: "list-four"},
+               attrs |> Map.put(:id, "list-two") |> Map.put(:producer, :kernel)
+             ])
+
+    assert Repo.aggregate(Signal, :count) == 4
+  end
+
   defp accept_in_tx(attrs), do: Repo.transact(fn repo -> Signals.accept_in_tx(repo, attrs) end)
+
+  defp accept_all_in_tx(attrs_list),
+    do: Repo.transact(fn repo -> Signals.accept_all_in_tx(repo, attrs_list) end)
 
   defp attrs(context) do
     %{

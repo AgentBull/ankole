@@ -10,6 +10,7 @@ import {
   supportedScopes,
   type ClientDraft,
   type ClientModelAliasDraft,
+  type OidcClientItem,
   type OidcScope
 } from '../state/oidc-client-editor-model'
 import { OIDCSessionSettings, OIDCLogoutDeliveries } from './oidc-session-settings'
@@ -51,23 +52,22 @@ import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
-  ankoleWebAuthZGroupControllerIndexOptions,
-  ankoleWebAiGatewayProviderControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
-  ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
-  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
-  ankoleWebOidcClientControllerCreateMutation,
-  ankoleWebOidcClientControllerDeleteMutation,
-  ankoleWebOidcClientControllerIndexOptions,
-  ankoleWebOidcClientControllerRotateSecretMutation,
-  ankoleWebOidcClientControllerShowOptions,
-  ankoleWebOidcClientControllerUpdateMutation
-} from '../api/generated/@tanstack/react-query.gen'
-import type {
-  AiGatewayProviderItem as AIGatewayProviderItem,
-  AiGatewayProviderKindItem as AIGatewayProviderKindItem,
-  ModelProfileWriteRequest,
-  PrincipalGroupItem
-} from '../api/generated/types.gen'
+  listAiGatewayModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
+  listAiGatewayProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
+import { fromDocument } from '../api/json-api'
+import {
+  createOidcClientMutation,
+  deleteOidcClientMutation,
+  getOidcClientOptions,
+  listOidcClientsOptions,
+  listPrincipalGroupsOptions,
+  updateOidcClientMutation,
+  rotateOidcClientSecretMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import type { PrincipalGroupRecord } from './principal-groups'
+import type { AIGatewayProviderKindItem } from '../state/provider-settings'
+import type { ModelProfileWriteRequest } from '../state/model-profiles-model'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { ConfirmDeleteButton, EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
@@ -76,30 +76,35 @@ import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/re
 import { emptyProfileDraft } from '../state/model-profiles-model'
 import { customProfileNameError } from './custom-model-profiles-editor'
 import { ModelProfileEditorCard, buildModelProfileWriteRequest } from './model-profile-editor-card'
+import { type AIGatewayProviderItem, aiGatewayProviders } from '../state/provider-settings'
+import { listAiGatewayProvidersOptions } from '../api/v2-site/generated/@tanstack/react-query.gen'
 
 type SecretState = { nextPath?: string; value: string }
 
 export function OIDCClientsListPage() {
   const { t } = useTranslation()
-  const clients = useQuery(ankoleWebOidcClientControllerIndexOptions())
+  const clients = useQuery({
+    ...listOidcClientsOptions(),
+    select: document => fromDocument(document) as OidcClientItem[]
+  })
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
-  const rows = (clients.data?.oidc_clients ?? []).filter(client =>
+  const rows = (clients.data ?? []).filter(client =>
     matchesResourceSearch(
       searchQuery,
       client.name,
       client.id,
-      client.type,
+      client.client_type,
       client.enabled ? 'enabled' : 'disabled',
       ...client.scopes,
       ...client.redirect_uris
     )
   )
   const remove = useMutation({
-    ...ankoleWebOidcClientControllerDeleteMutation(),
+    ...deleteOidcClientMutation(),
     onSuccess: (_response, variables) => {
-      const client = clients.data?.oidc_clients.find(item => item.id === variables.path.id)
+      const client = clients.data?.find(item => item.id === variables.path.id)
       toast.success(t('console.oidc_clients.deleted', { name: client?.name ?? variables.path.id }))
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -144,7 +149,7 @@ export function OIDCClientsListPage() {
           </TableCell>
           <TableCell className="max-w-72 font-mono text-xs break-all whitespace-normal">{client.id}</TableCell>
           <TableCell>
-            <Badge variant="secondary">{t(`console.oidc_clients.type_${client.type}`)}</Badge>
+            <Badge variant="secondary">{t(`console.oidc_clients.type_${client.client_type}`)}</Badge>
           </TableCell>
           <TableCell>
             <div className="flex max-w-80 flex-wrap gap-1.5">
@@ -194,13 +199,15 @@ export function OIDCClientEditorPage() {
   const writing = useIsMutating({ mutationKey }) > 0
 
   const clientQuery = useQuery({
-    ...ankoleWebOidcClientControllerShowOptions({ path: { id: clientID ?? '' } }),
+    ...getOidcClientOptions({ path: { id: clientID ?? '' } }),
+    select: document => fromDocument(document) as OidcClientItem,
     enabled: Boolean(clientID) && !writing,
     staleTime: 0
   })
-  const groups = useQuery(ankoleWebAuthZGroupControllerIndexOptions())
+  const groups = useQuery({ ...listPrincipalGroupsOptions(), select: data => fromDocument(data) })
   const providers = useQuery({
-    ...ankoleWebAIGatewayProviderControllerIndexOptions(),
+    ...listAiGatewayProvidersOptions(),
+    select: aiGatewayProviders,
     enabled: aiGatewayEnabled
   })
   const providerKinds = useQuery({
@@ -211,7 +218,7 @@ export function OIDCClientEditorPage() {
     ...ankoleWebAIGatewayControllerModelsOptions(),
     enabled: aiGatewayEnabled
   })
-  const loadedClient = clientQuery.data?.oidc_client
+  const loadedClient = clientQuery.data
 
   // A reopened editor waits for earlier saves and a successful source read.
   const sourceKey = clientID ? `client:${clientID}` : 'new'
@@ -231,34 +238,34 @@ export function OIDCClientEditorPage() {
   }, [sourceKey])
 
   const createClient = useMutation({
-    ...ankoleWebOidcClientControllerCreateMutation(),
+    ...createOidcClientMutation(),
     mutationKey: ['oidc-client-create', sourceKey],
     onMutate: model.captureSource,
     onSuccess: (response, _variables, requestedSource) => {
       if (!model.isCurrentSource(requestedSource)) return
-      const next = draftFromClient(response.oidc_client)
-      model.markSaved(next)
+      const client = response.oidc_client as OidcClientItem
+      model.markSaved(draftFromClient(client))
 
-      toast.success(t('console.oidc_clients.saved', { name: response.oidc_client.name }))
-      const nextPath = `/oidc-clients/${encodeURIComponent(response.oidc_client.id)}`
-      if (response.client_secret) setSecret({ nextPath, value: response.client_secret })
+      toast.success(t('console.oidc_clients.saved', { name: client.name }))
+      const nextPath = `/oidc-clients/${encodeURIComponent(client.id)}`
+      if (typeof response.client_secret === 'string') setSecret({ nextPath, value: response.client_secret })
       else void navigate({ to: nextPath })
     }
   })
   const updateClient = useMutation({
-    ...ankoleWebOidcClientControllerUpdateMutation(),
+    ...updateOidcClientMutation(),
     mutationKey,
     onMutate: model.captureSource,
     onSuccess: (response, _variables, requestedSource) => {
       if (!model.isCurrentSource(requestedSource)) return
-      const next = draftFromClient(response.oidc_client)
-      model.markSaved(next)
+      const client = response as OidcClientItem
+      model.markSaved(draftFromClient(client))
 
-      toast.success(t('console.oidc_clients.saved', { name: response.oidc_client.name }))
+      toast.success(t('console.oidc_clients.saved', { name: client.name }))
     }
   })
   const rotateSecret = useMutation({
-    ...ankoleWebOidcClientControllerRotateSecretMutation(),
+    ...rotateOidcClientSecretMutation(),
     mutationKey: ['oidc-client-rotate-secret', clientID],
     onMutate: model.captureSource,
     onSuccess: (response, _variables, requestedSource) => {
@@ -271,12 +278,12 @@ export function OIDCClientEditorPage() {
     }
   })
   const removeClient = useMutation({
-    ...ankoleWebOidcClientControllerDeleteMutation(),
+    ...deleteOidcClientMutation(),
     mutationKey: ['oidc-client-delete', clientID],
     onMutate: model.captureSource,
     onSuccess: (response, _variables, requestedSource) => {
       if (!model.isCurrentSource(requestedSource)) return
-      toast.success(t('console.oidc_clients.deleted', { name: response.oidc_client.name }))
+      toast.success(t('console.oidc_clients.deleted', { name: response.name }))
       void navigate({ to: '/oidc-clients' })
     },
     onError: (error, _variables, requestedSource) => {
@@ -297,12 +304,7 @@ export function OIDCClientEditorPage() {
     }
 
     const builtAliases = aiGatewayEnabled
-      ? buildModelAliases(
-          draft.modelAliases,
-          providers.data?.ai_gateway_providers ?? [],
-          providerKinds.data?.provider_kinds ?? [],
-          t
-        )
+      ? buildModelAliases(draft.modelAliases, providers.data ?? [], providerKinds.data?.provider_kinds ?? [], t)
       : ({ ok: true, value: {} } as const)
 
     if (!builtAliases.ok) {
@@ -326,9 +328,9 @@ export function OIDCClientEditorPage() {
     const body = writeBody(draft, builtAliases.value)
 
     if (mode === 'new') {
-      createClient.mutate({ body: { ...body, type: draft.type } })
+      createClient.mutate({ body: { data: { ...body, client_type: draft.type } } })
     } else if (clientID) {
-      updateClient.mutate({ body, path: { id: clientID } })
+      updateClient.mutate({ body: { data: body }, path: { id: clientID } })
     }
   }
 
@@ -405,7 +407,7 @@ export function OIDCClientEditorPage() {
         secondary={
           loadedClient ? (
             <div className="flex flex-wrap gap-2">
-              {loadedClient.type === 'confidential' ? (
+              {loadedClient.client_type === 'confidential' ? (
                 <Button
                   disabled={rotateSecret.isPending}
                   size="sm"
@@ -517,7 +519,7 @@ export function OIDCClientEditorPage() {
               <AllowedGroupsPicker
                 ariaLabel={t('console.oidc_clients.allowed_groups')}
                 disabled={fieldsDisabled}
-                groups={groups.data?.principal_groups ?? []}
+                groups={groups.data ?? []}
                 isLoading={groups.isLoading}
                 error={groups.error}
                 placeholder={t('console.oidc_clients.allowed_groups_placeholder')}
@@ -592,7 +594,7 @@ export function OIDCClientEditorPage() {
                   }
                   deleteDisabled={false}
                   deleteLabel={t(alias.persisted ? 'common.delete' : 'common.cancel')}
-                  providers={providers.data?.ai_gateway_providers ?? []}
+                  providers={providers.data ?? []}
                   providerKinds={providerKinds.data?.provider_kinds ?? []}
                   modelCatalog={modelCatalog.data?.models ?? []}
                   onUpdate={patch =>
@@ -651,7 +653,7 @@ function AllowedGroupsPicker({
   ariaLabel: string
   disabled: boolean
   error: unknown
-  groups: PrincipalGroupItem[]
+  groups: PrincipalGroupRecord[]
   id?: string
   isLoading: boolean
   onChange: (ids: string[]) => void

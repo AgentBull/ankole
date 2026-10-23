@@ -5,8 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
-import { ankoleWebAgentWorkerControllerIndexOptions } from '../api/generated/@tanstack/react-query.gen'
-import type { AgentComputerWorkerItem } from '../api/generated/types.gen'
+import { type AgentWorkerItem, agentWorkerListOptions } from '../api/agent-workers'
 import { StatusIndicator, type StatusTone } from '../console-form'
 import { ResourceListPage, ResourceSearch } from '../console-list-page'
 import { formatConsoleDate } from '../console-primitives'
@@ -20,16 +19,18 @@ import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/re
 export function WorkersListPage() {
   const { t } = useTranslation()
   const workers = useQuery({
-    ...ankoleWebAgentWorkerControllerIndexOptions(),
+    ...agentWorkerListOptions(),
     refetchInterval: query =>
-      (query.state.data?.workers ?? []).some(worker => worker.state === 'starting' || worker.state === 'draining')
+      (query.state.data?.data ?? []).some(
+        ({ attributes }) => attributes?.state === 'starting' || attributes?.state === 'draining'
+      )
         ? WAITING_REFRESH_MS
         : SETTLED_WORKERS_REFRESH_MS
   })
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
-  const rows = (workers.data?.workers ?? []).filter(worker =>
+  const rows = (workers.data ?? []).filter(worker =>
     matchesResourceSearch(searchQuery, worker.agent_uid, worker.provider_id ?? '', worker.state, reason(worker))
   )
 
@@ -91,18 +92,18 @@ export function WorkersListPage() {
 }
 
 /** A Worker that is not ready and has a backend reason needs the operator. */
-export function workerNeedsAttention(worker: AgentComputerWorkerItem): boolean {
+export function workerNeedsAttention(worker: AgentWorkerItem): boolean {
   return (worker.state === 'starting' || worker.state === 'stale') && Boolean(worker.last_error)
 }
 
-function stateTone(worker: AgentComputerWorkerItem): StatusTone {
+function stateTone(worker: AgentWorkerItem): StatusTone {
   if (workerNeedsAttention(worker)) return 'danger'
   if (worker.state === 'ready') return 'positive'
   if (worker.state === 'stale') return 'warning'
   return 'info'
 }
 
-function reason(worker: AgentComputerWorkerItem): string {
+function reason(worker: AgentWorkerItem): string {
   return worker.last_error ?? worker.drain_reason ?? ''
 }
 
@@ -111,7 +112,7 @@ function reason(worker: AgentComputerWorkerItem): string {
  * columns are read in. A worker that reports only capacity derives its active
  * count from the free slots.
  */
-function formatLoad(worker: AgentComputerWorkerItem): string {
+function formatLoad(worker: AgentWorkerItem): string {
   const max = integerField(worker.capacity, 'max_slots')
   const available = integerField(worker.capacity, 'available_slots')
   const active =

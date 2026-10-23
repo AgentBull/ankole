@@ -136,7 +136,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
 
     reloaded = Repo.get!(Signal, event.id)
     assert reloaded.ambient_asked_message_id == message_id("msg-ask")
-    assert Signal.reply_anchor_provider_message_id(reloaded) == "msg-ask"
+    assert Ankole.Signals.reply_anchor_provider_message_id(reloaded) == "msg-ask"
 
     assert Repo.get!(AmbientJudgment, event.id).asked_by_state == "accepted"
   end
@@ -217,7 +217,7 @@ defmodule Ankole.Sessions.AmbientCurationTest do
 
     reloaded = Repo.get!(Signal, event.id)
     assert is_nil(reloaded.ambient_asked_message_id)
-    assert Signal.reply_anchor_provider_message_id(reloaded) == "msg-real"
+    assert Ankole.Signals.reply_anchor_provider_message_id(reloaded) == "msg-real"
 
     judgment = Repo.get!(AmbientJudgment, event.id)
     assert is_nil(judgment.asked_by_message_id)

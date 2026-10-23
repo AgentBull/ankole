@@ -32,11 +32,39 @@ Conversations uses these tenant-scoped tables:
 Each table has a tenant foreign key. Primary and unique keys include
 `tenant_id`. The tenant deletion owner includes all four tables.
 
-`Conversations.Domain` declares the resource actions for these records. The
-conversation owner keeps the aggregate transaction and locks. Membership retries
-retain the first role, and native creation retries cannot replace stored facts.
-External observation actions can change content and observation metadata, but
-cannot change the platform identity or the first observation time.
+`Ankole.Conversations` is the Ash domain of these records and of the inbound
+batch, input tombstone, Delivery intent, and preview state resources. It gives
+one code interface function for each resource read and write action. Code in
+other domains, web controllers, and plugins reads and writes these records
+through these functions, not through Ecto or `Ash.Query`.
+
+Each operation that opens a transaction is a generic action of the domain, for
+example `start_native_conversation`, `post_native_message`, `observe_entry`,
+`claim_intent_dispatch`, and `put_preview_checkpoint`. The generic action owns
+the transaction, takes the locks in the work lock order, and runs its
+publication after the commit. It runs only as the top-level call: in another
+transaction it raises `Ankole.Errors.Framework.NestedOperation`. A caller that
+already owns a transaction uses the `_in_tx` function of the same operation,
+for example `create_in_tx/3`, `post_in_tx/4`, `detail_in_tx/4`, or
+`Attachments.link_payload_in_tx/4`. The public functions such as
+`Conversations.create/2` and `PreviewStates.put_checkpoint/3` call the generic
+action and give the domain reason through `Ankole.Errors.reason/1`.
+
+The domain reads the rows of other domains through their code interface
+functions. It locks Principal and Signal rows through the composition functions
+of their owners (`Principals.lock_principals_in_tx/2`,
+`Signals.lock_signals_in_tx/3`), which give each locked read to the lock-order
+check. Other domains lock a Conversation row with
+`Conversations.lock_conversation_in_tx/3`. A query filters by
+the rows of a related resource with a resource-based `exists` expression; the
+resources declare no relationships, so their Ecto structs do not change. A
+Message is `withdrawn` when one of its native inputs is removed; history,
+context, and detail reads exclude these Messages.
+
+Membership retries retain the first role, and native creation retries cannot
+replace stored facts. External observation actions can change content and
+observation metadata, but cannot change the platform identity or the first
+observation time.
 
 A message sequence is unique within its conversation. Writers lock the
 conversation before the resource action increments its retained high water in
@@ -120,12 +148,14 @@ ends. Storage and retry comparison retain the original text. The title uses
 the first nonempty line, up to 80 characters.
 
 The control plane publishes changes after the transaction commits. A rollback
-publishes no event and leaves no accepted message or signal. A transaction owner
-uses `create_in_tx/3` or the Human `post_in_tx/4` and retains the returned
-`publications` and `session_key`. After the outer transaction succeeds, that same
-process calls `Conversations.Events.publish_committed/1` and publishes one status
-change through `Sessions.Events`. A repeated request with no new publications
-publishes neither event. The durable EnsureDriver job owns the recovery wakeup.
+publishes no event and leaves no accepted message or signal. The native
+create, post, and queue actions return their `publications` and `session_key`.
+After the commit, the `after_commit` function of the action calls
+`Conversations.Events.publish_committed/1` and publishes one status change
+through `Sessions.Events`. Another transaction owner uses `create_in_tx/3` or the
+Human `post_in_tx/4`, retains the returned facts, and publishes them after its
+own commit. A repeated request with no new publications publishes neither
+event. The durable EnsureDriver job owns the recovery wakeup.
 
 The publication guard rejects a transaction in the calling process. It does not
 prove that the supplied facts committed, and a new Task does not inherit the
@@ -387,7 +417,9 @@ interface.
 An external identity is unique by `(tenant_id, provider_conversation_id)`.
 The provider ID includes the adapter namespace, such as `lark:oc_xxx`. The
 conversation stores neither an Agent host nor a Binding host. Agent and Binding
-identify the receiving observation entrance or the sending Delivery.
+identify the receiving observation entrance or the sending Delivery. An adapter
+that learns a room outside a message, such as a channel sync, records it with
+`Conversations.observe_external_conversation/3`.
 
 `Conversations.Observe` normalizes the provider observation, evaluates Binding
 filters against the platform identity, resolves the shared UUID, and persists
@@ -474,8 +506,9 @@ intent submission. `Delivery.Dispatch` claims and sends; `Recovery` owns retry
 and uncertain outcomes; `Mirror` commits provider-confirmed public statements;
 `Queries` supplies durable surface lookup and stopped-delivery projections.
 Intents in `deliveries` record the speaking Agent, Binding, public IDs, and
-opaque provider references. Work completion and delivery completion are
-separate facts.
+opaque provider references. `Delivery.sent_provider_message?/4` tells an
+adapter whether a quoted provider message is one that a Binding sent. Work
+completion and delivery completion are separate facts.
 
 `recovery_status` and `recovery_reason` record why a failed or unknown delivery
 stopped. The status is `blocked`, `permanent`, or `exhausted`. PostgreSQL requires
@@ -530,10 +563,12 @@ Provider-native previews are transient renderers. Their versioned checkpoint,
 sequence high water, first recorded provider message identity, and terminal
 presentation live in the Delivery-owned `delivery_previews` row, keyed by
 `(tenant_id, signal_id)`. Writers lock the source Signal before the preview row.
-`Delivery.PreviewState` owns these writes. Its checkpoint update function locks
-and loads the Signal, applies the requested change, and persists the fenced
-checkpoint in one transaction. Recovery, cleanup, and fallback use this same
-function. Signal deletion cascades to its preview. Its resource attributes validate the JSON checkpoint and nonnegative
+`Delivery.PreviewStates` owns these writes to the `Delivery.PreviewState`
+resource. Its checkpoint update action locks and loads the Signal, applies the
+requested change, and persists the fenced checkpoint in one transaction. Recovery, cleanup, and fallback use this same
+action. The preview process claims, hands off, and checkpoints its surface
+through the generic actions of `PreviewState`; the process itself opens no
+transaction. Signal deletion cascades to its preview. Its resource attributes validate the JSON checkpoint and nonnegative
 sequence directly. `Delivery.ReplyPresentation` owns the renderer-safe presentation.
 These facts let durable delivery settle or recover the visible surface. They do
 not make a streamed draft an immutable model or conversation record. Native

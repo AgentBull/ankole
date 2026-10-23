@@ -13,11 +13,10 @@ defmodule Ankole.IdentityProviders.LocalPassword do
   from the console, setup, or the rescue command; there is no self-service
   registration and email addresses are trusted without verification.
 
-  This module owns local credential creation, password changes, resets,
-  lookup, authentication, and retry protection.
+  This module owns the password rules, hashing, authentication, and retry
+  protection. `Ankole.Principals` owns the credential rows: this module gives
+  it password hashes, never plain passwords.
   """
-
-  import Ecto.Query, warn: false
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
@@ -26,7 +25,6 @@ defmodule Ankole.IdentityProviders.LocalPassword do
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Principals
   alias Ankole.Principals.LocalCredential
-  alias Ankole.Principals.HumanUser
   alias Ankole.Principals.Principal
   alias Ankole.Repo
 
@@ -163,12 +161,9 @@ defmodule Ankole.IdentityProviders.LocalPassword do
   def set_local_password(uid, password, must_change_password)
       when is_boolean(must_change_password) do
     with {:ok, uid} <- Principals.normalize_uid(uid),
-         :ok <- validate_local_password(password) do
-      Repo.transact(fn repo ->
-        with :ok <- ensure_local_login_human(repo, uid) do
-          put_in_tx(repo, uid, password, must_change_password)
-        end
-      end)
+         :ok <- validate_local_password(password),
+         {:ok, password_hash} <- hash_password(password) do
+      Principals.put_local_credential(uid, password_hash, must_change_password)
     end
   end
 
@@ -181,18 +176,25 @@ defmodule Ankole.IdentityProviders.LocalPassword do
   @spec complete_forced_password_change(String.t(), String.t(), non_neg_integer()) ::
           {:ok, LocalCredential.t()} | {:error, term()}
   def complete_forced_password_change(uid, new_password, credential_version) do
-    with {:ok, uid} <- Principals.normalize_uid(uid),
-         :ok <- validate_local_password(new_password) do
-      Repo.transact(fn repo ->
-        with %LocalCredential{must_change_password: true} = credential <-
-               fetch_local_credential_for_update(repo, uid),
-             true <- LocalCredential.version(credential) == credential_version do
-          put_in_tx(repo, uid, new_password, false)
-        else
-          _no_matching_change -> {:error, :password_change_not_required}
-        end
-      end)
+    with {:ok, uid, password_hash} <- forced_password_hash(uid, new_password) do
+      Principals.complete_forced_password_change(uid, password_hash, credential_version)
     end
+  end
+
+  @doc """
+  Checks and hashes a new password for a forced password change.
+
+  Call it before the transaction that runs
+  `Ankole.Principals.complete_forced_password_change_in_tx/4`, so that the
+  transaction does not hash.
+  """
+  @spec forced_password_hash(String.t(), String.t()) ::
+          {:ok, String.t(), String.t()} | {:error, term()}
+  def forced_password_hash(uid, new_password) do
+    with {:ok, uid} <- Principals.normalize_uid(uid),
+         :ok <- validate_local_password(new_password),
+         {:ok, password_hash} <- hash_password(new_password),
+         do: {:ok, uid, password_hash}
   end
 
   @doc """
@@ -201,16 +203,13 @@ defmodule Ankole.IdentityProviders.LocalPassword do
   @spec reset_local_password(String.t(), boolean()) :: {:ok, String.t()} | {:error, term()}
   def reset_local_password(uid, must_change_password \\ true)
       when is_boolean(must_change_password) do
-    with {:ok, uid} <- Principals.normalize_uid(uid) do
-      initial_password = LocalCredential.generate_initial_password()
+    initial_password = LocalCredential.generate_initial_password()
 
-      Repo.transact(fn repo ->
-        with :ok <- ensure_local_login_human(repo, uid),
-             {:ok, _credential} <-
-               put_in_tx(repo, uid, initial_password, must_change_password) do
-          {:ok, initial_password}
-        end
-      end)
+    with {:ok, uid} <- Principals.normalize_uid(uid),
+         {:ok, password_hash} <- hash_password(initial_password),
+         {:ok, _credential} <-
+           Principals.put_local_credential(uid, password_hash, must_change_password) do
+      {:ok, initial_password}
     end
   end
 
@@ -243,35 +242,20 @@ defmodule Ankole.IdentityProviders.LocalPassword do
         {:error, :not_found}
 
       normalized ->
-        case Repo.one(local_login_query(normalized)) do
-          nil -> {:error, :not_found}
-          login -> {:ok, login}
-        end
+        Principals.fetch_local_login(normalized)
     end
   end
 
-  @doc false
-  @spec put_in_tx(module(), String.t(), String.t(), boolean()) ::
-          {:ok, LocalCredential.t()} | {:error, term()}
-  def put_in_tx(repo, principal_uid, password, must_change_password) do
+  @doc """
+  Hashes a local password with Argon2id.
+
+  Hashing runs before the credential write, outside its transaction.
+  """
+  @spec hash_password(String.t()) :: {:ok, String.t()} | {:error, term()}
+  def hash_password(password) do
     case NativeKernel.argon2id_hash(password) do
-      hash when is_binary(hash) ->
-        attrs = %{
-          principal_uid: principal_uid,
-          password_hash: hash,
-          must_change_password: must_change_password
-        }
-
-        case repo.get(LocalCredential, principal_uid) do
-          %LocalCredential{} = credential ->
-            Ankole.Ash.update(credential, :set_password_in_tx, Map.delete(attrs, :principal_uid))
-
-          nil ->
-            Ankole.Ash.create(LocalCredential, :create_in_tx, attrs)
-        end
-
-      {:error, reason} ->
-        {:error, {:password_hash_failed, reason}}
+      hash when is_binary(hash) -> {:ok, hash}
+      {:error, reason} -> {:error, {:password_hash_failed, reason}}
     end
   end
 
@@ -351,39 +335,6 @@ defmodule Ankole.IdentityProviders.LocalPassword do
   end
 
   defp validate_local_password(_password), do: {:error, :password_too_short}
-
-  defp ensure_local_login_human(repo, principal_uid) do
-    case repo.get(HumanUser, principal_uid) do
-      %HumanUser{email: email} when is_binary(email) ->
-        :ok
-
-      %HumanUser{} ->
-        {:error, :email_missing}
-
-      nil ->
-        case repo.get(Principal, principal_uid) do
-          %Principal{} -> {:error, :not_human}
-          nil -> {:error, :not_found}
-        end
-    end
-  end
-
-  defp fetch_local_credential_for_update(repo, principal_uid) do
-    repo.one(
-      from credential in LocalCredential,
-        where: credential.principal_uid == ^principal_uid,
-        lock: "FOR UPDATE"
-    )
-  end
-
-  defp local_login_query(email) do
-    from human_user in HumanUser,
-      join: principal in assoc(human_user, :principal),
-      left_join: credential in LocalCredential,
-      on: credential.principal_uid == human_user.principal_uid,
-      where: human_user.email == ^email,
-      select: %{principal: principal, human_user: human_user, credential: credential}
-  end
 
   defp credential_written_at_us(
          {:ok, %{credential: %LocalCredential{updated_at: %DateTime{} = at}}}

@@ -3,7 +3,7 @@ defmodule Ankole.Conversations.Participant do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     tenant_in_primary_key: true,
-    domain: Ankole.Conversations.Domain
+    domain: Ankole.Conversations
 
   postgres do
     table("conversation_participants")
@@ -48,7 +48,6 @@ defmodule Ankole.Conversations.Participant do
     defaults([:read])
 
     create_if_absent :join do
-      transaction?(false)
       accept([:conversation_id, :principal_uid, :role])
     end
   end

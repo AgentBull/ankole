@@ -1,6 +1,6 @@
 defmodule Ankole.Workflow.Mail do
   @moduledoc "Owns workflow messages and post-commit capacity wakeups."
-  import Ecto.Query, warn: false
+  require Ash.Query
   alias Ankole.Repo
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.Queue
@@ -9,33 +9,27 @@ defmodule Ankole.Workflow.Mail do
   alias Ankole.Workflow.Schemas.Run
   @max_task_message_bytes 8192
 
-  def send_task_message(run_id, call_seq, agent_uid, message, source_tool_call_id)
+  @doc "Appends an owner message to one live task in the caller's transaction."
+  def send_task_message_in_tx(repo, run_id, call_seq, agent_uid, message, source_tool_call_id)
       when is_integer(run_id) and is_integer(call_seq) and call_seq >= 0 and is_binary(agent_uid) and
              is_binary(message) and is_binary(source_tool_call_id) do
     now = DateTime.utc_now(:microsecond)
 
     with :ok <- validate_task_message(message),
-         :ok <- validate_source_tool_call_id(source_tool_call_id) do
-      Repo.transact(fn repo ->
-        with %Run{} = run <-
-               repo.one(
-                 from(run in Run, where: run.id == ^run_id and run.agent_uid == ^agent_uid)
-               ),
-             %AgentCall{} = call <-
-               repo.one(
-                 from(call in AgentCall,
-                   where: call.run_id == ^run_id and call.call_seq == ^call_seq
-                 )
-               ),
-             :ok <- ensure_task_message_target(run, call),
-             {:ok, event} <-
-               append_task_message_event(repo, run, call, message, source_tool_call_id, now) do
-          {:ok, %{call: call, run: run, event: event}}
-        else
-          nil -> {:error, :workflow_task_not_found}
-          {:error, _reason} = error -> error
-        end
-      end)
+         :ok <- validate_source_tool_call_id(source_tool_call_id),
+         %Run{} = run <- Ankole.Workflow.Slot.get_run(run_id, agent_uid),
+         {:ok, %AgentCall{} = call} <-
+           AgentCall
+           |> Ash.Query.filter(run_id == ^run_id and call_seq == ^call_seq)
+           |> Ankole.Ash.read_one(),
+         :ok <- ensure_task_message_target(run, call),
+         {:ok, event} <-
+           append_task_message_event(repo, run, call, message, source_tool_call_id, now) do
+      {:ok, %{call: call, run: run, event: event}}
+    else
+      nil -> {:error, :workflow_task_not_found}
+      {:ok, nil} -> {:error, :workflow_task_not_found}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -104,46 +98,59 @@ defmodule Ankole.Workflow.Mail do
     })
   end
 
-  def defer_task_event(%Signal{} = signal, %DateTime{} = available_at, :agent_capacity) do
-    Repo.transact(fn repo ->
-      with {:ok, call_id} <- Ankole.Workflow.Queries.parse_task_session_id(signal.session_id),
-           {:ok, {_run, call}} <-
-             Ankole.Workflow.TaskLifecycle.lock_task_in_tx(repo, call_id, signal.agent_uid),
-           :ok <- Queue.lock_session_in_tx(repo, signal.agent_uid, signal.session_id),
-           %Signal{} = current <- Ankole.Signals.lock_signal_in_tx(repo, signal.id) do
-        if current.status not in [:queued, :running] do
-          {:ok, current}
-        else
-          with {:ok, _call} <-
-                 Ankole.Ash.update(call, :defer_capacity, %{
-                   wake_kind: :agent_capacity,
-                   wake_at: available_at
-                 }),
-               {:ok, event} <-
-                 current |> Ankole.Ash.update(:defer, %{available_at: available_at}),
-               :ok <-
-                 Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
-                   repo,
-                   %{agent_uid: event.agent_uid, session_id: event.session_id},
-                   available_at
-                 ) do
-            {:ok, event}
-          end
-        end
+  @doc "Defers a task Signal until Agent capacity is free, in the caller's transaction."
+  def defer_task_event_in_tx(
+        repo,
+        %Signal{} = signal,
+        %DateTime{} = available_at,
+        :agent_capacity
+      ) do
+    with {:ok, call_id} <- Ankole.Workflow.Queries.parse_task_session_id(signal.session_id),
+         {:ok, {_run, call}} <-
+           Ankole.Workflow.TaskLifecycle.lock_task_in_tx(repo, call_id, signal.agent_uid),
+         :ok <- Queue.lock_session_in_tx(repo, signal.agent_uid, signal.session_id),
+         %Signal{} = current <- Ankole.Signals.lock_signal_in_tx(repo, signal.id) do
+      if current.status not in [:queued, :running] do
+        {:ok, current}
       else
-        nil -> {:error, :workflow_task_event_not_found}
-        error -> error
+        with {:ok, _call} <-
+               Ankole.Ash.update(call, :defer_capacity, %{
+                 wake_kind: :agent_capacity,
+                 wake_at: available_at
+               }),
+             {:ok, event} <- defer_signal(current, available_at),
+             :ok <-
+               Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
+                 repo,
+                 %{agent_uid: event.agent_uid, session_id: event.session_id},
+                 available_at
+               ) do
+          {:ok, event}
+        end
       end
-    end)
+    else
+      nil -> {:error, :workflow_task_event_not_found}
+      error -> error
+    end
   end
 
-  def append_dispatch_event(repo, run, call, inserted_at) do
+  # Signals owns this transition. Use the Signals `_in_tx` function for it when
+  # that domain exports one.
+  defp defer_signal(%Signal{} = signal, available_at),
+    do: Ankole.Ash.update(signal, :defer, %{available_at: available_at})
+
+  @doc "Appends the dispatch Signals of new task calls in the caller's transaction."
+  def append_dispatch_events(repo, run, calls, inserted_at) do
+    Ankole.Signals.accept_all_in_tx(repo, Enum.map(calls, &dispatch_event(run, &1, inserted_at)))
+  end
+
+  defp dispatch_event(run, call, inserted_at) do
     source_event_id = "workflow:call:#{call.id}:dispatch"
     reply_route = run.reply_route || %{}
     arguments = call.arguments
     binding_name = Map.get(reply_route, "binding_name")
 
-    Ankole.Signals.accept_in_tx(repo, %{
+    %{
       producer: :kernel,
       source: "control-plane://workflow",
       id: source_event_id,
@@ -173,7 +180,7 @@ defmodule Ankole.Workflow.Mail do
         "schema" => Map.get(arguments, "schema", %{"type" => "string"}),
         "attempts" => call.attempts
       }
-    })
+    }
   end
 
   def append_wakeup_event(repo, %Run{status: status} = run, completed_at)
@@ -301,62 +308,46 @@ defmodule Ankole.Workflow.Mail do
     end
   end
 
+  @doc """
+  Wakes the next capacity waiter of an Agent after a released task slot commits.
+
+  The wakeup is its own generic action (`AgentCall.release_capacity`), so it
+  runs outside the transaction that released the slot.
+  """
   def release_capacity(%Run{agent_uid: agent_uid}) do
     Repo.assert_outside_transaction!()
+    Ankole.Ash.run_action(AgentCall, :release_capacity, %{agent_uid: agent_uid})
+  end
 
-    Repo.transact(fn repo ->
-      with :ok <- Ankole.Workflow.Slot.lock_agent_slots(repo, agent_uid),
-           :ok <-
-             wake_next_capacity_deferred_task(repo, agent_uid, DateTime.utc_now(:microsecond)),
-           do: {:ok, :released}
-    end)
+  @doc """
+  Releases the slot of a committed transition: the `after_commit` function of
+  a generic action that can release a task slot.
+  """
+  def release_committed_capacity(%{run: %Run{} = run, released_slot?: true}) do
+    case release_capacity(run) do
+      {:ok, :released} ->
+        :ok
+
+      {:error, reason} ->
+        Ankole.Logging.warning(
+          "workflow.capacity_release.failed",
+          "Workflow capacity wakeup failed; the deferred task retries at its deferral time",
+          %{"run_id" => run.id, "reason" => inspect(reason, limit: 10)}
+        )
+    end
+  end
+
+  def release_committed_capacity(_result), do: :ok
+
+  @doc false
+  def release_capacity_in_tx(repo, agent_uid) do
+    with :ok <- Ankole.Workflow.Slot.lock_agent_slots(repo, agent_uid),
+         :ok <- wake_next_capacity_deferred_task(repo, agent_uid, DateTime.utc_now(:microsecond)),
+         do: {:ok, :released}
   end
 
   defp wake_next_capacity_deferred_task(repo, agent_uid, now) do
-    running_calls =
-      from(call in AgentCall,
-        where: call.agent_uid == ^agent_uid and call.status == :running,
-        group_by: call.run_id,
-        select: %{run_id: call.run_id, count: count(call.id)}
-      )
-
-    candidate =
-      AgentCall
-      |> join(:inner, [call], run in Run, on: run.id == call.run_id)
-      |> join(:left, [call], running in subquery(running_calls),
-        on: running.run_id == call.run_id
-      )
-      |> join(:inner, [call], event in Signal,
-        on:
-          event.agent_uid == call.agent_uid and
-            fragment(
-              "? = concat('wf_task:', ?::text)",
-              event.session_id,
-              call.id
-            )
-      )
-      |> where(
-        [call, run, running, event],
-        call.agent_uid == ^agent_uid and call.status == :queued and run.status == :running and
-          coalesce(running.count, 0) < run.concurrency and
-          event.status in [:queued, :running] and event.available_at > ^now and
-          call.wake_kind == :agent_capacity
-      )
-      |> order_by([call, _, _, event],
-        asc: event.inserted_at,
-        asc: event.queue_sequence,
-        asc: call.id
-      )
-      |> select([call, _, _, event], %{
-        run_id: call.run_id,
-        call_id: call.id,
-        session_id: event.session_id,
-        event_id: event.id
-      })
-      |> limit(1)
-      |> repo.one()
-
-    case candidate do
+    case Ankole.Workflow.Queries.capacity_candidate(agent_uid, now) do
       %{run_id: run_id, call_id: call_id, session_id: session_id, event_id: event_id} ->
         with %Run{status: :running} <- Ankole.Workflow.Slot.lock_run(repo, run_id, agent_uid),
              %AgentCall{status: :queued, wake_kind: :agent_capacity} = call <-
@@ -385,11 +376,7 @@ defmodule Ankole.Workflow.Mail do
        )
        when live_status in [:queued, :running] do
     if DateTime.after?(available_at, now) do
-      with {:ok, event} <-
-             event
-             |> Ankole.Ash.update(:defer, %{
-               available_at: now
-             }),
+      with {:ok, event} <- defer_signal(event, now),
            :ok <-
              Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
                repo,

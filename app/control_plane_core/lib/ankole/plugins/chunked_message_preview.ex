@@ -8,7 +8,7 @@ defmodule Ankole.Plugins.ChunkedMessagePreview do
   chunk.
   """
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.Delivery.InteractionState
   alias Ankole.Conversations.Delivery.ReplyPresentation
@@ -220,7 +220,7 @@ defmodule Ankole.Plugins.ChunkedMessagePreview do
         nil -> nil
       end
 
-    case PreviewState.put_checkpoint(
+    case PreviewStates.put_checkpoint(
            request.signal.id,
            staged,
            source

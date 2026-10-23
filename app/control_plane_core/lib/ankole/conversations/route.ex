@@ -1,11 +1,12 @@
 defmodule Ankole.Conversations.Route do
   @moduledoc "Resolves the durable source and long-lived recipient of a turn."
 
-  import Ecto.Query
+  require Ash.Query
 
   alias Ankole.AIGateway
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.Conversations.Conversation
   alias Ankole.Repo
   alias Ankole.Signals.Signal
   alias Ankole.Workflow
@@ -76,7 +77,7 @@ defmodule Ankole.Conversations.Route do
   end
 
   defp direct_human_message(id, uid) do
-    case Repo.get_by(Signal, id: id, agent_uid: uid) do
+    case agent_signal(id, uid) do
       %Signal{producer: :kernel} = source -> native_human_request(source)
       _ -> nil
     end
@@ -127,7 +128,7 @@ defmodule Ankole.Conversations.Route do
     else
       visited = MapSet.put(visited, {:job, id})
 
-      case Repo.get_by(Job, id: id, agent_uid: uid) do
+      case agent_job(id, uid) do
         %Job{} = job ->
           applied =
             if mode == :instructions,
@@ -157,7 +158,7 @@ defmodule Ankole.Conversations.Route do
          false <- MapSet.member?(visited, {:signal, id}) do
       visited = MapSet.put(visited, {:signal, id})
 
-      case Repo.get_by(Signal, id: id, agent_uid: uid) do
+      case agent_signal(id, uid) do
         %Signal{message_id: id} = source when is_binary(id) ->
           select_source_message(source, rest, visited, mode)
 
@@ -169,7 +170,7 @@ defmodule Ankole.Conversations.Route do
         } ->
           # A Main summary is not a new Human request. It must not reset an
           # already-applied Human steer to the Main turn's earlier wakeup.
-          source = Repo.get_by(Signal, id: source_id, agent_uid: uid)
+          source = agent_signal(source_id, uid)
 
           case source && Ankole.Conversations.message_for_signal(source) do
             %Ankole.Conversations.Message{origin: :native, author_type: :human} ->
@@ -206,7 +207,7 @@ defmodule Ankole.Conversations.Route do
   @spec source(%{signal_id: Ecto.UUID.t()}) ::
           {:ok, source()} | {:error, :reply_route_not_in_turn}
   def source(%{signal_id: signal_id}) when is_binary(signal_id) do
-    case Repo.get(Signal, signal_id) do
+    case Ankole.Signals.get_signal!(signal_id) do
       %Signal{} = event ->
         {:ok,
          %{
@@ -278,7 +279,7 @@ defmodule Ankole.Conversations.Route do
 
   defp resolve_session_owner({:job, _}, agent_uid, session_id, _route, visited) do
     with {:ok, job_id} <- BackgroundAgentJobs.parse_job_session_id(session_id),
-         %Job{} = job <- Repo.get_by(Job, id: job_id, agent_uid: agent_uid),
+         %Job{} = job <- agent_job(job_id, agent_uid),
          conversation_id when is_binary(conversation_id) <-
            Map.get(job.metadata || %{}, "owner_conversation_id"),
          {:ok, %{conversation_key: owner_session_id}} <-
@@ -293,8 +294,8 @@ defmodule Ankole.Conversations.Route do
 
   defp resolve_session_owner({:workflow_task, _}, agent_uid, session_id, _route, visited) do
     with {:ok, call_id} <- Workflow.parse_task_session_id(session_id),
-         %AgentCall{} = call <- Repo.get_by(AgentCall, id: call_id, agent_uid: agent_uid),
-         %Run{} = run <- Repo.get_by(Run, id: call.run_id, agent_uid: agent_uid),
+         %AgentCall{} = call <- agent_call(call_id, agent_uid),
+         %Run{} = run <- agent_run(call.run_id, agent_uid),
          %{} = reply_route <- run.reply_route do
       resolve_owner(agent_uid, run.owner_session_id, reply_route, visited)
     else
@@ -328,7 +329,7 @@ defmodule Ankole.Conversations.Route do
   end
 
   def snapshot(turn) do
-    case Ankole.Repo.get(Signal, turn.signal_id) do
+    case Ankole.Signals.get_signal!(turn.signal_id) do
       %Signal{} = event ->
         route =
           %{
@@ -352,18 +353,35 @@ defmodule Ankole.Conversations.Route do
 
   defp native_conversation_id(agent_uid, key) do
     with {:conversation, id} <- Ankole.Sessions.Key.parse(key),
-         true <-
-           Repo.exists?(
-             from p in Ankole.Conversations.Participant,
-               join: c in Ankole.Conversations.Conversation,
-               on: c.id == p.conversation_id and c.tenant_id == p.tenant_id,
-               where:
-                 c.id == ^id and c.kind == :native and p.principal_uid == ^agent_uid and
-                   p.role == :agent
-           ) do
+         %Conversation{} <-
+           Conversation
+           |> Ash.Query.filter(
+             id == ^id and kind == :native and
+               exists(
+                 Ankole.Conversations.Participant,
+                 conversation_id == parent(id) and principal_uid == ^agent_uid and role == :agent
+               )
+           )
+           |> Ash.Query.select([:id])
+           |> Ankole.Ash.read_one!() do
       id
     else
       _ -> nil
     end
   end
+
+  defp agent_signal(id, uid),
+    do: first(Ankole.Signals.list_signals!(query: [filter: [id: id, agent_uid: uid]]))
+
+  defp agent_job(id, uid),
+    do: first(Ankole.BackgroundAgentJobs.list_jobs!(query: [filter: [id: id, agent_uid: uid]]))
+
+  defp agent_call(id, uid),
+    do: first(Ankole.Workflow.list_agent_calls!(query: [filter: [id: id, agent_uid: uid]]))
+
+  defp agent_run(id, uid),
+    do: first(Ankole.Workflow.list_runs!(query: [filter: [id: id, agent_uid: uid]]))
+
+  defp first([record]), do: record
+  defp first([]), do: nil
 end

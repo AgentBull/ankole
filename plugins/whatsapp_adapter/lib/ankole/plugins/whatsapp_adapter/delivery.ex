@@ -3,18 +3,15 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Delivery do
 
   @behaviour Ankole.Conversations.Delivery.Adapter
 
-  import Ecto.Query, warn: false
-
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Signals.Bindings
-  alias Ankole.{Logging, Repo}
+  alias Ankole.Logging
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.WhatsAppAdapter.Client
   alias Ankole.Plugins.WhatsAppAdapter.Config
   alias Ankole.Plugins.WhatsAppAdapter.ErrorPolicy
   alias Ankole.Plugins.WhatsAppAdapter.Presentation
   alias Ankole.Conversations.Conversation
-  alias Ankole.Conversations.ExternalMessageRef
   alias Ankole.Conversations.Delivery.Intent
 
   @divider "────────"
@@ -152,19 +149,24 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Delivery do
   # human entry at all, such as the one that carries the held-sender notice,
   # never had a window to close.
   defp newest_inbound_message_at(conversation_id) do
-    ExternalMessageRef
-    |> where([ref], ref.conversation_id == ^conversation_id)
-    |> where([ref], not is_nil(ref.provider_time))
-    |> where([ref], fragment("? ->> 'platform_subject' IS NOT NULL", ref.author))
-    |> order_by([ref], desc: ref.provider_time)
-    |> limit(1)
-    |> select([ref], ref.provider_time)
-    |> Repo.one()
+    Ankole.Conversations.list_external_message_refs!(
+      query: [
+        filter: [
+          conversation_id: conversation_id,
+          provider_time: [is_nil: false],
+          author: [at_path: ["platform_subject"], is_nil: false]
+        ],
+        sort: [provider_time: :desc],
+        limit: 1,
+        select: [:provider_time]
+      ]
+    )
+    |> Enum.find_value(& &1.provider_time)
   end
 
   defp newest_interactive_reply_at(conversation_id) do
     with %Conversation{metadata: %{"last_interactive_reply_at" => value}} when is_binary(value) <-
-           Repo.get_by(Conversation, id: conversation_id),
+           Ankole.Conversations.get_conversation!(conversation_id),
          {:ok, at, _offset} <- DateTime.from_iso8601(value) do
       at
     else
@@ -401,7 +403,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Delivery do
          provider_message_id
        )
        when is_binary(signal_id) and is_binary(provider_message_id) do
-    case PreviewState.record_provider_message(
+    case PreviewStates.record_provider_message(
            signal_id,
            provider_message_id
          ) do

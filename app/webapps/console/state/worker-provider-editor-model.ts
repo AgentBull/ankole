@@ -1,5 +1,29 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
-import type { WorkerProvider, WorkerProviderCredentialsInput, WorkerProviderKind } from '../api/generated/types.gen'
+import type { WorkerProviderKind } from '../api/configuration-types'
+import { type Flat, fromDocument } from '../api/json-api'
+import type { WorkerProvider as WorkerProviderResource } from '../api/v2-site/generated/types.gen'
+
+/**
+ * A Worker provider of the site API. The API sends the calculated fields as
+ * default fields of each record, but its schema marks them optional.
+ */
+export type WorkerProvider = Flat<WorkerProviderResource> & {
+  agent_count: number
+  selectable: boolean
+  stored_credentials: string[]
+}
+
+/** Text replaces a stored credential, an empty string keeps it, and null removes it. */
+export type WorkerProviderCredentialsInput = Record<string, string | null>
+
+/** Changes a provider document, or a list document, to the provider records. */
+export function workerProviders(document: { data?: WorkerProviderResource[] }): WorkerProvider[] {
+  return fromDocument(document) as WorkerProvider[]
+}
+
+export function workerProvider(document: { data?: WorkerProviderResource }): WorkerProvider {
+  return fromDocument(document) as WorkerProvider
+}
 
 export type WorkerProviderDraft = {
   providerID: string

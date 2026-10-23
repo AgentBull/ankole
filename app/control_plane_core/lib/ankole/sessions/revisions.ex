@@ -1,7 +1,6 @@
 defmodule Ankole.Sessions.Revisions do
   @moduledoc "Applies in-flight input revisions under the driver's current epoch."
-  import Ecto.Query
-  alias Ankole.Repo
+  import Ash.Expr, only: [expr: 1]
   alias Ankole.Sessions.Fence
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Presentation
@@ -26,37 +25,9 @@ defmodule Ankole.Sessions.Revisions do
 
   def apply(run, %Signal{producer: :kernel, data: %{"revision" => revision}} = event)
       when is_map(revision) do
-    now = DateTime.utc_now(:microsecond)
-    keep_history? = executable?(run)
-
-    Repo.transact(fn repo ->
-      with :ok <- Fence.check_in_tx(repo, run),
-           {:ok, event} <- mark_revision_inputs_in_tx(repo, run, event, now),
-           %Signal{status: live_status} = target when live_status in [:queued, :running] <-
-             Ankole.Signals.lock_signal_in_tx(repo, revision["signal_id"]),
-           true <- target.agent_uid == run.agent_uid and target.session_id == run.session_id,
-           {:ok, _} <-
-             ModelHistory.retract_generating_turn_in_tx(
-               repo,
-               run,
-               run.signal_id,
-               now,
-               "input_superseded"
-             ),
-           {:ok, {run, _journal}} <- Run.record_pending_in_tx(repo, run),
-           {:ok, _} <- retract_suffix(repo, run, now, keep_history?),
-           {:ok, updated} <- revise_input_in_tx(repo, target, revision, now) do
-        if updated == :removed and target.id == run.signal_id do
-          complete_removed_trigger_inputs(repo, run, event, now)
-        else
-          apply_revision_input(repo, run, event, target, updated, now)
-        end
-      else
-        false -> {:error, :revision_target_unavailable}
-        nil -> {:error, :revision_target_unavailable}
-        error -> error
-      end
-    end)
+    run
+    |> Ankole.Sessions.apply_revision(event, DateTime.utc_now(:microsecond))
+    |> Ankole.Errors.reason()
     |> then(fn result ->
       case result do
         {:ok, :stopped} -> Presentation.stop(run)
@@ -70,6 +41,38 @@ defmodule Ankole.Sessions.Revisions do
 
   def apply(_run, _event), do: {:error, :revision_target_unavailable}
 
+  @doc false
+  def apply_in_tx(repo, run, %Signal{data: %{"revision" => revision}} = event, now) do
+    keep_history? = executable?(run)
+
+    with :ok <- Fence.check_in_tx(repo, run),
+         {:ok, event} <- mark_revision_inputs_in_tx(repo, event, now),
+         %Signal{status: live_status} = target when live_status in [:queued, :running] <-
+           Ankole.Signals.lock_signal_in_tx(repo, revision["signal_id"]),
+         true <- target.agent_uid == run.agent_uid and target.session_id == run.session_id,
+         {:ok, _} <-
+           ModelHistory.retract_generating_turn_in_tx(
+             repo,
+             run,
+             run.signal_id,
+             now,
+             "input_superseded"
+           ),
+         {:ok, {run, _journal}} <- Run.record_pending_in_tx(repo, run),
+         {:ok, _} <- retract_suffix(repo, run, now, keep_history?),
+         {:ok, updated} <- revise_input_in_tx(repo, target, revision, now) do
+      if updated == :removed and target.id == run.signal_id do
+        complete_removed_trigger_inputs(repo, run, event, now)
+      else
+        apply_revision_input(run, event, target, updated)
+      end
+    else
+      false -> {:error, :revision_target_unavailable}
+      nil -> {:error, :revision_target_unavailable}
+      error -> error
+    end
+  end
+
   defp revise_input_in_tx(repo, target, revision, now),
     do: revise_event_in_tx(repo, target, revision["kind"], revision["entry"], now)
 
@@ -80,31 +83,35 @@ defmodule Ankole.Sessions.Revisions do
 
       :cancel ->
         with {:ok, _} <- Ankole.Conversations.Delivery.Deletion.commit_source_in_tx(repo, event),
-             {:ok, _} <- Ankole.Ash.destroy(event, :remove),
+             :ok <- Ankole.Signals.remove_signal(event),
              do: {:ok, :removed}
 
       {:update, attrs} ->
-        event |> Ankole.Ash.update(:revise_input, attrs)
+        Ankole.Signals.revise_input_signal(event, attrs)
     end
   end
 
-  defp mark_revision_inputs_in_tx(_repo, _run, event, now),
-    do: Ankole.Ash.update(event, :start_attempt, %{last_attempt_at: now})
+  defp mark_revision_inputs_in_tx(repo, event, now),
+    do: Ankole.Signals.transition_in_tx(repo, event, :start_attempt, %{last_attempt_at: now})
 
-  defp apply_revision_input(repo, run, event, target, updated, _now) do
+  defp apply_revision_input(run, event, target, updated) do
     trigger = if target.id == run.signal_id, do: updated, else: run.event
 
     ids =
-      repo.all(
-        from(s in Signal,
-          where:
-            s.agent_uid == ^run.agent_uid and s.session_id == ^run.session_id and
-              s.type == "input.revised" and s.producer == :kernel and
-              s.status in [:queued, :running] and not is_nil(s.last_attempt_at) and
-              fragment("? #>> '{revision,signal_id}'", s.data) == ^run.signal_id,
-          select: s.id
-        )
-      )
+      [
+        query: [
+          filter:
+            expr(
+              agent_uid == ^run.agent_uid and session_id == ^run.session_id and
+                type == "input.revised" and producer == :kernel and
+                status in [:queued, :running] and not is_nil(last_attempt_at) and
+                fragment("? #>> '{revision,signal_id}'", data) == ^run.signal_id
+            ),
+          select: [:id]
+        ]
+      ]
+      |> Ankole.Signals.list_signals!()
+      |> Enum.map(& &1.id)
 
     {:ok,
      %{

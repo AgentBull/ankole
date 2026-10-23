@@ -5,7 +5,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsFixtures
 
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.Repo
 
   alias Ankole.Signals
@@ -125,7 +125,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
            }
 
     checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, source_event.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, source_event.id)).checkpoint
 
     assert checkpoint["refresh_pending"]
     assert checkpoint["refresh_reason"] == "interaction"
@@ -196,7 +196,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
            }
 
     checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, source_event.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, source_event.id)).checkpoint
 
     assert checkpoint["interactions"]["clarify:call-1"]["state"] == "answered"
     assert checkpoint["presentation"]["interaction_status"] == "answered"
@@ -218,7 +218,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
     assert newer_event.queue_sequence > source_event.queue_sequence
 
     checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, source_event.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, source_event.id)).checkpoint
 
     interaction = checkpoint["interactions"]["clarify:call-1"]
     assert interaction["state"] == "superseded"
@@ -246,7 +246,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
              accept_signal(source_event, "conversation.message.addressed", "checkpoint-race")
 
     resolved =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, source_event.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, source_event.id)).checkpoint
 
     stale =
       resolved
@@ -256,10 +256,10 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
       |> Map.delete("refresh_reason")
 
     assert {:ok, _event} =
-             PreviewState.put_checkpoint(source_event.id, stale)
+             PreviewStates.put_checkpoint(source_event.id, stale)
 
     checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, source_event.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, source_event.id)).checkpoint
 
     assert checkpoint["interactions"]["clarify:call-1"]["state"] == "superseded"
     assert checkpoint["presentation"]["interaction_status"] == "superseded"
@@ -272,7 +272,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
     pending =
       source_event
       |> Repo.reload!()
-      |> then(&Ankole.Conversations.Delivery.PreviewState.get(&1).checkpoint["presentation"])
+      |> then(&Ankole.Conversations.Delivery.PreviewStates.get(&1).checkpoint["presentation"])
 
     assert {:ok, _intent} =
              Ankole.SignalsFixtures.commit_delivery(%{
@@ -324,7 +324,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
 
       if timing == :after_open, do: receive_external(source, type)
 
-      checkpoint = PreviewState.get(source.id).checkpoint
+      checkpoint = PreviewStates.get(source.id).checkpoint
       assert checkpoint["interactions"]["clarify:call-1"]["state"] == "pending"
       assert checkpoint["presentation"]["interaction_status"] == "pending"
 
@@ -397,7 +397,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
         setup_interaction(before_open: before_open)
 
       if timing == :after_open, do: accept_signal(source, type, "superseding-after")
-      checkpoint = PreviewState.get(source.id).checkpoint
+      checkpoint = PreviewStates.get(source.id).checkpoint
       assert checkpoint["interactions"]["clarify:call-1"]["state"] == "superseded"
       assert checkpoint["presentation"]["interaction_status"] == "superseded"
       assert Enum.all?(checkpoint["presentation"]["actions"], & &1["disabled"])
@@ -426,14 +426,14 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
                           repo: repo
                         )
 
-               assert PreviewState.get(source.id).checkpoint["interactions"]["clarify:call-1"][
+               assert PreviewStates.get(source.id).checkpoint["interactions"]["clarify:call-1"][
                         "state"
                       ] == "superseded"
 
                {:error, :rollback_intake}
              end)
 
-    assert PreviewState.get(source.id).checkpoint["interactions"]["clarify:call-1"]["state"] ==
+    assert PreviewStates.get(source.id).checkpoint["interactions"]["clarify:call-1"]["state"] ==
              "pending"
 
     assert Repo.aggregate(Signal, :count) == before_signals
@@ -449,7 +449,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
              )
 
     checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, source_event.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, source_event.id)).checkpoint
 
     assert checkpoint["interactions"]["clarify:call-1"]["state"] == "pending"
     assert checkpoint["presentation"]["interaction_status"] == "pending"
@@ -464,7 +464,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
              )
 
     checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, source_event.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, source_event.id)).checkpoint
 
     assert checkpoint["interactions"]["clarify:call-1"]["state"] == "pending"
     assert checkpoint["presentation"]["interaction_status"] == "pending"
@@ -478,7 +478,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
              )
 
     checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, source_event.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, source_event.id)).checkpoint
 
     interaction = checkpoint["interactions"]["clarify:call-1"]
     assert interaction["state"] == "superseded"
@@ -496,7 +496,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
              )
 
     checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, source_event.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, source_event.id)).checkpoint
 
     assert checkpoint["interactions"]["clarify:call-1"]["state"] == "pending"
     assert checkpoint["presentation"]["interaction_status"] == "pending"
@@ -541,7 +541,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
     %{agent: agent, human: human, event: source_event, action: action} = setup_interaction()
 
     checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, source_event.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, source_event.id)).checkpoint
 
     checkpoint =
       Map.put(checkpoint, "cards", [
@@ -550,7 +550,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
       ])
 
     assert {:ok, _updated} =
-             PreviewState.put_checkpoint(
+             PreviewStates.put_checkpoint(
                source_event.id,
                checkpoint
              )
@@ -655,7 +655,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
       "presentation" => ReplyPresentation.checkpoint(presentation)
     }
 
-    assert {:ok, _updated} = PreviewState.put_checkpoint(event.id, checkpoint)
+    assert {:ok, _updated} = PreviewStates.put_checkpoint(event.id, checkpoint)
 
     assert {:ok, _} =
              Repo.transact(fn repo ->
@@ -671,7 +671,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
              end)
 
     assert :ok =
-             PreviewState.record_provider_message(
+             PreviewStates.record_provider_message(
                event.id,
                "card-message-1"
              )

@@ -22,17 +22,19 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
-  ankoleWebPrincipalControllerIndexOptions,
-  ankoleWebTenantControllerCreateMutation,
-  ankoleWebTenantControllerDeleteMutation,
-  ankoleWebTenantControllerIndexOptions,
-  ankoleWebTenantControllerPrivilegedOptions,
-  ankoleWebTenantControllerResumeMutation,
-  ankoleWebTenantControllerSuspendMutation,
-  ankoleWebTenantControllerTransferMutation,
-  ankoleWebTenantControllerUpdateMutation
-} from '../api/generated/@tanstack/react-query.gen'
-import type { Tenant } from '../api/generated/types.gen'
+  createTenantMutation,
+  deleteTenantMutation,
+  getPrivilegedTenantOptions,
+  listTenantBrainPacksOptions,
+  listTenantsOptions,
+  resumeTenantMutation,
+  suspendTenantMutation,
+  transferSiteAdministrationMutation,
+  updateTenantMutation
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
+import { type Flat, fromDocument } from '../api/json-api'
+import type { Tenant as TenantResource } from '../api/v2-site/generated/types.gen'
+import { listPrincipalsOptions } from '../api/v2/generated/@tanstack/react-query.gen'
 import { clearDataTenant, selectDataTenant } from '../../common/browser-session'
 import {
   ConfirmDeleteButton,
@@ -47,6 +49,8 @@ import { TenantEditorModel } from '../state/tenant-editor-model'
 import { useEditorDraft } from '../use-editor-draft'
 import { ErrorBlock } from '../../common/error-block'
 
+type Tenant = Flat<TenantResource>
+
 function tenantState(tenant: Tenant) {
   return tenant.deleting_at ? 'deleting' : tenant.suspended_at ? 'suspended' : 'active'
 }
@@ -54,11 +58,12 @@ function tenantState(tenant: Tenant) {
 export function TenantsListPage() {
   const { t } = useTranslation()
   const tenants = useQuery({
-    ...ankoleWebTenantControllerIndexOptions(),
-    refetchInterval: query => (query.state.data?.tenants.some(tenant => tenant.deleting_at) ? 5000 : false)
+    ...listTenantsOptions(),
+    select: document => fromDocument(document),
+    refetchInterval: query => (query.state.data?.data?.some(tenant => tenant.attributes?.deleting_at) ? 5000 : false)
   })
-  const privileged = useQuery(ankoleWebTenantControllerPrivilegedOptions())
-  const rows = tenants.data?.tenants ?? []
+  const privileged = useQuery({ ...getPrivilegedTenantOptions(), select: document => fromDocument(document) })
+  const rows = tenants.data ?? []
   return (
     <ResourceListPage
       title={t('console.tenants.title')}
@@ -78,7 +83,7 @@ export function TenantsListPage() {
             <Link data-row-link className="text-foreground" to={`/tenants/${tenant.id}`}>
               {tenant.display_name}
             </Link>
-            {privileged.data?.tenant.id === tenant.id ? (
+            {privileged.data?.id === tenant.id ? (
               <Badge className="ml-2" variant="secondary">
                 {t('console.tenants.privileged')}
               </Badge>
@@ -106,10 +111,11 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const model = useModel(TenantEditorModel)
-  const tenants = useQuery(ankoleWebTenantControllerIndexOptions())
-  const privileged = useQuery(ankoleWebTenantControllerPrivilegedOptions())
-  const selected = tenants.data?.tenants.find(tenant => tenant.id === tenantID)
-  const isPrivileged = tenantID === privileged.data?.tenant.id
+  const tenants = useQuery({ ...listTenantsOptions(), select: document => fromDocument(document) })
+  const brainPacks = useQuery({ ...listTenantBrainPacksOptions(), enabled: !tenantID })
+  const privileged = useQuery({ ...getPrivilegedTenantOptions(), select: document => fromDocument(document) })
+  const selected = tenants.data?.find(tenant => tenant.id === tenantID)
+  const isPrivileged = tenantID === privileged.data?.id
   const source = useMemo(
     () =>
       tenantID
@@ -126,34 +132,36 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
     toast.success(t('console.tenants.saved'))
   }
   const create = useMutation({
-    ...ankoleWebTenantControllerCreateMutation(),
+    ...createTenantMutation(),
     onMutate: () => model.captureSave(),
     onSuccess: (response, variables, confirm) => {
+      const tenant = fromDocument(response)
       let accepted = false
       flushSync(() => {
         accepted =
           confirm?.({
-            slug: response.tenant.slug,
-            displayName: response.tenant.display_name,
-            brainPacks: variables.body.brain_packs ?? []
+            slug: tenant.slug,
+            displayName: tenant.display_name,
+            brainPacks: variables.body.data.attributes?.brain_packs ?? []
           }) ?? false
       })
       if (!accepted) return
       saved()
-      if (!model.dirty.value) void navigate({ to: `/tenants/${response.tenant.id}` })
+      if (!model.dirty.value) void navigate({ to: `/tenants/${tenant.id}` })
     }
   })
   const update = useMutation({
-    ...ankoleWebTenantControllerUpdateMutation(),
+    ...updateTenantMutation(),
     onMutate: () => model.captureSave(),
     onSuccess: (response, _variables, confirm) => {
-      if (confirm?.({ slug: response.tenant.slug, displayName: response.tenant.display_name, brainPacks: [] })) saved()
+      const tenant = fromDocument(response)
+      if (confirm?.({ slug: tenant.slug, displayName: tenant.display_name, brainPacks: [] })) saved()
     }
   })
-  const suspend = useMutation({ ...ankoleWebTenantControllerSuspendMutation(), onSuccess: saved })
-  const resume = useMutation({ ...ankoleWebTenantControllerResumeMutation(), onSuccess: saved })
+  const suspend = useMutation({ ...suspendTenantMutation(), onSuccess: saved })
+  const resume = useMutation({ ...resumeTenantMutation(), onSuccess: saved })
   const remove = useMutation({
-    ...ankoleWebTenantControllerDeleteMutation(),
+    ...deleteTenantMutation(),
     onMutate: () => window.location.href,
     onSuccess: (_response, _variables, sourceURL) => {
       if (window.location.href !== sourceURL) return
@@ -175,15 +183,20 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
         suspend.error ??
         resume.error ??
         tenants.error ??
+        brainPacks.error ??
         privileged.error
       }
       submitting={create.isPending || update.isPending}
       submitUnavailable={status !== 'ready' || Boolean(selected?.deleting_at)}
       submitDisabled={Boolean(tenantID && !model.dirty.value)}
       onSubmit={() => {
-        const body = { slug: model.slug.value.trim(), display_name: model.displayName.value.trim() }
-        if (tenantID) update.mutate({ path: { tenant_id: tenantID }, body })
-        else create.mutate({ body: { ...body, brain_packs: model.brainPacks.value } })
+        const attributes = { slug: model.slug.value.trim(), display_name: model.displayName.value.trim() }
+        if (tenantID) {
+          update.mutate({ path: { id: tenantID }, body: { data: { type: 'tenant', id: tenantID, attributes } } })
+        } else {
+          const brainPacks = model.brainPacks.value
+          create.mutate({ body: { data: { type: 'tenant', attributes: { ...attributes, brain_packs: brainPacks } } } })
+        }
       }}
       secondary={
         selected && !selected.deleting_at ? (
@@ -197,9 +210,7 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
                   type="button"
                   variant="outline"
                   disabled={suspend.isPending || resume.isPending}
-                  onClick={() =>
-                    (selected.suspended_at ? resume : suspend).mutate({ path: { tenant_id: selected.id } })
-                  }>
+                  onClick={() => (selected.suspended_at ? resume : suspend).mutate({ path: { id: selected.id } })}>
                   {t(selected.suspended_at ? 'console.tenants.resume' : 'console.tenants.suspend')}
                 </Button>
                 <ConfirmDeleteButton
@@ -210,7 +221,7 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
                     description: t('console.tenants.delete_description', { name: selected.display_name }),
                     confirmLabel: t('common.delete')
                   }}
-                  onConfirm={() => remove.mutate({ path: { tenant_id: selected.id } })}
+                  onConfirm={() => remove.mutate({ path: { id: selected.id } })}
                 />
               </>
             ) : null}
@@ -242,7 +253,7 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
         ) : (
           <div className="grid gap-3">
             <p className="text-sm text-muted-foreground">{t('console.tenants.packs_hint')}</p>
-            {tenants.data?.brain_packs.map(pack => (
+            {brainPacks.data?.map(pack => (
               <LabeledField key={pack} label={pack}>
                 <Switch
                   checked={model.brainPacks.value.includes(pack)}
@@ -271,12 +282,14 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
 function TransferAdministration({ tenant }: { tenant: Tenant }) {
   const { t } = useTranslation()
   const [principalUID, setPrincipalUID] = useState('')
-  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions({ headers: { 'x-ankole-tenant': tenant.id } }))
-  const humans =
-    principals.data?.principals.filter(principal => principal.type === 'human' && principal.status === 'active') ?? []
+  const principals = useQuery({
+    ...listPrincipalsOptions({ headers: { 'x-ankole-tenant': tenant.id } }),
+    select: data => fromDocument(data)
+  })
+  const humans = principals.data?.filter(principal => principal.type === 'human' && principal.status === 'active') ?? []
   const transfer = useMutation({
     meta: { invalidates: false },
-    ...ankoleWebTenantControllerTransferMutation(),
+    ...transferSiteAdministrationMutation(),
     onSuccess: () => {
       clearDataTenant()
       window.location.assign('/sessions/new')
@@ -294,7 +307,7 @@ function TransferAdministration({ tenant }: { tenant: Tenant }) {
           </SelectTrigger>
           <SelectContent>
             {humans.map(principal => (
-              <SelectItem key={principal.uid} value={principal.uid}>
+              <SelectItem key={principal.id} value={principal.id}>
                 {principalLabel(principal)}
               </SelectItem>
             ))}
@@ -313,7 +326,17 @@ function TransferAdministration({ tenant }: { tenant: Tenant }) {
             description: t('console.tenants.transfer_confirm', { name: tenant.display_name }),
             confirmLabel: t('console.tenants.transfer')
           }}
-          onConfirm={() => transfer.mutate({ body: { tenant_id: tenant.id, site_admin_uid: principalUID } })}
+          onConfirm={() =>
+            transfer.mutate({
+              body: {
+                data: {
+                  type: 'tenant',
+                  id: tenant.id,
+                  attributes: { tenant_id: tenant.id, site_admin_uid: principalUID }
+                }
+              }
+            })
+          }
         />
       ) : null}
     </section>

@@ -8,11 +8,12 @@ defmodule Ankole.Brain.Forget do
   here; purge hard-deletes only soft-deleted objects past their TTL.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Claim
+  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Scope
   alias Ankole.Repo
 
@@ -24,24 +25,34 @@ defmodule Ankole.Brain.Forget do
   """
   @spec forget_claim(Ecto.UUID.t(), String.t(), caller()) :: {:ok, Claim.t()} | {:error, term()}
   def forget_claim(claim_id, reason, caller) when is_binary(reason) do
+    with {:ok, claim_id} <- cast_claim_id(claim_id) do
+      Ankole.Ash.run_action(Claim, :forget_claim, %{
+        claim_id: claim_id,
+        reason: reason,
+        caller: caller
+      })
+    end
+  end
+
+  @doc false
+  # The state change and the reason commit together in the transaction of
+  # the `:forget_claim` action: a crash between them must not leave a
+  # forgotten claim without its required reason.
+  def forget_claim_in_tx(claim_id, reason, caller) do
     with :ok <- validate_reason(reason),
          {:ok, claim} <- fetch_claim(claim_id),
          :ok <- validate_eligibility(claim, caller) do
-      # State change and reason commit together: a crash between them must
-      # not leave a forgotten claim without its required reason.
-      Repo.transact(fn _repo ->
-        result =
-          case claim.claim_type do
-            :fact -> Claims.expire_fact(claim.id)
-            :take -> Claims.deactivate_take(claim.id)
-          end
-
-        with {:ok, updated} <- result do
-          Ankole.Ash.update(updated, :append_forgetting_reason, %{
-            reason: forgetting_reason(reason, caller)
-          })
+      result =
+        case claim.claim_type do
+          :fact -> Claims.expire_fact_in_tx(claim.id)
+          :take -> Claims.deactivate_take_in_tx(claim.id)
         end
-      end)
+
+      with {:ok, updated} <- result do
+        Ankole.Ash.update(updated, :append_forgetting_reason, %{
+          reason: forgetting_reason(reason, caller)
+        })
+      end
     end
   end
 
@@ -51,10 +62,32 @@ defmodule Ankole.Brain.Forget do
   """
   @spec forget_object(String.t(), String.t(), caller()) :: {:ok, map()} | {:error, term()}
   def forget_object(slug, reason, caller) when is_binary(reason) do
+    with {:ok, object} <- forget_object_target(slug, reason, caller) do
+      Ankole.Ash.run_action(Object, :soft_delete_object, %{
+        slug: object.slug,
+        reason: String.trim(reason),
+        by: caller_label(caller)
+      })
+    end
+  end
+
+  @doc false
+  # Soft-deletes one object in the transaction of the Console `:console_forget`
+  # action of `Ankole.Brain.Schemas.Object`.
+  def forget_object_in_tx(slug, reason, caller) do
+    with {:ok, object} <- forget_object_target(slug, reason, caller) do
+      Objects.soft_delete_in_tx(object.slug,
+        reason: String.trim(reason),
+        by: caller_label(caller)
+      )
+    end
+  end
+
+  defp forget_object_target(slug, reason, caller) do
     with :ok <- validate_reason(reason),
          {:ok, object} <- Objects.resolve_slug(slug),
          :ok <- validate_object_eligibility(object, caller) do
-      Objects.soft_delete(object.slug, reason: String.trim(reason), by: caller_label(caller))
+      {:ok, object}
     end
   end
 
@@ -62,8 +95,15 @@ defmodule Ankole.Brain.Forget do
     if String.trim(reason) == "", do: {:error, :forget_reason_required}, else: :ok
   end
 
+  defp cast_claim_id(claim_id) do
+    case Ecto.UUID.cast(claim_id) do
+      {:ok, claim_id} -> {:ok, claim_id}
+      :error -> {:error, :not_found}
+    end
+  end
+
   defp fetch_claim(claim_id) do
-    case Repo.get(Claim, claim_id) do
+    case Claim |> Ash.Query.filter(id == ^claim_id) |> Ankole.Ash.read_one!() do
       %Claim{} = claim -> {:ok, claim}
       nil -> {:error, :not_found}
     end

@@ -1,8 +1,6 @@
 defmodule Ankole.Sessions.Admission do
   @moduledoc "Admits durable input without reserving an Agent Computer."
 
-  import Ecto.Query, only: [from: 2]
-
   alias Ankole.AIAgent.TokenQuota
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.Sessions.Commands
@@ -73,7 +71,9 @@ defmodule Ankole.Sessions.Admission do
             end)
 
           Ankole.Observability.stage("session.admission.claim", attributes, fn ->
-            Repo.transact(fn repo -> admit_in_tx(repo, key, event, plan, prepared, now) end)
+            key
+            |> Ankole.Sessions.admit_input(event, plan, prepared, now)
+            |> Ankole.Errors.reason()
           end)
         else
           {:closed, result} -> {:ok, result}
@@ -86,19 +86,24 @@ defmodule Ankole.Sessions.Admission do
   end
 
   @doc false
-  def reject_private_work_input(event, now) do
-    Repo.transact(fn repo ->
-      with {:ok, event} <-
-             Queue.mark_event_dead_letter_in_tx(repo, event, now, %{
-               "code" => "invalid_signal_target"
-             }),
-           do: {:ok, %{status: :dead_letter, signal: event}}
-    end)
+  def reject_private_work_input(event, now),
+    do: dead_letter_input(event, now, %{"code" => "invalid_signal_target"})
+
+  @doc "Dead-letters one input in its own transaction."
+  def dead_letter_input(event, now, reason),
+    do: event |> Ankole.Sessions.dead_letter_input(now, reason) |> Ankole.Errors.reason()
+
+  @doc false
+  def dead_letter_input_in_tx(repo, event, now, reason) do
+    with {:ok, event} <- Queue.mark_event_dead_letter_in_tx(repo, event, now, reason),
+         do: {:ok, %{status: :dead_letter, signal: event}}
   end
 
   @spec authorize_event(Signal.t()) :: {:ok, Signal.t()} | {:error, term()}
   def authorize_event(event) do
-    Repo.transact(fn repo -> authorize_event_in_tx(repo, event) end)
+    event
+    |> Ankole.Sessions.authorize_input()
+    |> Ankole.Errors.reason()
     |> case do
       {:ok, %{signal: completed} = result} ->
         Run.after_finalization({:ok, result})
@@ -145,7 +150,8 @@ defmodule Ankole.Sessions.Admission do
 
   defp defer_workflow(result, _event, _now), do: result
 
-  defp admit_in_tx(repo, key, snapshot, plan, prepared, now) do
+  @doc false
+  def admit_in_tx(repo, key, snapshot, plan, prepared, now) do
     with :ok <- authorize_attempt_in_tx(repo, snapshot),
          {:ok, :not_committed} <- finalize_workflow_input_in_tx(repo, snapshot, plan),
          {:ok, kind_context} <- Run.type(snapshot).admit_in_tx(repo, snapshot, plan),
@@ -161,11 +167,9 @@ defmodule Ankole.Sessions.Admission do
          :ok <- Commands.prepare_new_in_tx(repo, event, now),
          {:ok, conversation} <-
            ModelHistory.ensure_and_lock_conversation_in_tx(repo, uid, session, event),
-         {:ok, workspace} <-
-           Ankole.Ash.update(workspace, :advance_epoch, %{}),
+         {:ok, workspace} <- Ankole.Ash.update_atomic(workspace, :advance_epoch),
          {:ok, event} <-
-           event
-           |> Ankole.Ash.update(:admit, %{
+           Ankole.Signals.transition_in_tx(repo, event, :admit, %{
              last_attempt_at: now,
              data:
                if(plan.kind == :main,
@@ -296,12 +300,8 @@ defmodule Ankole.Sessions.Admission do
 
   @doc "Checks new Session work before its domain, Session, or Signal locks."
   def authorize_new_work_in_tx(repo, event) do
-    repo.one(
-      from(t in Ankole.Tenants.Tenant,
-        where: t.id == ^Repo.tenant_id!(),
-        lock: "FOR SHARE"
-      )
-    )
+    # The share lock serializes new work with tenant suspension and deletion.
+    _lock = Ankole.Tenants.lock_tenant_in_tx(repo, Repo.tenant_id!(), :share)
 
     with :ok <- authorize_new_in_tx(repo, event) do
       agent_active(repo, event.agent_uid)
@@ -315,10 +315,8 @@ defmodule Ankole.Sessions.Admission do
   end
 
   defp agent_active(repo, uid) do
-    case repo.one(from(p in Principal, where: p.uid == ^uid, lock: "FOR SHARE"),
-           lock_identity: {"principals", uid}
-         ) do
-      %Principal{type: :agent, status: :active} -> :ok
+    case Ankole.Principals.lock_principal_in_tx(repo, uid, :share) do
+      {:ok, %Principal{type: :agent, status: :active}} -> :ok
       _inactive -> {:error, :agent_not_active}
     end
   end

@@ -5,10 +5,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { loadLocale } from '../../common/i18n'
 import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
 import {
-  ankoleWebAiGatewayConversationControllerMessagesQueryKey,
-  ankoleWebAiGatewayConversationControllerShowQueryKey
-} from '../api/generated/@tanstack/react-query.gen'
-import type { AiGatewayMessageItem } from '../api/generated/types.gen'
+  aiGatewayConversationOptions,
+  aiGatewayMessagesOptions,
+  type AIGatewayMessageItem
+} from '../api/ai-gateway-conversations'
 import { ConversationDetailPage } from './conversations'
 
 beforeAll(() => loadLocale('en-US'))
@@ -58,11 +58,11 @@ describe('Conversation reply model facts', () => {
 
 function message(
   profile?: string,
-  content: AiGatewayMessageItem['content'] = [
+  content: AIGatewayMessageItem['content'] = [
     { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Reply' }] }
   ],
-  metadata: AiGatewayMessageItem['metadata'] = {}
-): AiGatewayMessageItem {
+  metadata: AIGatewayMessageItem['metadata'] = {}
+): AIGatewayMessageItem {
   return {
     id: profile ?? 'legacy',
     subject_uid: 'agent-a',
@@ -80,13 +80,13 @@ function message(
   }
 }
 
-async function renderMessages(messages: AiGatewayMessageItem[]) {
+async function renderMessages(messages: AIGatewayMessageItem[]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
-  client.setQueryData(
-    ankoleWebAiGatewayConversationControllerShowQueryKey({ path: { conversation_id: 'conversation-a' } }),
-    {
-      conversation: {
-        id: 'conversation-a',
+  client.setQueryData(aiGatewayConversationOptions('conversation-a').queryKey, {
+    data: {
+      id: 'conversation-a',
+      type: 'ai_gateway_conversation',
+      attributes: {
         subject_uid: 'agent-a',
         conversation_key: 'profile-metadata',
         display_name: null,
@@ -97,14 +97,10 @@ async function renderMessages(messages: AiGatewayMessageItem[]) {
         updated_at: '2026-10-11T00:00:00Z'
       }
     }
-  )
-  client.setQueryData(
-    ankoleWebAiGatewayConversationControllerMessagesQueryKey({
-      path: { conversation_id: 'conversation-a' },
-      query: { cursor: undefined, limit: 200 }
-    }),
-    { messages, next_cursor: null }
-  )
+  })
+  client.setQueryData(aiGatewayMessagesOptions('conversation-a', { after: undefined, limit: 200 }).queryKey, {
+    data: messages.map(({ id, ...attributes }) => ({ id, type: 'ai_gateway_message', attributes }))
+  })
 
   const rootRoute = createRootRoute()
   const detailRoute = createRoute({

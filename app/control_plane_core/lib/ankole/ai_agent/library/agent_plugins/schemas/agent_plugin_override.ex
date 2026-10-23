@@ -1,6 +1,6 @@
 defmodule Ankole.AIAgent.Library.AgentPlugins.Schemas.AgentPluginOverride do
   @moduledoc "One sparse Agent Plugin enablement override."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIAgent.Library.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIAgent
 
   postgres do
     table("agent_plugin_overrides")
@@ -43,14 +43,12 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Schemas.AgentPluginOverride do
 
     create :set do
       accept([:agent_uid, :agent_plugin_id, :enabled])
-      transaction?(false)
       upsert?(true)
       upsert_identity(:agent_plugin)
       upsert_fields([:enabled, :updated_at])
     end
 
     destroy :reset do
-      transaction?(false)
       require_atomic?(true)
     end
   end

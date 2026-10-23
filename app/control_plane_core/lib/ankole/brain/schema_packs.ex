@@ -9,8 +9,6 @@ defmodule Ankole.Brain.SchemaPacks do
   validation. Pack seeds are never read on the write path.
   """
 
-  import Ecto.Query, warn: false
-
   alias Ankole.Brain.Schemas.SchemaCalibrationDomain
   alias Ankole.Brain.Schemas.SchemaLinkType
   alias Ankole.Brain.Schemas.SchemaPack
@@ -77,27 +75,36 @@ defmodule Ankole.Brain.SchemaPacks do
   them.
   """
   @spec install_packs([String.t()]) :: {:ok, map()} | {:error, term()}
-  def install_packs(names) when is_list(names) do
-    with {:ok, ordered} <- normalize_selection(names) do
-      Repo.transact(fn repo ->
-        installed = repo.all(SchemaPack |> lock("FOR UPDATE"))
-        installed_names = MapSet.new(installed, & &1.name)
+  def install_packs(names) when is_list(names),
+    do: Ankole.Ash.run_action(SchemaPack, :install_packs, %{names: Enum.map(names, &to_string/1)})
 
-        new_names = Enum.reject(ordered, &MapSet.member?(installed_names, &1))
+  @doc """
+  Installs the selected packs in the caller's transaction.
 
-        case ensure_new_packs(ordered, installed_names, new_names) do
-          {:already_installed, names} ->
-            {:ok, %{status: :already_installed, installed: names}}
+  Tenant creation and setup completion install the packs in their own
+  transaction; a failed installation rolls back that transaction.
+  """
+  @spec install_packs_in_tx(module(), [String.t()]) :: {:ok, map()} | {:error, term()}
+  def install_packs_in_tx(repo, names) when is_list(names) do
+    with :ok <- Repo.require_transaction(repo),
+         {:ok, ordered} <- normalize_selection(names) do
+      installed = SchemaPack |> Ash.Query.lock(:for_update) |> Ankole.Ash.read!()
+      installed_names = MapSet.new(installed, & &1.name)
 
-          :ok ->
-            with {:ok, seeds} <- load_seeds(new_names),
-                 all_manifests =
-                   Enum.map(installed, & &1.manifest) ++ Enum.map(seeds, & &1.manifest),
-                 {:ok, merged} <- merge_manifests(all_manifests) do
-              materialize(seeds, merged)
-            end
-        end
-      end)
+      new_names = Enum.reject(ordered, &MapSet.member?(installed_names, &1))
+
+      case ensure_new_packs(ordered, installed_names, new_names) do
+        {:already_installed, names} ->
+          {:ok, %{status: :already_installed, installed: names}}
+
+        :ok ->
+          with {:ok, seeds} <- load_seeds(new_names),
+               all_manifests =
+                 Enum.map(installed, & &1.manifest) ++ Enum.map(seeds, & &1.manifest),
+               {:ok, merged} <- merge_manifests(all_manifests) do
+            materialize(seeds, merged)
+          end
+      end
     end
   end
 
@@ -515,10 +522,12 @@ defmodule Ankole.Brain.SchemaPacks do
   end
 
   defp register_rows(resource, action, rows) do
-    case Ankole.Ash.bulk_create(rows, resource, action, return_errors?: true) do
-      %Ash.BulkResult{status: :success} -> :ok
-      %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
-    end
+    Enum.reduce_while(rows, :ok, fn row, :ok ->
+      case Ankole.Ash.create(resource, action, row) do
+        {:ok, _row} -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp seeds_root do

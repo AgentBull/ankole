@@ -1,7 +1,7 @@
 defmodule Ankole.Signals.CloudEvents do
   @moduledoc "Structured JSON CloudEvents source adapter with endpoint-specific routing."
 
-  import Ecto.Query
+  require Ash.Query
   alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.Ecto.JSONPayload
   alias Ankole.Principals.WorkAccess
@@ -13,14 +13,13 @@ defmodule Ankole.Signals.CloudEvents do
     with {:ok, event} <- normalize(event) do
       reference = "webhook-endpoint://#{endpoint.id}"
 
-      repo.all(
-        from(b in Binding,
-          where:
-            b.adapter == "cloudevents" and b.config_ref == ^reference and b.enabled and
-              is_nil(b.unavailable_reason),
-          order_by: [asc: b.agent_uid, asc: b.name]
-        )
+      Binding
+      |> Ash.Query.filter(
+        adapter == "cloudevents" and config_ref == ^reference and enabled and
+          is_nil(unavailable_reason)
       )
+      |> Ash.Query.sort(agent_uid: :asc, name: :asc)
+      |> Ankole.Ash.read!()
       |> Enum.reduce_while({:ok, []}, fn binding, {:ok, accepted} ->
         case BindingFilters.match_event?(binding.filters, event, binding) do
           :no_match ->

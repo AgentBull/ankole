@@ -28,14 +28,14 @@ defmodule Ankole.ConversationsFixtures do
   def create(human, attrs) do
     Ankole.Repo.transact(fn repo ->
       with {:ok, %{id: id}} <- Ankole.Conversations.create_in_tx(repo, human, attrs),
-           do: Ankole.Conversations.get(human, id)
+           do: Ankole.Conversations.detail_in_tx(repo, human, id, [])
     end)
   end
 
   def post(human, id, attrs) do
     Ankole.Repo.transact(fn repo ->
       with {:ok, _} <- Ankole.Conversations.post_in_tx(repo, human, id, attrs),
-           do: Ankole.Conversations.get(human, id)
+           do: Ankole.Conversations.detail_in_tx(repo, human, id, [])
     end)
   end
 end

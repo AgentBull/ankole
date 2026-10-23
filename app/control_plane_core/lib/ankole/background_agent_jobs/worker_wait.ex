@@ -7,7 +7,6 @@ defmodule Ankole.BackgroundAgentJobs.WorkerWait do
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Wakeups
-  alias Ankole.Repo
   alias Ankole.Sessions.Queue
   alias Ankole.Signals.Signal
 
@@ -54,79 +53,86 @@ defmodule Ankole.BackgroundAgentJobs.WorkerWait do
     end
   end
 
-  @doc false
+  @doc "Resolves a Worker readiness timeout atomically."
   @spec resolve_timeout(Signal.t(), Job.t(), DateTime.t()) :: {:ok, map()} | {:error, term()}
   def resolve_timeout(%Signal{} = event, %Job{} = snapshot, %DateTime{} = now) do
-    Repo.transact(fn repo ->
-      _worker = AgentWorkers.lock_in_tx(repo, snapshot.agent_uid)
+    Ankole.Ash.run_action(Job, :resolve_worker_timeout, %{
+      signal: event,
+      job: snapshot,
+      now: now
+    })
+  end
 
-      with :ok <- Lifecycle.lock_agent_slots(repo, snapshot.agent_uid),
-           %Job{} = job <-
-             Queries.get_for_agent(repo, snapshot.id, snapshot.agent_uid, lock: "FOR UPDATE") do
-        case job.status do
-          :queued ->
-            with {:ok, compensation} <-
-                   Lifecycle.commit_status_after_runtime_prefix_in_tx(
-                     repo,
-                     job.id,
-                     job.agent_uid,
-                     %{
-                       "status" => :failed,
-                       "error" => %{
-                         "code" => "agent_worker_unavailable",
-                         "summary" => "Job admission was rejected."
-                       }
-                     },
-                     now,
-                     nil,
-                     nil,
-                     external_completion: true,
-                     transition_action: :fail_admission
-                   ),
-                 {:ok, event} <-
-                   Queue.mark_event_dead_letter_in_tx(repo, event, now, %{
-                     "code" => "agent_worker_unavailable",
-                     "reason" => "agent_worker_ready_timeout"
-                   }) do
-              {:ok,
-               %{
-                 status: :dead_letter,
-                 signal: event,
-                 wakeup_event: compensation[:wakeup_event]
-               }}
-            end
+  @doc false
+  @spec resolve_timeout_in_tx(module(), Signal.t(), Job.t(), DateTime.t()) ::
+          {:ok, map()} | {:error, term()}
+  def resolve_timeout_in_tx(repo, %Signal{} = event, %Job{} = snapshot, %DateTime{} = now) do
+    _worker = AgentWorkers.lock_in_tx(repo, snapshot.agent_uid)
 
-          :waiting_on_user ->
-            with :ok <- Lifecycle.lock_job_sessions_in_tx(repo, job),
-                 {:ok, job} <-
-                   JobState.clear_worker_wait_in_tx(job, now),
-                 {:ok, event} <-
-                   Queue.mark_event_dead_letter_in_tx(repo, event, now, %{
-                     "code" => "agent_worker_unavailable",
-                     "reason" => "agent_worker_ready_timeout"
-                   }),
-                 {:ok, wakeup_event} <-
-                   Wakeups.enqueue_input_undeliverable_in_tx(repo, job, event, now) do
-              {:ok,
-               %{
-                 status: :dead_letter,
-                 signal: event,
-                 wakeup_event: wakeup_event
-               }}
-            end
+    with :ok <- Lifecycle.lock_agent_slots(repo, snapshot.agent_uid),
+         %Job{} = job <- Queries.lock_for_agent_in_tx(snapshot.id, snapshot.agent_uid) do
+      case job.status do
+        :queued ->
+          with {:ok, compensation} <-
+                 Lifecycle.commit_status_after_runtime_prefix_in_tx(
+                   repo,
+                   job.id,
+                   job.agent_uid,
+                   %{
+                     "status" => :failed,
+                     "error" => %{
+                       "code" => "agent_worker_unavailable",
+                       "summary" => "Job admission was rejected."
+                     }
+                   },
+                   now,
+                   nil,
+                   nil,
+                   transition_action: :fail_admission
+                 ),
+               {:ok, event} <-
+                 Queue.mark_event_dead_letter_in_tx(repo, event, now, %{
+                   "code" => "agent_worker_unavailable",
+                   "reason" => "agent_worker_ready_timeout"
+                 }) do
+            {:ok,
+             %{
+               status: :dead_letter,
+               signal: event,
+               wakeup_event: compensation[:wakeup_event]
+             }}
+          end
 
-          status when status in [:succeeded, :failed, :stopped] ->
-            with {:ok, event} <- Queue.mark_event_completed_in_tx(repo, event, now) do
-              {:ok, %{status: :idle, signal: event}}
-            end
+        :waiting_on_user ->
+          with :ok <- Lifecycle.lock_job_sessions_in_tx(repo, job),
+               {:ok, job} <-
+                 JobState.clear_worker_wait_in_tx(job, now),
+               {:ok, event} <-
+                 Queue.mark_event_dead_letter_in_tx(repo, event, now, %{
+                   "code" => "agent_worker_unavailable",
+                   "reason" => "agent_worker_ready_timeout"
+                 }),
+               {:ok, wakeup_event} <-
+                 Wakeups.enqueue_input_undeliverable_in_tx(repo, job, event, now) do
+            {:ok,
+             %{
+               status: :dead_letter,
+               signal: event,
+               wakeup_event: wakeup_event
+             }}
+          end
 
-          _running ->
+        status when status in [:succeeded, :failed, :stopped] ->
+          with {:ok, event} <- Queue.mark_event_completed_in_tx(repo, event, now) do
             {:ok, %{status: :idle, signal: event}}
-        end
-      else
-        nil -> {:error, :job_not_found}
-        {:error, _reason} = error -> error
+          end
+
+        _running ->
+          {:ok, %{status: :idle, signal: event}}
       end
-    end)
+    else
+      nil -> {:error, :job_not_found}
+      {:error, _reason} = error -> error
+    end
   end
 end

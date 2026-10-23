@@ -114,7 +114,7 @@ defmodule Ankole.Plugins.DiscordAdapter.ReplyPreview do
   end
 
   defp maybe_reply(body, %Signal{} = event) do
-    case Signal.reply_anchor_provider_message_id(event) |> Delivery.message_id() do
+    case Ankole.Signals.reply_anchor_provider_message_id(event) |> Delivery.message_id() do
       {:ok, provider_message_id} ->
         Map.put(body, "message_reference", %{
           "message_id" => provider_message_id,

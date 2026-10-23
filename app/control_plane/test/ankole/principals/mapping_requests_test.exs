@@ -57,9 +57,9 @@ defmodule Ankole.Principals.MappingRequestsTest do
       Task.async(fn ->
         Repo.with_tenant(tenant.id, fn ->
           Sandbox.unboxed_run(Repo, fn ->
-            Repo.transact(fn _repo ->
+            Repo.transact(fn repo ->
               result =
-                MappingRequests.record_observation(%{
+                MappingRequests.record_observation_in_tx(repo, %{
                   provider: provider,
                   external_id: external_id,
                   email: "ada@example.com",
@@ -145,7 +145,7 @@ defmodule Ankole.Principals.MappingRequestsTest do
                display_name: "Bindable"
              })
 
-    assert {:ok, %{identity: identity}} = MappingRequests.bind_request(request.id, principal.uid)
+    assert {:ok, identity} = MappingRequests.bind_request(request.id, principal.uid)
     assert identity.principal_uid == principal.uid
     assert identity.metadata["origin"] == "manual"
 

@@ -169,7 +169,7 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
   end
 
   defp maybe_reply(body, %Signal{} = event) do
-    case Signal.reply_anchor_provider_message_id(event) |> Delivery.integer_value() do
+    case Ankole.Signals.reply_anchor_provider_message_id(event) |> Delivery.integer_value() do
       {:ok, provider_message_id} ->
         Map.put(body, "reply_parameters", %{
           "message_id" => provider_message_id,

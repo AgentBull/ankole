@@ -52,9 +52,9 @@ defmodule Ankole.AIGateway.Conversations do
   def touch_conversation_in_tx(_repo, conversation_id) do
     case Conversation
          |> Ash.Query.filter(id == ^conversation_id)
-         |> Ankole.Ash.bulk_update(:touch, %{}, strategy: [:atomic], return_errors?: true) do
-      %Ash.BulkResult{status: :success} -> :ok
-      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+         |> Ankole.Ash.update_where(:touch) do
+      {:ok, _conversations} -> :ok
+      {:error, error} -> raise error
     end
   end
 

@@ -28,7 +28,6 @@ defmodule Ankole.Brain.SourceLearning do
   loudly.
   """
 
-  import Ecto.Query, warn: false
   require Ash.Query
 
   alias Ankole.AIGateway
@@ -44,7 +43,6 @@ defmodule Ankole.Brain.SourceLearning do
   alias Ankole.Brain.Sources
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
-  alias Ankole.Repo
 
   @max_content_bytes 10 * 1024 * 1024
   @extraction_window_chars 12_000
@@ -124,34 +122,17 @@ defmodule Ankole.Brain.SourceLearning do
     end
   end
 
-  # One transaction owns every write of the run. The locked re-read fences
-  # two races: an archive during the fetch or extraction (the archived
-  # Source must not gain new memory), and a revision that advanced since
-  # this run read it (the later content must not be overwritten by the
-  # earlier run's late commit).
   defp commit_run(source, object_attrs, extraction, scope, fingerprint) do
-    session = provenance_session(source)
-
     result =
-      Repo.transact(fn repo ->
-        with {:ok, current} <- Sources.lock_active(repo, source),
-             :ok <- ensure_same_revision(current, source.upstream_revision),
-             {:ok, object} <- Objects.upsert_source_projection(current, object_attrs),
-             expired = Claims.expire_source_session_facts(repo, object.slug, session),
-             {:ok, written} <- write_claims(object, extraction.items, scope, session),
-             {:ok, _source} <- Sources.record_revision(repo, current, fingerprint) do
-          {:ok,
-           %{
-             status: :learned,
-             object_slug: object.slug,
-             windows: extraction.windows,
-             claims: written.claims,
-             claims_expired: expired,
-             rejected: written.rejected,
-             reject_reasons: written.reject_reasons
-           }}
-        end
-      end)
+      Ankole.Ash.run_action(Source, :commit_learning_run, %{
+        run: %{
+          source: source,
+          object_attrs: object_attrs,
+          extraction: extraction,
+          scope: scope,
+          fingerprint: fingerprint
+        }
+      })
 
     with {:ok, %{rejected: rejected} = report} <- result do
       if rejected > 0 do
@@ -163,6 +144,34 @@ defmodule Ankole.Brain.SourceLearning do
       end
 
       {:ok, Map.delete(report, :reject_reasons)}
+    end
+  end
+
+  @doc false
+  # Commits every write of one run in the transaction of the
+  # `:commit_learning_run` action. The locked re-read fences two races: an
+  # archive during the fetch or extraction (the archived Source must not gain
+  # new memory), and a revision that advanced since this run read it (the
+  # later content must not be overwritten by the earlier run's late commit).
+  def commit_run_in_tx(%{source: source, extraction: extraction} = run) do
+    session = provenance_session(source)
+
+    with {:ok, current} <- Sources.lock_active(Ankole.Repo, source),
+         :ok <- ensure_same_revision(current, source.upstream_revision),
+         {:ok, object} <- Objects.upsert_source_projection_in_tx(current, run.object_attrs),
+         expired = Claims.expire_source_session_facts(Ankole.Repo, object.slug, session),
+         {:ok, written} <- write_claims(object, extraction.items, run.scope, session),
+         {:ok, _source} <- Sources.record_revision(Ankole.Repo, current, run.fingerprint) do
+      {:ok,
+       %{
+         status: :learned,
+         object_slug: object.slug,
+         windows: extraction.windows,
+         claims: written.claims,
+         claims_expired: expired,
+         rejected: written.rejected,
+         reject_reasons: written.reject_reasons
+       }}
     end
   end
 
@@ -323,7 +332,7 @@ defmodule Ankole.Brain.SourceLearning do
           provenance_session: session
         }
 
-        case Claims.write_fact(attrs, :system, dedup: false, embed: false) do
+        case Claims.write_fact_in_tx(attrs, :system, dedup: false, embed: false) do
           {:ok, _result} ->
             Map.update!(acc, :claims, &(&1 + 1))
 
@@ -440,9 +449,19 @@ defmodule Ankole.Brain.SourceLearning do
   end
 
   defp fetch_source(source_id) do
-    case Repo.get(Source, source_id) do
-      %Source{} = source -> {:ok, source}
-      nil -> {:error, :not_found}
+    with {:ok, source_id} <- cast_source_id(source_id),
+         %Source{} = source <-
+           Source |> Ash.Query.filter(id == ^source_id) |> Ankole.Ash.read_one!() do
+      {:ok, source}
+    else
+      _missing -> {:error, :not_found}
+    end
+  end
+
+  defp cast_source_id(source_id) do
+    case Ecto.UUID.cast(source_id) do
+      {:ok, source_id} -> {:ok, source_id}
+      :error -> {:error, :not_found}
     end
   end
 end

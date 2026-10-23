@@ -5,20 +5,20 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { loadLocale } from '../../common/i18n'
 import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
 import {
-  ankoleWebConsoleReadinessControllerShowQueryKey,
-  ankoleWebAiGatewayProviderControllerIndexQueryKey,
-  ankoleWebBackgroundAgentJobControllerHealthQueryKey,
-  ankoleWebBackgroundAgentJobControllerIndexQueryKey
-} from '../api/generated/@tanstack/react-query.gen'
-import type { ConsoleReadinessResponse } from '../api/generated/types.gen'
+  getConsoleReadinessQueryKey,
+  getBackgroundAgentJobHealthQueryKey
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import { backgroundAgentJobsOptions } from '../api/background-agent-jobs'
+import type { ConsoleReadinessResponse } from '../api/runtime-types'
+import { listAiGatewayProvidersQueryKey } from '../api/v2-site/generated/@tanstack/react-query.gen'
 import { HomePage } from './home'
 
 beforeAll(() => loadLocale('en-US'))
 
 test('shows global job counts independently of the recent jobs page', async () => {
   const client = new QueryClient()
-  client.setQueryData(ankoleWebBackgroundAgentJobControllerHealthQueryKey(), { running_count: 12, queued_count: 17 })
-  client.setQueryData(ankoleWebBackgroundAgentJobControllerIndexQueryKey({ query: { limit: 20 } }), { jobs: [] })
+  client.setQueryData(getBackgroundAgentJobHealthQueryKey(), { running_count: 12, queued_count: 17 })
+  client.setQueryData(backgroundAgentJobsOptions({ limit: 20 }).queryKey, { data: [] })
 
   const html = await providerHTML(client)
   const jobMetric = html.match(/<a[^>]*href="\/background-agent-jobs"[^>]*>[\s\S]*?<\/a>/)?.[0]
@@ -29,8 +29,14 @@ test('shows global job counts independently of the recent jobs page', async () =
 
 function providerClient(complete: boolean) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
-  client.setQueryData(ankoleWebAiGatewayProviderControllerIndexQueryKey(), {
-    ai_gateway_providers: [{ provider_id: 'search', provider_kind: 'jina_search', disabled_at: null }]
+  client.setQueryData(listAiGatewayProvidersQueryKey(), {
+    data: [
+      {
+        id: 'search-row',
+        type: 'ai_gateway_provider',
+        attributes: { provider_id: 'search', provider_kind: 'jina_search', disabled_at: null }
+      }
+    ]
   })
   const readiness: ConsoleReadinessResponse = {
     ready: complete,
@@ -42,7 +48,7 @@ function providerClient(complete: boolean) {
     worker: { complete: true, ready_count: 1 },
     signal_route: { complete: true }
   }
-  client.setQueryData(ankoleWebConsoleReadinessControllerShowQueryKey(), readiness)
+  client.setQueryData(getConsoleReadinessQueryKey(), readiness)
   return client
 }
 async function providerHTML(client: QueryClient) {
@@ -83,7 +89,7 @@ test('shows a readiness error without a provider warning when a refetch fails wi
   const client = providerClient(false)
   client
     .getQueryCache()
-    .find({ queryKey: ankoleWebConsoleReadinessControllerShowQueryKey() })
+    .find({ queryKey: getConsoleReadinessQueryKey() })
     ?.setState({
       status: 'error',
       error: new Error('readiness unavailable')

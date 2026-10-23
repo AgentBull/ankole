@@ -3,7 +3,28 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
 
   use Ankole.Ash.Resource,
     tenancy: :site,
-    domain: Ankole.AgentWorkers.Domain
+    domain: Ankole.AgentWorkers.Providers,
+    extensions: [AshJsonApi.Resource]
+
+  alias Ankole.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.Providers.Projection
+
+  json_api do
+    type("worker_provider")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :provider_id,
+      :kind,
+      :display_name,
+      :config,
+      :is_default,
+      :agent_count,
+      :selectable,
+      :stored_credentials
+    ])
+  end
 
   postgres do
     table("worker_providers")
@@ -59,6 +80,25 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
     identity(:provider_id, [:provider_id])
   end
 
+  # The operator projection. A credential value never leaves the row: only the
+  # names of the stored credentials do.
+  calculations do
+    calculate(:agent_count, :integer, {Projection, field: :agent_count},
+      allow_nil?: false,
+      public?: true
+    )
+
+    calculate(:selectable, :boolean, {Projection, field: :selectable},
+      allow_nil?: false,
+      public?: true
+    )
+
+    calculate(:stored_credentials, {:array, :string}, {Projection, field: :stored_credentials},
+      allow_nil?: false,
+      public?: true
+    )
+  end
+
   validations do
     validate(match(:provider_id, ~r/\A[a-z]([a-z0-9-]{0,61}[a-z0-9])?\z/),
       message: "has invalid format"
@@ -71,31 +111,73 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
   actions do
     defaults([:read])
 
+    read :list do
+      prepare(build(sort: [provider_id: :asc]))
+    end
+
     create :create do
       accept([:provider_id, :kind, :display_name, :config, :is_default])
       argument(:credential_input, :map, allow_nil?: false, default: %{}, sensitive?: true)
-      transaction?(false)
       validate(present([:provider_id, :kind, :display_name, :config, :is_default]))
       change(Ankole.AgentWorkers.Providers.Changes.PrepareConfiguration, only_when_valid?: true)
     end
 
-    in_tx_update :configure do
+    update :configure do
       accept([:provider_id, :kind, :display_name, :config, :is_default])
       argument(:credential_input, :map, allow_nil?: false, default: %{}, sensitive?: true)
       validate(Ankole.AgentWorkers.Providers.ImmutableIdentity)
       change(Ankole.AgentWorkers.Providers.Changes.PrepareConfiguration, only_when_valid?: true)
     end
 
-    atomic_in_tx_update :unset_default do
+    update :unset_default do
+      require_atomic?(true)
       accept([])
       skip_global_validations?(true)
       change(set_attribute(:is_default, false))
     end
 
-    destroy :remove do
-      transaction?(false)
-      require_atomic?(false)
-      atomic_upgrade?(false)
+    destroy(:remove)
+
+    # The registry operations own their transaction and take the registry
+    # lock before they read or change a provider.
+
+    # The arguments keep the raw values: the `create` and `configure`
+    # actions validate them. An omitted argument keeps the stored value.
+    action :add, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:kind, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:display_name, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:config, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:is_default, :boolean)
+      argument(:credentials, :map, sensitive?: true)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :configure_provider, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:kind, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:display_name, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:config, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:is_default, :boolean)
+      argument(:credentials, :map, sensitive?: true)
+      after_commit({Providers, :reconcile_workers})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :delete_provider, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
+
+      run(__MODULE__.Actions)
+    end
+
+    action :import_seed do
+      argument(:path, :string, constraints: [trim?: false])
+      run(__MODULE__.Actions)
     end
   end
 

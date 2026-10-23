@@ -5,7 +5,7 @@ defmodule AnkoleWeb.PodModelController do
   alias Ankole.Conversations
   alias Ankole.Conversations.ModelPreferences
   alias AnkoleWeb.{ConsoleErrors, Schemas.PodModels}
-  alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
+  alias AnkoleWeb.Schemas.InternalAPI.ErrorEnvelope
 
   operation(:catalog,
     operation_id: "podModelProfiles",

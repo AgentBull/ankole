@@ -93,37 +93,50 @@ defmodule Ankole.MixProject do
 
   defp test_paths, do: ["test"] ++ internal_paths(["control_plane/test"])
 
-  # Patch before deps.compile takes its dependency snapshot.
+  @ash_patches [
+    {"ash", "ash-3.36.1.patch"},
+    {"ash_postgres", "ash_postgres-2.15.1.patch"},
+    {"ash_json_api", "ash_json_api-1.7.1.patch"}
+  ]
+
+  # Patch before deps.compile takes its dependency snapshot. Gives the
+  # dependencies that this call patched.
   defp patch_ash_dependencies(_args) do
-    for {dependency_name, filename} <- [
-          {"ash", "ash-3.36.1.patch"},
-          {"ash_postgres", "ash_postgres-2.15.1.patch"}
-        ] do
-      dependency = Path.join(Mix.Project.deps_path(), dependency_name)
-      patch = Path.expand("../control_plane_core/patches/#{filename}", __DIR__)
-      arguments = ["--force", "-p1", "-i", patch]
-      options = [cd: dependency, stderr_to_stdout: true]
+    for {dependency_name, filename} <- @ash_patches,
+        dependency = Path.join(Mix.Project.deps_path(), dependency_name),
+        File.dir?(dependency),
+        apply_patch(dependency_name, dependency, filename) == :patched,
+        do: dependency_name
+  end
 
-      case System.cmd("patch", ["--dry-run", "--reverse" | arguments], options) do
-        {_output, 0} ->
-          :ok
+  defp apply_patch(dependency_name, dependency, filename) do
+    patch = Path.expand("../control_plane_core/patches/#{filename}", __DIR__)
+    arguments = ["--force", "-p1", "-i", patch]
+    options = [cd: dependency, stderr_to_stdout: true]
 
-        {_output, _status} ->
-          case System.cmd("patch", ["--forward" | arguments], options) do
-            {_output, 0} ->
-              :ok
+    case System.cmd("patch", ["--dry-run", "--reverse" | arguments], options) do
+      {_output, 0} ->
+        :applied
 
-            {output, _status} ->
-              Mix.raise("Cannot apply the pinned #{dependency_name} fix:\n" <> output)
-          end
-      end
+      {_output, _status} ->
+        case System.cmd("patch", ["--forward" | arguments], options) do
+          {_output, 0} ->
+            :patched
+
+          {output, _status} ->
+            Mix.raise("Cannot apply the pinned #{dependency_name} fix:\n" <> output)
+        end
     end
   end
 
-  # Build before deps.loadpaths snapshots dependencies, including warm builds.
+  # A warm build can hold a dependency that was compiled before its patch.
+  # Build the patched dependencies again before deps.loadpaths snapshots them,
+  # but only when this call applied a patch.
   defp compile_ash_dependencies(args) do
-    unless "--no-compile" in args or "--no-deps-check" in args do
-      Mix.Task.rerun("deps.compile", ["ash", "ash_postgres", "--include-children"])
+    unless "--no-compile" in args or "--no-deps-check" in args or
+             patch_ash_dependencies(args) == [] do
+      names = Enum.map(@ash_patches, &elem(&1, 0))
+      Mix.Task.rerun("deps.compile", names ++ ["--include-children", "--force"])
     end
   end
 

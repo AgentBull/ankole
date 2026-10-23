@@ -1,5 +1,38 @@
 # Changelog
 
+## Version 2.0.0-alpha.22 (2026-10-23)
+
+- Reject a Background Agent Job list cursor from an earlier version. Request
+  the first page of the list again.
+- Stop a Plugin selection change when the stored `plugins.enabled_ids` value
+  cannot be read, instead of replacing it. To recover, remove the value with
+  `Ankole.AppConfigure.delete_global_by_key("plugins.enabled_ids")` in a release
+  remote console, then select the Plugins again.
+- Reduce database timeouts when a Workflow run dispatches or stops hundreds of
+  Agent calls.
+- Move Console and site administration JSON operations to `/api/v2` and
+  `/api/v2/site` through AshJsonApi. This includes configuration, providers and
+  credentials, identity and access, Agents, Signals, Jobs, Brain, and Library.
+  The moved `/api/v1` routes and their Console OpenAPI document are removed.
+  Update external callers from the authenticated v2 OpenAPI documents. Send
+  JSON request bodies with `Content-Type: application/vnd.api+json`.
+- Use resource documents for v2 resource operations and typed JSON results for
+  command and aggregate operations. The OpenAPI documents specify each request
+  and response. Paginated resource lists use `page[limit]` and `page[after]`.
+  JSON:API errors identify rejected fields and domain failures. Native file
+  upload and download, OpenAI-compatible APIs, and authentication protocols keep
+  their dedicated routes.
+- Set an OIDC Client's `client_type` and `model_aliases` through v2. Create or
+  replace an AI Gateway provider with
+  `PATCH /api/v2/site/ai-gateway/providers/:provider_id`. Cancel a webhook
+  endpoint with `DELETE /api/v2/webhook-endpoints/:id`. Send a manual cron run's
+  idempotency key in `data.idempotency_key`.
+- Create a Principal with `POST /api/v2/principals`; the one-time password is in
+  `meta.initial_password`. Principal records expose `local_credential_status`.
+  Worker provider records expose stored credential names in `stored_credentials`.
+- Edit Agent Library documents with a content hash to reject stale writes.
+  Control Plane Plugin selection shows the active and next-start state.
+
 ## Version 2.0.0-alpha.21 (2026-10-23)
 
 - Replace React Router with TanStack Router in the Console and Pod web

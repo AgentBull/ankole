@@ -6,10 +6,8 @@ defmodule Ankole.Brain.Patterns do
   evidence links together through the Object write contract.
   """
 
-  import Ecto.Query
   require Ash.Query
 
-  alias Ankole.Brain.Claims
   alias Ankole.Brain.Config
   alias Ankole.Brain.Links
   alias Ankole.Brain.Markdoc
@@ -19,7 +17,6 @@ defmodule Ankole.Brain.Patterns do
   alias Ankole.Brain.Schemas.Link
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.Repo
 
   @window_days 30
   @min_pages 3
@@ -49,22 +46,22 @@ defmodule Ankole.Brain.Patterns do
     since = DateTime.add(DateTime.utc_now(), -@window_days * 86_400, :second)
 
     Claim
-    |> Claims.current_external_facts()
-    |> where([claim], claim.created_at >= ^since and claim.notability == "high")
-    |> where([claim], not is_nil(claim.object_slug))
-    |> where([claim], not like(claim.object_slug, "analysis/patterns/%"))
-    |> where([claim], not like(claim.object_slug, "analysis/dreaming-%"))
-    |> order_by([claim], desc: claim.created_at, desc: claim.id)
-    |> select([claim], %{
-      object_slug: claim.object_slug,
-      audience_scope: claim.audience_scope,
-      holder: claim.holder,
-      claim: claim.claim,
-      valid_from: claim.valid_from,
-      context: claim.context,
-      provenance: claim.provenance
-    })
-    |> Repo.all()
+    |> Ash.Query.filter(
+      current_external_fact? and created_at >= ^since and notability == "high" and
+        not is_nil(object_slug) and not string_starts_with(object_slug, @prefix) and
+        not string_starts_with(object_slug, "analysis/dreaming-")
+    )
+    |> Ash.Query.sort(created_at: :desc, id: :desc)
+    |> Ash.Query.select([
+      :object_slug,
+      :audience_scope,
+      :holder,
+      :claim,
+      :valid_from,
+      :context,
+      :provenance
+    ])
+    |> Ankole.Ash.read!()
     |> Enum.group_by(& &1.audience_scope)
     |> Enum.map(fn {scope, facts} -> {scope, Enum.take(facts, @fact_limit)} end)
     |> Enum.filter(fn {_scope, facts} ->
@@ -78,9 +75,9 @@ defmodule Ankole.Brain.Patterns do
 
     existing =
       Object
-      |> where([object], like(object.slug, ^(prefix <> "%")) and is_nil(object.deleted_at))
-      |> order_by([object], asc: object.slug)
-      |> Repo.all()
+      |> Ash.Query.filter(string_starts_with(slug, ^prefix) and is_nil(deleted_at))
+      |> Ash.Query.sort(slug: :asc)
+      |> Ankole.Ash.read!()
       |> Enum.filter(&(Markdoc.scopes(&1.body) == {:ok, [scope]}))
 
     evidence =
@@ -124,17 +121,23 @@ defmodule Ankole.Brain.Patterns do
     with {:ok, output} <-
            ModelCalls.complete_json(model, prompt, caller: "brain.dreaming.patterns"),
          {:ok, patterns} <- validate_output(output, scope, prefix, facts) do
-      existing = Map.new(existing, &{&1.slug, &1})
-
-      Repo.transact(fn _repo ->
-        Enum.reduce_while(patterns, {:ok, 0}, fn pattern, {:ok, count} ->
-          case write_pattern(pattern, Map.get(existing, pattern.slug)) do
-            {:ok, _object} -> {:cont, {:ok, count + 1}}
-            {:error, _reason} = error -> {:halt, error}
-          end
-        end)
-      end)
+      Ankole.Ash.run_action(Object, :write_patterns, %{
+        patterns: patterns,
+        existing: Map.new(existing, &{&1.slug, &1})
+      })
     end
+  end
+
+  @doc false
+  # Writes the pattern pages of one audience in the transaction of the
+  # `:write_patterns` action. A failed page rolls back the pages before it.
+  def write_patterns_in_tx(patterns, existing) do
+    Enum.reduce_while(patterns, {:ok, 0}, fn pattern, {:ok, count} ->
+      case write_pattern(pattern, Map.get(existing, pattern.slug)) do
+        {:ok, _object} -> {:cont, {:ok, count + 1}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp validate_output(%{"patterns" => patterns}, scope, prefix, facts) when is_list(patterns) do
@@ -187,13 +190,13 @@ defmodule Ankole.Brain.Patterns do
     result =
       case existing do
         nil ->
-          Objects.create_object(
+          Objects.create_object_in_tx(
             Map.merge(attrs, %{slug: pattern.slug, type: "analysis"}),
             :system
           )
 
         %Object{type: "analysis"} = object ->
-          Objects.update_object(
+          Objects.update_object_in_tx(
             pattern.slug,
             Map.put(attrs, :expected_content_hash, object.content_hash),
             :system
@@ -204,18 +207,13 @@ defmodule Ankole.Brain.Patterns do
       end
 
     with {:ok, object} <- result do
-      removed =
+      {:ok, _removed} =
         Link
         |> Ash.Query.filter(
           from_object_slug == ^object.slug and link_source == "dreaming" and
             link_type == "derived_from"
         )
-        |> Ankole.Ash.bulk_destroy(:remove, %{}, strategy: [:atomic], return_errors?: true)
-
-      case removed do
-        %Ash.BulkResult{status: :success} -> :ok
-        %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
-      end
+        |> Ankole.Ash.destroy_where(:remove)
 
       Enum.reduce_while(pattern.evidence, {:ok, object}, fn slug, result ->
         case Links.upsert_link(%{

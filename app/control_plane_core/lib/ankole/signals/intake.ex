@@ -1,6 +1,6 @@
 defmodule Ankole.Signals.Intake do
   @moduledoc false
-  import Ecto.Query
+  require Ash.Query
 
   alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.Conversations.{Conversation, Participant}
@@ -10,34 +10,92 @@ defmodule Ankole.Signals.Intake do
   alias Ankole.Sessions.Queue
   alias Ankole.Sessions.Jobs.EnsureDriver
   alias Ankole.Signals.Signal
+  alias Ankole.Errors.Invalid.Stale
 
   def accept(repo, attrs) do
+    with {:ok, [signal]} <- accept_all(repo, [attrs]), do: {:ok, signal}
+  end
+
+  @doc """
+  Accepts a list of stimuli in the caller's transaction.
+
+  The function locks every target Session in order before it reads or writes a
+  Signal row. One query reads the existing Signals and one bulk insert writes
+  the new Signals. The result has one Signal for each input, in the input order.
+  """
+  def accept_all(_repo, []), do: {:ok, []}
+
+  def accept_all(repo, attrs_list) do
     Ankole.Observability.stage("signal.intake.prepared_in_tx", %{}, fn ->
-      accept_in_tx(repo, attrs)
+      accept_all_in_tx(repo, attrs_list)
     end)
   end
 
-  defp accept_in_tx(repo, attrs) do
-    with {:ok, target} <- resolve_target(repo, Ankole.Attrs.get(attrs, :target)),
-         {:ok, facts} <- facts(repo, attrs, target),
-         :ok <- Queue.lock_session_in_tx(repo, target.agent_uid, target.session_id),
-         {:ok, signal} <- persist(repo, facts),
-         {:ok, _} <- Interactions.supersede_older_in_tx(repo, signal, signal.inserted_at),
-         :ok <-
-           EnsureDriver.enqueue_in_tx(
-             repo,
-             %{agent_uid: signal.agent_uid, session_id: signal.session_id},
-             signal.available_at
-           ) do
-      {:ok, signal}
+  defp accept_all_in_tx(repo, attrs_list) do
+    with {:ok, facts} <- all_facts(repo, attrs_list),
+         :ok <- Queue.lock_sessions_in_tx(repo, Enum.map(facts, &{&1.agent_uid, &1.session_id})),
+         {:ok, signals} <- persist(facts),
+         :ok <- wake_sessions(repo, signals) do
+      {:ok, signals}
     end
   end
 
-  defp resolve_target(repo, %{agent_uid: uid} = target) when is_binary(uid) do
-    with %Principal{type: :agent, uid: uid} <- repo.get(Principal, String.downcase(uid)) do
+  # An Agent target reads its Principal one time for each Agent in the list.
+  defp all_facts(repo, attrs_list) do
+    attrs_list
+    |> Enum.reduce_while({:ok, [], %{}}, fn attrs, {:ok, facts, principals} ->
+      target = Ankole.Attrs.get(attrs, :target)
+      {principal, principals} = agent_principal(target, principals)
+
+      with {:ok, target} <- resolve_target(target, principal),
+           {:ok, fact} <- facts(repo, attrs, target) do
+        {:cont, {:ok, [fact | facts], principals}}
+      else
+        error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, facts, _principals} -> {:ok, Enum.reverse(facts)}
+      error -> error
+    end
+  end
+
+  defp agent_principal(%{agent_uid: uid}, principals) when is_binary(uid) do
+    case principals do
+      %{^uid => principal} ->
+        {principal, principals}
+
+      %{} ->
+        principal = Ankole.Principals.get_principal(uid)
+        {principal, Map.put(principals, uid, principal)}
+    end
+  end
+
+  defp agent_principal(_target, principals), do: {nil, principals}
+
+  defp wake_sessions(repo, signals) do
+    signals
+    |> Enum.uniq_by(& &1.id)
+    |> Enum.reduce_while(:ok, fn signal, :ok ->
+      with {:ok, _} <- Interactions.supersede_older_in_tx(repo, signal, signal.inserted_at),
+           :ok <-
+             EnsureDriver.enqueue_in_tx(
+               repo,
+               %{agent_uid: signal.agent_uid, session_id: signal.session_id},
+               signal.available_at
+             ) do
+        {:cont, :ok}
+      else
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp resolve_target(%{agent_uid: uid} = target, principal) when is_binary(uid) do
+    with {:ok, %Principal{type: :agent, uid: uid}} <- principal do
       case ExecutionTarget.parse(target) do
         {:session, key} -> {:ok, %{agent_uid: uid, session_id: key}}
-        {:conversation, id} -> resolve_conversation(repo, uid, id)
+        {:conversation, id} -> resolve_conversation(uid, id)
         :error -> {:error, :invalid_signal_target}
       end
     else
@@ -45,37 +103,31 @@ defmodule Ankole.Signals.Intake do
     end
   end
 
-  defp resolve_target(repo, {:conversation, _} = target) do
+  # A native conversation has one Agent participant: the Agent of the target.
+  defp resolve_target({:conversation, _} = target, nil) do
     with {:conversation, id} <- ExecutionTarget.parse(target),
-         %Principal{uid: uid} <-
-           repo.one(
-             from(c in Conversation,
-               join: participant in Participant,
-               on: participant.conversation_id == c.id and participant.role == :agent,
-               join: agent in Principal,
-               on: agent.uid == participant.principal_uid and agent.type == :agent,
-               where: c.id == ^id and c.kind == :native,
-               select: agent
-             )
-           ) do
-      resolve_conversation(repo, uid, id)
+         {:ok, %Conversation{kind: :native}} <- Ankole.Conversations.get_conversation(id),
+         {:ok, [%Participant{principal_uid: uid}]} <-
+           Ankole.Conversations.list_participants(
+             query: [filter: [conversation_id: id, role: :agent]]
+           ),
+         {:ok, %Principal{type: :agent}} <- Ankole.Principals.get_principal(uid) do
+      resolve_conversation(uid, id)
     else
       _ -> {:error, :conversation_not_found}
     end
   end
 
-  defp resolve_target(_repo, _target), do: {:error, :invalid_signal_target}
+  defp resolve_target(_target, _principal), do: {:error, :invalid_signal_target}
 
-  defp resolve_conversation(repo, uid, id) do
-    if repo.exists?(
-         from(p in Participant,
-           where: p.conversation_id == ^id and p.role == :agent and p.principal_uid == ^uid
-         )
-       ) do
-      {:ok,
-       %{agent_uid: uid, session_id: Ankole.Sessions.Key.conversation(id), conversation_id: id}}
-    else
-      {:error, :conversation_not_found}
+  defp resolve_conversation(uid, id) do
+    case Ankole.Conversations.get_participant(id, uid) do
+      {:ok, %Participant{role: :agent}} ->
+        {:ok,
+         %{agent_uid: uid, session_id: Ankole.Sessions.Key.conversation(id), conversation_id: id}}
+
+      _other ->
+        {:error, :conversation_not_found}
     end
   end
 
@@ -120,29 +172,79 @@ defmodule Ankole.Signals.Intake do
     end
   end
 
-  defp persist(repo, attrs) do
-    key = Map.take(attrs, [:agent_uid, :source, :source_event_id])
+  # The Session advisory locks serialize the sequence allocation. One read finds
+  # the existing Signals and one insert writes the new Signals.
+  defp persist(facts) do
+    existing = existing_signals(facts)
 
-    case repo.get_by(Signal, key) do
-      %Signal{} = signal ->
-        same_producer(signal, attrs.producer)
+    with {:ok, created} <-
+           facts
+           |> Enum.reject(&Map.has_key?(existing, identity(&1)))
+           |> Enum.uniq_by(&identity/1)
+           |> create_signals() do
+      signals = Map.merge(existing, Map.new(created, &{identity(&1), &1}))
 
-      nil ->
-        sequence =
-          repo.one(
-            from(s in Signal,
-              where: s.agent_uid == ^attrs.agent_uid and s.session_id == ^attrs.session_id,
-              select: coalesce(max(s.queue_sequence), 0) + 1
-            )
-          )
-
-        with {:ok, signal} <-
-               Ankole.Ash.create(Signal, :accept, Map.put(attrs, :queue_sequence, sequence),
-                 touch_update_defaults?: false
-               ) do
-          same_producer(signal, attrs.producer)
+      facts
+      |> Enum.reduce_while({:ok, []}, fn fact, {:ok, accepted} ->
+        with {:ok, signal} <- Map.fetch(signals, identity(fact)),
+             {:ok, signal} <- same_producer(signal, fact.producer) do
+          {:cont, {:ok, [signal | accepted]}}
+        else
+          :error -> {:halt, {:error, Stale.exception(resource: Signal, filter: nil)}}
+          error -> {:halt, error}
         end
+      end)
+      |> case do
+        {:ok, accepted} -> {:ok, Enum.reverse(accepted)}
+        error -> error
+      end
     end
+  end
+
+  defp identity(fact), do: {fact.agent_uid, fact.source, fact.source_event_id}
+
+  defp existing_signals(facts) do
+    identities = Enum.map(facts, &identity/1)
+    agent_uids = identities |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+    sources = identities |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+    source_event_ids = identities |> Enum.map(&elem(&1, 2)) |> Enum.uniq()
+
+    Signal
+    |> Ash.Query.filter(
+      agent_uid in ^agent_uids and source in ^sources and source_event_id in ^source_event_ids
+    )
+    |> Ankole.Ash.read!()
+    |> Map.new(&{identity(&1), &1})
+    |> Map.take(identities)
+  end
+
+  defp create_signals([]), do: {:ok, []}
+
+  defp create_signals(facts) do
+    {inputs, _last} =
+      Enum.map_reduce(facts, last_sequences(facts), fn fact, last ->
+        key = {fact.agent_uid, fact.session_id}
+        sequence = (Map.fetch!(last, key) || 0) + 1
+        {Map.put(fact, :queue_sequence, sequence), Map.put(last, key, sequence)}
+      end)
+
+    Ankole.Ash.create_all(inputs, Signal, :accept,
+      touch_update_defaults?: false,
+      return_skipped_upsert?: true
+    )
+  end
+
+  # Each read uses the last index entry of one Session.
+  defp last_sequences(facts) do
+    facts
+    |> Enum.map(&{&1.agent_uid, &1.session_id})
+    |> Enum.uniq()
+    |> Map.new(fn {agent_uid, session_id} = key ->
+      {key,
+       Signal
+       |> Ash.Query.filter(agent_uid == ^agent_uid and session_id == ^session_id)
+       |> Ankole.Ash.max!(:queue_sequence)}
+    end)
   end
 
   defp same_producer(%Signal{producer: producer} = signal, producer), do: {:ok, signal}

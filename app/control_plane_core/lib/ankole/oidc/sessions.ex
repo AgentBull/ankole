@@ -1,38 +1,36 @@
 defmodule Ankole.OIDC.Sessions do
   @moduledoc false
-  import Ecto.Query
   require Ash.Query
   alias Ankole.{BrowserSessions, OIDC, Repo}
   alias Ankole.OIDC.Client
   alias Ankole.OIDC.LoginPolicy
   alias Ankole.OIDC.Session
-  alias Ankole.Principals.{HumanAccess, Principal}
-  alias Ankole.Tenants.Tenant
+  alias Ankole.Principals.HumanAccess
 
-  def ensure(client_id, auth, scope) do
+  def ensure(client_id, auth, scope),
+    do: Ankole.Ash.run_action(Session, :ensure, %{client_id: client_id, auth: auth, scope: scope})
+
+  @doc """
+  Inserts or extends the Session of one browser authentication and Client.
+
+  The tenant and Client locks are access checks: they keep the tenant and the
+  Client while the Session refers to them. `BrowserSessions.authorize_in_tx/2`
+  locks the browser and the Human. The Session write is one upsert.
+  """
+  def ensure_in_tx(client_id, auth, scope) do
     ref = %{"id" => auth["authentication_id"], "revision" => auth["authentication_revision"]}
 
-    Repo.transact(fn repo ->
-      with :ok <- lock_tenant(repo) do
-        BrowserSessions.authorize(ref, auth, fn repo ->
-          ensure_session_in_tx(repo, client_id, auth, scope)
-        end)
-      end
-    end)
-  end
-
-  defp ensure_session_in_tx(repo, client_id, auth, scope) do
-    with :ok <- accepting_work(),
-         {:ok, %Client{enabled: true} = client} <- lock_client(repo, client_id),
+    with :ok <- lock_tenant(),
+         :ok <- BrowserSessions.authorize_in_tx(ref, auth),
+         :ok <- accepting_work(),
+         {:ok, %Client{enabled: true} = client} <- lock_client(client_id),
          :ok <- LoginPolicy.authorize_source(client, auth["provider_id"]) do
-      now = DateTime.utc_now()
-
       expiry =
         if offline?(scope),
-          do: DateTime.add(now, 30 * 24 * 60 * 60),
+          do: DateTime.add(DateTime.utc_now(), 30 * 24 * 60 * 60),
           else: DateTime.from_unix!(auth["expires_at"] * 1_000_000, :microsecond)
 
-      attrs = %{
+      Ankole.Ash.create(Session, :authorize_in_tx, %{
         client_id: client_id,
         principal_uid: auth["principal_uid"],
         browser_id: auth["browser_id"],
@@ -42,19 +40,7 @@ defmodule Ankole.OIDC.Sessions do
         provider_id: auth["provider_id"],
         auth_time: auth["auth_time"],
         expires_at: expiry
-      }
-
-      case repo.one(
-             from s in Session,
-               where:
-                 s.client_id == ^client_id and
-                   s.authentication_id == ^attrs.authentication_id and
-                   s.authentication_revision == ^attrs.authentication_revision,
-               lock: "FOR UPDATE"
-           ) do
-        nil -> Ankole.Ash.create(Session, :authorize_in_tx, attrs)
-        session -> Ankole.Ash.update(session, :extend_in_tx, %{expires_at: expiry, at: now})
-      end
+      })
     else
       {:ok, %Client{}} -> {:error, :not_found}
       error -> error
@@ -113,66 +99,53 @@ defmodule Ankole.OIDC.Sessions do
   end
 
   def revoke(id) do
-    Repo.transact(fn _repo ->
-      with {:ok, session} <- get(id), do: Ankole.Ash.update(session, :revoke_in_tx, %{})
+    with {:ok, session} <- get(id), do: Ankole.Ash.update(session, :revoke_in_tx, %{})
+  end
+
+  def end_authentication_in_tx(_repo, id, revision) do
+    Repo.across_tenants(fn ->
+      Session
+      |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
+      |> Ash.Query.filter(
+        authentication_id == ^id and authentication_revision == ^revision and is_nil(ended_at)
+      )
+      |> lock_sessions()
+      |> Ash.read!(authorize?: false)
     end)
+    |> terminate_sessions(:browser)
   end
 
-  def end_authentication_in_tx(repo, id, revision) do
-    sessions =
-      Repo.across_tenants(fn ->
-        repo.all(
-          from s in Session,
-            where:
-              s.authentication_id == ^id and s.authentication_revision == ^revision and
-                is_nil(s.ended_at),
-            order_by: s.id,
-            lock: "FOR UPDATE"
-        )
-      end)
-
-    terminate_sessions(repo, sessions, :browser)
+  def end_browser_in_tx(_repo, browser_id) do
+    Repo.across_tenants(fn ->
+      Session
+      |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
+      |> Ash.Query.filter(browser_id == ^browser_id)
+      |> lock_sessions()
+      |> Ash.read!(authorize?: false)
+    end)
+    |> terminate_sessions(:browser)
   end
 
-  def end_browser_in_tx(repo, browser_id) do
-    sessions =
-      Repo.across_tenants(fn ->
-        repo.all(
-          from s in Session,
-            where: s.browser_id == ^browser_id,
-            order_by: s.id,
-            lock: "FOR UPDATE"
-        )
-      end)
-
-    terminate_sessions(repo, sessions, :browser)
+  def revoke_human_in_tx(_repo, principal_uid, access_version) do
+    Session
+    |> Ash.Query.filter(principal_uid == ^principal_uid and access_version < ^access_version)
+    |> lock_sessions()
+    |> Ankole.Ash.read!()
+    |> terminate_sessions(:human)
   end
 
-  def revoke_human_in_tx(repo, principal_uid, access_version) do
-    terminate(
-      repo,
-      from(s in Session,
-        where: s.principal_uid == ^principal_uid and s.access_version < ^access_version
-      ),
-      :human
-    )
-  end
+  defp lock_sessions(query),
+    do: query |> Ash.Query.sort(id: :asc) |> Ash.Query.lock(:for_update)
 
-  defp terminate(repo, query, kind) do
-    sessions = repo.all(query |> order_by([s], s.id) |> lock("FOR UPDATE"))
-    terminate_sessions(repo, sessions, kind)
-  end
-
-  defp terminate_sessions(repo, sessions, kind) do
+  defp terminate_sessions(sessions, kind) do
     now = DateTime.utc_now()
+    action = if kind == :human, do: :revoke_and_end_in_tx, else: :end_in_tx
 
     Enum.reduce_while(sessions, :ok, fn session, :ok ->
-      action = if kind == :human, do: :revoke_and_end_in_tx, else: :end_in_tx
-
       Repo.with_tenant(session.tenant_id, fn ->
         with {:ok, session} <- Ankole.Ash.update(session, action, %{at: now}),
-             %Client{} = client <- repo.get(Client, session.client_id),
-             :ok <- Ankole.OIDC.Logout.enqueue_in_tx(repo, session, client) do
+             %Client{} = client <- read_client(session.client_id),
+             :ok <- Ankole.OIDC.Logout.enqueue_in_tx(Repo, session, client) do
           {:cont, :ok}
         else
           {:error, _} = error -> {:halt, error}
@@ -184,45 +157,52 @@ defmodule Ankole.OIDC.Sessions do
   @doc false
   def lock_credential_parents_in_tx(subject, client_id, session_id) do
     with {:ok, session_id} <- Ecto.UUID.cast(session_id),
-         :ok <- lock_tenant(Repo),
-         %Principal{} <-
-           Repo.across_tenants(fn ->
-             Repo.one(from(p in Principal, where: p.uid == ^subject, lock: "FOR KEY SHARE"),
-               lock_identity: {"principals", subject}
-             )
-           end),
-         {:ok, _client} <- lock_client(Repo, client_id),
+         :ok <- lock_tenant(),
+         %{} <- lock_principal(subject),
+         {:ok, _client} <- lock_client(client_id),
          %Session{} <-
-           Repo.one(
-             from s in Session,
-               where:
-                 s.id == ^session_id and s.client_id == ^client_id and s.principal_uid == ^subject,
-               lock: "FOR UPDATE"
-           ) do
+           Session
+           |> Ash.Query.filter(
+             id == ^session_id and client_id == ^client_id and principal_uid == ^subject
+           )
+           |> Ash.Query.lock(:for_update)
+           |> Ankole.Ash.read_one!() do
       :ok
     else
       _ -> {:error, :context_unavailable}
     end
   end
 
-  defp lock_tenant(repo) do
-    tenant_id = Repo.tenant_id!()
-
-    case repo.one(from t in Tenant, where: t.id == ^tenant_id, lock: "FOR KEY SHARE") do
-      %Tenant{} -> :ok
-      nil -> {:error, :context_unavailable}
+  # FOR KEY SHARE keeps the tenant while a credential refers to it.
+  defp lock_tenant do
+    case Ankole.Tenants.lock_tenant_in_tx(Repo, Repo.tenant_id!(), :key_share) do
+      {:ok, _tenant} -> :ok
+      {:error, :not_found} -> {:error, :context_unavailable}
     end
   end
 
-  defp lock_client(repo, id) do
+  # FOR KEY SHARE keeps the Human while a credential refers to it.
+  defp lock_principal(uid) do
+    case Ankole.Principals.lock_principal_in_tx(Repo, uid, :key_share) do
+      {:ok, principal} -> principal
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp lock_client(id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
          %Client{} = client <-
-           repo.one(from c in Client, where: c.id == ^id, lock: "FOR KEY SHARE") do
+           Client
+           |> Ash.Query.filter(id == ^id)
+           |> Ash.Query.lock("FOR KEY SHARE")
+           |> Ankole.Ash.read_one!() do
       {:ok, client}
     else
       _ -> {:error, :not_found}
     end
   end
+
+  defp read_client(id), do: Client |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!()
 
   defp offline?(scope), do: "offline_access" in String.split(scope, " ", trim: true)
 end

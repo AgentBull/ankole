@@ -28,7 +28,6 @@ defmodule Ankole.Plugins.WeComAdapter.Delivery do
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
   alias Ankole.Plugins.WeComAdapter.Markdown
   alias Ankole.Plugins.WeComAdapter.TemplateCard
-  alias Ankole.Repo
   alias Ankole.Conversations.Conversation
   alias Ankole.Conversations.Delivery.Intent
   alias WeComOpenAPI.Bot
@@ -206,7 +205,7 @@ defmodule Ankole.Plugins.WeComAdapter.Delivery do
     do: resolve_delivery(conversation_id)
 
   def resolve_delivery(conversation_id) when is_binary(conversation_id) do
-    case Repo.get_by(Conversation, id: conversation_id) do
+    case Ankole.Conversations.get_conversation!(conversation_id) do
       %Conversation{external_kind: :im_dm, metadata: metadata} ->
         case optional_text(metadata, "dm_user_id") do
           user_id when is_binary(user_id) ->

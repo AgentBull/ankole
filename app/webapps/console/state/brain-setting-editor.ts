@@ -1,5 +1,4 @@
 import { isRecord } from '@agentbull/active-support'
-import type { JsonValue as JSONValue } from '../api/generated/types.gen'
 
 /**
  * Pure helpers for the `brain.` settings group editor. This module owns
@@ -77,7 +76,7 @@ export function brainModelCatalogKind(key: string): 'embedding' | 'rerank' {
 }
 
 /** Reads a stored model value (object or null) into an editable draft. */
-export function brainModelDraft(value: JSONValue | undefined): BrainModelDraft {
+export function brainModelDraft(value: unknown): BrainModelDraft {
   if (!isRecord(value)) {
     return { configured: false, providerID: '', model: '', dimensions: '', providerOptions: '' }
   }
@@ -92,10 +91,10 @@ export function brainModelDraft(value: JSONValue | undefined): BrainModelDraft {
 }
 
 /** Serializes a validated model draft into the stored JSON value. */
-export function brainModelValue(draft: BrainModelDraft, requireDimensions: boolean): JSONValue {
+export function brainModelValue(draft: BrainModelDraft, requireDimensions: boolean): unknown {
   if (!draft.configured) return null
 
-  const value: Record<string, JSONValue> = {
+  const value: Record<string, unknown> = {
     provider_id: draft.providerID.trim(),
     model: draft.model.trim()
   }
@@ -150,7 +149,7 @@ export function brainNumberText(text: string): string {
  * Seeding through the same serialization the editor writes keeps a reverted
  * edit equal to its seed, so the drawer's dirty compare stays truthful.
  */
-export function brainCanonicalDraft(key: string, value: JSONValue | null | undefined): string | undefined {
+export function brainCanonicalDraft(key: string, value: unknown): string | undefined {
   const fields =
     key === BRAIN_KEYS.chunking
       ? BRAIN_CHUNKING_FIELDS
@@ -233,20 +232,20 @@ export function brainSettingsValidationError(
   return undefined
 }
 
-function parseDraftValue(text: string | undefined): JSONValue | undefined {
+function parseDraftValue(text: string | undefined): unknown {
   if (text === undefined) return undefined
   try {
-    return JSON.parse(text) as JSONValue
+    return JSON.parse(text)
   } catch {
     return undefined
   }
 }
 
-function parseJSONObject(text: string): Record<string, JSONValue> | undefined {
+function parseJSONObject(text: string): Record<string, unknown> | undefined {
   if (!text.trim()) return {}
   try {
     const value: unknown = JSON.parse(text)
-    return isRecord(value) ? (value as Record<string, JSONValue>) : undefined
+    return isRecord(value) ? value : undefined
   } catch {
     return undefined
   }

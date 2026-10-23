@@ -1,9 +1,10 @@
 import { recordValue } from '@agentbull/active-support'
 import type {
-  AiGatewayProviderSetting as AIGatewayProviderSetting,
-  AiGatewayProviderItem as AIGatewayProviderItem,
-  AiGatewayProviderKindItem as AIGatewayProviderKindItem
-} from '../api/generated/types.gen'
+  ListAiGatewayModelsResponse,
+  ListAiGatewayProviderKindsResponse
+} from '../api/v2-site/generated/types.gen'
+import { type Flat, fromDocument } from '../api/json-api'
+import type { AiGatewayProvider } from '../api/v2-site/generated/types.gen'
 import { humanizeTechnicalLabel } from '../../common/humanize-technical-label'
 import i18n from '../../common/i18n'
 
@@ -14,7 +15,33 @@ import i18n from '../../common/i18n'
  * combination, so secrets live only in the sealed credential pool.
  */
 
-export type ProviderSetting = AIGatewayProviderSetting
+export type AIGatewayModelCatalogEntry = ListAiGatewayModelsResponse['models'][number]
+export type AIGatewayProviderKindItem = ListAiGatewayProviderKindsResponse['provider_kinds'][number]
+export type ProviderSetting = AIGatewayProviderKindItem['settings'][number]
+
+type AIGatewayProviderRecord = Flat<AiGatewayProvider>
+
+/**
+ * A configured provider of the site API. The API sends the calculated
+ * `credential_pool` and `provider_metadata` as default fields of each record,
+ * but its schema marks every calculated field optional.
+ */
+export type AIGatewayProviderItem = AIGatewayProviderRecord & {
+  credential_pool: NonNullable<AIGatewayProviderRecord['credential_pool']>
+  provider_metadata: NonNullable<AIGatewayProviderRecord['provider_metadata']>
+}
+
+export type AIGatewayCredentialPoolEntry = AIGatewayProviderItem['credential_pool']['entries'][number]
+
+/** Changes a provider list document to the provider records. */
+export function aiGatewayProviders(document: { data?: AiGatewayProvider[] }): AIGatewayProviderItem[] {
+  return fromDocument(document) as AIGatewayProviderItem[]
+}
+
+/** Changes a provider document to the provider record. */
+export function aiGatewayProvider(document: { data?: AiGatewayProvider }): AIGatewayProviderItem {
+  return fromDocument(document) as AIGatewayProviderItem
+}
 
 export type SettingValidationError = 'required' | 'json_object' | 'integer' | 'number' | 'selection'
 

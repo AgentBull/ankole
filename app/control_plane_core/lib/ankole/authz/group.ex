@@ -1,6 +1,9 @@
 defmodule Ankole.AuthZ.Group do
   @moduledoc "Principal group used by the AuthZ rule engine."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AuthZ.Domain
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.AuthZ,
+    extensions: [AshJsonApi.Resource]
 
   @fields [
     :name,
@@ -12,6 +15,34 @@ defmodule Ankole.AuthZ.Group do
     :description,
     :metadata
   ]
+
+  # The Principal fields of one group member in the Console API.
+  @member_fields [
+    uid: [type: :string, allow_nil?: false],
+    type: [type: :atom, allow_nil?: false, constraints: [one_of: [:human, :agent, :system]]],
+    status: [type: :atom, allow_nil?: false, constraints: [one_of: [:active, :disabled]]],
+    display_name: [type: :string],
+    avatar_url: [type: :string],
+    member_since: [type: :utc_datetime_usec]
+  ]
+
+  json_api do
+    type("principal_group")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :name,
+      :display_name,
+      :domain,
+      :kind,
+      :built_in,
+      :computed_condition,
+      :description,
+      :member_count,
+      :grant_count
+    ])
+  end
 
   postgres do
     table("principal_groups")
@@ -72,6 +103,11 @@ defmodule Ankole.AuthZ.Group do
     has_many(:grants, Ankole.AuthZ.Grant, destination_attribute: :group_id)
   end
 
+  aggregates do
+    count(:member_count, :memberships, public?: true)
+    count(:grant_count, :grants, public?: true)
+  end
+
   changes do
     change(fn changeset, _context ->
       case Ash.Changeset.get_attribute(changeset, :name) do
@@ -104,40 +140,141 @@ defmodule Ankole.AuthZ.Group do
 
     create :create_in_tx do
       accept(@fields)
-      transaction?(false)
     end
 
     create :ensure_in_tx do
       accept(@fields)
-      transaction?(false)
       upsert?(true)
       upsert_identity(:name)
       upsert_fields([:name])
     end
 
-    in_tx_update :profile_in_tx do
-      accept(@fields -- [:built_in])
-
-      validate(fn changeset, _context ->
-        immutable =
-          if changeset.data.built_in,
-            do:
-              Enum.filter([:name, :kind, :computed_condition], fn field ->
-                Ash.Changeset.changing_attribute?(changeset, field)
-              end),
-            else: []
-
-        case immutable do
-          [] -> :ok
-          fields -> {:error, fields: fields, message: "cannot change a built-in group"}
-        end
-      end)
+    read :console_list do
+      prepare(build(sort: [name: :asc]))
     end
 
-    destroy :delete_in_tx do
-      transaction?(false)
-      require_atomic?(false)
-      atomic_upgrade?(false)
+    read :of_principal do
+      description("Lists the static groups of one Principal.")
+      argument(:uid, :string, allow_nil?: false)
+      filter(expr(exists(memberships, principal_uid == ^arg(:uid))))
+      prepare(build(sort: [name: :asc]))
+    end
+
+    create :create do
+      description("Creates an operator group.")
+      accept([:name, :display_name, :kind, :computed_condition, :description])
+    end
+
+    update :profile_in_tx do
+      accept(@fields -- [:built_in])
+      validate(&__MODULE__.keep_built_in/2)
+    end
+
+    update :update do
+      description("Updates the display fields or the condition of a group.")
+      accept([:display_name, :computed_condition, :description])
+      validate(&__MODULE__.keep_built_in/2)
+    end
+
+    destroy(:delete_in_tx)
+
+    action :ensure_synced_member, :atom do
+      argument(:group_attrs, :map, allow_nil?: false)
+      argument(:principal_uid, :term, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :delete_operator_group, :struct do
+      description("Deletes an operator group that has no grants.")
+      constraints(instance_of: __MODULE__)
+      argument(:name, :string, allow_nil?: false, description: "The group name or ID.")
+
+      run(__MODULE__.Actions)
+    end
+
+    action :list_members, {:array, :map} do
+      description("Lists the effective members of a group.")
+      constraints(items: [fields: @member_fields])
+      argument(:name, :string, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :preview_computed_members, {:array, :map} do
+      description("Lists the active Principals that a computed group condition matches.")
+      constraints(items: [fields: @member_fields])
+      argument(:condition, :string, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :add_member, :struct do
+      description("Adds a Principal to a static operator group.")
+      constraints(instance_of: Ankole.AuthZ.Membership)
+      argument(:principal_uid, :string, allow_nil?: false)
+      argument(:name, :string, allow_nil?: false, description: "The group name or ID.")
+
+      run(__MODULE__.Actions)
+    end
+
+    action :remove_member, :atom do
+      description("Removes a Principal from a static operator group.")
+      argument(:principal_uid, :string, allow_nil?: false)
+      argument(:name, :string, allow_nil?: false, description: "The group name or ID.")
+
+      run(__MODULE__.Actions)
+    end
+
+    action :add_synced_member, :struct do
+      constraints(instance_of: Ankole.AuthZ.Membership)
+      argument(:group_id, :term, allow_nil?: false)
+      argument(:domain, :atom, constraints: [one_of: [:directory, :im_group, :signal_source]])
+      argument(:principal_uid, :term, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :remove_synced_member, :atom do
+      argument(:group_id, :term, allow_nil?: false)
+      argument(:domain, :atom, constraints: [one_of: [:directory, :im_group, :signal_source]])
+      argument(:principal_uid, :term, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :replace_static_members, :map do
+      argument(:group_id, :term, allow_nil?: false)
+      argument(:expected_domain, :atom, allow_nil?: false)
+      argument(:principal_uids, {:array, :term}, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :apply_static_member_delta, :map do
+      argument(:group_id, :term, allow_nil?: false)
+      argument(:expected_domain, :atom, allow_nil?: false)
+      argument(:added_uids, {:array, :term}, allow_nil?: false)
+      argument(:removed_uids, {:array, :term}, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+  end
+
+  @doc false
+  # A built-in group keeps its name, kind, and condition.
+  def keep_built_in(changeset, _context) do
+    immutable =
+      if changeset.data.built_in,
+        do:
+          Enum.filter([:name, :kind, :computed_condition], fn field ->
+            Ash.Changeset.changing_attribute?(changeset, field)
+          end),
+        else: []
+
+    case immutable do
+      [] -> :ok
+      fields -> {:error, fields: fields, message: "cannot change a built-in group"}
     end
   end
 

@@ -1,5 +1,10 @@
 defmodule Ankole.AuthZ.Snapshot do
-  @moduledoc false
+  @moduledoc """
+  Projects the AuthZ rows of one decision into the kernel snapshot.
+
+  This read model runs for each authorization check. It selects maps and
+  values from grants, groups, and memberships; it does not load resources.
+  """
 
   import Ecto.Query, warn: false
 
@@ -7,7 +12,6 @@ defmodule Ankole.AuthZ.Snapshot do
   alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Input
   alias Ankole.AuthZ.Membership
-  alias Ankole.AuthZ.Store
   alias Ankole.Principals
   alias Ankole.Principals.Principal
   alias Ankole.Repo
@@ -45,8 +49,7 @@ defmodule Ankole.AuthZ.Snapshot do
     with {:ok, principal_uid} <- Principals.normalize_uid(principal_uid),
          {:ok, resource} <- Input.normalize_resource(resource),
          {:ok, context} <- Input.normalize_context(context),
-         {:ok, principal} <-
-           Repo.across_tenants(fn -> Store.fetch_principal(repo, principal_uid) end) do
+         {:ok, principal} <- fetch_principal(principal_uid) do
       Repo.with_tenant(principal.tenant_id, fn ->
         static_group_ids = static_group_ids(repo, principal.uid)
         computed_groups = computed_group_snapshots(repo)
@@ -63,6 +66,15 @@ defmodule Ankole.AuthZ.Snapshot do
            "context" => context
          }}
       end)
+    end
+  end
+
+  # A Principal UID is unique across tenants; its row selects the tenant.
+  defp fetch_principal(principal_uid) do
+    case Repo.across_tenants(fn -> Principals.get_principal_across_tenants(principal_uid) end) do
+      {:ok, %Principal{} = principal} -> {:ok, principal}
+      {:ok, nil} -> {:error, :not_found}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -101,8 +113,8 @@ defmodule Ankole.AuthZ.Snapshot do
     Grant
     |> where([grant], grant.action in ^actions)
     |> where([grant], grant.principal_uid == ^principal_uid)
+    |> select_grant_snapshot()
     |> repo.all()
-    |> Enum.map(&grant_snapshot/1)
   end
 
   defp grant_snapshots(repo, principal_uid, candidate_group_ids, actions) do
@@ -112,18 +124,18 @@ defmodule Ankole.AuthZ.Snapshot do
       [grant],
       grant.principal_uid == ^principal_uid or grant.group_id in ^candidate_group_ids
     )
+    |> select_grant_snapshot()
     |> repo.all()
-    |> Enum.map(&grant_snapshot/1)
   end
 
-  defp grant_snapshot(%Grant{} = grant) do
-    %{
+  defp select_grant_snapshot(query) do
+    select(query, [grant], %{
       "id" => grant.id,
       "principalUID" => grant.principal_uid,
       "groupID" => grant.group_id,
       "resourcePattern" => grant.resource_pattern,
       "action" => grant.action,
       "condition" => grant.condition
-    }
+    })
   end
 end

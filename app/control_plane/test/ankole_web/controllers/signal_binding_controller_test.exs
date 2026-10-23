@@ -49,7 +49,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+      |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
         "config" => %{
           "appID" => "cli_lark_main",
           "appSecret" => "secret-lark-main",
@@ -89,20 +89,16 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/signal-bindings?agent=#{agent.uid}")
+      |> api_get(~p"/api/v2/signal-bindings?agent=#{agent.uid}")
 
     assert %{"signal_bindings" => [listed]} = json_response(conn, 200)
     assert listed["agent_uid"] == agent.uid
     assert listed["name"] == "lark-main"
     assert listed["enabled"] == true
 
-    conn =
-      conn
-      |> recycle_api()
-      |> delete(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main")
+    conn = disable_binding(conn, agent.uid, "lark-main")
 
-    assert %{"signal_binding" => %{"name" => "lark-main", "enabled" => false}} =
-             json_response(conn, 200)
+    assert %{"name" => "lark-main", "enabled" => false} = json_response(conn, 200)
 
     assert {:error, :binding_disabled} =
              Ankole.Signals.Bindings.get_binding(agent.uid, "lark-main")
@@ -114,16 +110,18 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+      |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
         "config" => %{"appSecret" => "secret-lark-main", "domain" => "feishu"}
       })
 
     assert %{
-             "error" => %{
-               "code" => "validation_failed",
-               "message" => "appID is required",
-               "details" => [%{"path" => "appID", "kind" => "missing"}]
-             }
+             "errors" => [
+               %{
+                 "code" => "missing",
+                 "detail" => "appID is required",
+                 "meta" => %{"details" => [%{"path" => "appID", "kind" => "missing"}]}
+               }
+             ]
            } = json_response(conn, 422)
 
     assert {:error, :binding_not_found} =
@@ -169,7 +167,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/signal-bindings?agent=#{agent.uid}")
+      |> api_get(~p"/api/v2/signal-bindings?agent=#{agent.uid}")
 
     assert %{
              "delivery_failures" => [
@@ -224,7 +222,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/signal-bindings?agent=#{agent.uid}")
+      |> api_get(~p"/api/v2/signal-bindings?agent=#{agent.uid}")
 
     assert %{
              "delivery_failures" => [
@@ -247,22 +245,22 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/agents/#{agent.uid}/signal-deliveries/requeue", %{
+      |> api_post(~p"/api/v2/agents/#{agent.uid}/signal-deliveries/requeue", %{
         "binding_name" => "lark-main",
         "outbound_key" => "ai-reply:console-failure"
       })
 
-    assert %{"requeued" => true} = json_response(conn, 200)
+    assert %{"requeued" => true} = json_response(conn, 201)
 
     conn =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/agents/#{agent.uid}/signal-deliveries/requeue", %{
+      |> api_post(~p"/api/v2/agents/#{agent.uid}/signal-deliveries/requeue", %{
         "binding_name" => "lark-main",
         "outbound_key" => "ai-reply:console-failure"
       })
 
-    assert %{"error" => %{"code" => "conflict"}} = json_response(conn, 409)
+    assert %{"errors" => [%{"code" => "intent_not_requeueable"}]} = json_response(conn, 409)
 
     requeued =
       Repo.get_by!(Intent,
@@ -291,17 +289,14 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     assert response(conn, 200)
 
-    conn =
-      conn
-      |> recycle_api()
-      |> delete(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main")
+    conn = disable_binding(conn, agent.uid, "lark-main")
 
-    assert %{"signal_binding" => %{"enabled" => false}} = json_response(conn, 200)
+    assert %{"enabled" => false} = json_response(conn, 200)
 
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main")
+      |> api_get(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark-main")
 
     assert %{
              "signal_binding" => %{
@@ -324,7 +319,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> patch(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main", %{
+      |> api_patch(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark-main", %{
         "target_agent_uid" => agent.uid,
         "config" => %{"appSecret" => "", "domain" => "lark"},
         "group_message_mode" => "observe_all"
@@ -356,11 +351,11 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/missing/default", %{
+      |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/missing/default", %{
         "config" => %{}
       })
 
-    assert %{"error" => %{"code" => "not_found", "message" => "signal adapter was not found"}} =
+    assert %{"errors" => [%{"code" => "not_found"}]} =
              json_response(conn, 404)
   end
 
@@ -420,7 +415,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> patch(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main", %{
+      |> api_patch(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark-main", %{
         "target_agent_uid" => agent.uid,
         "config" => %{},
         "group_message_mode" => "observe_all"
@@ -508,7 +503,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/agents/#{source_agent.uid}/signal-bindings/lark/lark-main", %{
+      |> api_put(~p"/api/v2/agents/#{source_agent.uid}/signal-bindings/lark/lark-main", %{
         "config" => lark_config("group-mode-keep"),
         "group_message_mode" => "may_intervene"
       })
@@ -523,7 +518,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> patch(~p"/api/v1/agents/#{source_agent.uid}/signal-bindings/lark-main", %{
+      |> api_patch(~p"/api/v2/agents/#{source_agent.uid}/signal-bindings/lark-main", %{
         "target_agent_uid" => target_agent.uid,
         "config" => lark_config("group-mode-keep")
       })
@@ -545,7 +540,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/agents/#{source_agent.uid}/signal-bindings/lark/lark-main", %{
+      |> api_put(~p"/api/v2/agents/#{source_agent.uid}/signal-bindings/lark/lark-main", %{
         "config" => lark_config("policy-keep"),
         "unmatched_sender_policy" => "create_standalone"
       })
@@ -560,7 +555,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> patch(~p"/api/v1/agents/#{source_agent.uid}/signal-bindings/lark-main", %{
+      |> api_patch(~p"/api/v2/agents/#{source_agent.uid}/signal-bindings/lark-main", %{
         "target_agent_uid" => target_agent.uid,
         "config" => lark_config("policy-keep"),
         "group_message_mode" => "may_intervene"
@@ -604,7 +599,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
         lark_config("move-conflict")
       )
 
-    assert %{"error" => %{"code" => "conflict"}} = json_response(conn, 409)
+    assert %{"errors" => [%{"code" => "binding_target_conflict"}]} = json_response(conn, 409)
     assert {:ok, _binding} = Ankole.Signals.Bindings.get_binding(source_agent.uid, "lark-main")
     assert {:ok, _binding} = Ankole.Signals.Bindings.get_binding(target_agent.uid, "lark-main")
   end
@@ -620,10 +615,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     assert response(conn, 200)
 
-    conn =
-      conn
-      |> recycle_api()
-      |> delete(~p"/api/v1/agents/#{target_agent.uid}/signal-bindings/lark-main")
+    conn = disable_binding(conn, target_agent.uid, "lark-main")
 
     assert response(conn, 200)
 
@@ -677,7 +669,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
         lark_config("missing-target")
       )
 
-    assert %{"error" => %{"code" => "not_found", "message" => "agent was not found"}} =
+    assert %{"errors" => [%{"code" => "not_found"}]} =
              json_response(conn, 404)
 
     assert {:ok, _binding} = Ankole.Signals.Bindings.get_binding(source_agent.uid, "lark-main")
@@ -700,7 +692,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> recycle_api()
       |> patch_binding(source_agent.uid, target_agent.uid, "lark-main", lark_config("forbidden"))
 
-    assert %{"error" => %{"code" => "forbidden"}} = json_response(conn, 403)
+    assert %{"errors" => [%{"code" => "forbidden"}]} = json_response(conn, 403)
     assert {:ok, _binding} = Ankole.Signals.Bindings.get_binding(source_agent.uid, "lark-main")
 
     assert {:error, :binding_not_found} =
@@ -736,14 +728,14 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/app-configurations/#{config_key}", %{
+      |> put_app_configuration(~p"/api/v2/app-configurations/#{config_key}", %{
         "value" => %{
           "appID" => "cli_shared_lark",
           "appSecret" => "secret-bypassed-lark"
         }
       })
 
-    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} = json_response(conn, 422)
 
     assert {:ok, %{"appID" => "cli_second_lark", "appSecret" => "secret-second-lark"}} =
              Bindings.binding_config(
@@ -751,8 +743,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
                LarkConfig
              )
 
-    conn = conn |> recycle_api() |> delete(~p"/api/v1/app-configurations/#{config_key}")
-    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    conn =
+      conn
+      |> recycle_api()
+      |> delete_app_configuration(~p"/api/v2/app-configurations/#{config_key}")
+
+    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} = json_response(conn, 422)
 
     assert {:ok, %{"appID" => "cli_second_lark"}} =
              Bindings.binding_config(
@@ -790,14 +786,14 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/app-configurations/#{config_key}", %{
+      |> put_app_configuration(~p"/api/v2/app-configurations/#{config_key}", %{
         "value" => %{
           "clientId" => "ding_shared",
           "clientSecret" => "secret-bypassed-dingtalk"
         }
       })
 
-    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} = json_response(conn, 422)
 
     assert {:ok,
             %{
@@ -809,8 +805,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
                DingTalkConfig
              )
 
-    conn = conn |> recycle_api() |> delete(~p"/api/v1/app-configurations/#{config_key}")
-    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    conn =
+      conn
+      |> recycle_api()
+      |> delete_app_configuration(~p"/api/v2/app-configurations/#{config_key}")
+
+    assert %{"errors" => [%{"code" => "key_managed_by_owner"}]} = json_response(conn, 422)
 
     assert {:ok, %{"clientId" => "ding_second"}} =
              Bindings.binding_config(
@@ -835,10 +835,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn = put_generic_config(conn, config_key, config)
 
       assert %{
-               "error" => %{
-                 "code" => "not_editable",
-                 "message" => "app configuration is managed through its owning API"
-               }
+               "errors" => [
+                 %{
+                   "code" => "key_managed_by_owner",
+                   "detail" => "Use the owning settings page to change this value"
+                 }
+               ]
              } = json_response(conn, 422)
 
       refute Repo.get_by(SiteConfig, scope: "global", key: config_key)
@@ -849,10 +851,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn = conn |> recycle_api() |> put_generic_config(config_key, config)
 
       assert %{
-               "error" => %{
-                 "code" => "not_editable",
-                 "message" => "app configuration is managed through its owning API"
-               }
+               "errors" => [
+                 %{
+                   "code" => "key_managed_by_owner",
+                   "detail" => "Use the owning settings page to change this value"
+                 }
+               ]
              } = json_response(conn, 422)
 
       assert %SiteConfig{value: ^invalid_envelope} =
@@ -939,7 +943,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     conn =
       conn
       |> console_conn()
-      |> get(~p"/api/v1/signal-adapters")
+      |> api_get(~p"/api/v2/signal-adapters")
 
     assert %{"signal_adapters" => adapters} = json_response(conn, 200)
 
@@ -978,7 +982,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     end
 
     test "catalog serves the configured providers and the standalone choice", %{conn: conn} do
-      conn = conn |> console_conn() |> get(~p"/api/v1/signal-adapters")
+      conn = conn |> console_conn() |> api_get(~p"/api/v2/signal-adapters")
 
       assert %{"signal_adapters" => adapters} = json_response(conn, 200)
       lark = Enum.find(adapters, &(&1["adapter_id"] == "lark"))
@@ -993,7 +997,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       refute Enum.any?(slack["fields"], &(&1["path"] == "identityProvider"))
 
       save_lark_provider("feishu-2")
-      conn = conn |> recycle_api() |> get(~p"/api/v1/signal-adapters")
+      conn = conn |> recycle_api() |> api_get(~p"/api/v2/signal-adapters")
       assert %{"signal_adapters" => adapters} = json_response(conn, 200)
       lark = Enum.find(adapters, &(&1["adapter_id"] == "lark"))
       field = Enum.find(lark["fields"], &(&1["path"] == "identityProvider"))
@@ -1008,7 +1012,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn =
         conn
         |> console_conn()
-        |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+        |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
           "config" => lark_config("adopted")
         })
 
@@ -1033,11 +1037,11 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn =
         conn
         |> console_conn()
-        |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+        |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
           "config" => Map.put(lark_config("unknown"), "identityProvider", "lark-main")
         })
 
-      assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
+      assert %{"errors" => [%{"code" => "invalid_enum"}]} = json_response(conn, 422)
 
       assert {:error, :binding_not_found} =
                Ankole.Signals.Bindings.get_binding(agent.uid, "lark-main")
@@ -1045,7 +1049,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn =
         conn
         |> recycle_api()
-        |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+        |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
           "config" => Map.put(lark_config("explicit"), "identityProvider", "feishu")
         })
 
@@ -1062,7 +1066,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn =
         conn
         |> recycle_api()
-        |> patch(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main", %{
+        |> api_patch(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark-main", %{
           "target_agent_uid" => agent.uid,
           "config" => %{"identityProvider" => ":standalone"}
         })
@@ -1084,7 +1088,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn =
         conn
         |> console_conn()
-        |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
+        |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/lark-main", %{
           "config" => lark_config("older")
         })
 
@@ -1092,16 +1096,15 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
       save_lark_provider("feishu-2")
 
-      conn =
-        conn |> recycle_api() |> delete(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main")
+      conn = disable_binding(conn, agent.uid, "lark-main")
 
-      assert %{"signal_binding" => %{"enabled" => false}} = json_response(conn, 200)
+      assert %{"enabled" => false} = json_response(conn, 200)
 
       # The Console enable action sends an empty config; the binding keeps its reference.
       conn =
         conn
         |> recycle_api()
-        |> patch(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main", %{
+        |> api_patch(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark-main", %{
           "target_agent_uid" => agent.uid,
           "config" => %{},
           "group_message_mode" => "observe_all",
@@ -1113,12 +1116,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn =
         conn
         |> recycle_api()
-        |> patch(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main", %{
+        |> api_patch(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark-main", %{
           "target_agent_uid" => agent.uid,
           "config" => %{"userName" => "Renamed"}
         })
 
-      assert %{"error" => %{"code" => "validation_failed", "message" => message}} =
+      assert %{"errors" => [%{"code" => "missing", "detail" => message}]} =
                json_response(conn, 422)
 
       assert message =~ "identityProvider"
@@ -1126,11 +1129,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       conn =
         conn
         |> recycle_api()
-        |> put(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/lark-second", %{
+        |> api_put(~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/lark-second", %{
           "config" => lark_config("second")
         })
 
-      assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
+      assert %{"errors" => [%{"code" => "missing", "detail" => "identityProvider is required"}]} =
+               json_response(conn, 422)
     end
   end
 
@@ -1156,41 +1160,196 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     :ok
   end
 
-  test "signal adapter catalog returns 503 while the plugin registry is unavailable", %{
-    conn: conn
-  } do
+  test "signal adapter catalog gives a recovery error while the plugin registry is unavailable",
+       %{
+         conn: conn
+       } do
     conn = console_conn(conn)
 
     conn =
       without_plugin_registry(fn ->
-        get(conn, ~p"/api/v1/signal-adapters")
+        api_get(conn, ~p"/api/v2/signal-adapters")
       end)
 
     assert %{
-             "error" => %{
-               "code" => "service_unavailable",
-               "message" => "signal adapter registry is unavailable"
-             }
-           } = json_response(conn, 503)
+             "errors" => [
+               %{
+                 "code" => "signal_adapter_registry_unavailable",
+                 "detail" => "The Signal adapter registry is unavailable; retry when it is ready"
+               }
+             ]
+           } = json_response(conn, 422)
   end
 
-  test "signal binding save returns 503 while the plugin registry is unavailable", %{conn: conn} do
+  test "signal binding save gives a recovery error while the plugin registry is unavailable", %{
+    conn: conn
+  } do
     %{principal: agent} = agent_fixture()
     conn = console_conn(conn)
 
     conn =
       without_plugin_registry(fn ->
-        put(conn, ~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark/unavailable", %{
+        api_put(conn, ~p"/api/v2/agents/#{agent.uid}/signal-bindings/lark/unavailable", %{
           "config" => %{}
         })
       end)
 
     assert %{
-             "error" => %{
-               "code" => "service_unavailable",
-               "message" => "signal adapter registry is unavailable"
-             }
-           } = json_response(conn, 503)
+             "errors" => [
+               %{
+                 "code" => "signal_adapter_registry_unavailable",
+                 "detail" => "The Signal adapter registry is unavailable; retry when it is ready"
+               }
+             ]
+           } = json_response(conn, 422)
+  end
+
+  test "a move needs exactly source delete and target update permissions", %{conn: conn} do
+    %{principal: source} = agent_fixture()
+    %{principal: target} = agent_fixture()
+    {conn, uid} = console_conn_with_principal(conn)
+    conn = put_binding(conn, source.uid, "lark", "permission-move", lark_config("permitted-move"))
+    assert response(conn, 200)
+    Repo.delete_all(Grant)
+
+    grant = fn resource, action ->
+      assert {:ok, permission} =
+               Ankole.AuthZ.create_permission_grant(%{
+                 principal_uid: uid,
+                 resource_pattern: resource,
+                 action: action,
+                 condition: "true"
+               })
+
+      permission
+    end
+
+    permissions = [
+      {"agent:#{source.uid}:signal_bindings", "delete"},
+      {"agent:#{target.uid}:signal_bindings", "update"}
+    ]
+
+    for {resource, action} <- permissions do
+      _permission = grant.(resource, action)
+
+      assert %{"errors" => [%{"code" => "forbidden"}]} =
+               conn
+               |> recycle_api()
+               |> patch_binding(
+                 source.uid,
+                 target.uid,
+                 "permission-move",
+                 lark_config("permitted-move")
+               )
+               |> json_response(403)
+
+      assert {:ok, %{agent_uid: source_uid}} = Bindings.get_binding(source.uid, "permission-move")
+      assert source_uid == source.uid
+      assert {:error, :binding_not_found} = Bindings.get_binding(target.uid, "permission-move")
+      Repo.delete_all(Grant)
+    end
+
+    for {resource, action} <- permissions, do: grant.(resource, action)
+
+    assert %{"signal_binding" => %{"agent_uid" => target_uid}} =
+             conn
+             |> recycle_api()
+             |> patch_binding(
+               source.uid,
+               target.uid,
+               "permission-move",
+               lark_config("permitted-move")
+             )
+             |> json_response(200)
+
+    assert target_uid == target.uid
+    assert {:error, :binding_disabled} = Bindings.get_binding(source.uid, "permission-move")
+  end
+
+  test "a query target cannot bypass the permissions of a binding move", %{conn: conn} do
+    %{principal: source} = agent_fixture()
+    %{principal: target} = agent_fixture()
+    {conn, uid} = console_conn_with_principal(conn)
+    conn = put_binding(conn, source.uid, "lark", "query-move", lark_config("query-move"))
+    assert response(conn, 200)
+    Repo.delete_all(Grant)
+
+    assert {:ok, _grant} =
+             Ankole.AuthZ.create_permission_grant(%{
+               principal_uid: uid,
+               resource_pattern: "agent:#{source.uid}:signal_bindings",
+               action: "update",
+               condition: "true"
+             })
+
+    conn =
+      conn
+      |> recycle_api()
+      |> api_patch(
+        "/api/v2/agents/#{source.uid}/signal-bindings/query-move?target_agent_uid=#{target.uid}",
+        %{target_agent_uid: source.uid, config: %{}}
+      )
+
+    assert %{"errors" => [%{"code" => "forbidden"}]} = json_response(conn, 403)
+    assert {:ok, %{agent_uid: source_uid}} = Bindings.get_binding(source.uid, "query-move")
+    assert source_uid == source.uid
+    assert {:error, :binding_not_found} = Bindings.get_binding(target.uid, "query-move")
+  end
+
+  test "HTTP standing orders persist and enter the next runtime Signal snapshot", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    conn =
+      conn |> console_conn() |> put_binding(agent.uid, "lark", "orders", lark_config("orders"))
+
+    conn = conn |> recycle_api() |> patch_binding(agent.uid, agent.uid, "orders", %{})
+    assert response(conn, 200)
+    now = base_time()
+
+    assert {:ok, %{signal: first}} =
+             Ankole.SessionsCase.emit_entry(
+               agent.uid,
+               "orders",
+               group_entry(%{provider_message_id: "orders-seed", text: "seed"}),
+               now: now
+             )
+
+    path = "/api/v2/conversations/#{first.conversation_id}/standing-orders"
+    orders = "Investigate each failed deployment."
+
+    assert %{"standing_orders" => %{"orders" => ^orders, "set_by" => set_by}} =
+             conn |> recycle_api() |> api_put(path, %{orders: orders}) |> json_response(200)
+
+    assert is_binary(set_by)
+
+    assert %{"standing_orders" => %{"orders" => ^orders}} =
+             conn |> recycle_api() |> api_get(path) |> json_response(200)
+
+    assert {:ok, %{signal: next}} =
+             Ankole.SessionsCase.emit_entry(
+               agent.uid,
+               "orders",
+               group_entry(%{provider_message_id: "orders-next", text: "The deployment failed."}),
+               now: DateTime.add(now, 30, :second)
+             )
+
+    assert next.data["channel"]["standing_orders"] == orders
+
+    assert %{"standing_orders" => %{"orders" => nil}} =
+             conn |> recycle_api() |> api_put(path, %{orders: ""}) |> json_response(200)
+
+    assert {:ok, %{signal: cleared}} =
+             Ankole.SessionsCase.emit_entry(
+               agent.uid,
+               "orders",
+               group_entry(%{
+                 provider_message_id: "orders-clear",
+                 text: "The deployment failed again."
+               }),
+               now: DateTime.add(now, 60, :second)
+             )
+
+    refute cleared.data["channel"]["standing_orders"]
   end
 
   defp without_plugin_registry(fun) do
@@ -1211,17 +1370,17 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
         _adapter_id -> %{"config" => config}
       end
 
-    put(
+    api_put(
       conn,
-      ~p"/api/v1/agents/#{agent_uid}/signal-bindings/#{adapter_id}/#{binding_name}",
+      ~p"/api/v2/agents/#{agent_uid}/signal-bindings/#{adapter_id}/#{binding_name}",
       attrs
     )
   end
 
   defp patch_binding(conn, source_agent_uid, target_agent_uid, binding_name, config) do
-    patch(
+    api_patch(
       conn,
-      ~p"/api/v1/agents/#{source_agent_uid}/signal-bindings/#{binding_name}",
+      ~p"/api/v2/agents/#{source_agent_uid}/signal-bindings/#{binding_name}",
       %{
         "target_agent_uid" => target_agent_uid,
         "config" => config,
@@ -1239,7 +1398,21 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   end
 
   defp put_generic_config(conn, config_key, config) do
-    put(conn, ~p"/api/v1/app-configurations/#{config_key}", %{"value" => config})
+    put_app_configuration(conn, ~p"/api/v2/app-configurations/#{config_key}", %{"value" => config})
+  end
+
+  defp put_app_configuration(conn, path, attrs) do
+    conn
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
+    |> api_put(path, Jason.encode!(%{data: attrs}))
+  end
+
+  defp delete_app_configuration(conn, path) do
+    conn
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
+    |> api_delete(path)
   end
 
   defp put_raw_global_config(key, envelope) do
@@ -1262,4 +1435,45 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     row
   end
+
+  defp disable_binding(conn, agent_uid, name) do
+    conn
+    |> recycle_api()
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
+    |> api_delete("/api/v2/agents/#{agent_uid}/signal-bindings/#{name}")
+  end
+
+  defp api_request(conn, method, path, body \\ nil) do
+    if String.starts_with?(path, "/api/v2/") do
+      body =
+        case body do
+          nil ->
+            nil
+
+          value when is_binary(value) ->
+            value
+
+          value ->
+            Jason.encode!(
+              if Map.has_key?(value, :data) or Map.has_key?(value, "data"),
+                do: value,
+                else: %{data: value}
+            )
+        end
+
+      conn
+      |> put_req_header("accept", "application/vnd.api+json")
+      |> put_req_header("content-type", "application/vnd.api+json")
+      |> dispatch(@endpoint, method, path, body)
+    else
+      conn |> dispatch(@endpoint, method, path, body)
+    end
+  end
+
+  defp api_get(conn, path), do: api_request(conn, :get, path)
+  defp api_post(conn, path, body), do: api_request(conn, :post, path, body)
+  defp api_put(conn, path, body), do: api_request(conn, :put, path, body)
+  defp api_patch(conn, path, body), do: api_request(conn, :patch, path, body)
+  defp api_delete(conn, path), do: api_request(conn, :delete, path)
 end

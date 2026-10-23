@@ -1,7 +1,18 @@
 defmodule Ankole.Work.Provenance do
-  @moduledoc "Declares authorization fields and the existing work owner's review contract."
+  @moduledoc """
+  Declares authorization fields and the existing work owner's review contract.
+
+  A work resource uses this module after `use Ankole.Ash.Resource`. It gets
+  the read action `:work_across_tenants`: Human work cleanup and review read
+  the work of one Human in every tenant through `Ankole.Work.Owner`.
+  """
 
   defmacro __using__(opts) do
+    # `revoke_action` names a module that the work owner calls at run time.
+    # Expand its alias without a lexical tracker, so that the resource does
+    # not depend on the module of its domain (see `mix ankole.compile_cycles`).
+    opts = Macro.expand_literals(opts, %{__CALLER__ | lexical_tracker: nil})
+
     quote do
       import Ankole.Work.Provenance, only: [ash_attributes: 0]
 
@@ -13,6 +24,12 @@ defmodule Ankole.Work.Provenance do
                                 ])
                               )
       def __work_provenance__, do: unquote(opts)
+
+      actions do
+        read :work_across_tenants do
+          multitenancy(:allow_global)
+        end
+      end
     end
   end
 

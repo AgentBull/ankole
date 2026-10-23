@@ -377,26 +377,31 @@ defmodule Ankole.Sessions.Tools.Schedule do
   end
 
   alias Ankole.Schedule
+  alias Ankole.Schedule.{Checkbacks, Cron}
   alias Ankole.Conversations.Route
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Tools
 
   @impl true
-  def execute(run, call, args) do
-    with :ok <- operation_arguments(call["name"], args),
-         {:ok, payload} <- invoke(run, call, args),
-         do: {:ok, Tools.result(payload, presentation: effect_presentation(call["name"], args))}
-  end
+  def execute(run, call, args), do: execute_in(Ankole.Repo, run, call, args)
 
   @impl true
-  def prepare_in_tx(_repo, run, call, args) do
+  def prepare_in_tx(repo, run, call, args) do
     # Schedule operations write only definitions, due events, and Oban jobs.
     # The receipt fence and these writes commit in the same transaction.
-    with {:ok, result} <- execute(run, call, args),
+    with {:ok, result} <- execute_in(repo, run, call, args),
          do: {:ok, [], fn -> {:ok, result, []} end}
   end
 
-  defp invoke(run, call, args) do
+  # A write action runs only in the receipt transaction (`prepare_in_tx/4`);
+  # the read actions read through the Schedule domain.
+  defp execute_in(repo, run, call, args) do
+    with :ok <- operation_arguments(call["name"], args),
+         {:ok, payload} <- invoke(repo, run, call, args),
+         do: {:ok, Tools.result(payload, presentation: effect_presentation(call["name"], args))}
+  end
+
+  defp invoke(repo, run, call, args) do
     route = Ankole.Conversations.Route.snapshot(run)
     id = Run.tool_identity(run, call)
 
@@ -417,6 +422,7 @@ defmodule Ankole.Sessions.Tools.Schedule do
     delivery = if target == %{}, do: delivery, else: Map.put_new(delivery, "targets", [target])
 
     ctx = %{
+      repo: repo,
       tool_call_id: id,
       idempotency_key: idempotency_key(run, call, args, updates, delivery),
       binding_name:
@@ -587,7 +593,7 @@ defmodule Ankole.Sessions.Tools.Schedule do
     with {:ok, source} <- Route.source(turn_ref),
          {:ok, attrs} <- checkback_attrs(args, ctx, turn_ref, source, reply_route),
          {:ok, %{status: status, scheduled_event: event}} <-
-           Schedule.create_check_back_later(attrs) do
+           Checkbacks.create_check_back_later_in_tx(ctx.repo, attrs, []) do
       {:ok,
        %{
          "status" => schedule_status(status),
@@ -625,7 +631,7 @@ defmodule Ankole.Sessions.Tools.Schedule do
          {:ok, source} <- Route.source(turn_ref),
          {:ok, attrs} <- checkback_update_attrs(ctx, turn_ref, source, reply_route),
          {:ok, %{status: status, scheduled_event: updated}} <-
-           Schedule.update_checkback(event.id, attrs) do
+           Checkbacks.update_checkback_in_tx(ctx.repo, event.id, attrs, []) do
       {:ok,
        %{
          "status" => checkback_update_status(status),
@@ -634,9 +640,9 @@ defmodule Ankole.Sessions.Tools.Schedule do
     end
   end
 
-  defp operation("check_back_later", "cancel", turn_ref, args, _ctx) do
+  defp operation("check_back_later", "cancel", turn_ref, args, ctx) do
     with {:ok, event} <- checkback_from_turn(args["checkback_id"], turn_ref),
-         {:ok, cancelled} <- Schedule.cancel_checkback(event.id) do
+         {:ok, cancelled} <- Checkbacks.cancel_checkback_in_tx(ctx.repo, event.id, []) do
       {:ok,
        %{
          "status" => "cancelled",
@@ -679,7 +685,7 @@ defmodule Ankole.Sessions.Tools.Schedule do
     with {:ok, attrs} <- cron_attrs(args, ctx, turn_ref),
          created_by <- turn_created_by(turn_ref),
          {:ok, %{status: status, cron_schedule: schedule}} <-
-           Schedule.create_cron_schedule(attrs, created_by: created_by) do
+           Cron.create_cron_schedule_in_tx(ctx.repo, attrs, created_by: created_by) do
       {:ok,
        %{
          "status" => cron_create_status(status),
@@ -691,27 +697,42 @@ defmodule Ankole.Sessions.Tools.Schedule do
   defp operation("cron", "update", turn_ref, args, ctx) do
     with {:ok, schedule} <- cron_schedule_from_turn(args["name"], turn_ref),
          updates <- ctx.updates || %{},
-         {:ok, updated} <- Schedule.update_cron_schedule(schedule.id, updates) do
+         {:ok, updated} <- Cron.update_cron_schedule_in_tx(ctx.repo, schedule.id, updates, []) do
       {:ok, %{"status" => "updated", "schedule" => Schedule.cron_model_projection(updated)}}
     end
   end
 
-  defp operation("cron", "pause", turn_ref, args, _ctx) do
-    mutate_cron_from_turn(args["name"], turn_ref, "paused", &Schedule.pause_cron_schedule/1)
+  defp operation("cron", "pause", turn_ref, args, ctx) do
+    mutate_cron_from_turn(
+      args["name"],
+      turn_ref,
+      "paused",
+      &Cron.pause_cron_schedule_in_tx(ctx.repo, &1, [])
+    )
   end
 
-  defp operation("cron", "resume", turn_ref, args, _ctx) do
-    mutate_cron_from_turn(args["name"], turn_ref, "resumed", &Schedule.resume_cron_schedule/1)
+  defp operation("cron", "resume", turn_ref, args, ctx) do
+    mutate_cron_from_turn(
+      args["name"],
+      turn_ref,
+      "resumed",
+      &Cron.resume_cron_schedule_in_tx(ctx.repo, &1, [])
+    )
   end
 
-  defp operation("cron", "remove", turn_ref, args, _ctx) do
-    mutate_cron_from_turn(args["name"], turn_ref, "removed", &Schedule.remove_cron_schedule/1)
+  defp operation("cron", "remove", turn_ref, args, ctx) do
+    mutate_cron_from_turn(
+      args["name"],
+      turn_ref,
+      "removed",
+      &Cron.remove_cron_schedule_in_tx(ctx.repo, &1, [])
+    )
   end
 
   defp operation("cron", "run", turn_ref, args, ctx) do
     with {:ok, schedule} <- cron_schedule_from_turn(args["name"], turn_ref),
          {:ok, %{status: status, scheduled_event: event}} <-
-           Schedule.run_cron_schedule(schedule.id, tool_call_id: ctx.tool_call_id) do
+           Cron.run_cron_schedule_in_tx(ctx.repo, schedule.id, tool_call_id: ctx.tool_call_id) do
       {:ok,
        %{
          "status" => schedule_status(status),

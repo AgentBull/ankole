@@ -2,7 +2,7 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
   @moduledoc false
   use Ankole.Ash.Resource,
     tenancy: :site,
-    domain: Ankole.BrowserSessions.Domain,
+    domain: Ankole.BrowserSessions,
     extensions: [AshStateMachine]
 
   postgres do
@@ -112,55 +112,125 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
         :expires_at
       ])
 
-      transaction?(false)
       validate(Ankole.BrowserSessions.Validations.TargetScope, only_when_valid?: true)
     end
 
-    in_tx_update :bind_provider_in_tx do
+    update :bind_provider_in_tx do
       accept([:provider_id, :upstream_state, :redirect_uri])
       validate(attribute_equals(:status, :pending))
     end
 
-    in_tx_update :password_ticket_in_tx do
+    update :password_ticket_in_tx do
       accept([:password_ticket])
       validate(attribute_equals(:status, :pending))
     end
 
-    in_tx_update :bind_proof_in_tx do
+    update :bind_proof_in_tx do
       accept([:authentication_id, :authentication_revision, :upstream_state])
       validate(attribute_equals(:status, :pending))
       validate(present([:authentication_id, :authentication_revision]))
     end
 
-    in_tx_update :authenticate_in_tx do
+    update :authenticate_in_tx do
       accept([:authentication_id, :authentication_revision, :request, :started_revision])
       validate(present([:authentication_id, :authentication_revision]))
       change(transition_state(:authenticated))
       change(set_attribute(:password_ticket, nil))
     end
 
-    in_tx_update :consume_in_tx do
+    update :consume_in_tx do
       accept([:authentication_id, :authentication_revision, :request, :started_revision])
       change(transition_state(:consumed))
       change(set_attribute(:password_ticket, nil))
     end
 
-    in_tx_update :reauthenticate_in_tx do
+    update :reauthenticate_in_tx do
       accept([:expected_authentication_id, :request, :started_revision])
       change(transition_state(:pending))
       change(set_attribute(:authentication_id, nil))
       change(set_attribute(:authentication_revision, nil))
     end
 
-    atomic_in_tx_update :cancel_in_tx do
+    update :cancel_in_tx do
+      require_atomic?(true)
       accept([])
       change(transition_state(:cancelled))
       change(set_attribute(:password_ticket, nil))
     end
 
     destroy :expire_in_tx do
-      transaction?(false)
       require_atomic?(true)
+    end
+
+    action :begin_login, :term do
+      argument(:browser_ref, :term)
+      argument(:purpose, :term)
+      argument(:request, :term)
+      argument(:opts, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :bind_provider, :term do
+      argument(:browser_ref, :term)
+      argument(:id, :term)
+      argument(:provider_id, :term)
+      argument(:state, :term)
+      argument(:redirect_uri, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :put_password_ticket, :term do
+      argument(:browser_ref, :term)
+      argument(:id, :term)
+      argument(:ticket, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :complete_login, :term do
+      argument(:browser_ref, :term)
+      argument(:id, :term)
+      argument(:auth, :term)
+      argument(:before_commit, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :complete_site_login, :term do
+      argument(:browser_ref, :term)
+      argument(:id, :term)
+      argument(:provider_id, :term)
+      argument(:proof, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :select_authorization, :term do
+      argument(:browser_ref, :term)
+      argument(:id, :term)
+      argument(:authentication_ref, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :consume_authorization, :term do
+      argument(:browser_ref, :term)
+      argument(:id, :term)
+      argument(:authentication_ref, :term)
+      argument(:issue, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :consume_login, :term do
+      argument(:browser_ref, :term)
+      argument(:id, :term)
+      argument(:purpose, :term)
+      argument(:complete, :term)
+
+      run(__MODULE__.Actions)
     end
   end
 

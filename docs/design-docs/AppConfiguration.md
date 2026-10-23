@@ -78,6 +78,13 @@ only the Console refuses.
 
 ## How the Console Presents Keys
 
+Settings operations use `/api/v2/site/app-configurations` for site values and
+`/api/v2/app-configurations` for tenant values. Typed Ash actions call the
+AppConfigure owner. The owner validates and stores each value, then publishes
+its committed cache value. List and detail responses mask encrypted values;
+only an authorized `POST /:key/decryptions` reveals a value. Generic action
+write bodies put their arguments in `data`.
+
 The Console settings list reads this policy and does not keep its own list of key
 names.
 
@@ -123,8 +130,8 @@ their key includes a hash of the globally unique Agent UID and binding name; the
 binding lifecycle deletes them.
 
 The settings page shows the site value and current tenant value in separate
-columns. Site writes use `/api/v1/site/app-configurations`; tenant writes use
-`/api/v1/app-configurations`. Both use the same validation and encryption owner.
+columns. Site writes use `/api/v2/site/app-configurations`; tenant writes use
+`/api/v2/app-configurations`. Both use the same validation and encryption owner.
 
 AppConfigure tries the next choice only when a row is absent. A corrupt or
 undecryptable row returns an error instead of hiding the problem.
@@ -215,6 +222,14 @@ Runtime keys use the corresponding `*_by_key` functions. The registry must match
 
 `update_global/2` holds a short per-key PostgreSQL advisory lock. The callback computes one replacement value and must not do external I/O.
 
+`AppConfigure` is the Ash domain of `AppConfig` and `SiteConfig`.
+`update_global/2`, `update_tenant/2`, and `ensure_generated_global/1` are
+generic actions that own their transaction and refresh the cache after the
+commit. Another domain's action uses the transaction forms
+(`update_tenant_in_tx/3`, `put_global_by_key_in_tx/3`,
+`lock_global_by_key_in_tx/2`) and then calls `cache_committed_write/1` after its
+own commit. A delete is one statement and needs no transaction.
+
 AppConfigure checks a value before it commits the write. A successful database
 commit means that the write succeeded.
 
@@ -270,7 +285,11 @@ secret-state changes, and encryption. A metadata-only write keeps the stored
 ciphertext. An inherited secret is sealed for the new scope before storage.
 The `remove` action owns individual and Agent-cleanup deletion. All list and
 execution reads use the same resources. WorkerEnv owns tier inheritance and
-response masking; ConsolePolicy owns reveal authorization.
+response masking. The JSON:API policy checks reveal authorization separately
+from reads and writes. Site, tenant, and Agent operations use
+`/api/v2/site/worker-envs`, `/api/v2/worker-envs`, and
+`/api/v2/agents/:agent_uid/worker-envs`. Typed transport actions call WorkerEnv;
+the storage resources keep validation and encrypted value ownership.
 
 AppConfigure declarations do not export environment variables. RuntimeFabric
 carries per-turn runtime facts separately. Runtime names use the

@@ -637,8 +637,7 @@ defmodule Ankole.Sessions.Prompt.Input do
 
   def standing_orders(event) do
     if Ankole.Signals.Signal.produced_by_kernel?(event) && is_binary(event.conversation_id) do
-      conversation =
-        Ankole.Repo.get_by(Ankole.Conversations.Conversation, id: event.conversation_id)
+      conversation = Ankole.Conversations.get_conversation!(event.conversation_id)
 
       active_standing_orders(event, conversation)
     end
@@ -649,7 +648,7 @@ defmodule Ankole.Sessions.Prompt.Input do
          %{external_kind: :im_group} = conversation
        )
        when is_binary(name) do
-    case Ankole.Repo.get_by(Ankole.Signals.Binding, agent_uid: uid, name: name) do
+    case Ankole.Signals.get_binding!(uid, name) do
       %{enabled: true, unaddressed_group_message_policy: :may_intervene} ->
         trimmed(conversation.ambient_standing_orders)
 
@@ -680,14 +679,14 @@ defmodule Ankole.Sessions.Prompt.Input do
         Ankole.Conversations.message_for_signal(event)
 
     if message do
-      conversation =
-        Ankole.Repo.get_by!(Ankole.Conversations.Conversation, id: message.conversation_id)
+      %Ankole.Conversations.Conversation{} =
+        conversation = Ankole.Conversations.get_conversation!(message.conversation_id)
 
       ref =
-        Ankole.Repo.get_by(Ankole.Conversations.ExternalMessageRef,
-          message_id: message.id,
-          conversation_id: message.conversation_id
-        )
+        case Ankole.Conversations.get_external_message_ref!(message.id) do
+          %{conversation_id: id} = ref when id == message.conversation_id -> ref
+          _other -> nil
+        end
 
       {message, conversation, ref}
     end
@@ -699,7 +698,10 @@ defmodule Ankole.Sessions.Prompt.Input do
     author = if ref, do: ref.author || %{}, else: %{}
 
     principal =
-      message.author_uid && Ankole.Repo.get(Ankole.Principals.Principal, message.author_uid)
+      with uid when is_binary(uid) <- message.author_uid,
+           {:ok, principal} <- Ankole.Principals.get_principal(uid),
+           do: principal,
+           else: (_missing -> nil)
 
     uid = message.author_uid || author["platform_subject"]
 

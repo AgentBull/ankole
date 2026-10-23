@@ -2,8 +2,15 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
   @moduledoc "Immutable proposal facts and their one-time review decision."
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.Brain.Domain,
-    extensions: [AshStateMachine]
+    domain: Ankole.Brain,
+    extensions: [AshStateMachine, AshJsonApi.Resource]
+
+  json_api do
+    type("brain_merge_suggestion")
+    derive_filter?(false)
+    derive_sort?(false)
+    default_fields([:a_page, :b_page, :reason, :status, :created_at])
+  end
 
   postgres do
     table("brain_merge_suggestions")
@@ -29,12 +36,47 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
 
     attribute(:reason, :string,
       allow_nil?: false,
+      public?: true,
       constraints: [trim?: false, allow_empty?: true]
     )
 
     attribute(:decided_by, Ankole.Ash.Types.ActorRef)
-    attribute(:created_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
+
+    attribute(:created_at, :utc_datetime_usec,
+      allow_nil?: false,
+      public?: true,
+      default: &DateTime.utc_now/0
+    )
+
     attribute(:decided_at, :utc_datetime_usec)
+  end
+
+  @page_summary [
+    fields: [
+      slug: [type: :string, allow_nil?: false],
+      title: [type: :string, allow_nil?: true],
+      type: [type: :string, allow_nil?: true]
+    ]
+  ]
+
+  calculations do
+    calculate(
+      :a_page,
+      :map,
+      {__MODULE__.PageSummary, slug: :a_slug},
+      constraints: @page_summary,
+      allow_nil?: false,
+      public?: true
+    )
+
+    calculate(
+      :b_page,
+      :map,
+      {__MODULE__.PageSummary, slug: :b_slug},
+      constraints: @page_summary,
+      allow_nil?: false,
+      public?: true
+    )
   end
 
   identities do
@@ -55,12 +97,24 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
   actions do
     defaults([:read])
 
+    # The Console list: the first 100 suggestions of one status, newest first.
+    read :console_list do
+      argument(:status, :atom,
+        default: :pending,
+        constraints: [one_of: [:pending, :approved, :rejected]]
+      )
+
+      filter(expr(status == ^arg(:status)))
+      prepare(build(sort: [created_at: :desc], limit: 100))
+    end
+
     create_if_absent :suggest do
       accept([:id, :a_slug, :b_slug, :reason, :created_at])
       upsert_identity(:proposal)
     end
 
-    atomic_in_tx_update :approve do
+    update :approve do
+      require_atomic?(true)
       accept([])
       argument(:decided_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
       change(set_attribute(:decided_by, arg(:decided_by)))
@@ -68,12 +122,47 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
       change(transition_state(:approved))
     end
 
-    atomic_in_tx_update :reject do
+    update :reject do
+      require_atomic?(true)
       accept([])
       argument(:decided_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
       change(set_attribute(:decided_by, arg(:decided_by)))
       change(set_attribute(:decided_at, &DateTime.utc_now/0))
       change(transition_state(:rejected))
+    end
+
+    # Each review decision owns its transaction; Ankole.Brain.Merge gives the
+    # steps.
+    action :approve_merge, :map do
+      argument(:suggestion_id, :uuid, allow_nil?: false)
+      argument(:decided_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
+      argument(:attrs, :map, default: %{})
+
+      run(__MODULE__.Actions)
+    end
+
+    # The Console review. The reviewer is the actor of the action
+    # (Ankole.Brain.Console).
+    action :console_approve do
+      argument(:suggestion_id, :uuid, allow_nil?: false)
+      argument(:canonical_slug, :string, constraints: [trim?: false])
+
+      run(__MODULE__.Actions)
+    end
+
+    action :console_reject, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:suggestion_id, :uuid, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :reject_merge, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:suggestion_id, :uuid, allow_nil?: false)
+      argument(:decided_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
+
+      run(__MODULE__.Actions)
     end
   end
 

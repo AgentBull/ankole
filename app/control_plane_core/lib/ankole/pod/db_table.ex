@@ -1,6 +1,6 @@
 defmodule Ankole.Pod.DbTable do
   @moduledoc "A data table and its atomic record counters."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod
 
   postgres do
     table("db_tables")
@@ -35,11 +35,11 @@ defmodule Ankole.Pod.DbTable do
     defaults([:read])
 
     create :create_in_tx do
-      transaction?(false)
       accept([:id, :page_id, :name, :position])
     end
 
-    atomic_in_tx_update :commit_write do
+    update :commit_write do
+      require_atomic?(true)
       accept([])
       argument(:delta, :integer, allow_nil?: false)
       argument(:inserted, :integer, allow_nil?: false, constraints: [min: 0])
@@ -48,15 +48,68 @@ defmodule Ankole.Pod.DbTable do
       change(atomic_update(:next_auto_number, expr(next_auto_number + ^arg(:inserted))))
     end
 
-    atomic_in_tx_update :initialize_copy do
+    update :initialize_copy do
+      require_atomic?(true)
       accept([:record_count, :next_auto_number])
       change(filter(expr(data_version == 0 and record_count == 0 and next_auto_number == 1)))
       change(set_attribute(:data_version, 1))
     end
 
     destroy :remove do
-      transaction?(false)
       require_atomic?(true)
+    end
+
+    action :create_table, :term do
+      argument(:uid, :term)
+      argument(:page_id, :term)
+      argument(:attrs, :term)
+      argument(:authority, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    # Reads under a shared table lock with the query time and timezone limits.
+    action :read_table, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :query_records, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:attrs, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :aggregate_records, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:attrs, :term)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :write_records, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:attrs, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Database, :committed_records})
+
+      run(__MODULE__.Actions)
+    end
+
+    action :copy_table, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:attrs, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Copy, :committed})
+
+      run(__MODULE__.Actions)
     end
   end
 

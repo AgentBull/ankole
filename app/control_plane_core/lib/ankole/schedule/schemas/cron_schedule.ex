@@ -8,9 +8,9 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   """
 
   use Ankole.Ash.Resource,
-    extensions: [AshStateMachine],
+    extensions: [AshStateMachine, AshJsonApi.Resource],
     tenancy: :tenant,
-    domain: Ankole.Schedule.Domain
+    domain: Ankole.Schedule
 
   use Ankole.Work.Provenance,
     owner_session?: true,
@@ -78,11 +78,47 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     )
 
     attribute(:automation_job_id, :integer, public?: true)
-    timestamps(type: :utc_datetime_usec)
+    timestamps(type: :utc_datetime_usec, public?: true)
   end
 
   identities do
     identity(:idempotency, [:agent_uid, :owner_session_id, :idempotency_key], all_tenants?: true)
+  end
+
+  calculations do
+    calculate(
+      :execution_session_id,
+      :string,
+      __MODULE__.ExecutionSessionId,
+      public?: true
+    )
+  end
+
+  json_api do
+    type("cron_schedule")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :id,
+      :status,
+      :agent_uid,
+      :owner_session_id,
+      :execution_session_id,
+      :binding_name,
+      :name,
+      :schedule,
+      :timezone,
+      :payload,
+      :delivery,
+      :next_fire_at,
+      :last_fire_at,
+      :idempotency_key,
+      :created_by,
+      :automation_job_id,
+      :inserted_at,
+      :updated_at
+    ])
   end
 
   state_machine do
@@ -102,9 +138,141 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   actions do
     defaults([:read])
 
+    # The Console list: the schedules that are not deleted, of one Agent or of
+    # all Agents.
+    read :console_list do
+      argument(:agent, Ankole.Ash.Types.PrincipalKey)
+      filter(expr(status != :deleted and (is_nil(^arg(:agent)) or agent_uid == ^arg(:agent))))
+      prepare(build(sort: [agent_uid: :asc, owner_session_id: :asc, name: :asc]))
+    end
+
+    # The Console writes address a schedule through its Agent. A schedule of
+    # another Agent reads as not found.
+    action :console_create, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:owner_session_id, :string, allow_nil?: false)
+      argument(:binding_name, :string)
+      argument(:name, :string, allow_nil?: false)
+      argument(:status, :string)
+      argument(:schedule, :map, allow_nil?: false)
+      argument(:timezone, :string)
+      argument(:payload, :map)
+      argument(:delivery, :map, allow_nil?: false)
+      argument(:idempotency_key, :string, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :console_update, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:name, :string)
+      argument(:schedule, :map)
+      argument(:timezone, :string)
+      argument(:payload, :map)
+      argument(:delivery, :map)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :console_pause, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :console_resume, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :console_remove, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    # A manual fire. The idempotency key makes a repeated request one fire.
+    action :console_run, :struct do
+      constraints(instance_of: Ankole.Schedule.Schemas.ScheduledEvent)
+      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:idempotency_key, :string, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :create_cron_schedule, :term do
+      argument(:attrs, :term, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(__MODULE__.Actions)
+    end
+
+    action :update_cron_schedule, :term do
+      argument(:cron_schedule_id, :term, allow_nil?: false)
+      argument(:attrs, :term, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(__MODULE__.Actions)
+    end
+
+    action :pause_cron_schedule, :term do
+      argument(:cron_schedule_id, :term, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(__MODULE__.Actions)
+    end
+
+    action :resume_cron_schedule, :term do
+      argument(:cron_schedule_id, :term, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(__MODULE__.Actions)
+    end
+
+    action :remove_cron_schedule, :term do
+      argument(:cron_schedule_id, :term, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(__MODULE__.Actions)
+    end
+
+    action :run_cron_schedule, :term do
+      argument(:cron_schedule_id, :term, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(__MODULE__.Actions)
+    end
+
+    action :fire_cron, :term do
+      argument(:cron_schedule_id, :term, allow_nil?: false)
+      argument(:now, :term, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :record_fire_failure, :term do
+      allow_nil?(true)
+      argument(:cron_schedule_id, :term, allow_nil?: false)
+      argument(:slot, :term, allow_nil?: false)
+      argument(:reason, :term)
+      argument(:now, :term, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
     create :create do
       primary?(true)
-      transaction?(false)
       upsert?(true)
       upsert_identity(:idempotency)
       upsert_fields([:idempotency_key])
@@ -133,7 +301,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       validate(Ankole.TimeZone, where: [changing(:timezone)], only_when_valid?: true)
     end
 
-    in_tx_update :update_definition do
+    update :update_definition do
       validate(Ankole.TimeZone, where: [changing(:timezone)], only_when_valid?: true)
 
       accept([
@@ -147,42 +315,43 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       ])
     end
 
-    in_tx_update :pause do
+    update :pause do
       accept([])
       change(transition_state(:paused))
       change(set_attribute(:next_fire_at, nil))
     end
 
-    in_tx_update :resume do
+    update :resume do
       accept([])
       change(transition_state(:active))
     end
 
-    in_tx_update :delete do
+    update :delete do
       accept([])
       change(transition_state(:deleted))
       change(set_attribute(:next_fire_at, nil))
     end
 
-    in_tx_update :complete do
+    update :complete do
       accept([])
       change(transition_state(:completed))
       change(set_attribute(:next_fire_at, nil))
     end
 
-    in_tx_update :schedule_fire do
+    update :schedule_fire do
       accept([:next_fire_at])
     end
 
-    in_tx_update :record_fire do
+    update :record_fire do
       accept([:last_fire_at])
     end
 
-    in_tx_update :reauthorize do
+    update :reauthorize do
       accept([:authorization_kind, :human_uid, :human_access_version])
     end
 
-    atomic_in_tx_update :stop_human_work do
+    update :stop_human_work do
+      require_atomic?(true)
       accept([])
       change(transition_state(:paused))
       change(set_attribute(:next_fire_at, nil))

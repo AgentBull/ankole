@@ -1,5 +1,5 @@
 defmodule Ankole.Sessions.MessageLifecycleNoopTest do
-  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Delivery.PreviewStates
   alias Ankole.AIGateway.ResponseCommit
   alias Ankole.AIGateway.ResponseChain
   use Ankole.SessionsCase
@@ -373,7 +373,7 @@ defmodule Ankole.Sessions.MessageLifecycleNoopTest do
              MessageLifecycle.process(lifecycle_event, now: DateTime.add(@base_time, 2, :second))
 
     checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, input.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, input.id)).checkpoint
 
     interaction = checkpoint["interactions"]["clarify:call-1"]
 
@@ -433,7 +433,7 @@ defmodule Ankole.Sessions.MessageLifecycleNoopTest do
              MessageLifecycle.process(lifecycle_event, now: DateTime.add(@base_time, 4, :second))
 
     checkpoint =
-      Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, clarification_input.id)).checkpoint
+      Ankole.Conversations.Delivery.PreviewStates.get(Repo.get!(Signal, clarification_input.id)).checkpoint
 
     assert checkpoint["interactions"]["clarify:call-1"]["state"] == "pending"
     assert checkpoint["presentation"]["interaction_status"] == "pending"
@@ -525,7 +525,7 @@ defmodule Ankole.Sessions.MessageLifecycleNoopTest do
     }
 
     assert {:ok, _updated} =
-             PreviewState.put_checkpoint(input.id, checkpoint)
+             PreviewStates.put_checkpoint(input.id, checkpoint)
   end
 
   defp mirror_delivered_reply!(input, provider_message_id, ai_message_id) do
@@ -640,7 +640,7 @@ defmodule Ankole.Sessions.MessageLifecycleNoopTest do
     }
 
     assert {:ok, _updated} =
-             PreviewState.put_checkpoint(input.id, checkpoint)
+             PreviewStates.put_checkpoint(input.id, checkpoint)
   end
 
   defp start_and_commit_round!(agent_uid, signal_id, opts) do

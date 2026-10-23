@@ -1,6 +1,6 @@
 defmodule Ankole.OIDC.Session do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.OIDC.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.OIDC
 
   postgres do
     table("oidc_sessions")
@@ -61,6 +61,14 @@ defmodule Ankole.OIDC.Session do
   actions do
     defaults([:read])
 
+    read :lookup_across_tenants do
+      multitenancy(:allow_global)
+    end
+
+    # One statement inserts the Session or extends its deadline. The upsert
+    # locks a conflicting row like the insert of a new row, and changes only a
+    # later deadline, so a repeated authorization never shortens a Session that
+    # live refresh tokens use.
     create :authorize_in_tx do
       accept([
         :client_id,
@@ -74,38 +82,30 @@ defmodule Ankole.OIDC.Session do
         :expires_at
       ])
 
-      transaction?(false)
+      upsert?(true)
+      upsert_identity(:authentication)
+      upsert_fields([:expires_at])
+      upsert_condition(expr(expires_at < upsert_conflict(:expires_at)))
+      return_skipped_upsert?(true)
       validate(present([:authentication_id, :authentication_revision]))
     end
 
-    atomic_in_tx_update :extend_in_tx do
-      accept([])
-      argument(:expires_at, :utc_datetime_usec, allow_nil?: false)
-      argument(:at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
-
-      change(
-        atomic_update(
-          :expires_at,
-          expr(fragment("GREATEST(?, ?)", expires_at, ^arg(:expires_at)))
-        )
-      )
-
-      change(set_attribute(:updated_at, arg(:at)))
-    end
-
-    atomic_in_tx_update :revoke_in_tx do
+    update :revoke_in_tx do
+      require_atomic?(true)
       accept([])
       argument(:at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
       change(atomic_update(:revoked_at, expr(fragment("COALESCE(?, ?)", revoked_at, ^arg(:at)))))
     end
 
-    atomic_in_tx_update :end_in_tx do
+    update :end_in_tx do
+      require_atomic?(true)
       accept([])
       argument(:at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
       change(atomic_update(:ended_at, expr(fragment("COALESCE(?, ?)", ended_at, ^arg(:at)))))
     end
 
-    atomic_in_tx_update :revoke_and_end_in_tx do
+    update :revoke_and_end_in_tx do
+      require_atomic?(true)
       accept([])
       argument(:at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
       change(atomic_update(:revoked_at, expr(fragment("COALESCE(?, ?)", revoked_at, ^arg(:at)))))
@@ -113,8 +113,16 @@ defmodule Ankole.OIDC.Session do
     end
 
     destroy :expire_in_tx do
-      transaction?(false)
       require_atomic?(true)
+    end
+
+    action :ensure, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:client_id, :term)
+      argument(:auth, :term)
+      argument(:scope, :term)
+
+      run(__MODULE__.Actions)
     end
   end
 

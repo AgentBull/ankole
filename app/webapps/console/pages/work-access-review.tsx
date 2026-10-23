@@ -14,19 +14,18 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from '@tanstack/react-router'
-import {
-  ankoleWebHumanAccessControllerUnresolvedWorkOptions,
-  ankoleWebHumanAccessControllerClassifyWorkMutation
-} from '../api/generated/@tanstack/react-query.gen'
-import type { HumanWorkItem } from '../api/generated/types.gen'
+import { listWorkAccessReviewsOptions, classifyWorkAccessMutation } from '../api/v2/generated/@tanstack/react-query.gen'
+import type { ListWorkAccessReviewsResponse } from '../api/v2/generated/types.gen'
 import { AccessReviewModel } from '../state/access-review-model'
 import { LabeledField } from '../console-form'
 import { ErrorBlock } from '../../common/error-block'
 import { requestErrorMessage } from '../../common/request-errors'
 
+type HumanWorkItem = ListWorkAccessReviewsResponse['work'][number]
+
 export function WorkAccessReview() {
   const { t } = useTranslation()
-  const work = useQuery(ankoleWebHumanAccessControllerUnresolvedWorkOptions())
+  const work = useQuery(listWorkAccessReviewsOptions())
   return (
     <details className="border border-border p-4">
       <summary className="cursor-pointer text-sm font-medium">{t('console.human_access.legacy_work')}</summary>
@@ -49,7 +48,7 @@ function WorkReviewRow({ work }: { work: HumanWorkItem }) {
   const model = useModel(AccessReviewModel)
   const navigate = useNavigate()
   const classify = useMutation({
-    ...ankoleWebHumanAccessControllerClassifyWorkMutation(),
+    ...classifyWorkAccessMutation(),
     onSuccess: () => {
       toast.success(t('console.human_access.saved'))
       if (work.kind === 'cron') {
@@ -118,11 +117,13 @@ function WorkReviewRow({ work }: { work: HumanWorkItem }) {
             onClick={() =>
               classify.mutate({
                 body: {
-                  kind: work.kind,
-                  id: work.id,
-                  authorization_kind: model.authorizationKind.value,
-                  human_uid: model.authorizationKind.value === 'human' ? model.humanUID.value.trim() : null,
-                  reason: model.reason.value.trim()
+                  data: {
+                    kind: work.kind,
+                    id: work.id,
+                    authorization_kind: model.authorizationKind.value,
+                    human_uid: model.authorizationKind.value === 'human' ? model.humanUID.value.trim() : null,
+                    reason: model.reason.value.trim()
+                  }
                 }
               })
             }>

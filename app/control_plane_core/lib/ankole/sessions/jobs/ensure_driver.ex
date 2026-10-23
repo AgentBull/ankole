@@ -10,33 +10,14 @@ defmodule Ankole.Sessions.Jobs.EnsureDriver do
       states: [:available, :scheduled, :retryable]
     ]
 
-  import Ecto.Query
+  # A later input cannot postpone an earlier committed wakeup.
+  def enqueue(key, due_at \\ DateTime.utc_now(:microsecond)),
+    do: Ankole.Job.schedule(__MODULE__, key, due_at || now(), only_earlier: true)
 
-  def enqueue(key, due_at \\ DateTime.utc_now(:microsecond)) do
-    Ankole.Repo.transact(fn repo ->
-      insert_due(repo, key, due_at || DateTime.utc_now(:microsecond))
-    end)
-  end
+  def enqueue_in_tx(repo, key, due_at),
+    do: Ankole.Job.schedule_in_tx(repo, __MODULE__, key, due_at || now(), only_earlier: true)
 
-  def enqueue_in_tx(repo, key, due_at) do
-    with {:ok, _} <- insert_due(repo, key, due_at || DateTime.utc_now(:microsecond)), do: :ok
-  end
-
-  defp insert_due(repo, key, due_at) do
-    with {:ok, job} <- Oban.insert(new(key, scheduled_at: due_at)) do
-      # A later input cannot postpone an earlier committed wakeup.
-      if job.id do
-        repo.update_all(
-          from(j in Oban.Job,
-            where: j.id == ^job.id and j.state == "scheduled" and j.scheduled_at > ^due_at
-          ),
-          set: [scheduled_at: due_at]
-        )
-      end
-
-      {:ok, job}
-    end
-  end
+  defp now, do: DateTime.utc_now(:microsecond)
 
   @impl true
   def run(%Oban.Job{args: %{"agent_uid" => uid, "session_id" => session}}) do

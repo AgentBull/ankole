@@ -41,16 +41,16 @@ import i18n from '../../common/i18n'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { formatConsoleDate } from '../console-primitives'
 import {
-  ankoleWebAgentControllerIndexOptions,
-  ankoleWebSignalBindingControllerAdaptersOptions,
-  ankoleWebSignalBindingControllerDeleteMutation,
-  ankoleWebSignalBindingControllerIndexOptions,
-  ankoleWebSignalBindingControllerPutBindingMutation,
-  ankoleWebSignalBindingControllerRequeueDeliveryMutation,
-  ankoleWebSignalBindingControllerShowOptions,
-  ankoleWebSignalBindingControllerUpdateBindingMutation
-} from '../api/generated/@tanstack/react-query.gen'
-import type { SignalAdapterItem, SignalBindingItem, SignalDeliveryFailureItem } from '../api/generated/types.gen'
+  listSignalAdaptersOptions,
+  listSignalBindingsOptions,
+  putSignalBindingMutation,
+  requeueSignalDeliveryMutation,
+  getSignalBindingOptions,
+  updateSignalBindingMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import { agentListOptions } from '../api/agents'
+import type { SignalAdapterItem, SignalBindingItem, SignalDeliveryFailureItem } from '../api/runtime-types'
+import { disableSignalBindingMutation } from '../api/v2/generated/@tanstack/react-query.gen'
 import { activeAgents, AgentFilter, resolveAgentUID, useAgentScope } from '../console-agent-scope'
 import {
   EditorNotFound,
@@ -80,7 +80,7 @@ export function SignalsListPage() {
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
   const scope = useAgentScope()
   const signals = useQuery({
-    ...ankoleWebSignalBindingControllerIndexOptions({ query: { agent: scope.agentUID || undefined } }),
+    ...listSignalBindingsOptions({ query: { agent: scope.agentUID || undefined } }),
     refetchInterval: LIST_REFRESH_MS
   })
   const rows = (signals.data?.signal_bindings ?? [])
@@ -98,21 +98,21 @@ export function SignalsListPage() {
   const stoppedDeliveries = signals.data?.delivery_failures ?? []
   const hasAgents = activeAgents(scope.agents).length > 0
   const disableBinding = useMutation({
-    ...ankoleWebSignalBindingControllerDeleteMutation(),
+    ...disableSignalBindingMutation(),
     onSuccess: (_data, variables) => {
-      toast.success(t('console.signals.disabled', { name: variables.path.binding_name }))
+      toast.success(t('console.signals.disabled', { name: variables.path.name }))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
   const enableBinding = useMutation({
-    ...ankoleWebSignalBindingControllerUpdateBindingMutation(),
+    ...updateSignalBindingMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.signals.enabled', { name: variables.path.binding_name }))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
   const retryDelivery = useMutation({
-    ...ankoleWebSignalBindingControllerRequeueDeliveryMutation(),
+    ...requeueSignalDeliveryMutation(),
     onSuccess: () => {
       toast.success(t('console.signals.delivery_retry_success'))
     },
@@ -185,7 +185,7 @@ export function SignalsListPage() {
             onRetry={(agentUID, bindingName, outboundKey) =>
               retryDelivery.mutate({
                 path: { agent_uid: agentUID },
-                body: { binding_name: bindingName, outbound_key: outboundKey }
+                body: { data: { binding_name: bindingName, outbound_key: outboundKey } }
               })
             }
           />
@@ -223,10 +223,12 @@ export function SignalsListPage() {
                         enableBinding.mutate({
                           path: { agent_uid: binding.agent_uid, binding_name: binding.name },
                           body: {
-                            target_agent_uid: binding.agent_uid,
-                            config: {},
-                            group_message_mode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),
-                            unmatched_sender_policy: binding.unmatched_sender_policy
+                            data: {
+                              target_agent_uid: binding.agent_uid,
+                              config: {},
+                              group_message_mode: groupMessageModeFromPolicy(binding.unaddressed_group_message_policy),
+                              unmatched_sender_policy: binding.unmatched_sender_policy
+                            }
                           }
                         })
                     }
@@ -245,7 +247,7 @@ export function SignalsListPage() {
             }
             onDelete={
               binding.enabled
-                ? () => disableBinding.mutate({ path: { agent_uid: binding.agent_uid, binding_name: binding.name } })
+                ? () => disableBinding.mutate({ path: { agent_uid: binding.agent_uid, name: binding.name } })
                 : undefined
             }
             editTo={editTo(binding.agent_uid, binding.adapter, binding.name, scope.agentUID)}
@@ -352,14 +354,17 @@ export function SignalBindingEditorPage() {
   const editing = Boolean(lockedName)
   const returnPath = signalBindingReturnPath(returnAgentUID)
 
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const agentList = activeAgents(agents.data?.agents ?? [])
+  const agents = useQuery(agentListOptions())
+  const agentList = activeAgents(agents.data ?? [])
   const defaultAgentUID = resolveAgentUID(agentList, sourceAgentUID)
-  const adapters = useQuery(ankoleWebSignalBindingControllerAdaptersOptions())
+  const adapters = useQuery({
+    ...listSignalAdaptersOptions(),
+    select: data => ({ ...data, signal_adapters: data.signal_adapters as SignalAdapterItem[] })
+  })
   const signalAdapters = adapters.data?.signal_adapters ?? []
   const adapterGroups = groupSignalAdapters(signalAdapters)
   const bindingDetail = useQuery({
-    ...ankoleWebSignalBindingControllerShowOptions({
+    ...getSignalBindingOptions({
       path: { agent_uid: sourceAgentUID, binding_name: lockedName ?? '' }
     }),
     enabled: editing && Boolean(sourceAgentUID),
@@ -393,13 +398,13 @@ export function SignalBindingEditorPage() {
   })
 
   const createBinding = useMutation({
-    ...ankoleWebSignalBindingControllerPutBindingMutation(),
+    ...putSignalBindingMutation(),
     onSuccess: (_data, variables) => {
       finishSignalBindingSave(t('console.signals.saved', { name: variables.path.binding_name }), returnPath, navigate)
     }
   })
   const updateBinding = useMutation({
-    ...ankoleWebSignalBindingControllerUpdateBindingMutation(),
+    ...updateSignalBindingMutation(),
     onSuccess: (_data, variables) => {
       finishSignalBindingSave(t('console.signals.saved', { name: variables.path.binding_name }), returnPath, navigate)
     }
@@ -437,12 +442,12 @@ export function SignalBindingEditorPage() {
     }
     if (editing) {
       updateBinding.mutate({
-        body: { ...body, target_agent_uid: targetAgentUID },
+        body: { data: { ...body, target_agent_uid: targetAgentUID } },
         path: { agent_uid: sourceAgentUID, binding_name: name }
       })
     } else {
       createBinding.mutate({
-        body,
+        body: { data: body },
         path: { adapter_id: activeAdapter.adapter_id, agent_uid: targetAgentUID, binding_name: name }
       })
     }

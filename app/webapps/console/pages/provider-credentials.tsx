@@ -23,17 +23,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
-  ankoleWebAiGatewayProviderControllerAddCredentialMutation as addCredentialMutation,
-  ankoleWebAiGatewayProviderControllerDeleteCredentialMutation as deleteCredentialMutation,
-  ankoleWebAiGatewayProviderControllerPutCredentialMutation as putCredentialMutation,
-  ankoleWebAiGatewayProviderControllerPutCredentialStrategyMutation as putCredentialStrategyMutation
-} from '../api/generated/@tanstack/react-query.gen'
-import type {
-  AiGatewayCredentialPoolEntry as AIGatewayCredentialPoolEntry,
-  AiGatewayCredentialStrategyWriteRequest as AIGatewayCredentialStrategyWriteRequest,
-  AiGatewayProviderItem as AIGatewayProviderItem,
-  AiGatewayProviderKindItem as AIGatewayProviderKindItem
-} from '../api/generated/types.gen'
+  addAiGatewayCredentialMutation as addCredentialMutation,
+  deleteAiGatewayCredentialMutation as deleteCredentialMutation,
+  putAiGatewayCredentialMutation as putCredentialMutation,
+  putAiGatewayCredentialStrategyMutation as putCredentialStrategyMutation
+} from '../api/v2-site/generated/@tanstack/react-query.gen'
+import type { AIGatewayProviderKindItem } from '../state/provider-settings'
 import {
   ConfirmDeleteButton,
   DiscardConfirmDialog,
@@ -44,6 +39,7 @@ import {
 } from '../console-form'
 import { formatConsoleDate } from '../console-primitives'
 import {
+  aiGatewayProvider,
   buildSettingOptions,
   credentialSettings,
   humanizeKey,
@@ -53,8 +49,9 @@ import { ProviderSettingField, providerSettingLabel } from './provider-setting-f
 
 import { ChatGPTLoginDialog } from './provider-chatgpt-login'
 import { EnterpriseCredentialDialog } from './provider-enterprise-credential'
+import type { AIGatewayProviderItem, AIGatewayCredentialPoolEntry } from '../state/provider-settings'
 
-type CredentialStrategy = AIGatewayCredentialStrategyWriteRequest['strategy']
+type CredentialStrategy = AIGatewayProviderItem['credential_pool']['strategy']
 const credentialStrategies = [
   'fill_first',
   'round_robin',
@@ -80,7 +77,7 @@ export function CredentialPoolEditor({
     onSuccess: response => {
       toast.success(
         t('console.providers.strategy_saved', {
-          strategy: credentialStrategyLabel(t, response.ai_gateway_provider.credential_pool.strategy)
+          strategy: credentialStrategyLabel(t, aiGatewayProvider(response).credential_pool.strategy)
         })
       )
     },
@@ -103,7 +100,13 @@ export function CredentialPoolEditor({
 
   const changeAvailability = (entry: AIGatewayCredentialPoolEntry) => {
     updateCredential.mutate({
-      body: { disabled_at: entry.status === 'disabled' ? null : new Date().toISOString() },
+      body: {
+        data: {
+          id: provider.id,
+          type: 'ai_gateway_provider',
+          attributes: { credential: { disabled_at: entry.status === 'disabled' ? null : new Date().toISOString() } }
+        }
+      },
       path: { provider_id: provider.provider_id, credential_id: entry.id }
     })
   }
@@ -142,7 +145,13 @@ export function CredentialPoolEditor({
           disabled={setStrategy.isPending}
           onValueChange={value =>
             setStrategy.mutate({
-              body: { strategy: String(value) as CredentialStrategy },
+              body: {
+                data: {
+                  id: provider.id,
+                  type: 'ai_gateway_provider',
+                  attributes: { strategy: String(value) as CredentialStrategy }
+                }
+              },
               path: { provider_id: provider.provider_id }
             })
           }>
@@ -378,11 +387,14 @@ function CredentialEditorDialog({
 
     if (entry) {
       update.mutate({
-        body,
+        body: { data: { id: provider.id, type: 'ai_gateway_provider', attributes: { credential: body } } },
         path: { provider_id: provider.provider_id, credential_id: entry.id }
       })
     } else {
-      create.mutate({ body, path: { provider_id: provider.provider_id } })
+      create.mutate({
+        body: { data: { type: 'ai_gateway_provider', attributes: { credential: body } } },
+        path: { provider_id: provider.provider_id }
+      })
     }
   }
   const pending = create.isPending || update.isPending

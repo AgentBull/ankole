@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { principalLabel } from './principal-label'
 
-const principal = { display_name: null, email: null, handle: null, uid: 'opaque-uid' }
+const principal = { display_name: null, email: null, handle: null, id: 'opaque-uid' }
 
 test('uses the display name before other identifiers', () => {
   expect(principalLabel({ ...principal, display_name: 'Name', email: 'mail@example.test', handle: 'handle' })).toBe(

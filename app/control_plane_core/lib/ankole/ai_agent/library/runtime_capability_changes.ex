@@ -8,15 +8,10 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
   control.
   """
 
-  import Ecto.Query, warn: false
-
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.AgentPlugins.Config
-  alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.Sessions.JobTurnRef
-  alias Ankole.Signals.Signal
   alias Ankole.Logging
-  alias Ankole.Repo
+  alias Ankole.Sessions.JobTurnRef
   alias Ankole.Sessions.TurnControl
 
   @type capability :: {:agent_plugin, String.t()} | {:skill, String.t()}
@@ -92,28 +87,48 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
   defp disabled_skill_names(_capabilities, _capability), do: []
 
   defp active_agent_uids do
-    Repo.all(from j in Job, where: j.status == :running, select: j.agent_uid, distinct: true)
+    {:ok, jobs} =
+      Ankole.BackgroundAgentJobs.list_jobs(
+        query: [
+          filter: [status: :running],
+          distinct: [:agent_uid],
+          select: [:agent_uid]
+        ]
+      )
+
+    Enum.map(jobs, & &1.agent_uid)
   end
 
   defp dispatch([], _agent_uid), do: :ok
 
   defp dispatch(skill_names, agent_uid) do
-    Repo.all(from j in Job, where: j.agent_uid == ^agent_uid and j.status == :running)
+    {:ok, jobs} =
+      Ankole.BackgroundAgentJobs.list_jobs(
+        query: [filter: [agent_uid: agent_uid, status: :running]]
+      )
+
+    jobs
     |> Enum.flat_map(fn job ->
       session = Ankole.Sessions.Key.job(job.id)
 
-      case Repo.one(
-             from e in Signal,
-               where:
-                 e.agent_uid == ^agent_uid and e.session_id == ^session and
-                   e.status in [:queued, :running],
-               order_by: e.queue_sequence,
-               limit: 1
-           ) do
-        nil ->
+      {:ok, signals} =
+        Ankole.Signals.list_signals(
+          query: [
+            filter: [
+              agent_uid: agent_uid,
+              session_id: session,
+              status: [in: [:queued, :running]]
+            ],
+            sort: [queue_sequence: :asc],
+            limit: 1
+          ]
+        )
+
+      case signals do
+        [] ->
           []
 
-        event ->
+        [event] ->
           [
             %{
               turn_ref: %JobTurnRef{

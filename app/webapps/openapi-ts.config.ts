@@ -1,7 +1,12 @@
 export default [
   {
-    input: './openapi/console.json',
-    output: { path: './console/api/generated' },
+    input: './openapi/console-v2.json',
+    output: { path: './console/api/v2/generated' },
+    plugins: ['@hey-api/client-fetch', '@tanstack/react-query']
+  },
+  {
+    input: './openapi/site-v2.json',
+    output: { path: './console/api/v2-site/generated' },
     plugins: ['@hey-api/client-fetch', '@tanstack/react-query']
   },
   {

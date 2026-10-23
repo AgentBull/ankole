@@ -1,6 +1,4 @@
 defmodule Ankole.Brain.Config do
-  require Ecto.Query
-
   @moduledoc """
   AppConfigure declarations and typed reads for the `brain.*` key group.
 
@@ -209,23 +207,29 @@ defmodule Ankole.Brain.Config do
   @spec rerank_model() :: map() | nil
   def rerank_model, do: get_or_default(@rerank_model_key)
 
-  @doc "Lists stored Brain model settings that reference a Provider."
-  @spec model_provider_references(module(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
-  def model_provider_references(repo, provider_id) do
-    rows =
-      repo.all(
-        Ecto.Query.from(row in Ankole.AppConfigure.SiteConfig,
-          where: row.key in ^[@embedding_model_key, @rerank_model_key]
-        )
-      ) ++
-        Ankole.Repo.across_tenants(fn ->
-          repo.all(
-            Ecto.Query.from(row in Ankole.AppConfigure.AppConfig,
-              where: row.key in ^[@embedding_model_key, @rerank_model_key]
-            )
-          )
-        end)
+  @doc """
+  Lists stored Brain model settings that reference a Provider.
 
+  The site row and the row of each tenant are read in the caller's
+  transaction.
+  """
+  @spec model_provider_references(module(), String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def model_provider_references(_repo, provider_id) do
+    query = [query: [filter: [key: [in: [@embedding_model_key, @rerank_model_key]]]]]
+
+    reads =
+      [AppConfigure.list_site_configs(query)] ++
+        Enum.map(
+          Ankole.Tenants.map_all(fn -> AppConfigure.list_app_configs(query) end),
+          &elem(&1, 1)
+        )
+
+    with {:ok, rows} <- Ankole.Attrs.collect_results(reads) do
+      provider_references(List.flatten(rows), provider_id)
+    end
+  end
+
+  defp provider_references(rows, provider_id) do
     Enum.reduce_while(rows, {:ok, []}, fn row, {:ok, refs} ->
       with {:ok, definition} <- Ankole.AppConfigure.Registry.require_key(row.key),
            {:ok, value} <-

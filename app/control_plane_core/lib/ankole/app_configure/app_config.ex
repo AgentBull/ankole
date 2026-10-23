@@ -3,7 +3,7 @@ defmodule Ankole.AppConfigure.AppConfig do
 
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.AppConfigure.Domain,
+    domain: Ankole.AppConfigure,
     tenant_in_primary_key: true
 
   postgres do
@@ -50,10 +50,13 @@ defmodule Ankole.AppConfigure.AppConfig do
   actions do
     defaults([:read])
 
+    read :across_tenants do
+      multitenancy(:allow_global)
+    end
+
     create :put do
       accept([:scope, :key])
       argument(:input, :term)
-      transaction?(false)
       upsert?(true)
       upsert_identity(:scope_key)
       upsert_fields([:value, :updated_at])
@@ -64,11 +67,11 @@ defmodule Ankole.AppConfigure.AppConfig do
 
     create :import_envelope do
       accept([:scope, :key, :value])
-      transaction?(false)
       validate(Ankole.AppConfigure.Scope)
     end
 
-    atomic_in_tx_update :record_platform_application do
+    update :record_platform_application do
+      require_atomic?(true)
       accept([])
       argument(:application, :string, constraints: [trim?: false])
 
@@ -76,8 +79,15 @@ defmodule Ankole.AppConfigure.AppConfig do
     end
 
     destroy :remove do
-      transaction?(false)
       require_atomic?(true)
+    end
+
+    action :update_tenant, :term do
+      argument(:definition, :term, allow_nil?: false)
+      argument(:updater, :function, allow_nil?: false, constraints: [arity: 1])
+      after_commit({Ankole.AppConfigure, :refresh_committed})
+
+      run(__MODULE__.Actions)
     end
   end
 

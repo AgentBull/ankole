@@ -1,10 +1,18 @@
 defmodule Ankole.Sessions.AmbientTriage do
-  @moduledoc "Classifies ambient input before a foreground turn is admitted."
+  @moduledoc """
+  Classifies ambient input before a foreground turn is admitted.
+
+  `run/2` gives one of these results:
+
+    * `{:ok, :intervene, signal}` - the Agent may reply or start work; admit the input.
+    * `{:ok, :settled}` - the input is closed or another input replaced it.
+    * `{:ok, :deferred, signal}` - classification failed; retry at `signal.available_at`.
+    * `{:error, reason}` - the input stays unchanged.
+  """
   require Ash.Query
 
   alias Ankole.AIGateway
   alias Ankole.AIAgent.TokenQuota
-  alias Ankole.Repo
 
   alias Ankole.Sessions.{
     Ambient,
@@ -21,16 +29,30 @@ defmodule Ankole.Sessions.AmbientTriage do
   alias Ankole.Sessions.AmbientTriage.Observation
   alias Ankole.Signals.Signal
 
+  @type result ::
+          {:ok, :intervene, Signal.t()}
+          | {:ok, :settled}
+          | {:ok, :deferred, Signal.t()}
+          | {:error, term()}
+
+  @spec run(map(), Signal.t()) :: result()
   def run(key, event) do
     now = DateTime.utc_now(:microsecond)
 
-    with {:ok, %{status: :ambient_fresh, signal: current}} <- Ambient.resolve(event, now) do
-      case AmbientJudgment
-           |> Ash.Query.filter(signal_id == ^current.id)
-           |> Ankole.Ash.read_one!() do
-        %AmbientJudgment{} = judgment -> result(current, judgment)
-        nil -> classify(key, current)
-      end
+    case Ambient.resolve(event, now) do
+      {:ok, %{status: :ambient_fresh, signal: current}} ->
+        case AmbientJudgment
+             |> Ash.Query.filter(signal_id == ^current.id)
+             |> Ankole.Ash.read_one!() do
+          %AmbientJudgment{} = judgment -> result(current, judgment)
+          nil -> classify(key, current)
+        end
+
+      {:ok, _closed} ->
+        {:ok, :settled}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -47,26 +69,20 @@ defmodule Ankole.Sessions.AmbientTriage do
              Map.put(
                runtime.request_context,
                "ambient_work_candidates",
-               Ambient.candidates_in_tx(Repo, event)
+               Ambient.candidates(event)
              )
          },
          {:ok, attrs} <- recognize(observation) do
       commit(key, event, attrs)
     else
-      {:error, {:model_profile_unavailable, profile, reason}} ->
-        complete_without_model(
-          key,
-          event,
-          "The ambient model profile is unavailable.",
-          %{status: :model_profile_unavailable, profile: profile, profile_error: reason}
-        )
+      {:error, {:model_profile_unavailable, _profile, _reason}} ->
+        complete_without_model(key, event, "The ambient model profile is unavailable.")
 
-      {:error, {:agent_token_quota_exceeded, window}} ->
+      {:error, {:agent_token_quota_exceeded, _window}} ->
         complete_without_model(
           key,
           event,
-          "The Agent has used its token quota for the current period.",
-          %{status: :agent_token_quota_exceeded, token_quota: window}
+          "The Agent has used its token quota for the current period."
         )
 
       {:error, _reason} ->
@@ -119,10 +135,11 @@ defmodule Ankole.Sessions.AmbientTriage do
   defp commit(key, event, attrs) do
     case AmbientCuration.record_judgment(key, event.id, attrs) do
       {:ok, judgment} ->
-        result(Repo.get!(Signal, event.id), judgment)
+        result(Ankole.Signals.get_signal!(event.id), judgment)
 
       {:error, {:ambient_stale, _reason}} ->
-        Ambient.resolve(event, DateTime.utc_now(:microsecond))
+        with {:ok, _closed} <- Ambient.resolve(event, DateTime.utc_now(:microsecond)),
+             do: {:ok, :settled}
 
       error ->
         error
@@ -130,46 +147,18 @@ defmodule Ankole.Sessions.AmbientTriage do
   end
 
   defp result(event, %{action: action}) when action in ["FOREGROUND_REPLY", "NEW_WORK"],
-    do: {:ok, %{status: :ambient_ready, signal: event}}
+    do: {:ok, :intervene, event}
 
-  defp result(event, _judgment), do: {:ok, %{status: :completed, signal: event}}
+  defp result(_event, _judgment), do: {:ok, :settled}
 
-  defp complete_without_model(key, event, reason, outcome) do
-    with {:ok, %{status: :completed} = result} <-
-           commit(
-             key,
-             event,
-             %{
-               action: "NOOP",
-               authority: "NONE",
-               reason: reason
-             }
-           ) do
-      {:ok,
-       result
-       |> Map.merge(outcome)
-       |> Map.merge(%{posted: %Ankole.Conversations.PostResult{}, notice_error: nil})}
-    end
-  end
+  # A NOOP judgment settles the input without a model call and without a notice.
+  defp complete_without_model(key, event, reason),
+    do: commit(key, event, %{action: "NOOP", authority: "NONE", reason: reason})
 
   defp retry(key, event) do
-    Repo.transact(fn repo ->
-      with :ok <- Admission.authorize_new_work_in_tx(repo, event),
-           :ok <- Queue.lock_session_in_tx(repo, key.agent_uid, key.session_id) do
-        case Ankole.Signals.lock_signal_in_tx(repo, event.id) do
-          %Signal{status: :queued} = current ->
-            now = DateTime.utc_now(:microsecond)
-
-            current
-            |> Ankole.Ash.update(:retry_triage, %{
-              available_at: DateTime.add(now, 30)
-            })
-
-          %Signal{} = current ->
-            {:ok, current}
-        end
-      end
-    end)
+    key
+    |> Ankole.Sessions.retry_ambient_triage(event, DateTime.utc_now(:microsecond))
+    |> Ankole.Errors.reason()
     |> case do
       {:ok, %Signal{status: :queued, attempt_count: attempts} = current} when attempts >= 3 ->
         commit(
@@ -183,13 +172,29 @@ defmodule Ankole.Sessions.AmbientTriage do
         )
 
       {:ok, %Signal{status: :queued} = current} ->
-        {:ok, %{status: :deferred, signal: current}}
+        {:ok, :deferred, current}
 
-      {:ok, current} ->
-        {:ok, %{status: :completed, signal: current}}
+      {:ok, _current} ->
+        {:ok, :settled}
 
       error ->
         error
+    end
+  end
+
+  @doc false
+  def retry_in_tx(repo, key, event, now) do
+    with :ok <- Admission.authorize_new_work_in_tx(repo, event),
+         :ok <- Queue.lock_session_in_tx(repo, key.agent_uid, key.session_id) do
+      case Ankole.Signals.lock_signal_in_tx(repo, event.id) do
+        %Signal{status: :queued} = current ->
+          Ankole.Signals.transition_in_tx(repo, current, :retry_triage, %{
+            available_at: DateTime.add(now, 30)
+          })
+
+        %Signal{} = current ->
+          {:ok, current}
+      end
     end
   end
 end

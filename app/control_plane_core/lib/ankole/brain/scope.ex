@@ -9,12 +9,8 @@ defmodule Ankole.Brain.Scope do
   materialized into memory rows.
   """
 
-  import Ecto.Query, warn: false
-
   alias Ankole.AuthZ
   alias Ankole.Principals
-  alias Ankole.Principals.Principal
-  alias Ankole.Repo
 
   @type t :: String.t()
 
@@ -207,11 +203,11 @@ defmodule Ankole.Brain.Scope do
   @spec canonical_slug(String.t()) :: {:ok, String.t()} | {:error, term()}
   def canonical_slug(principal_uid) do
     with {:ok, uid} <- Principals.normalize_uid(principal_uid) do
-      case Repo.one(from p in Principal, where: p.uid == ^uid, select: p.type) do
-        :human -> {:ok, principal_page_slug(:human, uid)}
-        :agent -> {:ok, principal_page_slug(:agent, uid)}
-        :system -> {:error, {:no_canonical_object, uid}}
-        nil -> {:error, {:unknown_principal, uid}}
+      case Principals.get_principal(uid) do
+        {:ok, %{type: :human}} -> {:ok, principal_page_slug(:human, uid)}
+        {:ok, %{type: :agent}} -> {:ok, principal_page_slug(:agent, uid)}
+        {:ok, %{type: :system}} -> {:error, {:no_canonical_object, uid}}
+        {:error, :not_found} -> {:error, {:unknown_principal, uid}}
       end
     end
   end

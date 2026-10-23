@@ -1,6 +1,31 @@
 defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
   @moduledoc "Immutable lesson content with a renewable lease and terminal retirement."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIAgent.Library.Domain
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.AIAgent,
+    extensions: [AshJsonApi.Resource]
+
+  json_api do
+    type("agent_skill_lesson")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    # The primary key names the record in the result of a generic action.
+    default_fields([
+      :id,
+      :agent_uid,
+      :skill_name,
+      :content,
+      :author_kind,
+      :author,
+      :evidence_job_ids,
+      :checked_release,
+      :review_after,
+      :retired_at,
+      :retire_reason,
+      :inserted_at
+    ])
+  end
 
   postgres do
     table("agent_skill_lessons")
@@ -23,7 +48,8 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
     attribute(:id, Ankole.Ash.Types.UUIDv7,
       primary_key?: true,
       allow_nil?: false,
-      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0,
+      public?: true
     )
 
     attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false, public?: true)
@@ -64,7 +90,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
       constraints: [one_of: [:human_revoked, :lapsed, :obsolete]]
     )
 
-    create_timestamp(:inserted_at, type: :utc_datetime_usec)
+    create_timestamp(:inserted_at, type: :utc_datetime_usec, public?: true)
     update_timestamp(:updated_at, type: :utc_datetime_usec)
   end
 
@@ -75,9 +101,14 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
   actions do
     defaults([:read])
 
+    read :console_list do
+      argument(:agent_uid, :string, allow_nil?: false)
+      filter(expr(agent_uid == ^arg(:agent_uid)))
+      prepare(build(sort: [skill_name: :asc, inserted_at: :desc]))
+    end
+
     create :teach_human do
       accept([:agent_uid, :skill_name, :content, :author])
-      transaction?(false)
       change(set_attribute(:author_kind, :human))
       change(Ankole.AIAgent.Library.Changes.PrepareLesson, only_when_valid?: true)
     end
@@ -94,20 +125,68 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
         :review_after
       ])
 
-      transaction?(false)
       change(set_attribute(:author_kind, :dreaming))
       change(Ankole.AIAgent.Library.Changes.PrepareLesson, only_when_valid?: true)
     end
 
-    in_tx_update :renew do
+    update :renew do
       accept([:review_after, :checked_release, :checked_skill_hash])
       change(filter(expr(is_nil(retired_at) and author_kind == :dreaming)))
     end
 
-    in_tx_update :retire do
+    update :retire do
       accept([:retired_at, :retire_reason])
       validate(present([:retired_at, :retire_reason]))
       change(filter(expr(is_nil(retired_at))))
+    end
+
+    action :apply_adds, :term do
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:adds, :term, allow_nil?: false)
+      argument(:context, :term, allow_nil?: false)
+      argument(:sources, :term, allow_nil?: false)
+      argument(:catalog_options, :term, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :console_teach, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:skill_name, :string, allow_nil?: false)
+      argument(:content, :string, allow_nil?: false, constraints: [trim?: false])
+
+      run(__MODULE__.Actions)
+    end
+
+    action :teach, :term do
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:skill_name, :term)
+      argument(:content, :term)
+      argument(:author, :term)
+      argument(:sources, :term, allow_nil?: false)
+      argument(:catalog_options, :term, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :apply_reviews, :term do
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:reviews, :term, allow_nil?: false)
+      argument(:docket_ids, :term, allow_nil?: false)
+      argument(:context, :term, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :revoke, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:lesson_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      run(__MODULE__.Actions)
     end
   end
 

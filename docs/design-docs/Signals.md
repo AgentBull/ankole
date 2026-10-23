@@ -11,7 +11,8 @@ owns execution, input ordering, recovery, and the model history connection.
 
 ## One Intake
 
-`accept/1` opens a transaction and returns `{:ok, %Ankole.Signals.Signal{}}` or
+`accept/1` runs the `intake` generic action of `Signal` (the define
+`Ankole.Signals.intake/1`) and returns `{:ok, %Ankole.Signals.Signal{}}` or
 `{:error, reason}`. `accept_in_tx/2` has the same result and requires the caller
 to own a transaction. Use the latter when the stimulus must commit with a
 Message, schedule execution, Job result, or Workflow result.
@@ -60,6 +61,12 @@ returns the first Signal, including its first target and facts. Changing a
 subscription does not move an accepted event to another Session. Several rules
 that match the same event for the same Agent also return that one Signal.
 
+`accept_all/1` and `accept_all_in_tx/2` accept a list of stimuli in one
+transaction. The intake locks all target Sessions in order with one statement,
+reads the existing Signals with one query, and inserts the new Signals with one
+bulk insert. The sequence read and the wakeup job stay one for each Session. A
+rejected stimulus rejects the full list.
+
 In the same transaction, intake records a durable
 `Ankole.Sessions.Jobs.EnsureDriver` job. It does not start a Driver inside that
 transaction. `accept/1` can wake the Session immediately after a real commit;
@@ -86,6 +93,31 @@ time and an object reason only for `dead_letter` work. Live work cannot carry
 terminal evidence, and `running` requires an admission time. Actions and bulk
 revocation use the caller's transaction and tenant context. Signal
 writes do not start a second transaction owner.
+
+`Ankole.Signals` is the Signals Ash domain (`Signal`, `Binding`,
+`WebhookEndpoint`). Other domains use its defines (`get_signal`, `list_signals`,
+`update_metadata_signal`, `revise_input_signal`, `reauthorize_signal`,
+`remove_signal`, `get_binding`, `list_bindings`, `get_webhook_endpoint`,
+`list_webhook_endpoints`) and its composition functions for a transaction that
+they own: `accept_in_tx/2`, `lock_signal_in_tx/2`, `lock_session_signal_in_tx/3`,
+`lock_signals_in_tx/3` (a keyword filter, queue order unless `sort:` gives
+another order, an optional `limit:`, row lock identity),
+`transition_in_tx/4` (one queue state transition of a locked Signal),
+`reset_attempts_in_tx/3`, and `signals_for_entry_in_tx/5`. The Session queue
+reads are `session_queue/3` and `session_status_signal/3`. Human revocation of
+unstarted Signals is `stop_human_work_in_tx/4`. A read across tenants runs in
+`Repo.across_tenants/1`: Signals use the Work provenance read action
+`work_across_tenants` (`due_sessions_across_tenants/1`,
+`count_admitted_attempts_for_human/2`), and Bindings and Endpoints use their
+`lookup_across_tenants` read action.
+
+Binding and Endpoint writes with more than one step are generic actions that
+own their transaction: `assign_binding`, `reassign_binding`,
+`put_cloud_binding`, `move_cloud_binding`, `disable_binding`,
+`create_webhook_endpoint`, `cancel_webhook_endpoint`, and `receive_webhook`.
+`Bindings` and `Webhooks` keep their public functions and give back the domain
+reason with `Ankole.Errors.reason/1`. A Binding assignment refreshes the
+configuration cache after its commit.
 
 An unresolved dead-lettered Signal remains visible in access review. Review
 states are separate from reauthorizable states: review cannot restart terminal
@@ -137,8 +169,9 @@ The provider-removal lifecycle type is `conversation.message.removed`.
 
 `accept_in_tx/2` returns the accepted Signal as a pending publication fact.
 Its outer transaction owner calls `Signals.publish_committed/1` in the same
-process after commit. The public `accept/1` owns both steps and rejects a
-caller-owned outer transaction. Publication sends a Session state notification,
+process after commit. The `intake` action declares the same publication with
+`after_commit`, and a call inside another transaction raises
+`Ankole.Errors.Framework.NestedOperation`. Publication sends a Session state notification,
 calls the `ensure_driver/1` startup fast path, and publishes ready Signal IDs
 on the Session input topic. Drivers read the durable input; an observation or
 raw Conversation message cannot create a second input through PubSub.
@@ -196,6 +229,19 @@ routing. The ten messaging adapters declare `enterprise_im`, `consumer_im`,
 or `email`. The built-in `cloudevents` source uses `event_source` and has no
 IM group-message or sender-mapping policy.
 
+The Console catalog and binding list use `GET /api/v2/signal-adapters` and
+`GET /api/v2/signal-bindings`. The Agent binding routes are
+`/api/v2/agents/:agent_uid/signal-bindings/:binding_name` for read, edit, and
+delete, and `PUT /api/v2/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name`
+for create or enable. These JSON:API actions call the existing Bindings
+owner; it keeps commit and adapter-hook authority. An edit on the same Agent
+requires its binding update permission. A move requires binding delete on the
+source Agent and binding update on the target Agent. The permission check
+uses the same target Agent as the move. A refusal changes neither binding.
+The edit response omits secrets. Delivery requeue uses
+`POST /api/v2/agents/:agent_uid/signal-deliveries/requeue` and the
+existing durable Outbox admission rules.
+
 ### Filters
 
 `filters` is empty or contains exactly one `cel` expression. An empty filter
@@ -220,7 +266,7 @@ separate persisted Channel or Entry records.
 ## CloudEvents HTTP Intake
 
 An operator creates an Endpoint with `event_format: "cloudevents"`, a label,
-mode, and future expiry through `POST /api/v1/webhook-endpoints`. The
+mode, and future expiry through `POST /api/v2/webhook-endpoints` (JSON:API). The
 Console webhook permission controls creation. Creation returns the capability
 URL once. The Console and safe list API keep the Endpoint ID and metadata,
 and do not return the token or its digest.
@@ -293,7 +339,7 @@ without changing the original facts. A request with no matches is ignored.
 `one_shot` changes from `armed` to `fired` only after it accepts at least one
 Signal. `standing` remains `active`. Expired or cancelled Endpoints are
 terminal and return an ignored result without new work. Suspended tenants
-also accept no work. `DELETE /api/v1/webhook-endpoints/:id` cancels the
+also accept no work. `DELETE /api/v2/webhook-endpoints/:id` cancels the
 Endpoint. A known terminal capability remains safe for producer redelivery.
 
 `WebhookEndpoint` owns these transitions through AshStateMachine, including

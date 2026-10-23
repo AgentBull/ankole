@@ -101,6 +101,21 @@ defmodule Ankole.Ash do
     end)
   end
 
+  @doc """
+  Reads a query of an `allow_global` read action in every tenant.
+
+  The read runs in `Ankole.Repo.across_tenants/1` without a tenant. Use it
+  only with a read action that declares `multitenancy :allow_global`. The
+  `lock_identity:` option works as in `read/2`. A failed read raises.
+  """
+  def read_across_tenants!(%Ash.Query{} = query, opts \\ []) do
+    {identity, opts} = Keyword.pop(opts, :lock_identity)
+
+    Ankole.Repo.across_tenants(fn ->
+      locked_read(identity, fn -> Ash.read!(query, Keyword.put(opts, :authorize?, false)) end)
+    end)
+  end
+
   def aggregate!(query, aggregates, opts \\ []),
     do: Ash.aggregate!(query, aggregates, options(query_resource(query), opts))
 
@@ -164,6 +179,17 @@ defmodule Ankole.Ash do
     end
   end
 
+  @doc "Runs a create for each input in batches and gives the created rows."
+  def create_all(inputs, resource, action, opts \\ []) do
+    inputs
+    |> bulk_create(
+      resource,
+      action,
+      Keyword.merge([return_records?: true, return_errors?: true, stop_on_error?: true], opts)
+    )
+    |> bulk_records()
+  end
+
   @doc "Runs an update on every row that a query selects and gives the changed rows."
   def update_where(query, action, input \\ %{}, opts \\ []) do
     query
@@ -172,9 +198,9 @@ defmodule Ankole.Ash do
   end
 
   @doc "Runs a destroy on every row that a query selects and gives the destroyed rows."
-  def destroy_where(query, action, opts \\ []) do
+  def destroy_where(query, action, input \\ %{}, opts \\ []) do
     query
-    |> bulk_destroy(action, %{}, bulk_where_options(opts))
+    |> bulk_destroy(action, input, bulk_where_options(opts))
     |> bulk_records()
   end
 

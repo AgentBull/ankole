@@ -7,9 +7,8 @@ defmodule Ankole.Brain.Health do
   shape here, and the `config` section names the invalid key.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
-  alias Ankole.AIAgent.Library.Schemas.AgentSkillLesson
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Brain.Calibration
   alias Ankole.Brain.Config
@@ -19,8 +18,6 @@ defmodule Ankole.Brain.Health do
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.ConversationsLearning
   alias Ankole.Logging
-  alias Ankole.Repo
-  alias Ankole.Conversations.Conversation
 
   @internal_error "internal_error"
   @public_reasons ~w(
@@ -67,39 +64,37 @@ defmodule Ankole.Brain.Health do
   defp skill_lesson_status do
     week_floor = DateTime.add(DateTime.utc_now(), -7, :day)
 
-    active_per_agent =
-      AgentSkillLesson
-      |> where([lesson], is_nil(lesson.retired_at))
-      |> group_by([lesson], lesson.agent_uid)
-      |> select([lesson], {lesson.agent_uid, count(lesson.id)})
-      |> Repo.all()
-      |> Map.new()
+    # The lessons of one tenant are few, so the counts group in memory.
+    lessons =
+      Ankole.AIAgent.list_agent_skill_lessons!(
+        query: [
+          filter: [or: [[retired_at: [is_nil: true]], [retired_at: [greater_than: week_floor]]]],
+          select: [:agent_uid, :inserted_at, :retired_at, :retire_reason, :author_kind]
+        ]
+      )
+
+    active = Enum.filter(lessons, &is_nil(&1.retired_at))
 
     added_last_7d =
-      AgentSkillLesson
-      |> where([lesson], lesson.inserted_at > ^week_floor)
-      |> Repo.aggregate(:count)
-
-    retired_last_7d =
-      AgentSkillLesson
-      |> where([lesson], lesson.retired_at > ^week_floor)
-      |> group_by([lesson], lesson.retire_reason)
-      |> select([lesson], {lesson.retire_reason, count(lesson.id)})
-      |> Repo.all()
-      |> Map.new(fn {reason, count} -> {to_string(reason), count} end)
+      Ankole.AIAgent.list_agent_skill_lessons!(
+        query: [filter: [inserted_at: [greater_than: week_floor]], select: [:id]]
+      )
+      |> length()
 
     oldest_active =
-      AgentSkillLesson
-      |> where([lesson], is_nil(lesson.retired_at))
-      |> where([lesson], lesson.author_kind == :dreaming)
-      |> select([lesson], min(lesson.inserted_at))
-      |> Repo.one()
+      active
+      |> Enum.filter(&(&1.author_kind == :dreaming))
+      |> Enum.map(& &1.inserted_at)
+      |> Enum.min(DateTime, fn -> nil end)
 
     %{
       enabled: Config.skill_learning_enabled?(),
-      active_per_agent: active_per_agent,
+      active_per_agent: Enum.frequencies_by(active, & &1.agent_uid),
       added_last_7d: added_last_7d,
-      retired_last_7d: retired_last_7d,
+      retired_last_7d:
+        lessons
+        |> Enum.reject(&is_nil(&1.retired_at))
+        |> Enum.frequencies_by(&to_string(&1.retire_reason)),
       oldest_active_days:
         oldest_active && div(DateTime.diff(DateTime.utc_now(), oldest_active, :second), 86_400)
     }
@@ -206,22 +201,18 @@ defmodule Ankole.Brain.Health do
   end
 
   defp embedding_status do
-    chunk_failures =
-      Chunk |> where([chunk], not is_nil(chunk.embedding_error)) |> Repo.aggregate(:count)
-
-    claim_failures =
-      Claim |> where([claim], not is_nil(claim.embedding_error)) |> Repo.aggregate(:count)
-
-    pending_chunks =
-      Chunk |> where([chunk], is_nil(chunk.embedded_at)) |> Repo.aggregate(:count)
+    chunk_failures = Chunk |> Ash.Query.filter(embedding_failed? == true) |> count()
+    claim_failures = Claim |> Ash.Query.filter(embedding_failed? == true) |> count()
+    pending_chunks = Chunk |> Ash.Query.filter(is_nil(embedded_at)) |> count()
 
     recent_error =
       Chunk
-      |> where([chunk], not is_nil(chunk.embedding_error))
-      |> order_by([chunk], desc: chunk.created_at)
-      |> limit(1)
-      |> select([chunk], chunk.embedding_error)
-      |> Repo.one()
+      |> Ash.Query.filter(embedding_failed? == true)
+      |> Ash.Query.sort(created_at: :desc)
+      |> Ash.Query.select([:embedding_error])
+      |> Ash.Query.limit(1)
+      |> Ankole.Ash.read_one!()
+      |> then(&(&1 && &1.embedding_error))
 
     %{
       failed_chunks: chunk_failures,
@@ -230,6 +221,8 @@ defmodule Ankole.Brain.Health do
       recent_error: recent_embedding_error(recent_error)
     }
   end
+
+  defp count(query), do: Ankole.Ash.aggregate!(query, {:count, :count}).count
 
   defp recent_embedding_error(nil), do: nil
 
@@ -246,10 +239,13 @@ defmodule Ankole.Brain.Health do
   # Group channels without a member group cannot learn; the deterministic
   # default scope has no target.
   defp group_channels_without_member_group do
-    Conversation
-    |> where([channel], channel.kind == :external and channel.external_kind == :im_group)
-    |> where([channel], is_nil(channel.principal_group_id))
-    |> select([channel], channel.id)
-    |> Repo.all()
+    [
+      query: [
+        filter: [kind: :external, external_kind: :im_group, principal_group_id: [is_nil: true]],
+        select: [:id]
+      ]
+    ]
+    |> Ankole.Conversations.list_conversations!()
+    |> Enum.map(& &1.id)
   end
 end

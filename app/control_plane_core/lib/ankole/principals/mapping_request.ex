@@ -1,6 +1,28 @@
 defmodule Ankole.Principals.MappingRequest do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals.Domain
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Principals,
+    extensions: [AshJsonApi.Resource]
+
+  require Ash.Query
+
+  json_api do
+    type("identity_mapping_request")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :provider,
+      :external_id,
+      :display_name,
+      :email,
+      :mobile,
+      :metadata,
+      :inserted_at,
+      :updated_at
+    ])
+  end
 
   postgres do
     table("identity_mapping_requests")
@@ -29,7 +51,8 @@ defmodule Ankole.Principals.MappingRequest do
     attribute(:email, :string, public?: true)
     attribute(:mobile, :string, public?: true)
     attribute(:metadata, Ankole.Ash.Types.JSONMap, public?: true, allow_nil?: false, default: %{})
-    timestamps(type: :utc_datetime_usec)
+    create_timestamp(:inserted_at, type: :utc_datetime_usec, public?: true)
+    update_timestamp(:updated_at, type: :utc_datetime_usec, public?: true)
   end
 
   identities do
@@ -43,18 +66,55 @@ defmodule Ankole.Principals.MappingRequest do
   actions do
     defaults([:read])
 
+    read :by_id do
+      description("Reads one row by ID. An ID that is not a UUID matches no row.")
+      argument(:id, :string, allow_nil?: false)
+      get?(true)
+
+      prepare(fn query, _context ->
+        case Ecto.UUID.cast(Ash.Query.get_argument(query, :id)) do
+          {:ok, id} -> Ash.Query.filter(query, id == ^id)
+          :error -> Ash.Query.filter(query, false)
+        end
+      end)
+    end
+
+    read :console_list do
+      prepare(build(sort: [updated_at: :desc]))
+    end
+
     create :observe_in_tx do
       accept([:provider, :external_id, :display_name, :email, :mobile, :metadata])
-      transaction?(false)
       upsert?(true)
       upsert_identity(:subject)
       upsert_fields([:display_name, :email, :mobile, :metadata, :updated_at])
     end
 
-    destroy :delete_in_tx do
-      transaction?(false)
-      require_atomic?(false)
-      atomic_upgrade?(false)
+    destroy(:delete_in_tx)
+
+    action :record_observation, :term do
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :bind_request, :struct do
+      description("Binds a pending request to a Human and removes the request.")
+      constraints(instance_of: Ankole.Principals.ExternalIdentity)
+      argument(:id, :string, allow_nil?: false)
+      argument(:principal_uid, :string, allow_nil?: false)
+
+      run(__MODULE__.Actions)
+    end
+
+    action :bind_subject, :struct do
+      description("Binds a provider subject to a Human and removes its pending request.")
+      constraints(instance_of: Ankole.Principals.ExternalIdentity)
+      argument(:principal_uid, :string, allow_nil?: false)
+      argument(:provider, :string, allow_nil?: false)
+      argument(:external_id, :string, allow_nil?: false)
+
+      run(__MODULE__.Actions)
     end
   end
 

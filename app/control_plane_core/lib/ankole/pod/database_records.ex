@@ -1,5 +1,10 @@
 defmodule Ankole.Pod.Database.Records do
-  @moduledoc false
+  @moduledoc """
+  Writes the records of a locked Database in one batch.
+
+  This module owns the `db_records` rows through the `Ankole.Pod.DbRecord`
+  Ecto schema. It reads the table and field definitions through Ash.
+  """
   import Ecto.Query
   require Ash.Query
   alias Ankole.{ActorRef, Repo}
@@ -46,7 +51,7 @@ defmodule Ankole.Pod.Database.Records do
            clean <- Write.clean(patch),
            :ok <- Write.record_size(clean, write.limits),
            {:ok, record} <-
-             Ankole.Ash.create(DbRecord, :create_in_tx, %{
+             %{
                id: Ankole.Attrs.get(attrs, :id, Ankole.Ecto.UUIDv7.autogenerate()),
                table_id: write.table.id,
                data: clean,
@@ -55,7 +60,9 @@ defmodule Ankole.Pod.Database.Records do
                updated_by: author(write),
                created_at: DateTime.utc_now(:microsecond),
                updated_at: DateTime.utc_now(:microsecond)
-             }),
+             }
+             |> DbRecord.create_changeset()
+             |> Repo.insert(),
            write <-
              Write.touch(write, write.table.id, changed: [record.id], delta: 1, inserted: 1),
            {:ok, write} <- maintain_links(write, definitions, %{}, record.data, record.id) do
@@ -78,7 +85,8 @@ defmodule Ankole.Pod.Database.Records do
            merged <- Map.merge(record.data, patch) |> Write.clean(),
            :ok <- Write.record_size(merged, write.limits),
            {:ok, saved} <-
-             Ankole.Ash.update(record, :update_values, %{
+             record
+             |> DbRecord.update_values_changeset(%{
                data: merged,
                versions:
                  Enum.reduce(
@@ -88,7 +96,8 @@ defmodule Ankole.Pod.Database.Records do
                  ),
                updated_by: author(write),
                updated_at: DateTime.utc_now(:microsecond)
-             }),
+             })
+             |> Repo.update(),
            write <- Write.touch(write, write.table.id, changed: [record.id]),
            {:ok, write} <- maintain_links(write, definitions, record.data, saved.data, record.id) do
         {:cont, {:ok, [record.id | ids], write}}
@@ -103,18 +112,15 @@ defmodule Ankole.Pod.Database.Records do
 
   defp delete(write, attrs) do
     links =
-      Repo.all(
-        from f in DbField,
-          join: t in DbTable,
-          on: t.id == f.table_id,
-          where: t.page_id == ^write.table.page_id and f.type == :link
-      )
+      DbField
+      |> Ash.Query.filter(table.page_id == ^write.table.page_id and type == :link)
+      |> Ankole.Ash.read!()
 
     Enum.reduce_while(attrs, {:ok, write}, fn attrs, {:ok, write} ->
       with {:ok, record} <- fetch(write.table.id, Ankole.Attrs.get(attrs, :id)),
            true <- Ankole.Attrs.get(attrs, :expected_versions) == record.versions,
            {:ok, write} <- clean_incoming(write, links, record.id),
-           {:ok, _} <- Ankole.Ash.destroy(record, :remove) do
+           {:ok, _} <- Repo.delete(record, stale_error_field: :id) do
         {:cont, {:ok, Write.touch(write, write.table.id, deleted: [record.id], delta: -1)}}
       else
         false -> {:halt, {:error, {:record_conflict, Ankole.Attrs.get(attrs, :id)}}}
@@ -149,9 +155,9 @@ defmodule Ankole.Pod.Database.Records do
       if missing == [],
         do: [],
         else:
-          Repo.all(
-            from f in DbField, where: f.id in ^missing and f.table_id in ^Map.keys(write.tables)
-          )
+          DbField
+          |> Ash.Query.filter(id in ^missing and table_id in ^Map.keys(write.tables))
+          |> Ankole.Ash.read!()
 
     write = %{
       write
@@ -191,12 +197,14 @@ defmodule Ankole.Pod.Database.Records do
 
     with :ok <- Write.record_size(data, write.limits),
          {:ok, _} <-
-           Ankole.Ash.update(record, :update_values, %{
+           record
+           |> DbRecord.update_values_changeset(%{
              data: data,
              versions: Map.update(record.versions, field_id, 1, &(&1 + 1)),
              updated_by: author(write),
              updated_at: DateTime.utc_now(:microsecond)
-           }) do
+           })
+           |> Repo.update() do
       {:ok, Write.touch(write, record.table_id, changed: [record.id])}
     end
   end
@@ -235,9 +243,33 @@ defmodule Ankole.Pod.Database.Records do
   def fetch(table, id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
          %DbRecord{} = record <-
-           Ankole.Ash.read_one!(Ash.Query.filter(DbRecord, table_id == ^table and id == ^id)),
+           Repo.one(from(r in DbRecord, where: r.table_id == ^table and r.id == ^id)),
          do: {:ok, record},
          else: (_ -> {:error, :not_found})
+  end
+
+  @doc """
+  Removes at most `limit` records of the tables of some pages in one statement.
+
+  Returns how many records it removed.
+  """
+  def purge(page_ids, limit) do
+    tables =
+      DbTable
+      |> Ash.Query.filter(page_id in ^page_ids)
+      |> Ash.Query.select([:id])
+      |> Ankole.Ash.read!()
+      |> Enum.map(& &1.id)
+
+    batch =
+      from(r in DbRecord, where: r.table_id in ^tables, select: r.id, limit: ^limit)
+
+    {count, _rows} =
+      Repo.delete_all(
+        from(r in DbRecord, where: r.table_id in ^tables and r.id in subquery(batch))
+      )
+
+    count
   end
 
   def project(table, definitions, ids) do

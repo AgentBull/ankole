@@ -3,7 +3,7 @@ defmodule Ankole.AuthZ.ExternalBinding do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     tenant_in_primary_key: true,
-    domain: Ankole.AuthZ.Domain
+    domain: Ankole.AuthZ
 
   postgres do
     table("principal_group_external_bindings")
@@ -60,9 +60,15 @@ defmodule Ankole.AuthZ.ExternalBinding do
 
     create :bind_in_tx do
       accept([:provider, :external_kind, :external_id, :group_id, :metadata])
-      transaction?(false)
       upsert?(true)
       upsert_fields([:group_id, :metadata, :updated_at])
+    end
+
+    action :upsert_binding, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(__MODULE__.Actions)
     end
   end
 

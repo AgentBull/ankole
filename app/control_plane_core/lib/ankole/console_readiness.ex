@@ -7,6 +7,28 @@ defmodule Ankole.ConsoleReadiness do
   Worker, and signal state.
   """
 
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      route(
+        Ankole.ConsoleReadiness.ConsoleOperations,
+        :get,
+        "/console-readiness",
+        :console_snapshot,
+        name: "get_console_readiness"
+      )
+    end
+  end
+
+  resources do
+    resource(Ankole.ConsoleReadiness.ConsoleOperations)
+  end
+
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Principals
 

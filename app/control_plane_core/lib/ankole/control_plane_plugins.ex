@@ -6,6 +6,29 @@ defmodule Ankole.ControlPlanePlugins do
   next-start selection; the active registry remains the truth for this process.
   """
 
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/control-plane-plugins", Ankole.ControlPlanePlugins.Console do
+        route(:get, "/", :list, name: "list_control_plane_plugins", wrap_in_result?: false)
+
+        route(:put, "/", :configure,
+          name: "configure_control_plane_plugin",
+          wrap_in_result?: false
+        )
+      end
+    end
+  end
+
+  resources do
+    resource(Ankole.ControlPlanePlugins.Console)
+  end
+
   alias Ankole.Plugins
 
   @spec list() :: {:ok, [map()]} | {:error, term()}

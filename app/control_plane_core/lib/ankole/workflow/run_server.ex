@@ -3,15 +3,12 @@ defmodule Ankole.Workflow.RunServer do
 
   use GenServer, restart: :temporary
 
-  import Ecto.Query
+  require Ash.Query
 
   alias Ankole.Kernel.ProgramRunner
   alias Ankole.Repo
+  alias Ankole.Workflow
   alias Ankole.Workflow.Lifecycle
-  alias Ankole.Workflow.Program
-  alias Ankole.Workflow.Recovery
-  alias Ankole.Workflow.Replay
-  alias Ankole.Workflow.Schemas.AgentCall
   alias Ankole.Workflow.Schemas.Run
 
   @max_pending_calls 1_024
@@ -58,9 +55,10 @@ defmodule Ankole.Workflow.RunServer do
   @spec ensure_started(pos_integer(), keyword()) :: {:ok, pid()} | {:error, term()}
   def ensure_started(run_id, opts \\ [])
       when is_integer(run_id) and run_id > 0 and is_list(opts) do
-    case Repo.get(Run, run_id) do
-      nil -> {:error, :workflow_not_found}
-      %Run{} = run -> start_server(run, opts)
+    case Run |> Ash.Query.filter(id == ^run_id) |> Ankole.Ash.read_one() do
+      {:ok, nil} -> {:error, :workflow_not_found}
+      {:ok, %Run{} = run} -> start_server(run, opts)
+      {:error, _reason} = error -> error
     end
   end
 
@@ -186,8 +184,8 @@ defmodule Ankole.Workflow.RunServer do
     now = DateTime.utc_now(:microsecond)
     cutoff = DateTime.add(now, -state.stale_after_seconds, :second)
 
-    case Recovery.reconcile_stale_tasks(state.run_id, cutoff, now)
-         |> Lifecycle.cleanup_terminal_transition() do
+    case Workflow.reconcile_stale_tasks(state.run_id, cutoff, now)
+         |> Lifecycle.cleanup_committed() do
       {:ok, %{run: %Run{status: :running}, reconciled: reconciled}} ->
         state = schedule_watchdog(state)
 
@@ -276,39 +274,7 @@ defmodule Ankole.Workflow.RunServer do
   end
 
   defp load_replay_input(run_id) do
-    Repo.transact(fn repo ->
-      case repo.get(Run, run_id) do
-        %Run{status: :running} = run ->
-          with :ok <- Ankole.Principals.WorkAccess.check_in_tx(repo, run),
-               {:ok, program} <- Program.source(run) do
-            calls =
-              AgentCall
-              |> where([call], call.run_id == ^run.id)
-              |> order_by([call], asc: call.call_seq)
-              |> repo.all()
-
-            {memo, memo_length} = Program.memo_prefix(calls)
-            {:ok, %{program: program, memo: memo, memo_length: memo_length}}
-          else
-            {:error, :human_access_revoked} ->
-              run = Lifecycle.revoke_run_in_tx(repo, run)
-              {:ok, {:terminal, run.status}}
-
-            {:error, _reason} = error ->
-              error
-          end
-
-        %Run{cleanup_completed_at: nil} = run ->
-          {:ok, {:cleanup_pending, run}}
-
-        %Run{status: status} ->
-          {:ok, {:terminal, status}}
-
-        nil ->
-          {:error, :workflow_not_found}
-      end
-    end)
-    |> case do
+    case Ankole.Ash.run_action(Run, :replay_input, %{run_id: run_id}) do
       {:ok, {:terminal, status}} -> {:terminal, status}
       {:ok, {:cleanup_pending, run}} -> {:cleanup_pending, run}
       result -> result
@@ -382,7 +348,7 @@ defmodule Ankole.Workflow.RunServer do
   end
 
   defp handle_snapshot_result({:outcome, %{status: :pending} = outcome}, memo_length, state) do
-    case Replay.commit_replay_pending(
+    case Workflow.commit_replay_pending(
            state.run_id,
            Map.get(outcome, :pending_calls, []),
            memo_length
@@ -402,7 +368,7 @@ defmodule Ankole.Workflow.RunServer do
        ) do
     case output_text(Map.get(outcome, :output, [])) do
       {:ok, result_text} ->
-        case Replay.complete_replay(state.run_id, result_text, memo_length)
+        case Workflow.complete_replay(state.run_id, result_text, memo_length)
              |> Lifecycle.cleanup_terminal_transition() do
           {:ok, %{run: %Run{status: :running}}} ->
             continue_or_wait(state)
@@ -450,7 +416,7 @@ defmodule Ankole.Workflow.RunServer do
   end
 
   defp fail_or_retry(state, code, reason, memo_length) do
-    case Replay.fail_replay(state.run_id, code, format_reason(reason), memo_length)
+    case Workflow.fail_replay(state.run_id, code, format_reason(reason), memo_length)
          |> Lifecycle.cleanup_terminal_transition() do
       {:ok, %{run: %Run{status: :running}}} -> continue_or_wait(state)
       {:ok, %{run: %Run{}} = result} -> finish_or_retry_terminal(result, state)

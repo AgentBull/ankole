@@ -1,6 +1,16 @@
 defmodule Ankole.Brain.Schemas.ObjectVersion do
   @moduledoc "One immutable body snapshot taken in the transaction that updates its object."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Brain,
+    extensions: [AshJsonApi.Resource]
+
+  json_api do
+    type("brain_object_version")
+    derive_filter?(false)
+    derive_sort?(false)
+    default_fields([:author, :body, :meta, :tags, :snapshot_at])
+  end
 
   postgres do
     table("brain_object_versions")
@@ -21,24 +31,40 @@ defmodule Ankole.Brain.Schemas.ObjectVersion do
     )
 
     attribute(:object_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
-    attribute(:author, Ankole.Ash.Types.ActorRef)
-    attribute(:body, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
-    attribute(:meta, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
+    attribute(:author, Ankole.Ash.Types.ActorRef, public?: true)
+
+    attribute(:body, :string,
+      allow_nil?: false,
+      public?: true,
+      constraints: [trim?: false, allow_empty?: true]
+    )
+
+    attribute(:meta, Ankole.Ash.Types.JSONMap, allow_nil?: false, public?: true, default: %{})
 
     attribute(:tags, {:array, :string},
       allow_nil?: false,
+      public?: true,
       default: [],
       constraints: [items: [trim?: false, allow_empty?: true]]
     )
 
-    attribute(:snapshot_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
+    attribute(:snapshot_at, :utc_datetime_usec,
+      allow_nil?: false,
+      public?: true,
+      default: &DateTime.utc_now/0
+    )
   end
 
   actions do
     defaults([:read])
 
+    # The Console version history of one Object; the slug can be an alias.
+    read :console_list do
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false])
+      prepare(__MODULE__.Preparations)
+    end
+
     create :snapshot do
-      transaction?(false)
       accept([:object_id, :author, :body, :meta, :tags])
     end
   end

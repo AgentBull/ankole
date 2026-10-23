@@ -1,10 +1,8 @@
 defmodule Ankole.Sessions.Reconciler do
   @moduledoc "Repairs lost wakeups from durable input, Workflow, and intent state."
   use Ankole.Job, tenancy: :site, queue: :conversations, max_attempts: 3
-  import Ecto.Query
   alias Ankole.Repo
   alias Ankole.Sessions.Jobs.EnsureDriver
-  alias Ankole.Signals.Signal
 
   @impl true
   # Recovery includes suspended tenants: admission stops new work, while already
@@ -22,15 +20,7 @@ defmodule Ankole.Sessions.Reconciler do
   end
 
   defp reconcile_inputs(now) do
-    keys =
-      Repo.across_tenants(fn ->
-        Repo.all(
-          from e in Signal,
-            where: e.status in [:queued, :running] and e.available_at <= ^now,
-            distinct: [e.agent_uid, e.session_id],
-            select: %{agent_uid: e.agent_uid, session_id: e.session_id, tenant_id: e.tenant_id}
-        )
-      end)
+    keys = Ankole.Signals.due_sessions_across_tenants(now)
 
     Enum.reduce(keys, :ok, fn key, previous ->
       result =

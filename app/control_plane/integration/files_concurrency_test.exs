@@ -54,7 +54,7 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
   end
 
   test "concurrent parent and child commits cannot both succeed", ctx do
-    parent = hold_transaction(fn -> commit(ctx, "a") end)
+    parent = hold_transaction(fn -> commit_in_tx(ctx, "a") end)
 
     child =
       start_unboxed(fn _parent ->
@@ -73,7 +73,7 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
   test "a move and a commit serialize on the same Agent before checking their final trees", ctx do
     assert {:ok, _files} = Sandbox.unboxed_run(Repo, fn -> commit(ctx, "from/value") end)
 
-    move = hold_transaction(fn -> Files.move(ctx.agent_uid, "from", "a") end)
+    move = hold_transaction(fn -> Files.move_in_tx(ctx.agent_uid, "from", "a") end)
     parent = start_unboxed(fn _parent -> commit(ctx, "a") end)
     assert_blocked_by(parent, move)
 
@@ -120,10 +120,15 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
 
     writer =
       hold_transaction(fn ->
-        Files.commit(ctx.agent_uid, [
-          %{path: "script/main.ts", sha256: ctx.updated_sha256, source: "agent"},
-          %{path: "script/module.ts", sha256: ctx.updated_sha256, source: "agent"}
-        ])
+        Files.commit(
+          Repo,
+          ctx.agent_uid,
+          [
+            %{path: "script/main.ts", sha256: ctx.updated_sha256, source: "agent"},
+            %{path: "script/module.ts", sha256: ctx.updated_sha256, source: "agent"}
+          ],
+          []
+        )
       end)
 
     reader = start_unboxed(fn _parent -> Files.list(ctx.agent_uid, "script", snapshot: true) end)
@@ -144,7 +149,7 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
                Library.set_agent_skill_override(ctx.agent_uid, "race-notes", false)
     end)
 
-    deletion = hold_transaction(fn -> Files.delete(ctx.agent_uid, "skills/race-notes") end)
+    deletion = hold_transaction(fn -> Files.delete_in_tx(ctx.agent_uid, "skills/race-notes") end)
     sync = start_unboxed(fn _parent -> Library.sync_agent_skills(ctx.agent_uid) end)
     assert_blocked_by(sync, deletion)
 
@@ -164,7 +169,7 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
 
     write =
       hold_transaction(fn ->
-        commit(%{ctx | sha256: ctx.updated_sha256}, "skills/race-notes/SKILL.md")
+        commit_in_tx(%{ctx | sha256: ctx.updated_sha256}, "skills/race-notes/SKILL.md")
       end)
 
     sync = start_unboxed(fn _parent -> Library.sync_agent_skills(ctx.agent_uid) end)
@@ -180,6 +185,12 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
 
   defp commit(ctx, path) do
     Files.commit(ctx.agent_uid, [%{path: path, sha256: ctx.sha256, source: "agent"}])
+  end
+
+  # A held transaction runs the commit body, because a commit action owns its
+  # own transaction.
+  defp commit_in_tx(ctx, path) do
+    Files.commit(Repo, ctx.agent_uid, [%{path: path, sha256: ctx.sha256, source: "agent"}], [])
   end
 
   defp start_unboxed(fun) do

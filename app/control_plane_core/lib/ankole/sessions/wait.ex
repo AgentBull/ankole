@@ -13,10 +13,6 @@ defmodule Ankole.Sessions.Wait do
 
   @type t :: %__MODULE__{}
 
-  @spec owner(t()) :: module()
-  def owner(%__MODULE__{kind: :job}), do: Ankole.Sessions.Tools.Jobs
-  def owner(%__MODULE__{kind: :outbox}), do: Ankole.Sessions.Tools.Message
-
   @spec encode(t()) :: map()
   def encode(wait) do
     wait

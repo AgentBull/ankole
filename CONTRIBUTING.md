@@ -618,16 +618,18 @@ The nesting limit is 4 and the cyclomatic complexity limit is 20.
 `bun run analyze:unused` checks production files, exports, types, and
 dependencies; tests do not retain dead production code.
 
-The build applies the pinned Ash 3.36.1 and AshPostgres 2.15.1 patches before
-dependency compilation. The build needs `patch`; the Docker build installs it.
-A failed patch stops the build. The fixes prevent false notification warnings
-and handle skipped upserts whose row is not visible in the selected tenant.
+The build applies the pinned Ash 3.36.1, AshPostgres 2.15.1, and AshJsonApi
+1.7.1 patches before dependency compilation. The build needs `patch`; the
+Docker build installs it. A failed patch stops the build. The fixes prevent
+false notification warnings, handle skipped upserts whose row is not visible in
+the selected tenant, and give a timestamp the OpenAPI `date-time` type.
 Check the public action behavior when updating these dependencies. Remove each
 patch when an upstream release includes its fix.
 
-Credo checks that bulk actions use `Ankole.Ash` and that resource mutation
-filters use `change(filter(...))`. Resource compilation checks the tenant and
-transaction contracts. Database tests check the resulting isolation and writes.
+Resource compilation checks the tenant and transaction contracts
+(`Ankole.Ash.Verifiers.Contracts`). The persistence boundary checks keep each
+database call at its owner (see [Persistence boundary](#persistence-boundary)).
+Database tests check the resulting isolation and writes.
 
 After you change compile-time dependencies, run this check from
 `app/control_plane`:
@@ -674,6 +676,90 @@ and managed Codex runtime with `setsid` and util-linux `flock` (`-F` support).
 configuration, `tini`, pinned Codex bindings, browser, OCR, and installed Lark
 CLI. `bun run test:docker` runs the unit suite in the image. Only the Docker
 commands require Docker and a current Worker image.
+
+### Persistence boundary
+
+The control plane keeps durable state in Ash resources. The root module of each
+domain, for example `Ankole.Signals`, is its Ash domain. Its `define` entries
+are the code interface for other domains, `ankole_web`, plugins, and the
+application.
+
+- A create, update, or destroy action does not open a transaction. It runs as
+  one statement, or in the transaction of the generic action that calls it.
+- A write with more than one step is a generic action. The generic action owns
+  its transaction and must be the top-level call: in `Repo.transact` or in
+  another generic action it raises `Ankole.Errors.Framework.NestedOperation`.
+  Declare the work after the commit with `after_commit({Module, :function})`.
+  An operation without a subject resource uses a resource with
+  `operations: true` (`Ankole.Ash.Resource`).
+- A step that another domain runs in its own transaction is a
+  `*_in_tx(repo, ...)` function of the owning module. It does not open a
+  transaction, publish, or wake a process. Lock the row of another domain only
+  through its `lock_*_in_tx` function.
+- In its own directory, a domain reads and writes its resources with
+  `Ash.Query` and `Ankole.Ash`: `read/2` and `read_one/2` (`lock_identity:` for
+  a row lock), `read_across_tenants!/2` for an `allow_global` read action,
+  `update_atomic/4`, `update_where/4`, `destroy_where/4`, `insert_if_absent/4`,
+  and `run_action/4`. These functions use the tenant of `Ankole.Repo`.
+- A domain module compiles its code interface from its resources. Thus a
+  resource must not call code that reaches a domain module: that call makes a
+  compile-connected cycle (`mix ankole.compile_cycles`). The resource refers to
+  that code through a module in its DSL. Spark does not record a module in the
+  DSL as a dependency of the resource. For `run`, this is true because the
+  configuration sets `infer_generic_action_reactors?: false` for `:ash`.
+  `mix deps.compile ash --force` rebuilds a local cache that used a different
+  value for this compile-time setting. CI restores dependencies only from a
+  cache with the same core configuration. Put
+  the module in the directory of the resource, under the resource name:
+  - `run(__MODULE__.Actions)`: `<Resource>.Actions`
+    (`use Ash.Resource.Actions.Implementation`) runs all the generic actions of
+    the resource. Its `run/3` selects a function clause by the action name, for
+    example `Ankole.Signals.Binding.Actions` in `signals/binding/actions.ex`.
+  - `prepare(__MODULE__.Preparations)`: `<Resource>.Preparations` does the
+    same for the preparations that call domain code.
+  - A calculation, a validation, or a change that calls domain code is one
+    module, for example `Ankole.Brain.Schemas.MergeSuggestion.PageSummary`.
+  - Functions that read or write a resource and call other domain code are in
+    a different module, for example `Ankole.Conversations.Delivery.PreviewStates`
+    for the `PreviewState` resource.
+
+  An anonymous function in the DSL and a function of the resource module can
+  call only modules that do not reach a domain module, for example
+  `Ankole.Errors`, `Ankole.Repo`, or `Ankole.Files.Path`.
+- `Ankole.Errors` declares the errors. A resource action gives
+  `Invalid.Stale`, `Invalid.StatusTransition`, or `Invalid.NotFound`. A generic
+  action gives its domain reason as `Invalid.Rejected` through
+  `Ankole.Errors.wrap/1`. A caller gets the reason with `Ankole.Errors.reason/1`
+  and does not match `Ash.Error` structs. `AnkoleWeb.ConsoleErrors.fallback/4`
+  maps the errors to HTTP responses.
+
+JSON:API transport actions can combine domain operations without a subject
+resource. They use `Ash.DataLayer.Simple` and `transaction?(false)`, hold no
+durable state, and call the owning domain interfaces. Each domain operation
+keeps its transaction and commit notifications. Principal/AuthZ checks the
+route before dispatch.
+
+Some modules do not match Ash resource semantics.
+`app/control_plane/test/ankole/persistence_boundary.exs` lists them, each with
+its mismatch pattern: M2 process coordination, M4 read model, M7 dynamic
+schema, M8 set maintenance, or M9 retrieval. Only a listed module can use Ecto
+writes, Ecto row locks, `Repo.transact`, and Ecto queries of resource tables. A
+read model selects maps or values, not resource structs. The user approves each
+new entry. Remove an entry when its module stops using the database directly;
+the boundary test reports a stale entry.
+
+- `test/ankole/persistence_boundary_test.exs` uses the compiled resources. It
+  reports an Ecto query of a resource and an Ash call on the resource of
+  another domain outside the listed modules.
+- The Credo check `AshBoundary` reports Ecto writes, Ecto row locks,
+  `Repo.transact`, direct `Ash.bulk_*` calls, transaction hooks, bulk-result
+  decoding, `Ash.Error` matches, and Ash calls in `ankole_web`, plugins, and the
+  application. It also requires `change(filter(...))` for the filter of an
+  update or destroy action.
+- The Credo check `RawSQLTenant` requires `tenant_id` in raw SQL that reads a
+  table, or `@raw_sql_scope :site` in a module whose SQL reads no tenant rows.
+- `test/ankole/tenancy_guard_test.exs` keeps a reviewed count of the raw SQL,
+  fragments, and cross-tenant reads of each function.
 
 ### Pod content checks
 
@@ -726,6 +812,61 @@ retained inputs after rejection, viewer write denial, competing reservations,
 and revision-paired frontend/backend replacement. It delays delivery of one
 real committed response to inspect pending UI; it does not replace that write.
 Run `test:garfish` separately for sandbox effects and entry-style scoping.
+
+### Console API and OpenAPI
+
+The Console JSON API uses `/api/v2` for tenant data and `/api/v2/site` for
+site administration. Both use the session and CSRF pipelines in
+`AnkoleWeb.Router`; the tenant API also selects the data context. Both use
+JSON:API (`application/vnd.api+json`) through AshJsonApi.
+The `json_api` section of an Ash domain declares its routes. The `json_api`
+section of a resource declares its type and default fields.
+`AnkoleWeb.JSONAPI.ConsoleRouter` and `AnkoleWeb.JSONAPI.SiteRouter` mount the
+domains; a domain is in one router only.
+
+Resource actions use JSON:API resource documents. Generic actions receive their
+arguments directly in `data`, for example `{"data":{"value":true}}`. A route
+with `wrap_in_result?: false` returns its declared typed result directly. Read
+the generated operation type before you consume its response. File upload and
+download use native multipart and byte responses under `/api/v1/agents`.
+OpenAI-compatible APIs, authentication, webhooks, and internal APIs use their
+own protocol handlers.
+
+Each v2 route has these properties:
+
+- A unique `name`. The name is the OpenAPI `operationId` and gives the function
+  name in the generated client.
+- One rule in the `@rules` table of `AnkoleWeb.JSONAPI.Policy`. The rule gives
+  the AuthZ resource and action that `AnkoleWeb.ConsolePolicy` checks. A route
+  without a rule returns 403. Principal/AuthZ owns authorization; Ash policies
+  stay disabled.
+- No derived filter or sort parameters. Each resource sets
+  `derive_filter? false` and `derive_sort? false`. AshJsonApi 1.7.1 ignores the
+  resource option `derive_sort?`, so each `index` and `related` route also sets
+  `derive_sort?: false`.
+
+`test/ankole_web/json_api/router_test.exs` and `policy_test.exs` check these
+properties. HTTP tests also check the domain result, permissions, and tenant
+isolation.
+
+`app/webapps/openapi/` holds three committed OpenAPI documents: `internal.json`
+(`/.internal-apis`, `AnkoleWeb.InternalAPISpec`), `console-v2.json`, and
+`site-v2.json` (the two JSON:API routers). `mix ankole.openapi.check` compares
+each document with the code. After you change a route, a schema, or a resource
+field, write the documents and generate the clients:
+
+```bash
+cd app/control_plane
+mix ankole.openapi.check --write
+cd ../webapps
+bun run openapi:generate
+```
+
+`openapi:generate` writes `console/api/v2/generated`,
+`console/api/v2-site/generated`, and `common/api/generated`. Do not edit these
+files. Use `fromDocument` in `console/api/json-api.ts` to read resource documents
+as flat records. Use typed generic results directly. The v2 clients convert
+JSON:API errors to the error shape that Console forms display.
 
 ### Full local quality gate
 

@@ -5,7 +5,7 @@ defmodule Ankole.Sessions.AmbientJudgment do
   A retry returns the same decision. Removal of an accepted message anchor
   degrades its attribution but preserves the decision and progress.
   """
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Sessions.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Sessions
 
   postgres do
     table("session_ambient_judgments")
@@ -49,7 +49,6 @@ defmodule Ankole.Sessions.AmbientJudgment do
 
     create :record do
       primary?(true)
-      transaction?(false)
 
       accept([
         :signal_id,
@@ -92,7 +91,8 @@ defmodule Ankole.Sessions.AmbientJudgment do
       )
     end
 
-    atomic_in_tx_update :degrade_anchor do
+    update :degrade_anchor do
+      require_atomic?(true)
       accept([])
       change(set_attribute(:asked_by_state, "degraded"))
       change(set_attribute(:asked_by_message_id, nil))

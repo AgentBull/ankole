@@ -172,8 +172,7 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
     config = module.__connection_lifecycle__()
 
     {specs, errors} =
-      Ankole.Tenants.Tenant
-      |> Repo.all()
+      Ankole.Tenants.list()
       |> Enum.reduce({%{}, []}, fn tenant, acc ->
         Repo.with_tenant(tenant.id, fn ->
           try do

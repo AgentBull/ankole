@@ -1,8 +1,6 @@
 defmodule Ankole.Signals.BindingCatalog do
   @moduledoc false
-  import Ecto.Query, warn: false
 
-  alias Ankole.Repo
   alias Ankole.Principals
   alias Ankole.Plugins.ConfigSecrets
   alias Ankole.Signals.Adapters
@@ -156,8 +154,7 @@ defmodule Ankole.Signals.BindingCatalog do
   def get_binding_configuration(agent_uid, binding_name)
       when is_binary(agent_uid) and is_binary(binding_name) do
     with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
-         %Binding{} = binding <-
-           Repo.get_by(Binding, agent_uid: principal.uid, name: binding_name),
+         %Binding{} = binding <- Ankole.Signals.get_binding!(principal.uid, binding_name),
          {:ok, config} <- Ankole.Signals.Bindings.stored_binding_config(binding) do
       with {:ok, fields} <- binding_fields(binding) do
         {config, stored_secret_paths} = ConfigSecrets.redact(fields, config)

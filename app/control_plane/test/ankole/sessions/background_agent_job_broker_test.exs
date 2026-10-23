@@ -470,22 +470,20 @@ defmodule Ankole.Sessions.BackgroundAgentJobBrokerTest do
 
   defp create_job!(agent_uid, parent, suffix, extra \\ %{}) do
     assert {:ok, %{job: job}} =
-             Repo.transact(fn _ ->
-               BackgroundAgentJobs.create_with_dispatch(
-                 Map.merge(
-                   %{
-                     "agent_uid" => agent_uid,
-                     "owner_session_id" => parent.session.session_id,
-                     "source_signal_id" => parent.signal_id,
-                     "source_tool_call_id" => "job-#{suffix}",
-                     "title" => "Delegated work",
-                     "task" => "Finish the delegated work.",
-                     "reply_route" => %{"binding_name" => "bot"}
-                   },
-                   extra
-                 )
+             BackgroundAgentJobs.create_with_dispatch(
+               Map.merge(
+                 %{
+                   "agent_uid" => agent_uid,
+                   "owner_session_id" => parent.session.session_id,
+                   "source_signal_id" => parent.signal_id,
+                   "source_tool_call_id" => "job-#{suffix}",
+                   "title" => "Delegated work",
+                   "task" => "Finish the delegated work.",
+                   "reply_route" => %{"binding_name" => "bot"}
+                 },
+                 extra
                )
-             end)
+             )
 
     job
   end
