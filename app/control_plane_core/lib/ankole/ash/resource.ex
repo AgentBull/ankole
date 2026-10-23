@@ -5,12 +5,14 @@ defmodule Ankole.Ash.Resource do
   `Ankole.Ash.Transformers.CallerTransaction` gives the transaction owner of
   each action. A generic action must be the top-level call
   (`Ankole.Ash.TopLevel`) and can publish after its commit with
-  `after_commit/1`.
+  `after_commit/1`. `operations: true` declares a resource without rows for
+  the generic actions of an operation that has no subject resource.
   """
 
   defmacro __using__(opts) do
     {tenancy, opts} = Keyword.pop!(opts, :tenancy)
     {tenant_in_primary_key, opts} = Keyword.pop(opts, :tenant_in_primary_key, false)
+    {operations, opts} = Keyword.pop(opts, :operations, false)
 
     unless tenancy in [:tenant, :site],
       do: raise(ArgumentError, "resource tenancy must be :tenant or :site")
@@ -31,13 +33,28 @@ defmodule Ankole.Ash.Resource do
         only: [
           create_if_absent: 2,
           create_if_absent: 3,
-          in_tx_update: 2,
-          atomic_in_tx_update: 2,
           after_commit: 1
         ]
 
       def __tenancy__, do: unquote(tenancy)
       @persist {:ankole_tenancy, unquote(tenancy)}
+
+      # An operations resource keeps no rows; it holds the generic actions of
+      # a domain operation that has no subject resource. Ash rolls back a
+      # failed generic action through the data layer of its resource, and
+      # Ash.DataLayer.Simple cannot roll back. A polymorphic AshPostgres
+      # resource has no table but uses the Repo transaction.
+      if unquote(operations) do
+        postgres do
+          repo(Ankole.Repo)
+          polymorphic?(true)
+          migrate?(false)
+        end
+
+        resource do
+          require_primary_key?(false)
+        end
+      end
 
       preparations do
         prepare(Ankole.Ash.TopLevel, on: [:action])
@@ -89,28 +106,6 @@ defmodule Ankole.Ash.Resource do
   defmacro after_commit(publish) do
     quote do
       prepare({Ankole.Ash.AfterCommit, publish: unquote(publish)})
-    end
-  end
-
-  @doc "Declares an update action. New resources use `update` directly."
-  defmacro in_tx_update(name, do: block) do
-    quote do
-      update unquote(name) do
-        unquote(block)
-      end
-    end
-  end
-
-  @doc """
-  Declares an atomic update action. New resources use `update` with
-  `require_atomic?(true)`.
-  """
-  defmacro atomic_in_tx_update(name, do: block) do
-    quote do
-      update unquote(name) do
-        require_atomic?(true)
-        unquote(block)
-      end
     end
   end
 end

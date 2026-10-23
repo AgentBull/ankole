@@ -38,7 +38,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
   alias Ankole.IdentityProviders.Config, as: ProviderConfig
 
   test "attempt admission waits for a pending tenant suspension", %{tenant: tenant} do
-    suspension = hold_transaction(fn -> Ankole.Tenants.suspend(tenant) end)
+    suspension = hold_transaction(fn -> Ankole.Tenants.suspend_in_tx(Repo, tenant.id) end)
 
     admission =
       start_unboxed(fn ->
@@ -115,7 +115,11 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       {:ok, _quota} = TokenQuota.put(agent_uid, quota_attrs(100))
     end)
 
-    quota_write = hold_transaction(fn -> TokenQuota.put(agent_uid, quota_attrs(200)) end)
+    quota_write =
+      hold_transaction(fn ->
+        TokenQuota.put_locked(%{agent_uid: agent_uid, attrs: quota_attrs(200)})
+      end)
+
     edit = start_unboxed(fn -> Principals.update_agent(agent_uid, %{options: %{}}) end)
     assert_blocked_by(edit, quota_write)
     release(quota_write)
@@ -749,20 +753,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     end
 
     test "terminal RPC takes the Worker lock before a waiting steer takes its event", ctx do
-      terminal =
-        pause_after_query(
-          fn -> terminal_job_rpc(ctx) end,
-          fn metadata ->
-            if metadata.source == "background_agent_jobs" and
-                 String.contains?(metadata.query, "FOR UPDATE") do
-              count = Process.get(:job_locks, 0) + 1
-              Process.put(:job_locks, count)
-              count == 2
-            else
-              false
-            end
-          end
-        )
+      terminal = pause_after_query(fn -> terminal_job_rpc(ctx) end, &second_job_lock?/1)
 
       steer =
         start_unboxed(fn -> CodexJob.admit(ctx.actor_key, ctx.steer, []) end)
@@ -800,10 +791,11 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     end
 
     test "duplicate terminal RPCs commit once and seed one successor for unapplied input", ctx do
-      first = hold_transaction(fn -> terminal_job_rpc(ctx) end)
+      # The RPC owns its transaction, so the test pauses it while it holds the Job lock.
+      first = pause_after_query(fn -> terminal_job_rpc(ctx) end, &second_job_lock?/1)
       repeated = start_unboxed(fn -> terminal_job_rpc(ctx) end)
       assert_blocked_by(repeated, first)
-      release(first)
+      send(first.task.pid, :continue_query)
       assert_terminal_rpc(finish(first))
       assert_terminal_rpc(finish(repeated))
       assert Repo.get!(Job, ctx.job.id).status == :succeeded
@@ -953,6 +945,19 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       )
 
     RPCLane.handle_request(request, %{transport_route: ctx.route, worker_id: ctx.agent.uid})
+  end
+
+  # The terminal RPC holds the Job row lock in its transaction after its second
+  # Job lock query.
+  defp second_job_lock?(metadata) do
+    if metadata.source == "background_agent_jobs" and
+         String.contains?(metadata.query, "FOR UPDATE") do
+      count = Process.get(:job_locks, 0) + 1
+      Process.put(:job_locks, count)
+      count == 2
+    else
+      false
+    end
   end
 
   defp assert_terminal_rpc({:ok, envelope}) do

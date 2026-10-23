@@ -176,6 +176,54 @@ defmodule Ankole.Principals.Principal do
 
     destroy(:delete_in_tx)
 
+    action :create_human, :map do
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Principals.create_human_in_tx(Ankole.Repo, input.arguments.attrs)
+        )
+      end)
+    end
+
+    action :create_agent, :map do
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Principals.create_agent_in_tx(Ankole.Repo, input.arguments.attrs)
+        )
+      end)
+    end
+
+    action :enable_agent, :term do
+      argument(:uid, :term, allow_nil?: false)
+      after_commit({Ankole.Principals, :publish_agent_changes})
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(Ankole.Principals.enable_agent_in_tx(Ankole.Repo, input.arguments.uid))
+      end)
+    end
+
+    action :delete_agent, :term do
+      argument(:uid, :term, allow_nil?: false)
+      after_commit({Ankole.Principals, :publish_agent_deletion})
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(Ankole.Principals.delete_agent_in_tx(Ankole.Repo, input.arguments.uid))
+      end)
+    end
+
+    action :upsert_platform_subject_human, :map do
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.Principals.upsert_platform_subject_human_in_tx(input.arguments.attrs)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
     action :update_human, :struct do
       description("Updates the display name or the email of a Human with local sign-in.")
       constraints(instance_of: __MODULE__)

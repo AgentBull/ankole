@@ -51,8 +51,11 @@ for example `create_in_tx/3`, `post_in_tx/4`, `detail_in_tx/4`, or
 action and give the domain reason through `Ankole.Errors.reason/1`.
 
 The domain reads the rows of other domains through their code interface
-functions. `Conversations.Locks` locks Principal and Signal rows through those
-functions and gives each locked read to the lock-order check. A query filters by
+functions. It locks Principal and Signal rows through the composition functions
+of their owners (`Principals.lock_principals_in_tx/2`,
+`Signals.lock_signals_in_tx/3`), which give each locked read to the lock-order
+check. Other domains lock a Conversation row with
+`Conversations.lock_conversation_in_tx/3`. A query filters by
 the rows of a related resource with a resource-based `exists` expression; the
 resources declare no relationships, so their Ecto structs do not change. A
 Message is `withdrawn` when one of its native inputs is removed; history,
@@ -414,7 +417,9 @@ interface.
 An external identity is unique by `(tenant_id, provider_conversation_id)`.
 The provider ID includes the adapter namespace, such as `lark:oc_xxx`. The
 conversation stores neither an Agent host nor a Binding host. Agent and Binding
-identify the receiving observation entrance or the sending Delivery.
+identify the receiving observation entrance or the sending Delivery. An adapter
+that learns a room outside a message, such as a channel sync, records it with
+`Conversations.observe_external_conversation/3`.
 
 `Conversations.Observe` normalizes the provider observation, evaluates Binding
 filters against the platform identity, resolves the shared UUID, and persists
@@ -501,8 +506,9 @@ intent submission. `Delivery.Dispatch` claims and sends; `Recovery` owns retry
 and uncertain outcomes; `Mirror` commits provider-confirmed public statements;
 `Queries` supplies durable surface lookup and stopped-delivery projections.
 Intents in `deliveries` record the speaking Agent, Binding, public IDs, and
-opaque provider references. Work completion and delivery completion are
-separate facts.
+opaque provider references. `Delivery.sent_provider_message?/4` tells an
+adapter whether a quoted provider message is one that a Binding sent. Work
+completion and delivery completion are separate facts.
 
 `recovery_status` and `recovery_reason` record why a failed or unknown delivery
 stopped. The status is `blocked`, `permanent`, or `exhausted`. PostgreSQL requires

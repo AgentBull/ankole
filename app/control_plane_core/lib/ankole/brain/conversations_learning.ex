@@ -306,14 +306,16 @@ defmodule Ankole.Brain.ConversationsLearning do
          :ok <- ensure_extraction_written(slice.items, written),
          :ok <- Sources.record_extraction_watermark(Repo, current, slice.boundary) do
       {:ok, %{status: slice.outcome, token: slice.token, written: written}}
-    else
-      {:ok, nil} -> {:error, :source_archived}
-      {:error, _reason} = error -> error
     end
   end
 
-  defp lock_conversation(conversation_id),
-    do: Ankole.Conversations.get_conversation(conversation_id, query: [lock: "FOR SHARE"])
+  # A removed Conversation ends its Source as an archive does.
+  defp lock_conversation(conversation_id) do
+    case Ankole.Conversations.lock_conversation_in_tx(Repo, conversation_id, :share) do
+      {:ok, conversation} -> {:ok, conversation}
+      {:error, :not_found} -> {:error, :source_archived}
+    end
+  end
 
   defp ensure_source_revision(%Source{upstream_revision: revision}, %Source{
          upstream_revision: revision

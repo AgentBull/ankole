@@ -25,11 +25,8 @@ defmodule Ankole.Principals.MappingRequests do
   """
   @spec record_observation(map()) ::
           {:ok, MappingRequest.t() | :already_mapped} | {:error, term()}
-  # Staged: Conversations identity admission still calls this function in its
-  # transaction. Change it to a generic action when that caller uses
-  # `record_observation_in_tx/2`.
   def record_observation(attrs) when is_map(attrs),
-    do: Ankole.Repo.transact(fn repo -> record_observation_in_tx(repo, attrs) end)
+    do: Ankole.Ash.run_action(MappingRequest, :record_observation, %{attrs: attrs})
 
   @doc false
   def record_observation_in_tx(repo, attrs) do

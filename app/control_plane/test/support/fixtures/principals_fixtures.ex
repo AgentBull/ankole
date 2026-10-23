@@ -53,17 +53,18 @@ defmodule Ankole.PrincipalsFixtures do
     "+1415#{exchange}#{line}"
   end
 
+  # Tests also create Principals inside their own transaction, so the Principal
+  # fixtures use the composition functions, not the top-level actions.
   def human_fixture(attrs \\ %{}) do
-    {:ok, result} =
-      attrs
-      |> Enum.into(%{
+    attrs =
+      Enum.into(attrs, %{
         display_name: "Human",
         email: "#{unique_uid("human")}@example.com",
         mobile: unique_mobile(),
         job_title: "Operator"
       })
-      |> Principals.create_human()
 
+    {:ok, result} = Ankole.Repo.transact(&Principals.create_human_in_tx(&1, attrs))
     result
   end
 
@@ -80,13 +81,12 @@ defmodule Ankole.PrincipalsFixtures do
         owner.uid
       end)
       |> Map.put_new_lazy(:worker_provider_id, fn -> worker_provider_fixture().provider_id end)
+      |> Map.put(:uid, Ankole.Kernel.gen_uuid_v7())
 
-    {:ok, result} = Principals.create_agent(attrs)
+    {:ok, result} = Ankole.Repo.transact(&Principals.create_agent_in_tx(&1, attrs))
     result
   end
 
-  # Tests also create Agents inside their own transaction, so the fixture uses
-  # the composition function of the provider registry, not its top-level action.
   def worker_provider_fixture(attrs \\ %{}) do
     attrs =
       Enum.into(attrs, %{
@@ -188,7 +188,9 @@ defmodule Ankole.PrincipalsFixtures do
         metadata: %{"tenant_key" => "tenant_x"}
       })
 
-    {:ok, result} = Principals.upsert_platform_subject_human(attrs)
+    {:ok, result} =
+      Ankole.Repo.transact(&Principals.upsert_platform_subject_human_in_tx(&1, attrs))
+
     result
   end
 

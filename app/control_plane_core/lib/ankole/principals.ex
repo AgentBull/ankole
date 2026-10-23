@@ -209,11 +209,8 @@ defmodule Ankole.Principals do
   """
   @spec create_human(map()) ::
           {:ok, %{principal: Principal.t(), human_user: HumanUser.t()}} | {:error, term()}
-  # Staged: test fixtures and the SaaS Pod creation still call this function in
-  # their transaction. Change it to a generic action when they use
-  # `create_human_in_tx/2`.
   def create_human(attrs) when is_map(attrs),
-    do: Repo.transact(fn repo -> create_human_in_tx(repo, attrs) end)
+    do: Ankole.Ash.run_action(Principal, :create_human, %{attrs: attrs})
 
   @doc false
   def create_human_in_tx(repo, attrs) do
@@ -263,10 +260,7 @@ defmodule Ankole.Principals do
   def create_agent(attrs) when is_map(attrs) do
     with {:ok, _handle} <- required_text(attrs, :handle) do
       attrs = attrs |> Map.delete("uid") |> Map.put(:uid, NativeKernel.gen_uuid_v7())
-
-      # Staged: test fixtures still call this function in their transaction.
-      # Change it to a generic action when they use `create_agent_in_tx/2`.
-      Repo.transact(fn repo -> create_agent_in_tx(repo, attrs) end)
+      Ankole.Ash.run_action(Principal, :create_agent, %{attrs: attrs})
     end
   end
 
@@ -366,15 +360,9 @@ defmodule Ankole.Principals do
   """
   @spec enable_agent(String.t()) :: principal_result()
   def enable_agent(uid) do
-    # Staged: a Conversations test still calls this function in its transaction.
-    # Change it to a generic action when that caller uses `enable_agent_in_tx/2`.
-    case Repo.transact(fn repo -> enable_agent_in_tx(repo, uid) end) do
-      {:ok, {%Principal{} = principal, _conversation_ids} = change} ->
-        unless Repo.in_transaction?(), do: publish_agent_changes(change)
-        {:ok, principal}
-
-      error ->
-        error
+    case Ankole.Ash.run_action(Principal, :enable_agent, %{uid: uid}) do
+      {:ok, {%Principal{} = principal, _conversation_ids}} -> {:ok, principal}
+      error -> error
     end
   end
 
@@ -396,16 +384,9 @@ defmodule Ankole.Principals do
   """
   @spec delete_agent(String.t()) :: principal_result()
   def delete_agent(uid) do
-    # Staged: a Conversations test still calls this function in its transaction.
-    # Change it to a generic action when that caller uses `delete_agent_in_tx/2`.
-    case Repo.transact(fn repo -> delete_agent_in_tx(repo, uid) end) do
-      {:ok, {%Principal{} = principal, _conversation_ids} = change} ->
-        unless Repo.in_transaction?(), do: publish_agent_changes(change)
-        :ok = AgentWorkers.reconcile(principal.uid)
-        {:ok, principal}
-
-      error ->
-        error
+    case Ankole.Ash.run_action(Principal, :delete_agent, %{uid: uid}) do
+      {:ok, {%Principal{} = principal, _conversation_ids}} -> {:ok, principal}
+      error -> error
     end
   end
 
@@ -443,10 +424,17 @@ defmodule Ankole.Principals do
     end
   end
 
-  defp publish_agent_changes({%Principal{} = principal, conversation_ids}) do
+  @doc false
+  def publish_agent_changes({%Principal{} = principal, conversation_ids}) do
     Repo.with_tenant(principal.tenant_id, fn ->
       Enum.each(conversation_ids, &Ankole.Conversations.Events.publish_status/1)
     end)
+  end
+
+  @doc false
+  def publish_agent_deletion({%Principal{} = principal, _conversation_ids} = change) do
+    publish_agent_changes(change)
+    :ok = AgentWorkers.reconcile(principal.uid)
   end
 
   @doc """
@@ -574,12 +562,11 @@ defmodule Ankole.Principals do
   @spec complete_forced_password_change(String.t(), String.t(), non_neg_integer()) ::
           {:ok, LocalCredential.t()} | {:error, term()}
   def complete_forced_password_change(uid, password_hash, credential_version) do
-    # Staged: the browser login completes this change in its own transaction.
-    # Change it to a generic action when that caller uses
-    # `complete_forced_password_change_in_tx/4`.
-    Repo.transact(fn repo ->
-      complete_forced_password_change_in_tx(repo, uid, password_hash, credential_version)
-    end)
+    Ankole.Ash.run_action(LocalCredential, :complete_forced_password_change, %{
+      uid: uid,
+      password_hash: password_hash,
+      credential_version: credential_version
+    })
   end
 
   @doc false
@@ -658,11 +645,8 @@ defmodule Ankole.Principals do
           {:ok,
            %{principal: Principal.t(), human_user: HumanUser.t(), identity: ExternalIdentity.t()}}
           | {:error, term()}
-  # Staged: Conversations identity admission still calls this function in its
-  # transaction. Change it to a generic action when that caller uses
-  # `upsert_platform_subject_human_in_tx/2`.
   def upsert_platform_subject_human(attrs) when is_map(attrs),
-    do: Repo.transact(fn repo -> upsert_platform_subject_human_in_tx(repo, attrs) end)
+    do: Ankole.Ash.run_action(Principal, :upsert_platform_subject_human, %{attrs: attrs})
 
   @doc false
   def upsert_platform_subject_human_in_tx(repo, attrs) do
@@ -958,13 +942,11 @@ defmodule Ankole.Principals do
   """
   @spec list_platform_subject_bindings(String.t(), String.t()) :: [ExternalIdentity.t()]
   def list_platform_subject_bindings(provider, external_id) do
-    Repo.across_tenants(fn ->
-      ExternalIdentity
-      |> Ash.Query.for_read(:read_across_tenants)
-      |> Ash.Query.filter(provider == ^provider and external_id == ^external_id)
-      |> Ash.Query.sort(principal_uid: :asc)
-      |> Ash.read!(Ankole.Ash.default_options())
-    end)
+    ExternalIdentity
+    |> Ash.Query.for_read(:read_across_tenants)
+    |> Ash.Query.filter(provider == ^provider and external_id == ^external_id)
+    |> Ash.Query.sort(principal_uid: :asc)
+    |> Ankole.Ash.read_across_tenants!()
   end
 
   @doc """

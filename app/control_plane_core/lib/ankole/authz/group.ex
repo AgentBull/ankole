@@ -177,6 +177,23 @@ defmodule Ankole.AuthZ.Group do
 
     destroy(:delete_in_tx)
 
+    action :ensure_synced_member, :atom do
+      argument(:group_attrs, :map, allow_nil?: false)
+      argument(:principal_uid, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.AuthZ.ensure_synced_group_member_in_tx(
+          input.arguments.group_attrs,
+          input.arguments.principal_uid
+        )
+        |> case do
+          :ok -> {:ok, :ensured}
+          error -> Ankole.Errors.wrap(error)
+        end
+      end)
+    end
+
     action :delete_operator_group, :struct do
       description("Deletes an operator group that has no grants.")
       constraints(instance_of: __MODULE__)
@@ -236,6 +253,39 @@ defmodule Ankole.AuthZ.Group do
           input.arguments.principal_uid,
           input.arguments.name,
           Ankole.AuthZ.Root.admin_group_name()
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :add_synced_member, :struct do
+      constraints(instance_of: Ankole.AuthZ.Membership)
+      argument(:group_id, :term, allow_nil?: false)
+      argument(:domain, :atom, constraints: [one_of: [:directory, :im_group, :signal_source]])
+      argument(:principal_uid, :term, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.AuthZ.Store.add_synced_group_member(
+          args.group_id,
+          args.domain,
+          args.principal_uid
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :remove_synced_member, :atom do
+      argument(:group_id, :term, allow_nil?: false)
+      argument(:domain, :atom, constraints: [one_of: [:directory, :im_group, :signal_source]])
+      argument(:principal_uid, :term, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.AuthZ.Store.remove_synced_group_member(
+          args.group_id,
+          args.domain,
+          args.principal_uid
         )
         |> Ankole.Errors.wrap()
       end)

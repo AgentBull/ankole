@@ -2,20 +2,13 @@ defmodule Ankole.OIDC.Claims do
   @moduledoc false
   alias Ankole.Principals
 
-  # Principals owns these rows. FOR SHARE holds the active Human and its
-  # profile until the tokens of the grant are minted.
+  # FOR SHARE holds the active Human and its profile until the tokens of the
+  # grant are minted.
   def load(subject) do
-    Ankole.LockOrder.with_identity({"principals", subject}, fn ->
-      with [principal] <-
-             Principals.list_principals!(
-               query: [filter: [uid: subject, type: :human, status: :active], lock: "FOR SHARE"]
-             ),
-           %{} = human <- Principals.get_human_user!(subject, query: [lock: "FOR SHARE"]) do
-        {:ok, principal, human}
-      else
-        _missing -> {:error, :inactive_human}
-      end
-    end)
+    case Principals.lock_active_human_in_tx(Ankole.Repo, subject) do
+      {:ok, %{principal: principal, human_user: human}} -> {:ok, principal, human}
+      {:error, _reason} -> {:error, :inactive_human}
+    end
   end
 
   def project(principal, human, scope) when is_binary(scope) do

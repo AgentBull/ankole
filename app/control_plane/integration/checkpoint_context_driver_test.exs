@@ -9,9 +9,7 @@ defmodule Ankole.Sessions.CheckpointContextDriverTest do
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.Brain.Claims
   alias Ankole.Brain.Links
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Repo
   alias Ankole.Signals.Signal
@@ -23,7 +21,7 @@ defmodule Ankole.Sessions.CheckpointContextDriverTest do
     {:ok, _} = SchemaPacks.install_packs([])
 
     {:ok, _} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "concepts/wire-format", type: "concept", title: "Wire Format"},
         agent.uid
       )
@@ -31,7 +29,7 @@ defmodule Ankole.Sessions.CheckpointContextDriverTest do
     {:ok, _} = Links.add_alias("concepts/wire-format", "Wire Format")
 
     {:ok, _} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: "concepts/wire-format",
           claim: "DRIVER_TASK_MEMORY",

@@ -151,13 +151,17 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Delivery do
   defp newest_inbound_message_at(conversation_id) do
     Ankole.Conversations.list_external_message_refs!(
       query: [
-        filter: [conversation_id: conversation_id, provider_time: [is_nil: false]],
+        filter: [
+          conversation_id: conversation_id,
+          provider_time: [is_nil: false],
+          author: [at_path: ["platform_subject"], is_nil: false]
+        ],
         sort: [provider_time: :desc],
-        select: [:provider_time, :author]
-      ],
-      stream?: true
+        limit: 1,
+        select: [:provider_time]
+      ]
     )
-    |> Enum.find_value(&(&1.author["platform_subject"] != nil and &1.provider_time))
+    |> Enum.find_value(& &1.provider_time)
   end
 
   defp newest_interactive_reply_at(conversation_id) do

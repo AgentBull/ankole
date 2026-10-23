@@ -10,8 +10,6 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.ToolSearch
   alias Ankole.AIGateway.HostedTools.StreamLoop
-  alias Ankole.Brain.Claims
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Tools
   alias Ankole.Kernel, as: NativeKernel
@@ -23,7 +21,7 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
     %{principal: agent} = agent_fixture(%{owner_principal_uid: owner.uid})
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{
           slug: "concepts/wire-format",
           type: "concept",
@@ -34,7 +32,7 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
       )
 
     {:ok, %{claim: _fact}} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: object.slug,
           claim: "The wire format carries dated facts",
@@ -286,7 +284,7 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
   describe "injection" do
     test "an oversized pack keeps its wrapper and whole fitted lines", context do
       {:ok, threads} =
-        Objects.create_object(
+        Ankole.Brain.create_object(
           %{slug: "concepts/open-work", type: "concept", title: "Open Work"},
           context.agent.uid
         )
@@ -301,7 +299,7 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
 
       for {slug, kind, claim} <- claims do
         assert {:ok, _} =
-                 Claims.write_fact(
+                 Ankole.Brain.write_fact(
                    %{
                      object_slug: slug,
                      claim: claim,
@@ -314,8 +312,7 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
                      provenance: "test"
                    },
                    context.agent.uid,
-                   embed: false,
-                   dedup: false
+                   %{options: [embed: false, dedup: false]}
                  )
       end
 
@@ -341,7 +338,7 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
 
     test "relations and aliases keep the full injected pack unchanged", context do
       {:ok, header} =
-        Objects.create_object(
+        Ankole.Brain.create_object(
           %{slug: "concepts/frame-header", type: "concept", title: "Frame Header"},
           context.agent.uid
         )
@@ -537,7 +534,7 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
 
     test "a pointer title cannot leave the environment block", context do
       {:ok, object} =
-        Objects.create_object(
+        Ankole.Brain.create_object(
           %{
             slug: "concepts/forged",
             type: "concept",

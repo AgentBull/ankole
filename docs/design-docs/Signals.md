@@ -94,7 +94,8 @@ writes do not start a second transaction owner.
 `remove_signal`, `get_binding`, `list_bindings`, `get_webhook_endpoint`,
 `list_webhook_endpoints`) and its composition functions for a transaction that
 they own: `accept_in_tx/2`, `lock_signal_in_tx/2`, `lock_session_signal_in_tx/3`,
-`lock_signals_in_tx/2` (a keyword filter, queue order, row lock identity),
+`lock_signals_in_tx/3` (a keyword filter, queue order unless `sort:` gives
+another order, an optional `limit:`, row lock identity),
 `transition_in_tx/4` (one queue state transition of a locked Signal),
 `reset_attempts_in_tx/3`, and `signals_for_entry_in_tx/5`. The Session queue
 reads are `session_queue/3` and `session_status_signal/3`. Human revocation of

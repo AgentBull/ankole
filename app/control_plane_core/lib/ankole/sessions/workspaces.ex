@@ -94,14 +94,11 @@ defmodule Ankole.Sessions.Workspaces do
             )
           end)
 
-        # The Schedule domain has no read define for a cron schedule yet.
         :cron ->
           locked_owner("cron_schedules", identity.cron_schedule_id, fn query ->
-            Ankole.Schedule.Schemas.CronSchedule
-            |> Ash.Query.build([
-              {:filter, [id: identity.cron_schedule_id, agent_uid: agent_uid]} | query
-            ])
-            |> Ankole.Ash.read_one!()
+            Ankole.Schedule.get_cron_schedule_record!(identity.cron_schedule_id,
+              query: [{:filter, [agent_uid: agent_uid]} | query]
+            )
           end)
       end
 

@@ -505,21 +505,11 @@ defmodule Ankole.BrowserSessions do
     end)
   end
 
-  # Principals owns the external identity table and does not yet give a read
-  # across tenants, so this projection selects only tenant and Principal keys.
   defp site_principals(transaction, provider_id, subject_id) do
-    import Ecto.Query, only: [from: 2]
-
     bindings =
-      Repo.across_tenants(fn ->
-        Repo.all(
-          from(e in Ankole.Principals.ExternalIdentity,
-            where: e.provider == ^provider_id and e.external_id == ^subject_id,
-            order_by: e.principal_uid,
-            select: {e.tenant_id, e.principal_uid}
-          )
-        )
-      end)
+      provider_id
+      |> Ankole.Principals.list_platform_subject_bindings(subject_id)
+      |> Enum.map(&{&1.tenant_id, &1.principal_uid})
 
     Enum.flat_map(bindings, fn {tenant_id, uid} ->
       Repo.with_tenant(tenant_id, fn ->
@@ -1077,12 +1067,10 @@ defmodule Ankole.BrowserSessions do
 
   # FOR SHARE holds the Human's status and access version until the commit.
   defp lock_principal(uid) do
-    Ankole.LockOrder.with_identity({"principals", uid}, fn ->
-      principals =
-        Ankole.Principals.list_principals!(query: [filter: [uid: uid], lock: "FOR SHARE"])
-
-      List.first(principals)
-    end)
+    case Ankole.Principals.lock_principal_in_tx(Repo, uid, :share) do
+      {:ok, principal} -> principal
+      {:error, _reason} -> nil
+    end
   end
 
   defp can_complete(transaction, principal, auth) do
