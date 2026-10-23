@@ -3,8 +3,9 @@ defmodule Ankole.Sessions.ConsoleQueries.Prepare do
   Applies the filters and the order of the operator console conversation list.
 
   This preparation implements the `console_list` read action of
-  `Ankole.AIGateway.Schemas.Conversation`. `Ankole.Sessions.ConsoleQueries`
-  normalizes the arguments before the read.
+  `Ankole.AIGateway.Schemas.Conversation`. The argument types of the action
+  normalize the input, and the keyset pagination of the action gives the
+  pages.
   """
   use Ash.Resource.Preparation
   require Ash.Query

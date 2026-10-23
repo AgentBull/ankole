@@ -7,7 +7,7 @@ defmodule Ankole.Principals do
   that owns its transaction. The `_in_tx` functions give the same steps to
   another domain's action.
   """
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   require Ash.Query
 
@@ -73,6 +73,23 @@ defmodule Ankole.Principals do
     resource MappingRequest do
       define(:get_mapping_request, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_mapping_requests, action: :read)
+    end
+  end
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/agents", Agent do
+        index(:console_list, name: "list_agents", derive_sort?: false)
+        get(:read, route: "/:uid", name: "get_agent")
+        route(:post, "/", :console_create, name: "create_agent")
+        route(:patch, "/:uid", :console_update, name: "update_agent")
+        route(:delete, "/:uid", :console_delete, name: "delete_agent")
+        route(:post, "/:uid/enable", :console_enable, name: "enable_agent")
+      end
     end
   end
 

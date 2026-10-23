@@ -169,6 +169,12 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   def stop_console_turn(%Job{} = job),
     do: Ankole.Sessions.stop_job_turn(job, job.__metadata__[:turn])
 
+  @doc "Gives the operator text of a rejected Console operation for `Ankole.Errors.wrap/2`."
+  def rejection(:background_agent_job_terminal),
+    do: {"background Agent Job already failed or stopped", []}
+
+  def rejection(_reason), do: nil
+
   defp console_job(job_id) do
     case Queries.get(job_id) do
       %Job{} = job -> {:ok, job}

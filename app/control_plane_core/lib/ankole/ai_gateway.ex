@@ -11,7 +11,7 @@ defmodule Ankole.AIGateway do
   writes go through the functions below and their owner modules, which run the
   generic actions of the resources.
   """
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   alias Ankole.AIGateway.CodexVision
   alias Ankole.AIGateway.CompactionRequests
@@ -64,6 +64,24 @@ defmodule Ankole.AIGateway do
     resource Ankole.AIGateway.ProviderConfigs.Provider do
       define(:get_provider, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_providers, action: :read)
+    end
+  end
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/ai-gateway/conversations", Ankole.AIGateway.Schemas.Conversation do
+        index(:console_list, name: "list_ai_gateway_conversations", derive_sort?: false)
+        get(:read, name: "get_ai_gateway_conversation")
+      end
+
+      base_route "/ai-gateway/conversations/:conversation_id/messages",
+                 Ankole.AIGateway.Schemas.Message do
+        index(:console_list, name: "list_ai_gateway_messages", derive_sort?: false)
+      end
     end
   end
 

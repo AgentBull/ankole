@@ -412,5 +412,4 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   end
 
   defp console_search(_search), do: {:error, :invalid_background_agent_job_search}
-
 end

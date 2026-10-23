@@ -19,5 +19,5 @@ defmodule Ankole.Ash.Types.PrincipalKey do
   def dump_to_native(value, _constraints), do: Ankole.Ecto.PrincipalKey.dump(value)
 
   @impl AshJsonApi.Type
-  def json_schema(_constraints), do: %OpenApiSpex.Schema{type: :string}
+  def json_schema(_constraints), do: %{"type" => "string"}
 end

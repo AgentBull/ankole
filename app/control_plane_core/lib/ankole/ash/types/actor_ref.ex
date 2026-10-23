@@ -19,14 +19,14 @@ defmodule Ankole.Ash.Types.ActorRef do
 
   @impl AshJsonApi.Type
   def json_schema(_constraints) do
-    %OpenApiSpex.Schema{
-      type: :object,
-      properties: %{
-        tenant_id: %OpenApiSpex.Schema{type: :string},
-        uid: %OpenApiSpex.Schema{type: :string}
+    %{
+      "type" => "object",
+      "properties" => %{
+        "tenant_id" => %{"type" => "string", "format" => "uuid"},
+        "uid" => %{"type" => "string"}
       },
-      required: [:tenant_id, :uid],
-      additionalProperties: false
+      "required" => ["tenant_id", "uid"],
+      "additionalProperties" => false
     }
   end
 end

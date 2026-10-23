@@ -1,5 +1,5 @@
 defmodule AnkoleWeb.WorkerProviderController do
-  @moduledoc "Console access to Worker provider configuration and one-time Agent assignment."
+  @moduledoc "Console access to Worker provider configuration."
 
   use AnkoleWeb, :controller
 
@@ -71,17 +71,6 @@ defmodule AnkoleWeb.WorkerProviderController do
     ]
   )
 
-  operation(:assign,
-    summary: "Assign a provider to an Agent migrated without one",
-    parameters: [agent_uid: [in: :path, type: :string, required: true]],
-    request_body:
-      {"Provider selection", "application/json", WorkerProviderAPI.AssignRequest, required: true},
-    responses: [
-      ok: {"Provider assigned", "application/json", WorkerProviderAPI.AssignResponse},
-      default: {"Error", "application/json", ErrorEnvelope}
-    ]
-  )
-
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "worker_providers", "read") do
       json(conn, %{worker_providers: Providers.list_projections()})
@@ -131,15 +120,6 @@ defmodule AnkoleWeb.WorkerProviderController do
     end
   end
 
-  def assign(conn, params) do
-    with {:ok, uid} <- ConsoleParams.text(params, :agent_uid),
-         :ok <- ConsolePolicy.authorize(conn, "agent:#{uid}", "update"),
-         {:ok, id} <- ConsoleParams.text(conn.body_params, :provider_id),
-         {:ok, worker} <- Providers.assign(uid, id) do
-      json(conn, %{agent_uid: worker.agent_uid, provider_id: worker.provider_id})
-    end
-  end
-
   defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, {:missing, key}), do: ConsoleErrors.required_field(conn, key)
@@ -153,9 +133,6 @@ defmodule AnkoleWeb.WorkerProviderController do
         "Worker provider was not found"
       )
 
-  defp error(conn, :agent_not_found),
-    do: ConsoleErrors.render(conn, 404, "agent_not_found", "Agent was not found")
-
   defp error(conn, :worker_provider_in_use),
     do:
       ConsoleErrors.render(
@@ -164,19 +141,6 @@ defmodule AnkoleWeb.WorkerProviderController do
         "worker_provider_in_use",
         "Agents still use this provider, including Agents being deleted"
       )
-
-  defp error(conn, :worker_provider_immutable),
-    do:
-      ConsoleErrors.render(
-        conn,
-        409,
-        "worker_provider_immutable",
-        "This Agent already has a provider"
-      )
-
-  defp error(conn, :agent_uid_pending_deletion),
-    do:
-      ConsoleErrors.render(conn, 409, "agent_uid_pending_deletion", "This Agent is being deleted")
 
   defp error(conn, reason),
     do: render_provider_error(conn, Providers.Errors.describe(reason), reason)

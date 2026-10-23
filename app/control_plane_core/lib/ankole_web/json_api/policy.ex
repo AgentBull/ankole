@@ -48,7 +48,25 @@ defmodule AnkoleWeb.JSONAPI.Policy do
       {Ankole.AIAgent.Library.Schemas.AgentSkillLesson, :route, :console_teach} =>
         {"agent:{agent_uid}:library", "update"},
       {Ankole.AIAgent.Library.Schemas.AgentSkillLesson, :route, :revoke} =>
-        {"agent:{agent_uid}:library", "update"}
+        {"agent:{agent_uid}:library", "update"},
+      # J4 agents (v1: agent_controller.ex)
+      {Ankole.Principals.Agent, :index, :console_list} => {"agents", "read"},
+      {Ankole.Principals.Agent, :get, :read} => {"agent:{uid}", "read"},
+      {Ankole.Principals.Agent, :route, :console_create} => {"agents", "update"},
+      {Ankole.Principals.Agent, :route, :console_update} => {"agent:{uid}", "update"},
+      {Ankole.Principals.Agent, :route, :console_delete} => {"agent:{uid}", "delete"},
+      {Ankole.Principals.Agent, :route, :console_enable} => {"agent:{uid}", "update"},
+      # J4 agent workers (v1: agent_worker_controller.ex, worker_provider_controller.ex assign)
+      {Ankole.AgentWorkers.AgentWorker, :index, :console_list} => {"agent_workers", "read"},
+      {Ankole.AgentWorkers.AgentWorker, :route, :assign_provider_once} =>
+        {"agent:{agent_uid}", "update"},
+      # J4 ai-gateway conversations (v1: ai_gateway_conversation_controller.ex)
+      {Ankole.AIGateway.Schemas.Conversation, :index, :console_list} =>
+        {"ai_gateway_conversations", "read"},
+      {Ankole.AIGateway.Schemas.Conversation, :get, :read} =>
+        {"ai_gateway_conversations", "read"},
+      {Ankole.AIGateway.Schemas.Message, :index, :console_list} =>
+        {"ai_gateway_conversations", "read"}
     }
   }
 

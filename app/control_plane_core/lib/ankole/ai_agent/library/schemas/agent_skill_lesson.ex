@@ -10,7 +10,9 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
     derive_filter?(false)
     derive_sort?(false)
 
+    # The primary key names the record in the result of a generic action.
     default_fields([
+      :id,
       :agent_uid,
       :skill_name,
       :content,
@@ -100,7 +102,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
     defaults([:read])
 
     read :console_list do
-      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:agent_uid, :string, allow_nil?: false)
       filter(expr(agent_uid == ^arg(:agent_uid)))
       prepare(build(sort: [skill_name: :asc, inserted_at: :desc]))
     end
@@ -153,7 +155,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
 
     action :console_teach, :struct do
       constraints(instance_of: __MODULE__)
-      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:agent_uid, :string, allow_nil?: false)
       argument(:skill_name, :string, allow_nil?: false)
       argument(:content, :string, allow_nil?: false, constraints: [trim?: false])
 
@@ -161,7 +163,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
         input.arguments
         |> Map.put(:author, Ankole.ActorRef.from_principal(input.context.principal))
         |> Ankole.AIAgent.Library.console_teach()
-        |> Ankole.Errors.wrap()
+        |> Ankole.Errors.wrap(&Ankole.AIAgent.Library.SkillLessons.rejection/1)
       end)
     end
 
@@ -194,11 +196,13 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
 
     action :revoke, :struct do
       constraints(instance_of: __MODULE__)
-      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
+      argument(:agent_uid, :string, allow_nil?: false)
       argument(:lesson_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
       run(fn input, _context ->
-        input.arguments |> Ankole.AIAgent.Library.SkillLessons.revoke() |> Ankole.Errors.wrap()
+        input.arguments
+        |> Ankole.AIAgent.Library.SkillLessons.revoke()
+        |> Ankole.Errors.wrap(&Ankole.AIAgent.Library.SkillLessons.rejection/1)
       end)
     end
   end

@@ -384,14 +384,6 @@ defmodule AnkoleWeb.Router do
     post "/brain/objects/forget", BrainController, :forget_object
     post "/brain/objects/restore", BrainController, :restore_object
 
-    get "/agents", AgentController, :index
-    post "/agents", AgentController, :create
-    get "/agents/:agent_uid", AgentController, :show
-    patch "/agents/:agent_uid", AgentController, :update
-    delete "/agents/:agent_uid", AgentController, :delete
-    post "/agents/:agent_uid/enable", AgentController, :enable
-    put "/agents/:agent_uid/worker-provider", WorkerProviderController, :assign
-
     get "/agent-library/capabilities", AgentLibraryCapabilityController, :global_index
 
     put "/agent-library/agent-plugins/:id",
@@ -422,8 +414,6 @@ defmodule AnkoleWeb.Router do
 
     get "/console-readiness", ConsoleReadinessController, :show
 
-    get "/agent-workers", AgentWorkerController, :index
-
     get "/agents/:agent_uid/background-activities/background-jobs",
         BackgroundActivityController,
         :jobs
@@ -438,16 +428,6 @@ defmodule AnkoleWeb.Router do
 
     get "/background-agent-jobs/health", BackgroundAgentJobController, :health
     get "/background-agent-jobs/:job_id/turns", BackgroundAgentJobController, :turns
-
-    get "/ai-gateway/conversations", AIGatewayConversationController, :index
-
-    get "/ai-gateway/conversations/:conversation_id",
-        AIGatewayConversationController,
-        :show
-
-    get "/ai-gateway/conversations/:conversation_id/messages",
-        AIGatewayConversationController,
-        :messages
 
     get "/agents/:agent_uid/files", AgentFileController, :index
     get "/agents/:agent_uid/files/content", AgentFileController, :download

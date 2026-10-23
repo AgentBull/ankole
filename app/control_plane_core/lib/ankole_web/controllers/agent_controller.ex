@@ -3,7 +3,9 @@ defmodule AnkoleWeb.AgentController do
   alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
-  Console REST API for operator-managed agent principals.
+  Console REST API for the model profiles, the provider-hosted capabilities,
+  and the token quota of an agent. The agent records are in the v2 API
+  (`Ankole.Principals.Agent`).
   """
 
   use AnkoleWeb, :controller
@@ -11,19 +13,11 @@ defmodule AnkoleWeb.AgentController do
   action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
-  alias Ankole.Principals
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIAgent.TokenQuota
-  alias Ankole.Principals.Agent
-  alias Ankole.Principals.Principal
-  alias Ankole.AgentWorkers.Providers
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
-  alias AnkoleWeb.Schemas.ConsoleAPI.AgentCreateRequest
-  alias AnkoleWeb.Schemas.ConsoleAPI.AgentListResponse
-  alias AnkoleWeb.Schemas.ConsoleAPI.AgentResponse
-  alias AnkoleWeb.Schemas.ConsoleAPI.AgentUpdateRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
   alias AnkoleWeb.Schemas.ConsoleAPI.ModelProfileResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.ModelProfileWriteRequest
@@ -38,60 +32,6 @@ defmodule AnkoleWeb.AgentController do
 
   plug OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
-
-  operation(:index,
-    summary: "List agents, including disabled agents",
-    responses: [
-      ok: {"Agents", "application/json", AgentListResponse},
-      default: {"Error", "application/json", ErrorEnvelope}
-    ]
-  )
-
-  operation(:create,
-    summary: "Create one agent",
-    request_body: {"Agent", "application/json", AgentCreateRequest, required: true},
-    responses: [
-      ok: {"Agent", "application/json", AgentResponse},
-      default: {"Error", "application/json", ErrorEnvelope}
-    ]
-  )
-
-  operation(:show,
-    summary: "Read one agent",
-    parameters: [agent_uid: [in: :path, type: :string, required: true]],
-    responses: [
-      ok: {"Agent", "application/json", AgentResponse},
-      default: {"Error", "application/json", ErrorEnvelope}
-    ]
-  )
-
-  operation(:update,
-    summary: "Update one agent",
-    parameters: [agent_uid: [in: :path, type: :string, required: true]],
-    request_body: {"Agent", "application/json", AgentUpdateRequest, required: true},
-    responses: [
-      ok: {"Agent", "application/json", AgentResponse},
-      default: {"Error", "application/json", ErrorEnvelope}
-    ]
-  )
-
-  operation(:delete,
-    summary: "Disable an active agent, or delete an agent that is already disabled",
-    parameters: [agent_uid: [in: :path, type: :string, required: true]],
-    responses: [
-      ok: {"Agent", "application/json", AgentResponse},
-      default: {"Error", "application/json", ErrorEnvelope}
-    ]
-  )
-
-  operation(:enable,
-    summary: "Re-enable one disabled agent",
-    parameters: [agent_uid: [in: :path, type: :string, required: true]],
-    responses: [
-      ok: {"Agent", "application/json", AgentResponse},
-      default: {"Error", "application/json", ErrorEnvelope}
-    ]
-  )
 
   operation(:index_model_profiles,
     summary: "Read all model profiles for one agent",
@@ -175,57 +115,6 @@ defmodule AnkoleWeb.AgentController do
       default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
-
-  def index(conn, _params) do
-    with :ok <- ConsolePolicy.authorize(conn, "agents", "read") do
-      agents = Principals.list_agents()
-      providers = Providers.provider_ids(Enum.map(agents, & &1.principal.uid))
-      json(conn, %{agents: Enum.map(agents, &agent_json(&1, providers))})
-    end
-  end
-
-  def create(conn, _params) do
-    with :ok <- ConsolePolicy.authorize(conn, "agents", "update"),
-         {:ok, attrs} <- create_attrs(conn.body_params, conn.assigns.current_principal),
-         {:ok, result} <- Principals.create_agent(attrs) do
-      json(conn, %{agent: agent_json(result)})
-    end
-  end
-
-  def show(conn, params) do
-    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
-         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "read"),
-         {:ok, result} <- Principals.get_agent(agent_uid) do
-      json(conn, %{agent: agent_json(result)})
-    end
-  end
-
-  def update(conn, params) do
-    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
-         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "update"),
-         {:ok, attrs} <- update_attrs(conn.body_params),
-         {:ok, result} <- Principals.update_agent(agent_uid, attrs) do
-      json(conn, %{agent: agent_json(result)})
-    end
-  end
-
-  def delete(conn, params) do
-    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
-         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "delete"),
-         {:ok, %{agent: agent}} <- Principals.get_agent(agent_uid),
-         {:ok, %Principal{} = principal} <- Principals.delete_agent(agent_uid) do
-      json(conn, %{agent: agent_json(%{principal: principal, agent: agent})})
-    end
-  end
-
-  def enable(conn, params) do
-    with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
-         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "update"),
-         {:ok, %{agent: agent}} <- Principals.get_agent(agent_uid),
-         {:ok, %Principal{} = principal} <- Principals.enable_agent(agent_uid) do
-      json(conn, %{agent: agent_json(%{principal: principal, agent: agent})})
-    end
-  end
 
   def index_model_profiles(conn, params) do
     with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
@@ -335,40 +224,6 @@ defmodule AnkoleWeb.AgentController do
     }
   end
 
-  defp create_attrs(attrs, current_principal) when is_map(attrs) do
-    with {:ok, display_name} <- required_text(attrs, :display_name) do
-      {:ok,
-       attrs
-       |> Map.put(:display_name, display_name)
-       |> Map.put(:created_by, Ankole.ActorRef.from_principal(current_principal))}
-    end
-  end
-
-  defp create_attrs(_attrs, _current_principal_uid), do: {:error, :invalid_agent}
-
-  defp update_attrs(attrs) when is_map(attrs) do
-    attrs =
-      attrs
-      |> Map.drop([:uid, :created_by])
-
-    normalize_optional_display_name(attrs)
-  end
-
-  defp update_attrs(_attrs), do: {:error, :invalid_agent}
-
-  defp required_text(attrs, key) when is_atom(key),
-    do: Ankole.Attrs.required_text(Map.get(attrs, key), {:missing, Atom.to_string(key)})
-
-  defp normalize_optional_display_name(attrs) do
-    if Map.has_key?(attrs, :display_name) do
-      with {:ok, display_name} <- required_text(attrs, :display_name) do
-        {:ok, Map.put(attrs, :display_name, display_name)}
-      end
-    else
-      {:ok, attrs}
-    end
-  end
-
   defp profile_param(params) do
     case Map.get(params, :profile) do
       value when is_binary(value) and value != "" -> {:ok, value}
@@ -385,46 +240,7 @@ defmodule AnkoleWeb.AgentController do
     |> Map.put("configured", true)
   end
 
-  defp agent_json(result), do: agent_json(result, Providers.provider_ids([result.principal.uid]))
-
-  defp agent_json(%{principal: %Principal{} = principal, agent: %Agent{} = agent}, providers) do
-    %{
-      uid: principal.uid,
-      handle: agent.handle,
-      worker_provider_id: Map.get(providers, principal.uid),
-      status: Atom.to_string(principal.status),
-      display_name: principal.display_name,
-      avatar_url: principal.avatar_url,
-      type: Atom.to_string(agent.type),
-      role: agent.role,
-      options: agent.options || %{},
-      owner_principal_uid: agent.owner_principal_uid,
-      group_memory_disclosure_mode: Atom.to_string(agent.group_memory_disclosure_mode),
-      created_by: agent.created_by && Map.from_struct(agent.created_by),
-      inserted_at: DateTime.to_iso8601(agent.inserted_at),
-      updated_at: DateTime.to_iso8601(agent.updated_at)
-    }
-  end
-
   defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
-
-  defp error(conn, :worker_provider_required),
-    do:
-      ConsoleErrors.render(
-        conn,
-        422,
-        "worker_provider_required",
-        "Select a Worker provider or set a default provider"
-      )
-
-  defp error(conn, :worker_provider_not_found),
-    do:
-      ConsoleErrors.render(
-        conn,
-        422,
-        "worker_provider_not_found",
-        "The selected Worker provider was not found"
-      )
 
   defp error(conn, :not_found), do: ConsoleErrors.not_found(conn, "agent was not found")
   defp error(conn, :not_agent), do: ConsoleErrors.not_found(conn, "agent was not found")
@@ -444,24 +260,6 @@ defmodule AnkoleWeb.AgentController do
       422,
       "image_model_catalog_unavailable",
       "image model availability could not be verified; try again later"
-    )
-  end
-
-  defp error(conn, :ai_agent_options_not_writable) do
-    ConsoleErrors.render(
-      conn,
-      422,
-      "validation_failed",
-      "options.ai_agent.models, provider_hosted, and token_quota belong to their own routes"
-    )
-  end
-
-  defp error(conn, :token_quota_not_writable_at_creation) do
-    ConsoleErrors.render(
-      conn,
-      422,
-      "validation_failed",
-      "options.ai_agent.token_quota is set through the token quota route after creation"
     )
   end
 
@@ -506,18 +304,12 @@ defmodule AnkoleWeb.AgentController do
   end
 
   defp error(conn, reason) do
-    case Providers.Errors.describe(reason) do
-      {:invalid, message, details} ->
-        ConsoleErrors.render(conn, 422, "invalid_worker_provider", message, details)
-
-      _other ->
-        ConsoleErrors.unexpected(
-          conn,
-          "ai_agent.agent_api.unexpected_error",
-          reason,
-          "invalid_agent",
-          "agent configuration is invalid"
-        )
-    end
+    ConsoleErrors.unexpected(
+      conn,
+      "ai_agent.agent_api.unexpected_error",
+      reason,
+      "invalid_agent",
+      "agent configuration is invalid"
+    )
   end
 end

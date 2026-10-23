@@ -47,7 +47,9 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     derive_filter?(false)
     derive_sort?(false)
 
+    # The primary key names the record in the result of a generic action.
     default_fields([
+      :id,
       :agent_uid,
       :owner_session_id,
       :source_signal_id,
@@ -272,6 +274,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       ),
       public?: true
     )
+
     calculate(:error_code, :string, expr(fragment("left(?->>'code', 200)", error)))
 
     calculate(
@@ -313,10 +316,10 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     defaults([:read])
 
     read :console_list do
-      argument(:agent_uid, Ankole.Ash.Types.PrincipalKey)
-      argument(:status, :atom, constraints: [one_of: JobState.statuses()])
+      argument(:agent_uid, :string)
+      argument(:status, :atom)
       argument(:search, :string, constraints: [max_length: 200])
-      argument(:live_only, :boolean, allow_nil?: false, default: false)
+      argument(:live_only, :boolean, default: false)
       pagination(keyset?: true, default_limit: 50, max_page_size: 100, required?: false)
 
       prepare(fn query, _context ->
@@ -600,7 +603,8 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
             input.arguments.id,
             input.arguments.result_summary,
             input.context.principal
-          )
+          ),
+          &Ankole.BackgroundAgentJobs.Control.rejection/1
         )
       end)
     end

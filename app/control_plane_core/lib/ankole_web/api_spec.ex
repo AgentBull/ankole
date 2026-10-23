@@ -82,10 +82,6 @@ defmodule AnkoleWeb.APISpec do
           description: "Agent and OIDC Human AI provider gateway"
         },
         %Tag{
-          name: "AI Gateway Conversations",
-          description: "Read-only conversation and message log browser for operator inspection"
-        },
-        %Tag{
           name: "Signal Bindings",
           description: "Operator-managed agent bindings for signal adapters"
         },

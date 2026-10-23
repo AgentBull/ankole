@@ -18,7 +18,7 @@ defmodule Ankole.AgentWorkers do
   resource, defined here; the action owns its transaction.
   """
 
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   require Ash.Query
 
@@ -84,6 +84,24 @@ defmodule Ankole.AgentWorkers do
 
     resource(Ankole.AgentWorkers.WorkerEnv.EnvVar)
     resource(Ankole.AgentWorkers.WorkerEnv.SiteEnvVar)
+  end
+
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/agent-workers", AgentWorker do
+        index(:console_list, name: "list_agent_workers", derive_sort?: false)
+      end
+
+      base_route "/agents", AgentWorker do
+        route(:put, "/:agent_uid/worker-provider", :assign_provider_once,
+          name: "assign_agent_worker_provider"
+        )
+      end
+    end
   end
 
   defdelegate admit_join(join_payload, auth), to: Ankole.AgentWorkers.WorkerAdmission

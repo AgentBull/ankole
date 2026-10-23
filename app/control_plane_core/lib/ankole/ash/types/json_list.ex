@@ -1,6 +1,7 @@
 defmodule Ankole.Ash.Types.JSONList do
   @moduledoc "Uses the durable JSON array contract for Ash attributes."
   use Ash.Type
+  use AshJsonApi.Type
 
   @impl true
   def cast_atomic(value, constraints) do
@@ -29,4 +30,7 @@ defmodule Ankole.Ash.Types.JSONList do
          message: "must be JSON-serializable list: #{Ankole.Ecto.JSONPayload.reason_text(reason)}"}
     end
   end
+
+  @impl AshJsonApi.Type
+  def json_schema(_constraints), do: %{"type" => "array", "items" => %{}}
 end

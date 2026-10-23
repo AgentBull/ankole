@@ -148,9 +148,7 @@ defmodule Ankole.BackgroundAgentJobs.QueriesTest do
 
   defp console_pages(opts, limit, cursor \\ nil, acc \\ []) do
     assert {:ok, %{jobs: jobs, next_cursor: next}} =
-             Queries.list_for_console(
-               Keyword.merge(opts, limit: limit, cursor: cursor)
-             )
+             Queries.list_for_console(Keyword.merge(opts, limit: limit, cursor: cursor))
 
     ids = acc ++ Enum.map(jobs, & &1.id)
 

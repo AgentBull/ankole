@@ -3,7 +3,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     domain: Ankole.AgentWorkers,
-    extensions: [AshStateMachine]
+    extensions: [AshStateMachine, AshJsonApi.Resource]
 
   alias Ankole.AgentWorkers.Providers
   alias Ankole.AgentWorkers.ReconcileJob
@@ -11,6 +11,19 @@ defmodule Ankole.AgentWorkers.AgentWorker do
   alias Ankole.AgentWorkers.WorkerRouteAuth
   alias Ankole.Errors
 
+  # The fields that the Console shows for each Worker.
+  @console_fields [
+    :provider_id,
+    :state,
+    :generation,
+    :image,
+    :capacity,
+    :load,
+    :last_worker_heartbeat_at,
+    :state_changed_at,
+    :drain_reason,
+    :last_error
+  ]
   @states [:absent, :starting, :ready, :stale, :paused, :draining, :deleting]
   @generation_fields [
     :generation,
@@ -64,9 +77,23 @@ defmodule Ankole.AgentWorkers.AgentWorker do
     end
   end
 
+  json_api do
+    type("agent_worker")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    # The primary key names the record in the result of a generic action.
+    default_fields([:agent_uid | @console_fields])
+  end
+
   attributes do
-    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey, primary_key?: true, allow_nil?: false)
-    attribute(:provider_id, :string, constraints: [trim?: false])
+    attribute(:agent_uid, Ankole.Ash.Types.PrincipalKey,
+      primary_key?: true,
+      allow_nil?: false,
+      public?: true
+    )
+
+    attribute(:provider_id, :string, constraints: [trim?: false], public?: true)
 
     for field <- [
           :generation,
@@ -77,25 +104,34 @@ defmodule Ankole.AgentWorkers.AgentWorker do
           :transport_route,
           :drain_reason
         ] do
-      attribute(field, :string, constraints: [trim?: false])
+      attribute(field, :string, constraints: [trim?: false], public?: field in @console_fields)
     end
 
     for field <- [:create_sent_at, :instance_seen_at, :wanted_until, :last_worker_heartbeat_at] do
-      attribute(field, :utc_datetime_usec)
+      attribute(field, :utc_datetime_usec, public?: field in @console_fields)
     end
 
-    attribute(:state_changed_at, :utc_datetime_usec, allow_nil?: false, generated?: true)
+    attribute(:state_changed_at, :utc_datetime_usec,
+      allow_nil?: false,
+      generated?: true,
+      public?: true
+    )
+
     attribute(:storage_ref, Ankole.Ash.Types.JSONMap)
     attribute(:token_digest, :binary, sensitive?: true)
     attribute(:token_ciphertext, :binary, sensitive?: true)
     attribute(:protocol_version, :integer)
 
     for field <- [:instance_settings, :capacity, :load] do
-      attribute(field, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
+      attribute(field, Ankole.Ash.Types.JSONMap,
+        allow_nil?: false,
+        default: %{},
+        public?: field in @console_fields
+      )
     end
 
     attribute(:initial_start_pending, :boolean, allow_nil?: false, default: false)
-    attribute(:last_error, :string, constraints: [trim?: false, max_length: 4000])
+    attribute(:last_error, :string, constraints: [trim?: false, max_length: 4000], public?: true)
     attribute(:last_error_kind, :string, constraints: [trim?: false])
   end
 
@@ -454,6 +490,10 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
       after_commit({WorkerAdmission, :publish_expiry})
       run(fn input, _context -> Errors.wrap(WorkerAdmission.expire_in_tx(input.arguments)) end)
+    end
+
+    read :console_list do
+      prepare(build(sort: [agent_uid: :asc]))
     end
 
     action :assign_provider_once, :struct do

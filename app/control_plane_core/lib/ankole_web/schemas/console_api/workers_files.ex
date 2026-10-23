@@ -1,38 +1,3 @@
-defmodule AnkoleWeb.Schemas.ConsoleAPI.AgentComputerWorkerItem do
-  alias OpenApiSpex, as: OpenAPISpex
-  alias OpenAPISpex.Schema
-
-  @moduledoc false
-
-  require OpenAPISpex
-
-  OpenAPISpex.schema(
-    %{
-      title: "AgentComputerWorkerItem",
-      type: :object,
-      properties: %{
-        agent_uid: %Schema{type: :string},
-        provider_id: %Schema{type: :string, nullable: true},
-        state: %Schema{
-          type: :string,
-          enum: ["absent", "starting", "ready", "stale", "paused", "draining", "deleting"]
-        },
-        generation: %Schema{type: :string, nullable: true},
-        image: %Schema{type: :string, nullable: true},
-        capacity: %Schema{type: :object, additionalProperties: true},
-        load: %Schema{type: :object, additionalProperties: true},
-        last_worker_heartbeat_at: %Schema{type: :string, nullable: true},
-        state_changed_at: %Schema{type: :string, nullable: true},
-        drain_reason: %Schema{type: :string, nullable: true},
-        last_error: %Schema{type: :string, nullable: true}
-      },
-      required: [:agent_uid, :state, :capacity, :load],
-      additionalProperties: false
-    },
-    struct?: false
-  )
-end
-
 defmodule AnkoleWeb.Schemas.ConsoleAPI.ConsoleReadinessProvider do
   alias OpenApiSpex, as: OpenAPISpex
   alias OpenAPISpex.Schema
@@ -186,29 +151,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.ConsoleReadinessResponse do
         :worker,
         :signal_route
       ],
-      additionalProperties: false
-    },
-    struct?: false
-  )
-end
-
-defmodule AnkoleWeb.Schemas.ConsoleAPI.AgentComputerWorkerListResponse do
-  alias OpenApiSpex, as: OpenAPISpex
-  alias OpenAPISpex.Schema
-  alias AnkoleWeb.Schemas.ConsoleAPI.AgentComputerWorkerItem
-
-  @moduledoc false
-
-  require OpenAPISpex
-
-  OpenAPISpex.schema(
-    %{
-      title: "AgentComputerWorkerListResponse",
-      type: :object,
-      properties: %{
-        workers: %Schema{type: :array, items: AgentComputerWorkerItem}
-      },
-      required: [:workers],
       additionalProperties: false
     },
     struct?: false

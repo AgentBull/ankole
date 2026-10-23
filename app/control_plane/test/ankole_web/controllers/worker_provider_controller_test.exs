@@ -3,7 +3,7 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
 
   import Ankole.PrincipalsFixtures
   import Ecto.Query, only: [from: 2]
-  alias Ankole.{Principals, Repo}
+  alias Ankole.Repo
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Setup.Config, as: SetupConfig
@@ -88,24 +88,24 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     response =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/agents", %{
-        worker_provider_id: provider.provider_id,
-        handle: "inactive-plugin-agent",
-        display_name: "Inactive",
-        role: "Research Analyst",
-        owner_principal_uid: owner.uid
-      })
-      |> json_response(422)
+      |> put_req_header("accept", "application/vnd.api+json")
+      |> put_req_header("content-type", "application/vnd.api+json")
+      |> post(
+        "/api/v2/agents",
+        Jason.encode!(%{
+          data: %{
+            worker_provider_id: provider.provider_id,
+            handle: "inactive-plugin-agent",
+            display_name: "Inactive",
+            role: "Research Analyst",
+            owner_principal_uid: owner.uid
+          }
+        })
+      )
 
-    assert response["error"]["code"] == "invalid_worker_provider"
-    assert response["error"]["message"] =~ "vercel-worker-provider"
-
-    assert response["error"]["details"] == [
-             %{
-               "path" => "kind",
-               "message" => "requires active and configured Plugin vercel-worker-provider"
-             }
-           ]
+    # The v2 agent creation gives the reason of the provider selection.
+    assert %{"errors" => [%{"code" => "worker_provider_plugin_inactive"}]} =
+             json_response(response, 422)
   end
 
   test "admin saves the original YAML, reads the type contract, and sees every YAML error location",
@@ -205,91 +205,6 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     listed = conn |> recycle_api() |> get(~p"/api/v1/site/worker-providers")
     refute listed.resp_body =~ "api-secret"
     refute listed.resp_body =~ encrypted["adapterToken"]
-  end
-
-  test "creation selects a provider, migration assignment is one-time, and deleting Agents retain the provider reference",
-       %{conn: conn} do
-    conn = console_conn(conn)
-    %{principal: owner} = human_fixture()
-
-    agent_attrs = %{
-      handle: "new-agent",
-      display_name: "New Agent",
-      role: "Researcher",
-      owner_principal_uid: owner.uid
-    }
-
-    response =
-      conn |> recycle_api() |> post(~p"/api/v1/agents", agent_attrs) |> json_response(422)
-
-    assert response["error"]["code"] == "worker_provider_required"
-    refute Repo.get_by(Principals.Agent, handle: "new-agent")
-    {:ok, _provider} = Providers.create(Map.put(attrs("network: bridge\n"), :is_default, true))
-    created = conn |> recycle_api() |> post(~p"/api/v1/agents", agent_attrs) |> json_response(200)
-    assert created["agent"]["worker_provider_id"] == "local"
-    agent_uid = created["agent"]["uid"]
-
-    blank_provider =
-      conn
-      |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent_uid}/worker-provider", %{provider_id: "  "})
-
-    assert json_response(blank_provider, 422) == %{
-             "error" => %{
-               "code" => "validation_failed",
-               "message" => "provider_id is required",
-               "details" => []
-             }
-           }
-
-    assert Repo.get!(AgentWorker, agent_uid).provider_id == "local"
-    listed = conn |> recycle_api() |> get(~p"/api/v1/agents") |> json_response(200)
-
-    assert Enum.find(listed["agents"], &(&1["uid"] == agent_uid))["worker_provider_id"] ==
-             "local"
-
-    shown = conn |> recycle_api() |> get(~p"/api/v1/agents/#{agent_uid}") |> json_response(200)
-    assert shown["agent"]["worker_provider_id"] == "local"
-    {:ok, _provider} = Providers.create(%{attrs("network: bridge\n") | provider_id: "other"})
-
-    response =
-      conn
-      |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent_uid}/worker-provider", %{provider_id: "other"})
-      |> json_response(409)
-
-    assert response["error"]["code"] == "worker_provider_immutable"
-
-    # This row is the state left by the migration, before an operator assigns it.
-    Repo.get!(AgentWorker, agent_uid)
-    |> Ecto.Changeset.change(provider_id: nil)
-    |> Repo.update!()
-
-    response =
-      conn
-      |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent_uid}/worker-provider", %{provider_id: "local"})
-      |> json_response(200)
-
-    assert response == %{"agent_uid" => agent_uid, "provider_id" => "local"}
-
-    Repo.get!(AgentWorker, agent_uid)
-    |> Ecto.Changeset.change(state: :deleting)
-    |> Repo.update!()
-
-    response =
-      conn
-      |> recycle_api()
-      |> delete(~p"/api/v1/site/worker-providers/local")
-      |> json_response(409)
-
-    assert response["error"]["code"] == "worker_provider_in_use"
-
-    response =
-      conn |> recycle_api() |> get(~p"/api/v1/site/worker-providers") |> json_response(200)
-
-    assert Enum.find(response["worker_providers"], &(&1["provider_id"] == "local"))["agent_count"] ==
-             1
   end
 
   test "null removes an optional credential, and credential rules name their fields", %{

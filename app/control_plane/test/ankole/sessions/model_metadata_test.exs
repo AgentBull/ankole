@@ -74,11 +74,13 @@ defmodule Ankole.Sessions.ModelMetadataTest do
     conn =
       context.conn
       |> console_conn()
-      |> get(~p"/api/v1/ai-gateway/conversations/#{context.conversation.id}/messages")
+      |> put_req_header("accept", "application/vnd.api+json")
+      |> put_req_header("content-type", "application/vnd.api+json")
+      |> get("/api/v2/ai-gateway/conversations/#{context.conversation.id}/messages")
 
-    assert %{"messages" => [message], "next_cursor" => nil} = json_response(conn, 200)
-    assert message["metadata"]["model_profile"] == profile
-    assert message["metadata"]["provider_model"] == "gpt-5.5"
+    assert %{"data" => [%{"attributes" => %{"metadata" => metadata}}]} = json_response(conn, 200)
+    assert metadata["model_profile"] == profile
+    assert metadata["provider_model"] == "gpt-5.5"
   end
 
   test "an explicit model without a frozen profile does not invent a tier", context do

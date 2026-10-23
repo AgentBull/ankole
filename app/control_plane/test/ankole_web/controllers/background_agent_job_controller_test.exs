@@ -3,7 +3,6 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
   alias OpenApiSpex, as: OpenAPISpex
 
-  import Ecto.Query, warn: false
   import Ankole.AIGatewayCase, only: [background_agent_fixture: 0]
   import OpenAPISpex.TestAssertions
 
@@ -12,7 +11,6 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.BackgroundAgentJobs
-  alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
 
@@ -28,223 +26,23 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     :ok
   end
 
-  test "the public status schema follows the resource state machines and rejects unknown filters",
-       %{
-         conn: conn
-       } do
+  test "the turn page schema follows the Turn state machine", %{conn: conn} do
     schemas = AnkoleWeb.APISpec.spec().components.schemas
-
-    assert schemas["BackgroundAgentJobStatus"].enum ==
-             Job |> AshStateMachine.Info.state_machine_all_states() |> Enum.map(&Atom.to_string/1)
 
     assert schemas["BackgroundAgentJobTurnItem"].properties.status.enum ==
              Turn
              |> AshStateMachine.Info.state_machine_all_states()
              |> Enum.map(&Atom.to_string/1)
 
-    {conn, _admin_uid} = console_conn_with_principal(conn)
-
-    assert %{"error" => %{"code" => "validation_failed", "details" => details}} =
+    assert %{"error" => %{"code" => "not_found"}} =
              conn
-             |> get(~p"/api/v1/background-agent-jobs?status=unrecognized")
-             |> json_response(422)
-
-    assert Enum.any?(details, &(&1["path"] == "/status"))
-  end
-
-  test "admin lists with filters and cursor, reads the timeline, and cancels", %{conn: conn} do
-    agent = background_agent_fixture().principal
-    other_agent = background_agent_fixture().principal
-    oldest = create_job!(agent.uid, "oldest")
-    middle = create_job!(agent.uid, "middle")
-    newest = create_job!(other_agent.uid, "newest")
-
-    set_queued_at(oldest, ~U[2026-07-10 01:00:00.000000Z])
-    set_queued_at(middle, ~U[2026-07-10 02:00:00.000000Z])
-    set_queued_at(newest, ~U[2026-07-10 03:00:00.000000Z])
-
-    turn = insert_turn!(middle, "thread-console", "turn-console")
-
-    api_spec = AnkoleWeb.APISpec.spec()
-
-    {conn, admin_uid} = console_conn_with_principal(conn)
-    first_page = conn |> get(~p"/api/v1/background-agent-jobs?limit=2") |> json_response(200)
-
-    assert_schema(first_page, "BackgroundAgentJobListResponse", api_spec)
-    assert Enum.map(first_page["jobs"], & &1["id"]) == [newest.id, middle.id]
-    assert is_binary(first_page["next_cursor"])
-    refute Map.has_key?(first_page, "calibration_summary")
-
-    # A board row stays at what the board draws. The queued prompt, the result,
-    # the error, and the metadata grow with the work the job did, and a list page
-    # holds up to 100 rows and reloads on a timer.
-    assert %{"jobs" => [listed | _rest]} = first_page
-
-    assert Map.keys(listed) |> Enum.sort() == [
-             "agent_uid",
-             "attempts",
-             "duration_seconds",
-             "execution_failures",
-             "id",
-             "inserted_at",
-             "status",
-             "title",
-             "workspace_template_id"
-           ]
-
-    assert listed["title"] == newest.title
-
-    second_page =
-      conn
-      |> recycle_api()
-      |> get(~p"/api/v1/background-agent-jobs?limit=2&cursor=#{first_page["next_cursor"]}")
-      |> json_response(200)
-
-    assert Enum.map(second_page["jobs"], & &1["id"]) == [oldest.id]
-    assert second_page["next_cursor"] == nil
-
-    filtered =
-      conn
-      |> recycle_api()
-      |> get(~p"/api/v1/background-agent-jobs?agent=#{agent.uid}&status=queued")
-      |> json_response(200)
-
-    assert Enum.map(filtered["jobs"], & &1["id"]) == [middle.id, oldest.id]
-
-    name_search =
-      conn
-      |> recycle_api()
-      |> get(~p"/api/v1/background-agent-jobs?agent=#{agent.uid}&q=MIDDLE&limit=1")
-      |> json_response(200)
-
-    assert Enum.map(name_search["jobs"], & &1["id"]) == [middle.id]
-
-    id_search =
-      conn
-      |> recycle_api()
-      |> get(~p"/api/v1/background-agent-jobs?q=#{oldest.id}&limit=1")
-      |> json_response(200)
-
-    assert Enum.map(id_search["jobs"], & &1["id"]) == [oldest.id]
-
-    detail_response =
-      conn
-      |> recycle_api()
-      |> get(~p"/api/v1/background-agent-jobs/#{middle.id}")
-      |> json_response(200)
-
-    assert_schema(detail_response, "BackgroundAgentJobResponse", api_spec)
-    detail = Map.fetch!(detail_response, "job")
-
-    assert detail["title"] == middle.title
-    assert detail["workspace_template_id"] == nil
-    assert detail["continued_from_job_id"] == nil
-    assert detail["workspace_owner_job_id"] == middle.id
-    assert detail["model_profile"] == "coding"
-    refute Map.has_key?(detail, "runtime")
-    refute Map.has_key?(detail, "mode")
-    assert [stored_turn] = detail["turns"]
-    assert stored_turn["id"] == turn.id
-    assert stored_turn["runtime_turn_id"] == "turn-console"
-    assert stored_turn["trajectory"]["format"] == "ankole_chatml"
-
-    assert stored_turn["progress"] == %{
-             "completed_items" => 2,
-             "files_changed" => ["brief.md"],
-             "plan" => %{
-               "steps" => [%{"status" => "completed", "step" => "Write brief"}]
-             },
-             "tool_calls" => 1,
-             "tools_used" => [%{"calls" => 1, "name" => "shell"}]
-           }
-
-    assert stored_turn["usage"]["thread_total"]["total_tokens"] == 21
-    refute Map.has_key?(stored_turn, "last_activity_at")
-
-    cancelled_response =
-      conn
-      |> recycle_api()
-      |> post(~p"/api/v1/background-agent-jobs/#{middle.id}/cancel")
-      |> json_response(200)
-
-    assert_schema(cancelled_response, "BackgroundAgentJobResponse", api_spec)
-    cancelled = Map.fetch!(cancelled_response, "job")
-
-    assert cancelled["status"] == "stopped"
-
-    assert cancelled["metadata"]["cancel_requested_by"] ==
-             to_string(
-               Ankole.ActorRef.from_principal(%{uid: admin_uid, tenant_id: Repo.tenant_id!()})
-             )
-  end
-
-  test "external completion reads its result summary from the JSON body", %{conn: conn} do
-    agent = background_agent_fixture().principal
-    job = create_job!(agent.uid, "external-completion")
-    api_spec = AnkoleWeb.APISpec.spec()
-
-    response =
-      conn
-      |> console_conn()
-      |> post(~p"/api/v1/background-agent-jobs/#{job.id}/complete", %{
-        "result_summary" => "EXTERNALLY-VERIFIED"
-      })
-      |> json_response(200)
-
-    assert_schema(response, "BackgroundAgentJobResponse", api_spec)
-    completed = Map.fetch!(response, "job")
-
-    assert completed["status"] == "succeeded"
-    assert completed["result"]["summary"] == "EXTERNALLY-VERIFIED"
-  end
-
-  test "title search treats LIKE control characters as ordinary text", %{conn: conn} do
-    agent = background_agent_fixture().principal
-    percent = create_job!(agent.uid, "literal-percent", "Console percent%marker")
-    _percent_wildcard = create_job!(agent.uid, "percent-wildcard", "Console percent-any-marker")
-    underscore = create_job!(agent.uid, "literal-underscore", "Console under_marker")
-    _underscore_wildcard = create_job!(agent.uid, "underscore-wildcard", "Console underXmarker")
-    backslash = create_job!(agent.uid, "literal-backslash", "Console slash\\marker")
-    conn = console_conn(conn)
-
-    assert search_job_ids(conn, "percent%marker") == [percent.id]
-    assert search_job_ids(conn, "under_marker") == [underscore.id]
-    assert search_job_ids(conn, "slash\\marker") == [backslash.id]
-  end
-
-  test "cursor pagination neither skips nor repeats jobs with the same queued timestamp", %{
-    conn: conn
-  } do
-    agent = background_agent_fixture().principal
-    jobs = Enum.map(1..3, &create_job!(agent.uid, "same-time-#{&1}"))
-    queued_at = ~U[2026-07-10 04:00:00.000000Z]
-    Enum.each(jobs, &set_queued_at(&1, queued_at))
-
-    conn = console_conn(conn)
-    first = conn |> get(~p"/api/v1/background-agent-jobs?limit=1") |> json_response(200)
-
-    second =
-      conn
-      |> recycle_api()
-      |> get(~p"/api/v1/background-agent-jobs?limit=1&cursor=#{first["next_cursor"]}")
-      |> json_response(200)
-
-    third =
-      conn
-      |> recycle_api()
-      |> get(~p"/api/v1/background-agent-jobs?limit=1&cursor=#{second["next_cursor"]}")
-      |> json_response(200)
-
-    paged_ids = Enum.map([first, second, third], &get_in(&1, ["jobs", Access.at(0), "id"]))
-
-    assert Enum.all?([first["next_cursor"], second["next_cursor"]], &is_binary/1)
-    assert third["next_cursor"] == nil
-    assert length(Enum.uniq(paged_ids)) == 3
-    assert MapSet.new(paged_ids) == MapSet.new(Enum.map(jobs, & &1.id))
+             |> console_conn()
+             |> get(~p"/api/v1/background-agent-jobs/1000000/turns")
+             |> json_response(404)
   end
 
   test "missing browser session is rejected", %{conn: conn} do
-    assert conn |> get(~p"/api/v1/background-agent-jobs") |> json_response(401)
+    assert conn |> get(~p"/api/v1/background-agent-jobs/health") |> json_response(401)
   end
 
   test "Deep Research detail exposes the same semantic Turn trajectory without raw protocol frames",
@@ -273,20 +71,14 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     insert_turn!(job, "thread-research", "turn-research")
 
-    detail =
+    page =
       conn
       |> console_conn()
-      |> get(~p"/api/v1/background-agent-jobs/#{job.id}")
+      |> get(~p"/api/v1/background-agent-jobs/#{job.id}/turns")
       |> json_response(200)
-      |> Map.fetch!("job")
 
-    assert detail["workspace_template_id"] == "deep-research"
-    assert detail["model_profile"] == "coding"
-    refute Map.has_key?(detail, "plugin_options")
-
-    refute Map.has_key?(detail, "runtime")
-    refute Map.has_key?(detail, "mode")
-    assert [%{"trajectory" => trajectory}] = detail["turns"]
+    assert_schema(page, "BackgroundAgentJobTurnPageResponse", AnkoleWeb.APISpec.spec())
+    assert [%{"trajectory" => trajectory}] = page["turns"]
 
     assert trajectory["messages"] == [
              %{
@@ -297,8 +89,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
              }
            ]
 
-    refute Map.has_key?(detail, "trajectory_archive")
-    refute inspect(detail) =~ "json_rpc"
+    refute inspect(page) =~ "json_rpc"
   end
 
   test "Console detail pages the Turn trajectory newest first within one budget", %{conn: conn} do
@@ -321,37 +112,32 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     conn = console_conn(conn)
 
-    first =
-      conn
-      |> get(~p"/api/v1/background-agent-jobs/#{job.id}")
-      |> json_response(200)
-      |> Map.fetch!("job")
+    first = conn |> get(~p"/api/v1/background-agent-jobs/#{job.id}/turns") |> json_response(200)
 
     assert Enum.map(first["turns"], &{&1["id"], length(&1["trajectory"]["messages"])}) == [
              {older.id, 5},
              {newer.id, 15}
            ]
 
-    assert is_binary(first["turns_next_cursor"])
+    assert is_binary(first["next_cursor"])
 
     second =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/background-agent-jobs/#{job.id}?cursor=#{first["turns_next_cursor"]}")
+      |> get(~p"/api/v1/background-agent-jobs/#{job.id}/turns?cursor=#{first["next_cursor"]}")
       |> json_response(200)
-      |> Map.fetch!("job")
 
     assert Enum.map(second["turns"], &{&1["id"], length(&1["trajectory"]["messages"])}) == [
              {silent.id, 0},
              {older.id, 10}
            ]
 
-    assert second["turns_next_cursor"] == nil
+    assert second["next_cursor"] == nil
 
     assert %{"error" => %{"code" => "invalid_background_agent_job_request"}} =
              conn
              |> recycle_api()
-             |> get(~p"/api/v1/background-agent-jobs/#{job.id}?cursor=not-a-cursor")
+             |> get(~p"/api/v1/background-agent-jobs/#{job.id}/turns?cursor=not-a-cursor")
              |> json_response(422)
   end
 
@@ -374,17 +160,6 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
              })
 
     job
-  end
-
-  defp search_job_ids(conn, search) do
-    query = URI.encode_query(%{"q" => search, "limit" => 100})
-
-    conn
-    |> recycle_api()
-    |> get("/api/v1/background-agent-jobs?#{query}")
-    |> json_response(200)
-    |> Map.fetch!("jobs")
-    |> Enum.map(& &1["id"])
   end
 
   defp insert_turn!(job, runtime_thread_id, runtime_turn_id, opts \\ []) do
@@ -459,10 +234,5 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     end
 
     turn
-  end
-
-  defp set_queued_at(job, queued_at) do
-    from(row in Job, where: row.id == ^job.id)
-    |> Repo.update_all(set: [queued_at: queued_at])
   end
 end

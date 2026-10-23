@@ -83,6 +83,29 @@ defmodule Ankole.Errors do
   def wrap(result), do: result
 
   @doc """
+  Makes the result of a generic action use declared errors, like `wrap/1`, and
+  adds the operator text of a known rejection.
+
+  `describe` gets the reason of the rejection. It gives `{detail, details}`:
+  one sentence for the operator and a list of maps, one for each rejected field
+  (for example `%{path: "config", line: 3, message: "..."}`), or `nil` for a
+  reason without text. The v2 JSON:API error of the rejection contains them.
+  """
+  @spec wrap(term(), (reason() -> {String.t(), [map()]} | nil)) :: term()
+  def wrap(result, describe) when is_function(describe, 1) do
+    case wrap(result) do
+      {:error, %Rejected{reason: reason} = rejected} ->
+        case describe.(reason) do
+          {detail, details} -> {:error, %{rejected | detail: detail, details: details}}
+          nil -> {:error, rejected}
+        end
+
+      other ->
+        other
+    end
+  end
+
+  @doc """
   Gives the error class of an Ash changeset, query, or action input that
   rolled back a transaction.
 

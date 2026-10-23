@@ -37,17 +37,21 @@ defmodule AnkoleWeb.TenantControllerTest do
 
     create = fn tenant_id, owner ->
       auth
-      |> recycle_api()
+      |> json_api()
       |> put_req_header("x-ankole-tenant", tenant_id)
-      |> post("/api/v1/agents", %{
-        "handle" => "operator",
-        "display_name" => "Operator",
-        "role" => "Research",
-        "owner_principal_uid" => owner.uid,
-        "worker_provider_id" => provider.provider_id
-      })
-      |> json_response(200)
-      |> Map.fetch!("agent")
+      |> post(
+        "/api/v2/agents",
+        Jason.encode!(%{
+          data: %{
+            "handle" => "operator",
+            "display_name" => "Operator",
+            "role" => "Research",
+            "owner_principal_uid" => owner.uid,
+            "worker_provider_id" => provider.provider_id
+          }
+        })
+      )
+      |> json_response(201)
     end
 
     left = create.(first.id, first_owner)
@@ -62,35 +66,34 @@ defmodule AnkoleWeb.TenantControllerTest do
 
     response =
       auth
-      |> recycle_api()
+      |> json_api()
       |> put_req_header("x-ankole-tenant", second_id)
-      |> get("/api/v1/agents")
+      |> get("/api/v2/agents")
 
-    assert %{"agents" => [%{"uid" => right_uid}]} = json_response(response, 200)
+    assert %{"data" => [%{"id" => right_uid}]} = json_response(response, 200)
     assert right_uid == right["uid"]
 
     response =
       auth
-      |> recycle_api()
+      |> json_api()
       |> put_req_header("x-ankole-tenant", second_id)
-      |> get("/api/v1/agents/" <> left["uid"])
+      |> get("/api/v2/agents/" <> left["uid"])
 
-    assert json_response(response, 404)["error"]["code"] == "not_found"
+    assert [%{"code" => "not_found"}] = json_response(response, 404)["errors"]
 
     # Simulate reuse of the HTTP process after a request for the other tenant.
     Repo.put_tenant_id(second_id)
-    response = auth |> recycle_api() |> get("/api/v1/agents")
-    assert %{"agents" => [%{"uid" => left_uid}]} = json_response(response, 200)
+    response = auth |> json_api() |> get("/api/v2/agents")
+    assert %{"data" => [%{"id" => left_uid}]} = json_response(response, 200)
     assert left_uid == left["uid"]
 
     response =
       auth
-      |> recycle_api()
+      |> json_api()
       |> put_req_header("x-ankole-tenant", second_id)
-      |> patch("/api/v1/agents/" <> right_uid, %{"handle" => "renamed"})
+      |> patch("/api/v2/agents/" <> right_uid, Jason.encode!(%{data: %{"handle" => "renamed"}}))
 
-    assert %{"agent" => %{"uid" => ^right_uid, "handle" => "renamed"}} =
-             json_response(response, 200)
+    assert %{"uid" => ^right_uid, "handle" => "renamed"} = json_response(response, 200)
   end
 
   test "an invalid data context is rejected while site resources ignore that header", %{
@@ -102,7 +105,7 @@ defmodule AnkoleWeb.TenantControllerTest do
       auth
       |> recycle_api()
       |> put_req_header("x-ankole-tenant", "not-a-uuid")
-      |> get("/api/v1/agents")
+      |> get("/api/v1/console-readiness")
 
     assert %{"error" => %{"code" => "data_tenant_unavailable"}} = json_response(response, 404)
 
@@ -113,5 +116,12 @@ defmodule AnkoleWeb.TenantControllerTest do
       |> get("/api/v1/site/tenants")
 
     assert %{"tenants" => [_ | _]} = json_response(response, 200)
+  end
+
+  defp json_api(conn) do
+    conn
+    |> recycle_api()
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
   end
 end

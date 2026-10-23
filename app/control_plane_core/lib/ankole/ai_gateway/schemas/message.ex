@@ -3,7 +3,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     domain: Ankole.AIGateway,
-    extensions: [AshStateMachine]
+    extensions: [AshStateMachine, AshJsonApi.Resource]
 
   require Ash.Expr
   import Ash.Expr, only: [arg: 1]
@@ -13,6 +13,24 @@ defmodule Ankole.AIGateway.Schemas.Message do
                     fragment("COALESCE(?, '{}'::jsonb) || ?::jsonb", metadata, ^arg(:metadata))
                   )
   @append_output Ash.Expr.expr(fragment("? || to_jsonb(?::jsonb[])", content, ^arg(:output)))
+
+  json_api do
+    type("ai_gateway_message")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :subject_uid,
+      :conversation_id,
+      :type,
+      :status,
+      :previous_message_id,
+      :content,
+      :metadata,
+      :inserted_at,
+      :updated_at
+    ])
+  end
 
   postgres do
     table("ai_gateway_messages")
@@ -39,23 +57,36 @@ defmodule Ankole.AIGateway.Schemas.Message do
     attribute(:id, Ankole.Ash.Types.UUIDv7,
       primary_key?: true,
       allow_nil?: false,
-      default: &Ankole.Ecto.UUIDv7.autogenerate/0
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0,
+      public?: true
     )
 
-    attribute(:subject_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
-    attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
-    attribute(:type, :atom, allow_nil?: false, constraints: [one_of: [:message, :checkpoint]])
-    attribute(:previous_message_id, Ankole.Ash.Types.UUIDv7)
-    attribute(:content, Ankole.Ash.Types.JSONList, allow_nil?: false, default: [])
+    attribute(:subject_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false, public?: true)
+    attribute(:conversation_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false, public?: true)
+
+    attribute(:type, :atom,
+      allow_nil?: false,
+      constraints: [one_of: [:message, :checkpoint]],
+      public?: true
+    )
+
+    attribute(:previous_message_id, Ankole.Ash.Types.UUIDv7, public?: true)
+
+    attribute(:content, Ankole.Ash.Types.JSONList,
+      allow_nil?: false,
+      default: [],
+      public?: true
+    )
 
     attribute(:metadata, Ankole.Ash.Types.JSONMap,
       allow_nil?: false,
       default: %{},
-      constraints: [allow_datetime?: true]
+      constraints: [allow_datetime?: true],
+      public?: true
     )
 
-    create_timestamp(:inserted_at, type: :utc_datetime_usec)
-    update_timestamp(:updated_at, type: :utc_datetime_usec)
+    create_timestamp(:inserted_at, type: :utc_datetime_usec, public?: true)
+    update_timestamp(:updated_at, type: :utc_datetime_usec, public?: true)
   end
 
   calculations do
@@ -89,6 +120,14 @@ defmodule Ankole.AIGateway.Schemas.Message do
 
   actions do
     defaults([:read])
+
+    # The operator console reads the messages of one conversation in order.
+    read :console_list do
+      argument(:conversation_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      filter(expr(conversation_id == ^arg(:conversation_id)))
+      pagination(keyset?: true, default_limit: 200, max_page_size: 500, required?: false)
+      prepare(build(sort: [inserted_at: :asc, id: :asc]))
+    end
 
     create :start do
       accept([:subject_uid, :conversation_id, :previous_message_id, :content, :metadata])

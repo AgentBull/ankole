@@ -196,36 +196,4 @@ defmodule AnkoleWeb.Schemas.WorkerProviderAPI do
       struct?: false
     )
   end
-
-  defmodule AssignRequest do
-    @moduledoc false
-    require OpenAPISpex
-
-    OpenAPISpex.schema(
-      %{
-        title: "WorkerProviderAssignRequest",
-        type: :object,
-        properties: %{provider_id: %Schema{type: :string}},
-        required: [:provider_id],
-        additionalProperties: false
-      },
-      struct?: false
-    )
-  end
-
-  defmodule AssignResponse do
-    @moduledoc false
-    require OpenAPISpex
-
-    OpenAPISpex.schema(
-      %{
-        title: "WorkerProviderAssignResponse",
-        type: :object,
-        properties: %{agent_uid: %Schema{type: :string}, provider_id: %Schema{type: :string}},
-        required: [:agent_uid, :provider_id],
-        additionalProperties: false
-      },
-      struct?: false
-    )
-  end
 end

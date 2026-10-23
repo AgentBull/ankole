@@ -56,6 +56,5 @@ defmodule Ankole.Ash.Types.JSONMap do
   end
 
   @impl AshJsonApi.Type
-  def json_schema(_constraints),
-    do: %OpenApiSpex.Schema{type: :object, additionalProperties: true}
+  def json_schema(_constraints), do: %{"type" => "object", "additionalProperties" => true}
 end

@@ -216,10 +216,10 @@ defmodule Ankole.AIAgent.LibraryTest do
              Library.skill_view(agent.uid, "pdf", "AGENT_APPEND.md")
   end
 
-  test "lists skill lessons for the console and retires them independently of enablement" do
+  test "lists skill lessons and retires them independently of enablement" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, []} = Library.list_skill_lessons(agent.uid)
+    assert lessons(agent.uid) == []
 
     assert {:ok, %AgentSkillLesson{} = pdf_lesson} =
              Library.create_skill_lesson(
@@ -237,19 +237,14 @@ defmodule Ankole.AIAgent.LibraryTest do
                Ankole.ActorRef.from_principal(agent)
              )
 
-    assert {:ok, lessons} = Library.list_skill_lessons(agent.uid)
-    assert Enum.map(lessons, & &1["skill_name"]) |> Enum.sort() == ~w(create-deep-research pdf)
+    lessons = lessons(agent.uid)
+    assert Enum.map(lessons, & &1.skill_name) == ~w(create-deep-research pdf)
 
-    pdf = Enum.find(lessons, &(&1["skill_name"] == "pdf"))
-    assert pdf["agent_plugin_id"] == nil
-    assert pdf["content"] == "Prefer page-by-page verification."
-    assert pdf["author_kind"] == "human"
-    assert pdf["author"] == %{tenant_id: agent.tenant_id, uid: agent.uid}
-    assert pdf["effective_enabled"]
-    assert pdf["review_after"] == nil
-
-    research = Enum.find(lessons, &(&1["skill_name"] == "create-deep-research"))
-    assert research["agent_plugin_id"] == "deep-research"
+    pdf = Enum.find(lessons, &(&1.skill_name == "pdf"))
+    assert pdf.content == "Prefer page-by-page verification."
+    assert pdf.author_kind == :human
+    assert pdf.author == Ankole.ActorRef.from_principal(agent)
+    assert pdf.review_after == nil
 
     assert {:ok, _skill} = Library.set_agent_skill_override(agent.uid, "pdf", false)
 
@@ -261,20 +256,21 @@ defmodule Ankole.AIAgent.LibraryTest do
                Ankole.ActorRef.from_principal(agent)
              )
 
-    assert {:ok, lessons} = Library.list_skill_lessons(agent.uid)
-    disabled = Enum.find(lessons, &(&1["skill_name"] == "pdf"))
-    refute disabled["effective_enabled"]
-
     assert {:ok, %AgentSkillLesson{retire_reason: :human_revoked}} =
              Library.retire_skill_lesson(agent.uid, pdf_lesson.id)
 
     assert {:error, :skill_lesson_already_retired} =
              Library.retire_skill_lesson(agent.uid, pdf_lesson.id)
 
-    assert {:ok, lessons} = Library.list_skill_lessons(agent.uid)
-    retired = Enum.find(lessons, &(&1["skill_name"] == "pdf"))
-    assert retired["retire_reason"] == "human_revoked"
-    assert is_binary(retired["retired_at"])
+    retired = agent.uid |> lessons() |> Enum.find(&(&1.skill_name == "pdf"))
+    assert retired.retire_reason == :human_revoked
+    assert %DateTime{} = retired.retired_at
+  end
+
+  defp lessons(agent_uid) do
+    Ankole.AIAgent.list_agent_skill_lessons!(
+      query: [filter: [agent_uid: agent_uid], sort: [skill_name: :asc]]
+    )
   end
 
   test "skill lesson writes resolve cold AppConfigure defaults before opening a transaction" do

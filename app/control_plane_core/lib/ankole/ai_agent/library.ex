@@ -287,37 +287,6 @@ defmodule Ankole.AIAgent.Library do
     to: SkillLessons
 
   @doc """
-  Lists all skill lessons of one agent for the Console, retired rows included.
-
-  A lesson outlives its skill enablement, so rows are listed even when the
-  skill is disabled or no longer installed.
-  """
-  @spec list_skill_lessons(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
-  def list_skill_lessons(agent_uid, opts \\ []) do
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         :ok <- ensure_agent(agent_uid),
-         {:ok, defaults} <- library_defaults(opts),
-         {:ok, parent_enabled} <- parent_enablement(agent_uid, opts) do
-      skills =
-        AgentSkill
-        |> Ash.Query.filter(agent_uid == ^agent_uid)
-        |> Ankole.Ash.read!()
-        |> Map.new(&{&1.skill_name, &1})
-
-      lessons =
-        AgentSkillLesson
-        |> Ash.Query.filter(agent_uid == ^agent_uid)
-        |> Ash.Query.sort(skill_name: :asc, inserted_at: :desc)
-        |> Ankole.Ash.read!()
-        |> Enum.map(
-          &skill_lesson_summary(&1, Map.get(skills, &1.skill_name), defaults, parent_enabled)
-        )
-
-      {:ok, lessons}
-    end
-  end
-
-  @doc """
   Creates one operator-authored lesson for an enabled skill.
 
   Human lessons carry no lease and are never touched by Dreaming.
@@ -846,26 +815,6 @@ defmodule Ankole.AIAgent.Library do
         is_nil(deleted_at)
     )
     |> Ankole.Ash.read_one!()
-  end
-
-  defp skill_lesson_summary(%AgentSkillLesson{} = lesson, skill, defaults, parent_enabled) do
-    %{
-      "id" => lesson.id,
-      "skill_name" => lesson.skill_name,
-      "agent_plugin_id" => skill && skill.agent_plugin_id,
-      "description" => skill && skill.description,
-      "effective_enabled" =>
-        not is_nil(skill) and effective_skill_enabled?(skill, defaults, parent_enabled),
-      "content" => lesson.content,
-      "author_kind" => Atom.to_string(lesson.author_kind),
-      "author" => lesson.author && Map.from_struct(lesson.author),
-      "evidence_job_ids" => lesson.evidence_job_ids,
-      "checked_release" => lesson.checked_release,
-      "review_after" => lesson.review_after && DateTime.to_iso8601(lesson.review_after),
-      "retired_at" => lesson.retired_at && DateTime.to_iso8601(lesson.retired_at),
-      "retire_reason" => lesson.retire_reason && Atom.to_string(lesson.retire_reason),
-      "created_at" => DateTime.to_iso8601(lesson.inserted_at)
-    }
   end
 
   defp skill_summary(%AgentSkill{} = skill, lesson_skills, effective, defaults) do

@@ -71,7 +71,13 @@ defmodule Ankole.Logging.JSONFormatterTest do
         conn = AnkoleWeb.ConnCase.build_conn()
 
         response =
-          Phoenix.ConnTest.dispatch(conn, AnkoleWeb.Endpoint, :get, "/api/v1/agents", nil)
+          Phoenix.ConnTest.dispatch(
+            conn,
+            AnkoleWeb.Endpoint,
+            :get,
+            "/api/v1/console-readiness",
+            nil
+          )
 
         assert response.status == 401
       end)

@@ -118,7 +118,8 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
          |> Ash.Query.lock(:for_update)
          |> Ankole.Ash.read_one!() do
       nil ->
-        {:error, Ankole.Errors.Invalid.NotFound.exception(resource: AgentSkillLesson, id: lesson_id)}
+        {:error,
+         Ankole.Errors.Invalid.NotFound.exception(resource: AgentSkillLesson, id: lesson_id)}
 
       %AgentSkillLesson{retired_at: %DateTime{}} ->
         {:error, :skill_lesson_already_retired}
@@ -130,6 +131,14 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
         })
     end
   end
+
+  @doc "Gives the operator text of a rejected lesson write for `Ankole.Errors.wrap/2`."
+  def rejection(:skill_lesson_already_retired), do: {"skill lesson is already retired", []}
+  def rejection(:skill_not_enabled), do: {"skill is not enabled for this agent", []}
+  def rejection(:skill_not_found), do: {"agent skill was not found", []}
+  def rejection(:blank_content), do: {"lesson content is required", []}
+  def rejection(:content_contains_url), do: {"lesson content must not contain a URL", []}
+  def rejection(_reason), do: nil
 
   def active_skill_lessons(agent_uid) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
