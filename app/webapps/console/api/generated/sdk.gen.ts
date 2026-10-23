@@ -201,49 +201,6 @@ import type {
   AnkoleWebControlPlanePluginControllerUpdateData,
   AnkoleWebControlPlanePluginControllerUpdateErrors,
   AnkoleWebControlPlanePluginControllerUpdateResponses,
-  AnkoleWebDirectoryAccessControllerApproveData,
-  AnkoleWebDirectoryAccessControllerApproveResponses,
-  AnkoleWebDirectoryAccessControllerReviewEventData,
-  AnkoleWebDirectoryAccessControllerReviewEventResponses,
-  AnkoleWebDirectoryAccessControllerShowData,
-  AnkoleWebDirectoryAccessControllerShowResponses,
-  AnkoleWebHumanAccessControllerClassifyWorkData,
-  AnkoleWebHumanAccessControllerClassifyWorkErrors,
-  AnkoleWebHumanAccessControllerClassifyWorkResponses,
-  AnkoleWebHumanAccessControllerClearRestrictionData,
-  AnkoleWebHumanAccessControllerClearRestrictionErrors,
-  AnkoleWebHumanAccessControllerClearRestrictionResponses,
-  AnkoleWebHumanAccessControllerDisableData,
-  AnkoleWebHumanAccessControllerDisableErrors,
-  AnkoleWebHumanAccessControllerDisableResponses,
-  AnkoleWebHumanAccessControllerRestoreData,
-  AnkoleWebHumanAccessControllerRestoreErrors,
-  AnkoleWebHumanAccessControllerRestoreResponses,
-  AnkoleWebHumanAccessControllerRetryCleanupData,
-  AnkoleWebHumanAccessControllerRetryCleanupResponses,
-  AnkoleWebHumanAccessControllerShowData,
-  AnkoleWebHumanAccessControllerShowErrors,
-  AnkoleWebHumanAccessControllerShowResponses,
-  AnkoleWebHumanAccessControllerUnresolvedWorkData,
-  AnkoleWebHumanAccessControllerUnresolvedWorkResponses,
-  AnkoleWebIdentityProviderControllerAdaptersData,
-  AnkoleWebIdentityProviderControllerAdaptersErrors,
-  AnkoleWebIdentityProviderControllerAdaptersResponses,
-  AnkoleWebIdentityProviderControllerIndexData,
-  AnkoleWebIdentityProviderControllerIndexErrors,
-  AnkoleWebIdentityProviderControllerIndexResponses,
-  AnkoleWebIdentityProviderControllerPutProviderData,
-  AnkoleWebIdentityProviderControllerPutProviderErrors,
-  AnkoleWebIdentityProviderControllerPutProviderResponses,
-  AnkoleWebIdentityProviderControllerRunSyncData,
-  AnkoleWebIdentityProviderControllerRunSyncErrors,
-  AnkoleWebIdentityProviderControllerRunSyncResponses,
-  AnkoleWebOidcClientControllerRotateSecretData,
-  AnkoleWebOidcClientControllerRotateSecretErrors,
-  AnkoleWebOidcClientControllerRotateSecretResponses,
-  AnkoleWebPrincipalControllerCreateLocalPasswordResetData,
-  AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors,
-  AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses,
   AnkoleWebSignalBindingControllerAdaptersData,
   AnkoleWebSignalBindingControllerAdaptersErrors,
   AnkoleWebSignalBindingControllerAdaptersResponses,
@@ -318,10 +275,7 @@ import type {
   BackgroundActivityJobsResponses,
   BackgroundActivityWorkflowData,
   BackgroundActivityWorkflowErrors,
-  BackgroundActivityWorkflowResponses,
-  OidcLoginSourcesData,
-  OidcLoginSourcesErrors,
-  OidcLoginSourcesResponses
+  BackgroundActivityWorkflowResponses
 } from './types.gen'
 
 export type Options<
@@ -359,26 +313,6 @@ export const ankoleWebAiGatewayFilesControllerContent = <ThrowOnError extends bo
   >({
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/api/v1/ai-gateway/files/{file_id}/content',
-    ...options
-  })
-
-/**
- * List configured identity providers
- */
-export const ankoleWebIdentityProviderControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebIdentityProviderControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebIdentityProviderControllerIndexResponses,
-  AnkoleWebIdentityProviderControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebIdentityProviderControllerIndexResponses,
-    AnkoleWebIdentityProviderControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-providers',
     ...options
   })
 
@@ -519,30 +453,6 @@ export const ankoleWebAgentFileControllerMove = <ThrowOnError extends boolean = 
   })
 
 /**
- * Replace one user's local password with a new one-time password
- */
-export const ankoleWebPrincipalControllerCreateLocalPasswordReset = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebPrincipalControllerCreateLocalPasswordResetData, ThrowOnError>
-): RequestResult<
-  AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses,
-  AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses,
-    AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}/local-password-resets',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Start a new token quota period at this instant
  */
 export const ankoleWebAgentControllerResetTokenQuota = <ThrowOnError extends boolean = false>(
@@ -631,22 +541,6 @@ export const ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverride = <
   })
 
 /**
- * Approve a current directory snapshot and its removals
- */
-export const ankoleWebDirectoryAccessControllerApprove = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebDirectoryAccessControllerApproveData, ThrowOnError>
-): RequestResult<AnkoleWebDirectoryAccessControllerApproveResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebDirectoryAccessControllerApproveResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-providers/{provider_id}/directory-reviews',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Set the provider credential-pool selection strategy
  */
 export const ankoleWebAiGatewayProviderControllerPutCredentialStrategy = <ThrowOnError extends boolean = false>(
@@ -692,18 +586,6 @@ export const ankoleWebAiGatewayControllerResponses = <ThrowOnError extends boole
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * Retry cleanup of revoked future work
- */
-export const ankoleWebHumanAccessControllerRetryCleanup = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebHumanAccessControllerRetryCleanupData, ThrowOnError>
-): RequestResult<AnkoleWebHumanAccessControllerRetryCleanupResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebHumanAccessControllerRetryCleanupResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}/work-cleanup-retries',
-    ...options
   })
 
 /**
@@ -916,30 +798,6 @@ export const ankoleWebAiGatewayControllerWebFetch = <ThrowOnError extends boolea
   })
 
 /**
- * Create or update one identity provider
- */
-export const ankoleWebIdentityProviderControllerPutProvider = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebIdentityProviderControllerPutProviderData, ThrowOnError>
-): RequestResult<
-  AnkoleWebIdentityProviderControllerPutProviderResponses,
-  AnkoleWebIdentityProviderControllerPutProviderErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebIdentityProviderControllerPutProviderResponses,
-    AnkoleWebIdentityProviderControllerPutProviderErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-providers/{provider_id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * List Worker provider kinds and YAML examples
  */
 export const ankoleWebWorkerProviderControllerKinds = <ThrowOnError extends boolean = false>(
@@ -1048,26 +906,6 @@ export const ankoleWebAgentControllerPutModelProfile = <ThrowOnError extends boo
   })
 
 /**
- * List identity-provider adapters
- */
-export const ankoleWebIdentityProviderControllerAdapters = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebIdentityProviderControllerAdaptersData, ThrowOnError>
-): RequestResult<
-  AnkoleWebIdentityProviderControllerAdaptersResponses,
-  AnkoleWebIdentityProviderControllerAdaptersErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebIdentityProviderControllerAdaptersResponses,
-    AnkoleWebIdentityProviderControllerAdaptersErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-provider-adapters',
-    ...options
-  })
-
-/**
  * Retrieve a stored stateful OpenResponses response
  */
 export const ankoleWebAiGatewayControllerRetrieveResponse = <ThrowOnError extends boolean = false>(
@@ -1084,26 +922,6 @@ export const ankoleWebAiGatewayControllerRetrieveResponse = <ThrowOnError extend
   >({
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/api/v1/ai-gateway/responses/{response_id}',
-    ...options
-  })
-
-/**
- * Rotate a confidential OIDC Client secret
- */
-export const ankoleWebOidcClientControllerRotateSecret = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebOidcClientControllerRotateSecretData, ThrowOnError>
-): RequestResult<
-  AnkoleWebOidcClientControllerRotateSecretResponses,
-  AnkoleWebOidcClientControllerRotateSecretErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebOidcClientControllerRotateSecretResponses,
-    AnkoleWebOidcClientControllerRotateSecretErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/oidc-clients/{id}/secret-rotations',
     ...options
   })
 
@@ -1144,26 +962,6 @@ export const ankoleWebWorkerEnvControllerDecryptTenant = <ThrowOnError extends b
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/worker-envs/{name}/decryptions',
-    ...options
-  })
-
-/**
- * Enqueue one identity-provider full directory sync
- */
-export const ankoleWebIdentityProviderControllerRunSync = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebIdentityProviderControllerRunSyncData, ThrowOnError>
-): RequestResult<
-  AnkoleWebIdentityProviderControllerRunSyncResponses,
-  AnkoleWebIdentityProviderControllerRunSyncErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebIdentityProviderControllerRunSyncResponses,
-    AnkoleWebIdentityProviderControllerRunSyncErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-providers/{provider_id}/sync-runs',
     ...options
   })
 
@@ -1292,42 +1090,6 @@ export const ankoleWebWorkerProviderControllerCheck = <ThrowOnError extends bool
   })
 
 /**
- * List work whose Human or service authority needs review
- */
-export const ankoleWebHumanAccessControllerUnresolvedWork = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebHumanAccessControllerUnresolvedWorkData, ThrowOnError>
-): RequestResult<AnkoleWebHumanAccessControllerUnresolvedWorkResponses, unknown, ThrowOnError> =>
-  (options?.client ?? client).get<AnkoleWebHumanAccessControllerUnresolvedWorkResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/work-access-reviews',
-    ...options
-  })
-
-/**
- * Set the reviewed authority of unresolved work
- */
-export const ankoleWebHumanAccessControllerClassifyWork = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebHumanAccessControllerClassifyWorkData, ThrowOnError>
-): RequestResult<
-  AnkoleWebHumanAccessControllerClassifyWorkResponses,
-  AnkoleWebHumanAccessControllerClassifyWorkErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebHumanAccessControllerClassifyWorkResponses,
-    AnkoleWebHumanAccessControllerClassifyWorkErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/work-access-reviews',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Read all model profiles for one agent
  */
 export const ankoleWebAgentControllerIndexModelProfiles = <ThrowOnError extends boolean = false>(
@@ -1428,30 +1190,6 @@ export const ankoleWebSignalBindingControllerUpdateBinding = <ThrowOnError exten
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Clear one verified restriction without restoring access
- */
-export const ankoleWebHumanAccessControllerClearRestriction = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebHumanAccessControllerClearRestrictionData, ThrowOnError>
-): RequestResult<
-  AnkoleWebHumanAccessControllerClearRestrictionResponses,
-  AnkoleWebHumanAccessControllerClearRestrictionErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebHumanAccessControllerClearRestrictionResponses,
-    AnkoleWebHumanAccessControllerClearRestrictionErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}/access-restrictions/{restriction_id}/clear',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -1582,22 +1320,6 @@ export const ankoleWebBrainControllerPrincipalKnowledge = <ThrowOnError extends 
   })
 
 /**
- * Read Human access, permission review, and cleanup state
- */
-export const ankoleWebHumanAccessControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebHumanAccessControllerShowData, ThrowOnError>
-): RequestResult<AnkoleWebHumanAccessControllerShowResponses, AnkoleWebHumanAccessControllerShowErrors, ThrowOnError> =>
-  (options.client ?? client).get<
-    AnkoleWebHumanAccessControllerShowResponses,
-    AnkoleWebHumanAccessControllerShowErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}/access',
-    ...options
-  })
-
-/**
  * Read live automation runs, including runs of cancelled definitions
  */
 export const backgroundActivityAutomationRuns = <ThrowOnError extends boolean = false>(
@@ -1688,18 +1410,6 @@ export const ankoleWebSignalBindingControllerPutBinding = <ThrowOnError extends 
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * List authentication sources for OIDC Client policy
- */
-export const oidcLoginSources = <ThrowOnError extends boolean = false>(
-  options?: Options<OidcLoginSourcesData, ThrowOnError>
-): RequestResult<OidcLoginSourcesResponses, OidcLoginSourcesErrors, ThrowOnError> =>
-  (options?.client ?? client).get<OidcLoginSourcesResponses, OidcLoginSourcesErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/oidc-clients/login-sources',
-    ...options
   })
 
 /**
@@ -2010,30 +1720,6 @@ export const ankoleWebAgentLibraryControllerIndex = <ThrowOnError extends boolea
   })
 
 /**
- * Disable a Human and revoke future access
- */
-export const ankoleWebHumanAccessControllerDisable = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebHumanAccessControllerDisableData, ThrowOnError>
-): RequestResult<
-  AnkoleWebHumanAccessControllerDisableResponses,
-  AnkoleWebHumanAccessControllerDisableErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebHumanAccessControllerDisableResponses,
-    AnkoleWebHumanAccessControllerDisableErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}/access-disables',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * List AIGateway provider kinds
  */
 export const ankoleWebAiGatewayProviderControllerProviderKinds = <ThrowOnError extends boolean = false>(
@@ -2122,34 +1808,6 @@ export const ankoleWebBackgroundAgentJobControllerHealth = <ThrowOnError extends
   >({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/background-agent-jobs/health',
-    ...options
-  })
-
-/**
- * Retry or dismiss an unresolved provider event
- */
-export const ankoleWebDirectoryAccessControllerReviewEvent = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebDirectoryAccessControllerReviewEventData, ThrowOnError>
-): RequestResult<AnkoleWebDirectoryAccessControllerReviewEventResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebDirectoryAccessControllerReviewEventResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-providers/{provider_id}/directory-events/{event_id}/reviews',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * Read directory evidence and unresolved events
- */
-export const ankoleWebDirectoryAccessControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebDirectoryAccessControllerShowData, ThrowOnError>
-): RequestResult<AnkoleWebDirectoryAccessControllerShowResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).get<AnkoleWebDirectoryAccessControllerShowResponses, unknown, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/identity-providers/{provider_id}/directory',
     ...options
   })
 
@@ -2419,30 +2077,6 @@ export const ankoleWebAppConfigurationControllerDecrypt = <ThrowOnError extends 
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v1/site/app-configurations/{key}/decryptions',
     ...options
-  })
-
-/**
- * Restore Human access after identity and permission review
- */
-export const ankoleWebHumanAccessControllerRestore = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebHumanAccessControllerRestoreData, ThrowOnError>
-): RequestResult<
-  AnkoleWebHumanAccessControllerRestoreResponses,
-  AnkoleWebHumanAccessControllerRestoreErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebHumanAccessControllerRestoreResponses,
-    AnkoleWebHumanAccessControllerRestoreErrors,
-    ThrowOnError
-  >({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v1/principals/{uid}/access-restorations',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**

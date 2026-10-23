@@ -53,8 +53,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   ankoleWebAiGatewayProviderControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
-  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
-  ankoleWebOidcClientControllerRotateSecretMutation
+  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import { fromDocument } from '../api/json-api'
 import {
@@ -63,7 +62,8 @@ import {
   getOidcClientOptions,
   listOidcClientsOptions,
   listPrincipalGroupsOptions,
-  updateOidcClientMutation
+  updateOidcClientMutation,
+  rotateOidcClientSecretMutation
 } from '../api/v2/generated/@tanstack/react-query.gen'
 import type { PrincipalGroupRecord } from './principal-groups'
 import type {
@@ -267,7 +267,7 @@ export function OIDCClientEditorPage() {
     }
   })
   const rotateSecret = useMutation({
-    ...ankoleWebOidcClientControllerRotateSecretMutation(),
+    ...rotateOidcClientSecretMutation(),
     mutationKey: ['oidc-client-rotate-secret', clientID],
     onMutate: model.captureSource,
     onSuccess: (response, _variables, requestedSource) => {

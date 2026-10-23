@@ -8,6 +8,7 @@ defmodule AnkoleWeb.JSONAPI.ConsoleRouter do
       Ankole.AutomationJobs,
       Ankole.Brain,
       Ankole.OIDC,
+      Ankole.IdentityProviders,
       Ankole.Schedule,
       Ankole.Signals,
       Ankole.Principals,

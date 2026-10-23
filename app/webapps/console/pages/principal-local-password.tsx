@@ -13,7 +13,7 @@ import {
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ankoleWebPrincipalControllerCreateLocalPasswordResetMutation } from '../api/generated/@tanstack/react-query.gen'
+import { resetLocalPasswordMutation } from '../api/v2/generated/@tanstack/react-query.gen'
 import type { PrincipalRecord } from './principals'
 import { ErrorBlock } from '../../common/error-block'
 import { StatusIndicator } from '../console-form'
@@ -31,7 +31,7 @@ export function LocalPasswordSection({ principal }: { principal: PrincipalRecord
   const [dialogOpen, setDialogOpen] = useState(false)
   const [mustChange, setMustChange] = useState(true)
   const reset = useMutation({
-    ...ankoleWebPrincipalControllerCreateLocalPasswordResetMutation()
+    ...resetLocalPasswordMutation()
     // The status badge reflects the new credential as soon as the dialog shows it.
   })
   const credential = principal.local_credential_status
@@ -107,7 +107,7 @@ export function LocalPasswordSection({ principal }: { principal: PrincipalRecord
                   size="sm"
                   type="button"
                   onClick={() =>
-                    reset.mutate({ body: { must_change_password: mustChange }, path: { uid: principal.id } })
+                    reset.mutate({ body: { data: { must_change_password: mustChange } }, path: { uid: principal.id } })
                   }>
                   {actionLabel}
                 </Button>

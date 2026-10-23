@@ -334,6 +334,28 @@ checks completion; TanStack Query owns the request and cache.
 `HumanAccess.disable/4` records a Human restriction and revokes its credentials.
 AuthZ protects the last active human administrator.
 
+## Console Identity and Access API
+
+The tenant Console uses `/api/v2/identity-provider-adapters` and
+`/api/v2/identity-providers` for provider configuration and directory review.
+Configuration responses redact stored secrets. A blank secret input keeps the
+stored value. Directory approval requires the current snapshot fingerprint and
+explicit removal approval. Event review checks both the provider and event ID.
+
+`Ankole.IdentityProviders.Console` and `Ankole.Principals.Access` are typed,
+stateless Ash transport resources. Their actions call the owning domain's
+public operations. They keep no rows and open no transaction. Each durable
+write stays with its existing domain action and PostgreSQL adapter.
+`AnkoleWeb.JSONAPI.Policy` sets the operator and selected data tenant before
+it authorizes the route through Principal/AuthZ.
+
+The Human access view at `/api/v2/principals/:uid/access` includes restrictions,
+permission review, history, affected work, and cleanup results. Access changes
+require a reason and an operation ID. Restoration requires verified identity,
+the current permission fingerprint, and cleared restrictions. The work review
+routes at `/api/v2/work-access-reviews` record explicit Human or service
+authority without replaying stopped work.
+
 ## Divide Setup from Principal Data
 
 Principals can create the first active human. AuthZ creates the administrator

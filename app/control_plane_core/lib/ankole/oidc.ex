@@ -28,6 +28,12 @@ defmodule Ankole.OIDC do
 
     routes do
       base_route "/oidc-clients", Client do
+        route(:get, "/login-sources", :login_sources, name: "list_oidc_login_sources")
+
+        route(:post, "/:id/secret-rotations", :console_rotate_secret,
+          name: "rotate_oidc_client_secret"
+        )
+
         index(:console_list, name: "list_oidc_clients", derive_sort?: false)
         route(:post, "/", :console_create, name: "create_oidc_client")
         get(:read, name: "get_oidc_client")

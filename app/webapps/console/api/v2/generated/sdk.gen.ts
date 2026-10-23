@@ -12,6 +12,9 @@ import type {
   ApproveBrainSuggestionData,
   ApproveBrainSuggestionErrors,
   ApproveBrainSuggestionResponses,
+  ApproveIdentityDirectoryData,
+  ApproveIdentityDirectoryErrors,
+  ApproveIdentityDirectoryResponses,
   ArchiveBrainSourceData,
   ArchiveBrainSourceErrors,
   ArchiveBrainSourceResponses,
@@ -30,6 +33,12 @@ import type {
   CancelWebhookEndpointData,
   CancelWebhookEndpointErrors,
   CancelWebhookEndpointResponses,
+  ClassifyWorkAccessData,
+  ClassifyWorkAccessErrors,
+  ClassifyWorkAccessResponses,
+  ClearHumanAccessRestrictionData,
+  ClearHumanAccessRestrictionErrors,
+  ClearHumanAccessRestrictionResponses,
   CompleteBackgroundAgentJobData,
   CompleteBackgroundAgentJobErrors,
   CompleteBackgroundAgentJobResponses,
@@ -84,6 +93,9 @@ import type {
   DeletePrincipalGroupData,
   DeletePrincipalGroupErrors,
   DeletePrincipalGroupResponses,
+  DisableHumanAccessData,
+  DisableHumanAccessErrors,
+  DisableHumanAccessResponses,
   DisableSignalBindingData,
   DisableSignalBindingErrors,
   DisableSignalBindingResponses,
@@ -114,6 +126,12 @@ import type {
   GetCronScheduleData,
   GetCronScheduleErrors,
   GetCronScheduleResponses,
+  GetHumanAccessData,
+  GetHumanAccessErrors,
+  GetHumanAccessResponses,
+  GetIdentityDirectoryData,
+  GetIdentityDirectoryErrors,
+  GetIdentityDirectoryResponses,
   GetOidcClientData,
   GetOidcClientErrors,
   GetOidcClientResponses,
@@ -192,9 +210,18 @@ import type {
   ListIdentityMappingRequestsData,
   ListIdentityMappingRequestsErrors,
   ListIdentityMappingRequestsResponses,
+  ListIdentityProviderAdaptersData,
+  ListIdentityProviderAdaptersErrors,
+  ListIdentityProviderAdaptersResponses,
+  ListIdentityProvidersData,
+  ListIdentityProvidersErrors,
+  ListIdentityProvidersResponses,
   ListOidcClientsData,
   ListOidcClientsErrors,
   ListOidcClientsResponses,
+  ListOidcLoginSourcesData,
+  ListOidcLoginSourcesErrors,
+  ListOidcLoginSourcesResponses,
   ListOidcLogoutDeliveriesData,
   ListOidcLogoutDeliveriesErrors,
   ListOidcLogoutDeliveriesResponses,
@@ -213,6 +240,9 @@ import type {
   ListWebhookEndpointsData,
   ListWebhookEndpointsErrors,
   ListWebhookEndpointsResponses,
+  ListWorkAccessReviewsData,
+  ListWorkAccessReviewsErrors,
+  ListWorkAccessReviewsResponses,
   PauseCronScheduleData,
   PauseCronScheduleErrors,
   PauseCronScheduleResponses,
@@ -231,27 +261,48 @@ import type {
   RemovePrincipalGroupMemberData,
   RemovePrincipalGroupMemberErrors,
   RemovePrincipalGroupMemberResponses,
+  ResetLocalPasswordData,
+  ResetLocalPasswordErrors,
+  ResetLocalPasswordResponses,
   ResolveBrainTakeData,
   ResolveBrainTakeErrors,
   ResolveBrainTakeResponses,
   RestoreBrainObjectData,
   RestoreBrainObjectErrors,
   RestoreBrainObjectResponses,
+  RestoreHumanAccessData,
+  RestoreHumanAccessErrors,
+  RestoreHumanAccessResponses,
   ResumeCronScheduleData,
   ResumeCronScheduleErrors,
   ResumeCronScheduleResponses,
   RetireAgentSkillLessonData,
   RetireAgentSkillLessonErrors,
   RetireAgentSkillLessonResponses,
+  RetryHumanWorkCleanupData,
+  RetryHumanWorkCleanupErrors,
+  RetryHumanWorkCleanupResponses,
   RetryOidcLogoutDeliveryData,
   RetryOidcLogoutDeliveryErrors,
   RetryOidcLogoutDeliveryResponses,
+  ReviewIdentityDirectoryEventData,
+  ReviewIdentityDirectoryEventErrors,
+  ReviewIdentityDirectoryEventResponses,
   RollbackBrainObjectData,
   RollbackBrainObjectErrors,
   RollbackBrainObjectResponses,
+  RotateOidcClientSecretData,
+  RotateOidcClientSecretErrors,
+  RotateOidcClientSecretResponses,
   RunCronScheduleData,
   RunCronScheduleErrors,
   RunCronScheduleResponses,
+  RunIdentityProviderSyncData,
+  RunIdentityProviderSyncErrors,
+  RunIdentityProviderSyncResponses,
+  SaveIdentityProviderData,
+  SaveIdentityProviderErrors,
+  SaveIdentityProviderResponses,
   SupersedeBrainClaimData,
   SupersedeBrainClaimErrors,
   SupersedeBrainClaimResponses,
@@ -396,6 +447,22 @@ export const createPermissionGrant = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * save_identity_provider operation on identity_provider_operation resource
+ */
+export const saveIdentityProvider = <ThrowOnError extends boolean = false>(
+  options: Options<SaveIdentityProviderData, ThrowOnError>
+): RequestResult<SaveIdentityProviderResponses, SaveIdentityProviderErrors, ThrowOnError> =>
+  (options.client ?? client).put<SaveIdentityProviderResponses, SaveIdentityProviderErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/identity-providers/{provider_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * cancel_checkback operation on scheduled_event resource
  */
 export const cancelCheckback = <ThrowOnError extends boolean = false>(
@@ -512,6 +579,18 @@ export const decideBrainContradiction = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * get_identity_directory operation on identity_provider_operation resource
+ */
+export const getIdentityDirectory = <ThrowOnError extends boolean = false>(
+  options: Options<GetIdentityDirectoryData, ThrowOnError>
+): RequestResult<GetIdentityDirectoryResponses, GetIdentityDirectoryErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetIdentityDirectoryResponses, GetIdentityDirectoryErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/identity-providers/{provider_id}/directory',
+    ...options
+  })
+
+/**
  * supersede_brain_claim operation on brain_claim resource
  */
 export const supersedeBrainClaim = <ThrowOnError extends boolean = false>(
@@ -616,6 +695,22 @@ export const updatePrincipalGroup = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * reset_local_password operation on human_access resource
+ */
+export const resetLocalPassword = <ThrowOnError extends boolean = false>(
+  options: Options<ResetLocalPasswordData, ThrowOnError>
+): RequestResult<ResetLocalPasswordResponses, ResetLocalPasswordErrors, ThrowOnError> =>
+  (options.client ?? client).post<ResetLocalPasswordResponses, ResetLocalPasswordErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principals/{uid}/local-password-resets',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * learn_brain_source operation on brain_source resource
  */
 export const learnBrainSource = <ThrowOnError extends boolean = false>(
@@ -665,6 +760,18 @@ export const assignAgentWorkerProvider = <ThrowOnError extends boolean = false>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * get_human_access operation on human_access resource
+ */
+export const getHumanAccess = <ThrowOnError extends boolean = false>(
+  options: Options<GetHumanAccessData, ThrowOnError>
+): RequestResult<GetHumanAccessResponses, GetHumanAccessErrors, ThrowOnError> =>
+  (options.client ?? client).get<GetHumanAccessResponses, GetHumanAccessErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principals/{uid}/access',
+    ...options
   })
 
 /**
@@ -720,6 +827,18 @@ export const getAutomationJob = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * rotate_oidc_client_secret operation on oidc_client resource
+ */
+export const rotateOidcClientSecret = <ThrowOnError extends boolean = false>(
+  options: Options<RotateOidcClientSecretData, ThrowOnError>
+): RequestResult<RotateOidcClientSecretResponses, RotateOidcClientSecretErrors, ThrowOnError> =>
+  (options.client ?? client).post<RotateOidcClientSecretResponses, RotateOidcClientSecretErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients/{id}/secret-rotations',
+    ...options
+  })
+
+/**
  * cancel_background_agent_job operation on background_agent_job resource
  */
 export const cancelBackgroundAgentJob = <ThrowOnError extends boolean = false>(
@@ -729,6 +848,50 @@ export const cancelBackgroundAgentJob = <ThrowOnError extends boolean = false>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/background-agent-jobs/{id}/cancel',
     ...options
+  })
+
+/**
+ * run_identity_provider_sync operation on identity_provider_operation resource
+ */
+export const runIdentityProviderSync = <ThrowOnError extends boolean = false>(
+  options: Options<RunIdentityProviderSyncData, ThrowOnError>
+): RequestResult<RunIdentityProviderSyncResponses, RunIdentityProviderSyncErrors, ThrowOnError> =>
+  (options.client ?? client).post<RunIdentityProviderSyncResponses, RunIdentityProviderSyncErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/identity-providers/{provider_id}/sync-runs',
+    ...options
+  })
+
+/**
+ * list_identity_provider_adapters operation on identity_provider_operation resource
+ */
+export const listIdentityProviderAdapters = <ThrowOnError extends boolean = false>(
+  options?: Options<ListIdentityProviderAdaptersData, ThrowOnError>
+): RequestResult<ListIdentityProviderAdaptersResponses, ListIdentityProviderAdaptersErrors, ThrowOnError> =>
+  (options?.client ?? client).get<
+    ListIdentityProviderAdaptersResponses,
+    ListIdentityProviderAdaptersErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/identity-provider-adapters',
+    ...options
+  })
+
+/**
+ * disable_human_access operation on human_access resource
+ */
+export const disableHumanAccess = <ThrowOnError extends boolean = false>(
+  options: Options<DisableHumanAccessData, ThrowOnError>
+): RequestResult<DisableHumanAccessResponses, DisableHumanAccessErrors, ThrowOnError> =>
+  (options.client ?? client).post<DisableHumanAccessResponses, DisableHumanAccessErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principals/{uid}/access-disables',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -752,6 +915,22 @@ export const updateHuman = <ThrowOnError extends boolean = false>(
   (options.client ?? client).patch<UpdateHumanResponses, UpdateHumanErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/principals/{uid}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * approve_identity_directory operation on identity_provider_operation resource
+ */
+export const approveIdentityDirectory = <ThrowOnError extends boolean = false>(
+  options: Options<ApproveIdentityDirectoryData, ThrowOnError>
+): RequestResult<ApproveIdentityDirectoryResponses, ApproveIdentityDirectoryErrors, ThrowOnError> =>
+  (options.client ?? client).post<ApproveIdentityDirectoryResponses, ApproveIdentityDirectoryErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/identity-providers/{provider_id}/directory-reviews',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -800,6 +979,26 @@ export const listPrincipalGroupGrants = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * review_identity_directory_event operation on identity_provider_operation resource
+ */
+export const reviewIdentityDirectoryEvent = <ThrowOnError extends boolean = false>(
+  options: Options<ReviewIdentityDirectoryEventData, ThrowOnError>
+): RequestResult<ReviewIdentityDirectoryEventResponses, ReviewIdentityDirectoryEventErrors, ThrowOnError> =>
+  (options.client ?? client).post<
+    ReviewIdentityDirectoryEventResponses,
+    ReviewIdentityDirectoryEventErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/identity-providers/{provider_id}/directory-events/{event_id}/reviews',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * list_checkbacks operation on scheduled_event resource
  */
 export const listCheckbacks = <ThrowOnError extends boolean = false>(
@@ -828,6 +1027,18 @@ export const resolveBrainTake = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * list_identity_providers operation on identity_provider_operation resource
+ */
+export const listIdentityProviders = <ThrowOnError extends boolean = false>(
+  options?: Options<ListIdentityProvidersData, ThrowOnError>
+): RequestResult<ListIdentityProvidersResponses, ListIdentityProvidersErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListIdentityProvidersResponses, ListIdentityProvidersErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/identity-providers',
+    ...options
+  })
+
+/**
  * list_automation_job_runs operation on automation_job_run resource
  */
 export const listAutomationJobRuns = <ThrowOnError extends boolean = false>(
@@ -848,6 +1059,18 @@ export const resumeCronSchedule = <ThrowOnError extends boolean = false>(
   (options.client ?? client).post<ResumeCronScheduleResponses, ResumeCronScheduleErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/agents/{agent_uid}/cron-schedules/{id}/resume',
+    ...options
+  })
+
+/**
+ * retry_human_work_cleanup operation on human_access resource
+ */
+export const retryHumanWorkCleanup = <ThrowOnError extends boolean = false>(
+  options: Options<RetryHumanWorkCleanupData, ThrowOnError>
+): RequestResult<RetryHumanWorkCleanupResponses, RetryHumanWorkCleanupErrors, ThrowOnError> =>
+  (options.client ?? client).post<RetryHumanWorkCleanupResponses, RetryHumanWorkCleanupErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principals/{uid}/work-cleanup-retries',
     ...options
   })
 
@@ -1036,6 +1259,34 @@ export const runCronSchedule = <ThrowOnError extends boolean = false>(
   })
 
 /**
+ * list_work_access_reviews operation on human_access resource
+ */
+export const listWorkAccessReviews = <ThrowOnError extends boolean = false>(
+  options?: Options<ListWorkAccessReviewsData, ThrowOnError>
+): RequestResult<ListWorkAccessReviewsResponses, ListWorkAccessReviewsErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListWorkAccessReviewsResponses, ListWorkAccessReviewsErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/work-access-reviews',
+    ...options
+  })
+
+/**
+ * classify_work_access operation on human_access resource
+ */
+export const classifyWorkAccess = <ThrowOnError extends boolean = false>(
+  options: Options<ClassifyWorkAccessData, ThrowOnError>
+): RequestResult<ClassifyWorkAccessResponses, ClassifyWorkAccessErrors, ThrowOnError> =>
+  (options.client ?? client).post<ClassifyWorkAccessResponses, ClassifyWorkAccessErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/work-access-reviews',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * archive_brain_source operation on brain_source resource
  */
 export const archiveBrainSource = <ThrowOnError extends boolean = false>(
@@ -1045,6 +1296,22 @@ export const archiveBrainSource = <ThrowOnError extends boolean = false>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/brain/sources/{source_id}/archive',
     ...options
+  })
+
+/**
+ * restore_human_access operation on human_access resource
+ */
+export const restoreHumanAccess = <ThrowOnError extends boolean = false>(
+  options: Options<RestoreHumanAccessData, ThrowOnError>
+): RequestResult<RestoreHumanAccessResponses, RestoreHumanAccessErrors, ThrowOnError> =>
+  (options.client ?? client).post<RestoreHumanAccessResponses, RestoreHumanAccessErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principals/{uid}/access-restorations',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -1125,6 +1392,18 @@ export const updateBrainSource = <ThrowOnError extends boolean = false>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * list_oidc_login_sources operation on oidc_client resource
+ */
+export const listOidcLoginSources = <ThrowOnError extends boolean = false>(
+  options?: Options<ListOidcLoginSourcesData, ThrowOnError>
+): RequestResult<ListOidcLoginSourcesResponses, ListOidcLoginSourcesErrors, ThrowOnError> =>
+  (options?.client ?? client).get<ListOidcLoginSourcesResponses, ListOidcLoginSourcesErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/oidc-clients/login-sources',
+    ...options
   })
 
 /**
@@ -1516,6 +1795,26 @@ export const createBrainSource = <ThrowOnError extends boolean = false>(
   (options.client ?? client).post<CreateBrainSourceResponses, CreateBrainSourceErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/brain/sources',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * clear_human_access_restriction operation on human_access resource
+ */
+export const clearHumanAccessRestriction = <ThrowOnError extends boolean = false>(
+  options: Options<ClearHumanAccessRestrictionData, ThrowOnError>
+): RequestResult<ClearHumanAccessRestrictionResponses, ClearHumanAccessRestrictionErrors, ThrowOnError> =>
+  (options.client ?? client).post<
+    ClearHumanAccessRestrictionResponses,
+    ClearHumanAccessRestrictionErrors,
+    ThrowOnError
+  >({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principals/{uid}/access-restrictions/{restriction_id}/clear',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',

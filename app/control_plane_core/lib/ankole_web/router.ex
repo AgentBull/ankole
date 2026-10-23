@@ -271,25 +271,6 @@ defmodule AnkoleWeb.Router do
          WorkerEnvController,
          :decrypt_for_agent
 
-    get "/work-access-reviews", HumanAccessController, :unresolved_work
-    post "/work-access-reviews", HumanAccessController, :classify_work
-    get "/principals/:uid/access", HumanAccessController, :show
-    post "/principals/:uid/access-disables", HumanAccessController, :disable
-    post "/principals/:uid/access-restorations", HumanAccessController, :restore
-
-    post "/principals/:uid/access-restrictions/:restriction_id/clear",
-         HumanAccessController,
-         :clear_restriction
-
-    post "/principals/:uid/work-cleanup-retries", HumanAccessController, :retry_cleanup
-
-    post "/principals/:uid/local-password-resets",
-         PrincipalController,
-         :create_local_password_reset
-
-    get "/oidc-clients/login-sources", OIDCClientController, :login_sources
-    post "/oidc-clients/:id/secret-rotations", OIDCClientController, :rotate_secret
-
     get "/brain/health", BrainController, :health
     post "/brain/dream", BrainController, :dream
     get "/brain/object-types", BrainController, :object_types
@@ -352,18 +333,6 @@ defmodule AnkoleWeb.Router do
     delete "/agents/:agent_uid/files", AgentFileController, :delete
 
     get "/agents/:agent_uid/model-profiles", AgentController, :index_model_profiles
-
-    get "/identity-provider-adapters", IdentityProviderController, :adapters
-    get "/identity-providers/:provider_id/directory", DirectoryAccessController, :show
-    post "/identity-providers/:provider_id/directory-reviews", DirectoryAccessController, :approve
-
-    post "/identity-providers/:provider_id/directory-events/:event_id/reviews",
-         DirectoryAccessController,
-         :review_event
-
-    get "/identity-providers", IdentityProviderController, :index
-    put "/identity-providers/:provider_id", IdentityProviderController, :put_provider
-    post "/identity-providers/:provider_id/sync-runs", IdentityProviderController, :run_sync
 
     put "/agents/:agent_uid/provider-hosted", AgentController, :put_provider_hosted
 

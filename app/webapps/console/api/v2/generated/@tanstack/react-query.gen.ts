@@ -7,12 +7,15 @@ import {
   addPrincipalGroupMember,
   approveBrainMergeSuggestion,
   approveBrainSuggestion,
+  approveIdentityDirectory,
   archiveBrainSource,
   assignAgentWorkerProvider,
   bindIdentityMappingRequest,
   cancelBackgroundAgentJob,
   cancelCheckback,
   cancelWebhookEndpoint,
+  classifyWorkAccess,
+  clearHumanAccessRestriction,
   completeBackgroundAgentJob,
   createAgent,
   createAgentSkillLesson,
@@ -31,6 +34,7 @@ import {
   deleteOidcClient,
   deletePermissionGrant,
   deletePrincipalGroup,
+  disableHumanAccess,
   disableSignalBinding,
   enableAgent,
   forgetBrainClaim,
@@ -41,6 +45,8 @@ import {
   getAutomationJob,
   getBackgroundAgentJob,
   getCronSchedule,
+  getHumanAccess,
+  getIdentityDirectory,
   getOidcClient,
   getPermissionGrant,
   getPrincipal,
@@ -67,13 +73,17 @@ import {
   listGrantsOfPrincipal,
   listGroupsOfPrincipal,
   listIdentityMappingRequests,
+  listIdentityProviderAdapters,
+  listIdentityProviders,
   listOidcClients,
+  listOidcLoginSources,
   listOidcLogoutDeliveries,
   listPrincipalGroupGrants,
   listPrincipalGroupMembers,
   listPrincipalGroups,
   listPrincipals,
   listWebhookEndpoints,
+  listWorkAccessReviews,
   type Options,
   pauseCronSchedule,
   previewComputedPrincipalGroupMembers,
@@ -81,13 +91,20 @@ import {
   rejectBrainSuggestion,
   removeCronSchedule,
   removePrincipalGroupMember,
+  resetLocalPassword,
   resolveBrainTake,
   restoreBrainObject,
+  restoreHumanAccess,
   resumeCronSchedule,
   retireAgentSkillLesson,
+  retryHumanWorkCleanup,
   retryOidcLogoutDelivery,
+  reviewIdentityDirectoryEvent,
   rollbackBrainObject,
+  rotateOidcClientSecret,
   runCronSchedule,
+  runIdentityProviderSync,
+  saveIdentityProvider,
   supersedeBrainClaim,
   updateAgent,
   updateBrainObject,
@@ -108,6 +125,9 @@ import type {
   ApproveBrainSuggestionData,
   ApproveBrainSuggestionError,
   ApproveBrainSuggestionResponse,
+  ApproveIdentityDirectoryData,
+  ApproveIdentityDirectoryError,
+  ApproveIdentityDirectoryResponse,
   ArchiveBrainSourceData,
   ArchiveBrainSourceError,
   ArchiveBrainSourceResponse,
@@ -126,6 +146,12 @@ import type {
   CancelWebhookEndpointData,
   CancelWebhookEndpointError,
   CancelWebhookEndpointResponse,
+  ClassifyWorkAccessData,
+  ClassifyWorkAccessError,
+  ClassifyWorkAccessResponse,
+  ClearHumanAccessRestrictionData,
+  ClearHumanAccessRestrictionError,
+  ClearHumanAccessRestrictionResponse,
   CompleteBackgroundAgentJobData,
   CompleteBackgroundAgentJobError,
   CompleteBackgroundAgentJobResponse,
@@ -177,6 +203,9 @@ import type {
   DeletePermissionGrantError,
   DeletePrincipalGroupData,
   DeletePrincipalGroupError,
+  DisableHumanAccessData,
+  DisableHumanAccessError,
+  DisableHumanAccessResponse,
   DisableSignalBindingData,
   DisableSignalBindingError,
   DisableSignalBindingResponse,
@@ -207,6 +236,12 @@ import type {
   GetCronScheduleData,
   GetCronScheduleError,
   GetCronScheduleResponse,
+  GetHumanAccessData,
+  GetHumanAccessError,
+  GetHumanAccessResponse,
+  GetIdentityDirectoryData,
+  GetIdentityDirectoryError,
+  GetIdentityDirectoryResponse,
   GetOidcClientData,
   GetOidcClientError,
   GetOidcClientResponse,
@@ -285,9 +320,18 @@ import type {
   ListIdentityMappingRequestsData,
   ListIdentityMappingRequestsError,
   ListIdentityMappingRequestsResponse,
+  ListIdentityProviderAdaptersData,
+  ListIdentityProviderAdaptersError,
+  ListIdentityProviderAdaptersResponse,
+  ListIdentityProvidersData,
+  ListIdentityProvidersError,
+  ListIdentityProvidersResponse,
   ListOidcClientsData,
   ListOidcClientsError,
   ListOidcClientsResponse,
+  ListOidcLoginSourcesData,
+  ListOidcLoginSourcesError,
+  ListOidcLoginSourcesResponse,
   ListOidcLogoutDeliveriesData,
   ListOidcLogoutDeliveriesError,
   ListOidcLogoutDeliveriesResponse,
@@ -306,6 +350,9 @@ import type {
   ListWebhookEndpointsData,
   ListWebhookEndpointsError,
   ListWebhookEndpointsResponse,
+  ListWorkAccessReviewsData,
+  ListWorkAccessReviewsError,
+  ListWorkAccessReviewsResponse,
   PauseCronScheduleData,
   PauseCronScheduleError,
   PauseCronScheduleResponse,
@@ -324,27 +371,48 @@ import type {
   RemovePrincipalGroupMemberData,
   RemovePrincipalGroupMemberError,
   RemovePrincipalGroupMemberResponse,
+  ResetLocalPasswordData,
+  ResetLocalPasswordError,
+  ResetLocalPasswordResponse,
   ResolveBrainTakeData,
   ResolveBrainTakeError,
   ResolveBrainTakeResponse,
   RestoreBrainObjectData,
   RestoreBrainObjectError,
   RestoreBrainObjectResponse,
+  RestoreHumanAccessData,
+  RestoreHumanAccessError,
+  RestoreHumanAccessResponse,
   ResumeCronScheduleData,
   ResumeCronScheduleError,
   ResumeCronScheduleResponse,
   RetireAgentSkillLessonData,
   RetireAgentSkillLessonError,
   RetireAgentSkillLessonResponse,
+  RetryHumanWorkCleanupData,
+  RetryHumanWorkCleanupError,
+  RetryHumanWorkCleanupResponse,
   RetryOidcLogoutDeliveryData,
   RetryOidcLogoutDeliveryError,
   RetryOidcLogoutDeliveryResponse,
+  ReviewIdentityDirectoryEventData,
+  ReviewIdentityDirectoryEventError,
+  ReviewIdentityDirectoryEventResponse,
   RollbackBrainObjectData,
   RollbackBrainObjectError,
   RollbackBrainObjectResponse,
+  RotateOidcClientSecretData,
+  RotateOidcClientSecretError,
+  RotateOidcClientSecretResponse,
   RunCronScheduleData,
   RunCronScheduleError,
   RunCronScheduleResponse,
+  RunIdentityProviderSyncData,
+  RunIdentityProviderSyncError,
+  RunIdentityProviderSyncResponse,
+  SaveIdentityProviderData,
+  SaveIdentityProviderError,
+  SaveIdentityProviderResponse,
   SupersedeBrainClaimData,
   SupersedeBrainClaimError,
   SupersedeBrainClaimResponse,
@@ -718,6 +786,29 @@ export const createPermissionGrantMutation = (
 }
 
 /**
+ * save_identity_provider operation on identity_provider_operation resource
+ */
+export const saveIdentityProviderMutation = (
+  options?: Partial<Options<SaveIdentityProviderData>>
+): UseMutationOptions<SaveIdentityProviderResponse, SaveIdentityProviderError, Options<SaveIdentityProviderData>> => {
+  const mutationOptions: UseMutationOptions<
+    SaveIdentityProviderResponse,
+    SaveIdentityProviderError,
+    Options<SaveIdentityProviderData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await saveIdentityProvider({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * cancel_checkback operation on scheduled_event resource
  */
 export const cancelCheckbackMutation = (
@@ -940,6 +1031,31 @@ export const decideBrainContradictionMutation = (
   return mutationOptions
 }
 
+export const getIdentityDirectoryQueryKey = (options: Options<GetIdentityDirectoryData>) =>
+  createQueryKey('getIdentityDirectory', options)
+
+/**
+ * get_identity_directory operation on identity_provider_operation resource
+ */
+export const getIdentityDirectoryOptions = (options: Options<GetIdentityDirectoryData>) =>
+  queryOptions<
+    GetIdentityDirectoryResponse,
+    GetIdentityDirectoryError,
+    GetIdentityDirectoryResponse,
+    ReturnType<typeof getIdentityDirectoryQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getIdentityDirectory({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getIdentityDirectoryQueryKey(options)
+  })
+
 /**
  * supersede_brain_claim operation on brain_claim resource
  */
@@ -1104,6 +1220,29 @@ export const updatePrincipalGroupMutation = (
 }
 
 /**
+ * reset_local_password operation on human_access resource
+ */
+export const resetLocalPasswordMutation = (
+  options?: Partial<Options<ResetLocalPasswordData>>
+): UseMutationOptions<ResetLocalPasswordResponse, ResetLocalPasswordError, Options<ResetLocalPasswordData>> => {
+  const mutationOptions: UseMutationOptions<
+    ResetLocalPasswordResponse,
+    ResetLocalPasswordError,
+    Options<ResetLocalPasswordData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await resetLocalPassword({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * learn_brain_source operation on brain_source resource
  */
 export const learnBrainSourceMutation = (
@@ -1179,6 +1318,31 @@ export const assignAgentWorkerProviderMutation = (
   }
   return mutationOptions
 }
+
+export const getHumanAccessQueryKey = (options: Options<GetHumanAccessData>) =>
+  createQueryKey('getHumanAccess', options)
+
+/**
+ * get_human_access operation on human_access resource
+ */
+export const getHumanAccessOptions = (options: Options<GetHumanAccessData>) =>
+  queryOptions<
+    GetHumanAccessResponse,
+    GetHumanAccessError,
+    GetHumanAccessResponse,
+    ReturnType<typeof getHumanAccessQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getHumanAccess({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getHumanAccessQueryKey(options)
+  })
 
 /**
  * forget_brain_object operation on brain_object resource
@@ -1326,6 +1490,33 @@ export const getAutomationJobOptions = (options: Options<GetAutomationJobData>) 
   })
 
 /**
+ * rotate_oidc_client_secret operation on oidc_client resource
+ */
+export const rotateOidcClientSecretMutation = (
+  options?: Partial<Options<RotateOidcClientSecretData>>
+): UseMutationOptions<
+  RotateOidcClientSecretResponse,
+  RotateOidcClientSecretError,
+  Options<RotateOidcClientSecretData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RotateOidcClientSecretResponse,
+    RotateOidcClientSecretError,
+    Options<RotateOidcClientSecretData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await rotateOidcClientSecret({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * cancel_background_agent_job operation on background_agent_job resource
  */
 export const cancelBackgroundAgentJobMutation = (
@@ -1342,6 +1533,81 @@ export const cancelBackgroundAgentJobMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await cancelBackgroundAgentJob({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * run_identity_provider_sync operation on identity_provider_operation resource
+ */
+export const runIdentityProviderSyncMutation = (
+  options?: Partial<Options<RunIdentityProviderSyncData>>
+): UseMutationOptions<
+  RunIdentityProviderSyncResponse,
+  RunIdentityProviderSyncError,
+  Options<RunIdentityProviderSyncData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RunIdentityProviderSyncResponse,
+    RunIdentityProviderSyncError,
+    Options<RunIdentityProviderSyncData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await runIdentityProviderSync({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listIdentityProviderAdaptersQueryKey = (options?: Options<ListIdentityProviderAdaptersData>) =>
+  createQueryKey('listIdentityProviderAdapters', options)
+
+/**
+ * list_identity_provider_adapters operation on identity_provider_operation resource
+ */
+export const listIdentityProviderAdaptersOptions = (options?: Options<ListIdentityProviderAdaptersData>) =>
+  queryOptions<
+    ListIdentityProviderAdaptersResponse,
+    ListIdentityProviderAdaptersError,
+    ListIdentityProviderAdaptersResponse,
+    ReturnType<typeof listIdentityProviderAdaptersQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listIdentityProviderAdapters({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listIdentityProviderAdaptersQueryKey(options)
+  })
+
+/**
+ * disable_human_access operation on human_access resource
+ */
+export const disableHumanAccessMutation = (
+  options?: Partial<Options<DisableHumanAccessData>>
+): UseMutationOptions<DisableHumanAccessResponse, DisableHumanAccessError, Options<DisableHumanAccessData>> => {
+  const mutationOptions: UseMutationOptions<
+    DisableHumanAccessResponse,
+    DisableHumanAccessError,
+    Options<DisableHumanAccessData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await disableHumanAccess({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1380,6 +1646,33 @@ export const updateHumanMutation = (
   const mutationOptions: UseMutationOptions<UpdateHumanResponse, UpdateHumanError, Options<UpdateHumanData>> = {
     mutationFn: async fnOptions => {
       const { data } = await updateHuman({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * approve_identity_directory operation on identity_provider_operation resource
+ */
+export const approveIdentityDirectoryMutation = (
+  options?: Partial<Options<ApproveIdentityDirectoryData>>
+): UseMutationOptions<
+  ApproveIdentityDirectoryResponse,
+  ApproveIdentityDirectoryError,
+  Options<ApproveIdentityDirectoryData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    ApproveIdentityDirectoryResponse,
+    ApproveIdentityDirectoryError,
+    Options<ApproveIdentityDirectoryData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await approveIdentityDirectory({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1510,6 +1803,33 @@ export const listPrincipalGroupGrantsOptions = (options: Options<ListPrincipalGr
     queryKey: listPrincipalGroupGrantsQueryKey(options)
   })
 
+/**
+ * review_identity_directory_event operation on identity_provider_operation resource
+ */
+export const reviewIdentityDirectoryEventMutation = (
+  options?: Partial<Options<ReviewIdentityDirectoryEventData>>
+): UseMutationOptions<
+  ReviewIdentityDirectoryEventResponse,
+  ReviewIdentityDirectoryEventError,
+  Options<ReviewIdentityDirectoryEventData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    ReviewIdentityDirectoryEventResponse,
+    ReviewIdentityDirectoryEventError,
+    Options<ReviewIdentityDirectoryEventData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await reviewIdentityDirectoryEvent({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const listCheckbacksQueryKey = (options?: Options<ListCheckbacksData>) =>
   createQueryKey('listCheckbacks', options)
 
@@ -1605,6 +1925,31 @@ export const resolveBrainTakeMutation = (
   return mutationOptions
 }
 
+export const listIdentityProvidersQueryKey = (options?: Options<ListIdentityProvidersData>) =>
+  createQueryKey('listIdentityProviders', options)
+
+/**
+ * list_identity_providers operation on identity_provider_operation resource
+ */
+export const listIdentityProvidersOptions = (options?: Options<ListIdentityProvidersData>) =>
+  queryOptions<
+    ListIdentityProvidersResponse,
+    ListIdentityProvidersError,
+    ListIdentityProvidersResponse,
+    ReturnType<typeof listIdentityProvidersQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listIdentityProviders({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listIdentityProvidersQueryKey(options)
+  })
+
 export const listAutomationJobRunsQueryKey = (options: Options<ListAutomationJobRunsData>) =>
   createQueryKey('listAutomationJobRuns', options)
 
@@ -1690,6 +2035,33 @@ export const resumeCronScheduleMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await resumeCronSchedule({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * retry_human_work_cleanup operation on human_access resource
+ */
+export const retryHumanWorkCleanupMutation = (
+  options?: Partial<Options<RetryHumanWorkCleanupData>>
+): UseMutationOptions<
+  RetryHumanWorkCleanupResponse,
+  RetryHumanWorkCleanupError,
+  Options<RetryHumanWorkCleanupData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RetryHumanWorkCleanupResponse,
+    RetryHumanWorkCleanupError,
+    Options<RetryHumanWorkCleanupData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await retryHumanWorkCleanup({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -2009,6 +2381,54 @@ export const runCronScheduleMutation = (
   return mutationOptions
 }
 
+export const listWorkAccessReviewsQueryKey = (options?: Options<ListWorkAccessReviewsData>) =>
+  createQueryKey('listWorkAccessReviews', options)
+
+/**
+ * list_work_access_reviews operation on human_access resource
+ */
+export const listWorkAccessReviewsOptions = (options?: Options<ListWorkAccessReviewsData>) =>
+  queryOptions<
+    ListWorkAccessReviewsResponse,
+    ListWorkAccessReviewsError,
+    ListWorkAccessReviewsResponse,
+    ReturnType<typeof listWorkAccessReviewsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listWorkAccessReviews({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listWorkAccessReviewsQueryKey(options)
+  })
+
+/**
+ * classify_work_access operation on human_access resource
+ */
+export const classifyWorkAccessMutation = (
+  options?: Partial<Options<ClassifyWorkAccessData>>
+): UseMutationOptions<ClassifyWorkAccessResponse, ClassifyWorkAccessError, Options<ClassifyWorkAccessData>> => {
+  const mutationOptions: UseMutationOptions<
+    ClassifyWorkAccessResponse,
+    ClassifyWorkAccessError,
+    Options<ClassifyWorkAccessData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await classifyWorkAccess({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 /**
  * archive_brain_source operation on brain_source resource
  */
@@ -2022,6 +2442,29 @@ export const archiveBrainSourceMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await archiveBrainSource({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * restore_human_access operation on human_access resource
+ */
+export const restoreHumanAccessMutation = (
+  options?: Partial<Options<RestoreHumanAccessData>>
+): UseMutationOptions<RestoreHumanAccessResponse, RestoreHumanAccessError, Options<RestoreHumanAccessData>> => {
+  const mutationOptions: UseMutationOptions<
+    RestoreHumanAccessResponse,
+    RestoreHumanAccessError,
+    Options<RestoreHumanAccessData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await restoreHumanAccess({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -2172,6 +2615,31 @@ export const updateBrainSourceMutation = (
   }
   return mutationOptions
 }
+
+export const listOidcLoginSourcesQueryKey = (options?: Options<ListOidcLoginSourcesData>) =>
+  createQueryKey('listOidcLoginSources', options)
+
+/**
+ * list_oidc_login_sources operation on oidc_client resource
+ */
+export const listOidcLoginSourcesOptions = (options?: Options<ListOidcLoginSourcesData>) =>
+  queryOptions<
+    ListOidcLoginSourcesResponse,
+    ListOidcLoginSourcesError,
+    ListOidcLoginSourcesResponse,
+    ReturnType<typeof listOidcLoginSourcesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listOidcLoginSources({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listOidcLoginSourcesQueryKey(options)
+  })
 
 /**
  * Binds a pending request to a Human and removes the request.
@@ -2912,6 +3380,33 @@ export const createBrainSourceMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await createBrainSource({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * clear_human_access_restriction operation on human_access resource
+ */
+export const clearHumanAccessRestrictionMutation = (
+  options?: Partial<Options<ClearHumanAccessRestrictionData>>
+): UseMutationOptions<
+  ClearHumanAccessRestrictionResponse,
+  ClearHumanAccessRestrictionError,
+  Options<ClearHumanAccessRestrictionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    ClearHumanAccessRestrictionResponse,
+    ClearHumanAccessRestrictionError,
+    Options<ClearHumanAccessRestrictionData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await clearHumanAccessRestriction({
         ...options,
         ...fnOptions,
         throwOnError: true

@@ -1,10 +1,10 @@
+import { listIdentityProvidersOptions } from './api/v2/generated/@tanstack/react-query.gen'
 import type { QueryClient } from '@tanstack/react-query'
 import {
   ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions,
   ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions,
   ankoleWebAppConfigurationControllerIndexOptions,
   ankoleWebControlPlanePluginControllerIndexOptions,
-  ankoleWebIdentityProviderControllerIndexOptions,
   ankoleWebSignalBindingControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerTurnsOptions,
   ankoleWebWorkerEnvControllerIndexOptions
@@ -51,7 +51,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
         ensure(agentListOptions()),
         ensure(agentWorkerListOptions()),
         ensure(listAiGatewayProvidersOptions()),
-        ensure(ankoleWebIdentityProviderControllerIndexOptions()),
+        ensure(listIdentityProvidersOptions()),
         ensure(backgroundAgentJobsOptions({ limit: 20 })),
         ensure(aiGatewayConversationsOptions({ limit: 5, min_messages: 2 }))
       ),
@@ -73,7 +73,7 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
           )
     },
     providers: () => ensure(listAiGatewayProvidersOptions()).then(() => null),
-    identity: () => ensure(ankoleWebIdentityProviderControllerIndexOptions()).then(() => null),
+    identity: () => ensure(listIdentityProvidersOptions()).then(() => null),
     oidcClients: () => all(ensure(listOidcClientsOptions()), ensure(listPrincipalGroupsOptions())),
     identityMappings: () => all(ensure(listIdentityMappingRequestsOptions()), ensure(listPrincipalsOptions())),
     principalGroups: () => ensure(listPrincipalGroupsOptions()).then(() => null),

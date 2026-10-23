@@ -40,7 +40,6 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     assert Map.has_key?(paths, "/api/v1/site/app-configurations")
     assert Map.has_key?(paths, "/api/v1/site/app-configurations/{key}")
     assert Map.has_key?(paths, "/api/v1/site/app-configurations/{key}/decryptions")
-    assert Map.has_key?(paths, "/api/v1/oidc-clients/{id}/secret-rotations")
     assert Map.has_key?(paths, "/api/v1/ai-gateway/models")
   end
 

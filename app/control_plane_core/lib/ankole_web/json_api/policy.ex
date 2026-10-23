@@ -63,6 +63,30 @@ defmodule AnkoleWeb.JSONAPI.Policy do
         {"ai_gateway_provider:{provider_id}", "update"}
     },
     console: %{
+      # K3 identity configuration, directory evidence, and reviewed access.
+      {Ankole.IdentityProviders.Console, :route, :adapters} =>
+        {"identity_provider_adapters", "read"},
+      {Ankole.IdentityProviders.Console, :route, :providers} => {"identity_providers", "read"},
+      {Ankole.IdentityProviders.Console, :route, :save_provider} =>
+        {"identity_provider:{provider_id}", "update"},
+      {Ankole.IdentityProviders.Console, :route, :run_sync} =>
+        {"identity_provider:{provider_id}", "sync"},
+      {Ankole.IdentityProviders.Console, :route, :directory} =>
+        {"identity_provider:{provider_id}", "read"},
+      {Ankole.IdentityProviders.Console, :route, :approve_directory} =>
+        {"identity_provider:{provider_id}", "update"},
+      {Ankole.IdentityProviders.Console, :route, :review_event} =>
+        {"identity_provider:{provider_id}", "update"},
+      {Ankole.Principals.Access, :route, :show} => {"principal:{uid}", "read"},
+      {Ankole.Principals.Access, :route, :disable} => {"principal:{uid}", "update"},
+      {Ankole.Principals.Access, :route, :restore} => {"principal:{uid}", "update"},
+      {Ankole.Principals.Access, :route, :clear_restriction} => {"principal:{uid}", "update"},
+      {Ankole.Principals.Access, :route, :retry_cleanup} => {"principal:{uid}", "update"},
+      {Ankole.Principals.Access, :route, :reset_local_password} => {"principal:{uid}", "reset"},
+      {Ankole.Principals.Access, :route, :unresolved_work} => {"principals", "update"},
+      {Ankole.Principals.Access, :route, :classify_work} => {"principals", "update"},
+      {Ankole.OIDC.Client, :route, :login_sources} => {"oidc_clients", "read"},
+      {Ankole.OIDC.Client, :route, :console_rotate_secret} => {"oidc_client:{id}", "update"},
       # J4 background agent jobs (v1: background_agent_job_controller.ex)
       {Ankole.BackgroundAgentJobs.Schemas.Job, :index, :console_list} =>
         {"background_agent_jobs", "read"},

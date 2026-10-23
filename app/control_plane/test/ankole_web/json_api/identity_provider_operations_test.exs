@@ -1,4 +1,4 @@
-defmodule AnkoleWeb.IdentityProviderControllerTest do
+defmodule AnkoleWeb.JSONAPI.IdentityProviderOperationsTest do
   use AnkoleWeb.ConnCase, async: false
   use Oban.Testing, repo: Ankole.Repo
 
@@ -24,7 +24,7 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
 
   test "missing browser session returns 401 before request body validation", %{conn: conn} do
     conn =
-      put(conn, ~p"/api/v1/identity-providers/lark-main", %{
+      v2_put(conn, ~p"/api/v2/identity-providers/lark-main", %{
         "adapter_id" => "lark",
         "config" => "not an object"
       })
@@ -36,16 +36,16 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
     conn = console_conn(conn)
     revoke_console_grants()
 
-    conn = get(conn, ~p"/api/v1/identity-provider-adapters")
+    conn = v2_get(conn, ~p"/api/v2/identity-provider-adapters")
 
-    assert %{"error" => %{"code" => "forbidden"}} = json_response(conn, 403)
+    assert %{"errors" => [%{"code" => "forbidden"}]} = json_response(conn, 403)
   end
 
   test "admin manages identity providers and enqueues manual full sync", %{conn: conn} do
     conn =
       conn
       |> console_conn()
-      |> get(~p"/api/v1/identity-provider-adapters")
+      |> v2_get(~p"/api/v2/identity-provider-adapters")
 
     assert %{"identity_provider_adapters" => adapters} = json_response(conn, 200)
 
@@ -69,7 +69,7 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/identity-providers/lark-main", %{
+      |> v2_put(~p"/api/v2/identity-providers/lark-main", %{
         "adapter_id" => "lark",
         "enabled" => true,
         "config" => %{
@@ -100,7 +100,7 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> get(~p"/api/v1/identity-providers")
+      |> v2_get(~p"/api/v2/identity-providers")
 
     assert %{
              "identity_providers" => [
@@ -119,14 +119,14 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/identity-providers/lark-main/sync-runs", %{})
+      |> v2_post(~p"/api/v2/identity-providers/lark-main/sync-runs", %{})
 
     assert %{
              "sync_run" => %{
                "provider_id" => "lark-main",
                "status" => "enqueued"
              }
-           } = json_response(conn, 200)
+           } = json_response(conn, 201)
 
     assert_enqueued(
       worker: SyncProvider,
@@ -138,7 +138,7 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
     conn =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/identity-providers/lark-main", %{
+      |> v2_put(~p"/api/v2/identity-providers/lark-main", %{
         "adapter_id" => "lark",
         "enabled" => true,
         "config" => %{
@@ -158,7 +158,7 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/identity-providers/lark-main", %{
+      |> v2_put(~p"/api/v2/identity-providers/lark-main", %{
         "adapter_id" => "lark",
         "enabled" => true,
         "config" => %{
@@ -189,7 +189,7 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
     conn =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/identity-providers/lark-main", %{
+      |> v2_put(~p"/api/v2/identity-providers/lark-main", %{
         "adapter_id" => "lark",
         "enabled" => true,
         "config" => %{
@@ -204,67 +204,79 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
     conn =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/identity-providers/lark-main/sync-runs", %{})
+      |> v2_post(~p"/api/v2/identity-providers/lark-main/sync-runs", %{})
 
-    assert %{
-             "error" => %{
-               "code" => "sync_disabled",
-               "message" => "directory sync is disabled for this identity provider"
-             }
-           } = json_response(conn, 422)
+    assert %{"errors" => [%{"code" => "sync_disabled", "detail" => detail}]} =
+             json_response(conn, 422)
+
+    assert detail =~ "Directory sync is disabled"
   end
 
   test "a missing required adapter config field names the field in the error", %{conn: conn} do
     conn =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/identity-providers/lark-main", %{
+      |> v2_put(~p"/api/v2/identity-providers/lark-main", %{
         "adapter_id" => "lark",
         "enabled" => true,
         "config" => %{"appSecret" => "secret-console"}
       })
 
     assert %{
-             "error" => %{
-               "code" => "validation_failed",
-               "message" => "appID is required",
-               "details" => [%{"path" => "appID", "kind" => "missing"}]
-             }
+             "errors" => [
+               %{
+                 "code" => "missing",
+                 "detail" => detail,
+                 "meta" => %{"details" => [%{"path" => "appID", "kind" => "missing"}]}
+               }
+             ]
            } = json_response(conn, 422)
+
+    assert detail =~ "appID is required"
   end
 
   test "write and manual sync error paths return explicit envelopes", %{conn: conn} do
     conn = console_conn(conn)
 
     conn =
-      put(conn, ~p"/api/v1/identity-providers/lark-main", %{
+      v2_put(conn, ~p"/api/v2/identity-providers/lark-main", %{
         "adapter_id" => "missing",
         "enabled" => true,
         "config" => %{}
       })
 
-    assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
+    assert %{"errors" => [%{"code" => "not_found"}]} = json_response(conn, 404)
 
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/identity-providers/lark-main", %{
+      |> v2_put(~p"/api/v2/identity-providers/lark-main", %{
         "adapter_id" => "lark",
         "enabled" => true,
         "config" => "not an object"
       })
 
-    assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
+    assert %{"errors" => [_]} = json_response(conn, 400)
 
     conn =
       conn
       |> recycle_api()
-      |> post(~p"/api/v1/identity-providers/missing-main/sync-runs", %{})
+      |> v2_post(~p"/api/v2/identity-providers/missing-main/sync-runs", %{})
 
-    assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
+    assert %{"errors" => [%{"code" => "not_found"}]} = json_response(conn, 404)
   end
 
   defp revoke_console_grants do
     Repo.delete_all(from grant in Grant, where: grant.resource_pattern == "**")
+  end
+
+  defp v2_get(conn, path), do: get(json_api(conn), path)
+  defp v2_put(conn, path, body), do: put(json_api(conn), path, %{data: body})
+  defp v2_post(conn, path, body), do: post(json_api(conn), path, %{data: body})
+
+  defp json_api(conn) do
+    conn
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
   end
 end

@@ -10,7 +10,7 @@ defmodule Ankole.IdentityProviders do
   both.
   """
 
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   alias Ankole.AppConfigure
   alias Ankole.IdentityProviders.Config
@@ -21,7 +21,36 @@ defmodule Ankole.IdentityProviders do
   alias Ankole.Plugins
   alias Ankole.Plugins.ConfigSecrets
 
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/identity-provider-adapters", Ankole.IdentityProviders.Console do
+        route(:get, "/", :adapters, name: "list_identity_provider_adapters")
+      end
+
+      base_route "/identity-providers", Ankole.IdentityProviders.Console do
+        route(:get, "/", :providers, name: "list_identity_providers")
+        route(:put, "/:provider_id", :save_provider, name: "save_identity_provider")
+        route(:post, "/:provider_id/sync-runs", :run_sync, name: "run_identity_provider_sync")
+        route(:get, "/:provider_id/directory", :directory, name: "get_identity_directory")
+
+        route(:post, "/:provider_id/directory-reviews", :approve_directory,
+          name: "approve_identity_directory"
+        )
+
+        route(:post, "/:provider_id/directory-events/:event_id/reviews", :review_event,
+          name: "review_identity_directory_event"
+        )
+      end
+    end
+  end
+
   resources do
+    resource(Ankole.IdentityProviders.Console)
+
     resource DirectoryEvent do
       define(:get_directory_event, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_directory_events, action: :read)

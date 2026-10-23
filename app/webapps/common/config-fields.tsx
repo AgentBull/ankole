@@ -337,9 +337,11 @@ export function configFieldServerError(
   fields: ConfigFieldDefinition[],
   locale: string
 ): string | undefined {
-  if (requestErrorCode(error) !== 'validation_failed') return undefined
   const details = requestErrorDetails(error)
   if (typeof details.path !== 'string') return undefined
+  if (requestErrorCode(error) !== 'validation_failed' && details.kind !== 'missing' && details.kind !== 'invalid') {
+    return undefined
+  }
   const field = fields.find(item => item.path === details.path)
   const label = field ? (localizedText(field.label, locale) ?? field.path) : details.path
   const key = details.kind === 'missing' ? 'common.field_required' : 'common.field_invalid'

@@ -805,6 +805,26 @@ export type BrainContradiction = {
   type: string
 }
 
+/**
+ * A "Resource object" representing a human_access
+ */
+export type HumanAccess = {
+  /**
+   * An attributes object for a human_access
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a human_access
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
 export type Error = {
   /**
    * An application-specific error code, expressed as a string value.
@@ -1502,6 +1522,26 @@ export type BrainSourceType = {
    * Field included by default.
    */
   upstream_revision?: string | null
+}
+
+/**
+ * A "Resource object" representing a identity_provider_operation
+ */
+export type IdentityProviderOperation = {
+  /**
+   * An attributes object for a identity_provider_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a identity_provider_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
 }
 
 export type AgentSkillLessonType = {
@@ -3372,6 +3412,56 @@ export type CreatePermissionGrantResponses = {
 
 export type CreatePermissionGrantResponse = CreatePermissionGrantResponses[keyof CreatePermissionGrantResponses]
 
+export type SaveIdentityProviderData = {
+  /**
+   * Request body for the save_identity_provider operation on identity_provider_operation resource
+   */
+  body: {
+    data: {
+      adapter_id: string
+      config: {
+        [key: string]: unknown
+      }
+      enabled?: boolean | null
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/identity-providers/{provider_id}'
+}
+
+export type SaveIdentityProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SaveIdentityProviderError = SaveIdentityProviderErrors[keyof SaveIdentityProviderErrors]
+
+export type SaveIdentityProviderResponses = {
+  /**
+   * Success
+   */
+  200: {
+    identity_provider: {
+      adapter_id: string
+      config: {
+        [key: string]: unknown
+      }
+      config_key: string
+      enabled: boolean
+      plugin_id?: string | null
+      provider_id: string
+      stored_secret_paths: Array<string>
+    }
+  }
+}
+
+export type SaveIdentityProviderResponse = SaveIdentityProviderResponses[keyof SaveIdentityProviderResponses]
+
 export type CancelCheckbackData = {
   body?: never
   path: {
@@ -3752,6 +3842,70 @@ export type DecideBrainContradictionResponses = {
 export type DecideBrainContradictionResponse =
   DecideBrainContradictionResponses[keyof DecideBrainContradictionResponses]
 
+export type GetIdentityDirectoryData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/identity-providers/{provider_id}/directory'
+}
+
+export type GetIdentityDirectoryErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetIdentityDirectoryError = GetIdentityDirectoryErrors[keyof GetIdentityDirectoryErrors]
+
+export type GetIdentityDirectoryResponses = {
+  /**
+   * Success
+   */
+  200: {
+    events: Array<{
+      event_id: string
+      event_type: string
+      external_ids: Array<string>
+      id: string
+      inserted_at: string
+      last_error?: string | null
+      processed_at?: string | null
+      provider_time?: string | null
+      reason?: string | null
+      review_reason?: string | null
+      reviewed_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      status: string
+    }>
+    snapshot?: {
+      approved_scope_fingerprint?: string | null
+      last_error?: string | null
+      last_started_at?: string | null
+      last_success_at?: string | null
+      member_uids: Array<string>
+      missing_uids: Array<string>
+      provider_id: string
+      review_reason?: string | null
+      reviewed_at?: string | null
+      reviewed_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      revision: number
+      scope_fingerprint?: string | null
+      snapshot_fingerprint?: string | null
+      status: string
+    } | null
+  }
+}
+
+export type GetIdentityDirectoryResponse = GetIdentityDirectoryResponses[keyof GetIdentityDirectoryResponses]
+
 export type SupersedeBrainClaimData = {
   /**
    * Request body for the supersede_brain_claim operation on brain_claim resource
@@ -4061,6 +4215,42 @@ export type UpdatePrincipalGroupResponses = {
 
 export type UpdatePrincipalGroupResponse = UpdatePrincipalGroupResponses[keyof UpdatePrincipalGroupResponses]
 
+export type ResetLocalPasswordData = {
+  /**
+   * Request body for the reset_local_password operation on human_access resource
+   */
+  body?: {
+    data: {
+      must_change_password?: boolean | null
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/principals/{uid}/local-password-resets'
+}
+
+export type ResetLocalPasswordErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResetLocalPasswordError = ResetLocalPasswordErrors[keyof ResetLocalPasswordErrors]
+
+export type ResetLocalPasswordResponses = {
+  /**
+   * Success
+   */
+  201: {
+    initial_password: string
+  }
+}
+
+export type ResetLocalPasswordResponse = ResetLocalPasswordResponses[keyof ResetLocalPasswordResponses]
+
 export type LearnBrainSourceData = {
   body?: never
   path: {
@@ -4165,6 +4355,106 @@ export type AssignAgentWorkerProviderResponses = {
 
 export type AssignAgentWorkerProviderResponse =
   AssignAgentWorkerProviderResponses[keyof AssignAgentWorkerProviderResponses]
+
+export type GetHumanAccessData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/principals/{uid}/access'
+}
+
+export type GetHumanAccessErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetHumanAccessError = GetHumanAccessErrors[keyof GetHumanAccessErrors]
+
+export type GetHumanAccessResponses = {
+  /**
+   * Success
+   */
+  200: {
+    access_revoked_at?: string | null
+    access_version: number
+    cleanup_jobs: Array<{
+      attempt: number
+      completed_at?: string | null
+      discarded_at?: string | null
+      id: number
+      max_attempts: number
+      scheduled_at?: string | null
+      state: string
+    }>
+    history: Array<{
+      access_version: number
+      action: string
+      actor?: {
+        tenant_id: string
+        uid: string
+      } | null
+      details?: unknown | null
+      id: string
+      inserted_at: string
+      reason: string
+      source: string
+    }>
+    permission_review: {
+      fingerprint: string
+      permissions: {
+        grants: Array<{
+          action: string
+          condition?: unknown | null
+          group_id?: string | null
+          id: string
+          principal_uid?: string | null
+          resource_pattern: string
+        }>
+        groups: Array<{
+          condition?: unknown | null
+          domain: string
+          id: string
+          kind: string
+          name: string
+        }>
+        principal: {
+          access_version: number
+          avatar_url?: string | null
+          display_name?: string | null
+          uid: string
+        }
+      }
+    }
+    restrictions: Array<{
+      cleared_at?: string | null
+      id: string
+      inserted_at: string
+      provider_time?: string | null
+      reason: string
+      recovery_verified_at?: string | null
+      source: string
+    }>
+    status: string
+    uid: string
+    work: Array<{
+      agent_uid: string
+      authorization_kind: string
+      can_reauthorize: boolean
+      human_access_version?: number | null
+      human_uid?: string | null
+      id: string
+      kind: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type GetHumanAccessResponse = GetHumanAccessResponses[keyof GetHumanAccessResponses]
 
 export type ForgetBrainObjectData = {
   /**
@@ -4361,6 +4651,35 @@ export type GetAutomationJobResponses = {
 
 export type GetAutomationJobResponse = GetAutomationJobResponses[keyof GetAutomationJobResponses]
 
+export type RotateOidcClientSecretData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/oidc-clients/{id}/secret-rotations'
+}
+
+export type RotateOidcClientSecretErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RotateOidcClientSecretError = RotateOidcClientSecretErrors[keyof RotateOidcClientSecretErrors]
+
+export type RotateOidcClientSecretResponses = {
+  /**
+   * Success
+   */
+  201: {
+    client_secret: string
+  }
+}
+
+export type RotateOidcClientSecretResponse = RotateOidcClientSecretResponses[keyof RotateOidcClientSecretResponses]
+
 export type CancelBackgroundAgentJobData = {
   body?: never
   path: {
@@ -4388,6 +4707,187 @@ export type CancelBackgroundAgentJobResponses = {
 
 export type CancelBackgroundAgentJobResponse =
   CancelBackgroundAgentJobResponses[keyof CancelBackgroundAgentJobResponses]
+
+export type RunIdentityProviderSyncData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/identity-providers/{provider_id}/sync-runs'
+}
+
+export type RunIdentityProviderSyncErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RunIdentityProviderSyncError = RunIdentityProviderSyncErrors[keyof RunIdentityProviderSyncErrors]
+
+export type RunIdentityProviderSyncResponses = {
+  /**
+   * Success
+   */
+  201: {
+    sync_run: {
+      job_id?: number | null
+      provider_id: string
+      status: string
+    }
+  }
+}
+
+export type RunIdentityProviderSyncResponse = RunIdentityProviderSyncResponses[keyof RunIdentityProviderSyncResponses]
+
+export type ListIdentityProviderAdaptersData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/identity-provider-adapters'
+}
+
+export type ListIdentityProviderAdaptersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListIdentityProviderAdaptersError =
+  ListIdentityProviderAdaptersErrors[keyof ListIdentityProviderAdaptersErrors]
+
+export type ListIdentityProviderAdaptersResponses = {
+  /**
+   * Success
+   */
+  200: {
+    identity_provider_adapters: Array<{
+      adapter_id: string
+      capabilities: Array<string>
+      default_provider_id: string
+      display_name?: {
+        [key: string]: unknown
+      } | null
+      fields: Array<{
+        [key: string]: unknown
+      }>
+      plugin_id?: string | null
+    }>
+  }
+}
+
+export type ListIdentityProviderAdaptersResponse =
+  ListIdentityProviderAdaptersResponses[keyof ListIdentityProviderAdaptersResponses]
+
+export type DisableHumanAccessData = {
+  /**
+   * Request body for the disable_human_access operation on human_access resource
+   */
+  body: {
+    data: {
+      operation_id: string
+      reason: string
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/principals/{uid}/access-disables'
+}
+
+export type DisableHumanAccessErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DisableHumanAccessError = DisableHumanAccessErrors[keyof DisableHumanAccessErrors]
+
+export type DisableHumanAccessResponses = {
+  /**
+   * Success
+   */
+  201: {
+    access_revoked_at?: string | null
+    access_version: number
+    cleanup_jobs: Array<{
+      attempt: number
+      completed_at?: string | null
+      discarded_at?: string | null
+      id: number
+      max_attempts: number
+      scheduled_at?: string | null
+      state: string
+    }>
+    history: Array<{
+      access_version: number
+      action: string
+      actor?: {
+        tenant_id: string
+        uid: string
+      } | null
+      details?: unknown | null
+      id: string
+      inserted_at: string
+      reason: string
+      source: string
+    }>
+    permission_review: {
+      fingerprint: string
+      permissions: {
+        grants: Array<{
+          action: string
+          condition?: unknown | null
+          group_id?: string | null
+          id: string
+          principal_uid?: string | null
+          resource_pattern: string
+        }>
+        groups: Array<{
+          condition?: unknown | null
+          domain: string
+          id: string
+          kind: string
+          name: string
+        }>
+        principal: {
+          access_version: number
+          avatar_url?: string | null
+          display_name?: string | null
+          uid: string
+        }
+      }
+    }
+    restrictions: Array<{
+      cleared_at?: string | null
+      id: string
+      inserted_at: string
+      provider_time?: string | null
+      reason: string
+      recovery_verified_at?: string | null
+      source: string
+    }>
+    status: string
+    uid: string
+    work: Array<{
+      agent_uid: string
+      authorization_kind: string
+      can_reauthorize: boolean
+      human_access_version?: number | null
+      human_uid?: string | null
+      id: string
+      kind: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type DisableHumanAccessResponse = DisableHumanAccessResponses[keyof DisableHumanAccessResponses]
 
 export type GetPrincipalData = {
   body?: never
@@ -4499,6 +4999,80 @@ export type UpdateHumanResponses = {
 }
 
 export type UpdateHumanResponse = UpdateHumanResponses[keyof UpdateHumanResponses]
+
+export type ApproveIdentityDirectoryData = {
+  /**
+   * Request body for the approve_identity_directory operation on identity_provider_operation resource
+   */
+  body: {
+    data: {
+      confirm_removals: boolean
+      reason: string
+      snapshot_fingerprint: string
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/identity-providers/{provider_id}/directory-reviews'
+}
+
+export type ApproveIdentityDirectoryErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ApproveIdentityDirectoryError = ApproveIdentityDirectoryErrors[keyof ApproveIdentityDirectoryErrors]
+
+export type ApproveIdentityDirectoryResponses = {
+  /**
+   * Success
+   */
+  201: {
+    events: Array<{
+      event_id: string
+      event_type: string
+      external_ids: Array<string>
+      id: string
+      inserted_at: string
+      last_error?: string | null
+      processed_at?: string | null
+      provider_time?: string | null
+      reason?: string | null
+      review_reason?: string | null
+      reviewed_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      status: string
+    }>
+    snapshot?: {
+      approved_scope_fingerprint?: string | null
+      last_error?: string | null
+      last_started_at?: string | null
+      last_success_at?: string | null
+      member_uids: Array<string>
+      missing_uids: Array<string>
+      provider_id: string
+      review_reason?: string | null
+      reviewed_at?: string | null
+      reviewed_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      revision: number
+      scope_fingerprint?: string | null
+      snapshot_fingerprint?: string | null
+      status: string
+    } | null
+  }
+}
+
+export type ApproveIdentityDirectoryResponse =
+  ApproveIdentityDirectoryResponses[keyof ApproveIdentityDirectoryResponses]
 
 export type RestoreBrainObjectData = {
   /**
@@ -4642,6 +5216,81 @@ export type ListPrincipalGroupGrantsResponses = {
 export type ListPrincipalGroupGrantsResponse =
   ListPrincipalGroupGrantsResponses[keyof ListPrincipalGroupGrantsResponses]
 
+export type ReviewIdentityDirectoryEventData = {
+  /**
+   * Request body for the review_identity_directory_event operation on identity_provider_operation resource
+   */
+  body: {
+    data: {
+      action: 'retry' | 'dismiss'
+      reason: string
+    }
+  }
+  path: {
+    event_id: string
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/identity-providers/{provider_id}/directory-events/{event_id}/reviews'
+}
+
+export type ReviewIdentityDirectoryEventErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ReviewIdentityDirectoryEventError =
+  ReviewIdentityDirectoryEventErrors[keyof ReviewIdentityDirectoryEventErrors]
+
+export type ReviewIdentityDirectoryEventResponses = {
+  /**
+   * Success
+   */
+  201: {
+    events: Array<{
+      event_id: string
+      event_type: string
+      external_ids: Array<string>
+      id: string
+      inserted_at: string
+      last_error?: string | null
+      processed_at?: string | null
+      provider_time?: string | null
+      reason?: string | null
+      review_reason?: string | null
+      reviewed_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      status: string
+    }>
+    snapshot?: {
+      approved_scope_fingerprint?: string | null
+      last_error?: string | null
+      last_started_at?: string | null
+      last_success_at?: string | null
+      member_uids: Array<string>
+      missing_uids: Array<string>
+      provider_id: string
+      review_reason?: string | null
+      reviewed_at?: string | null
+      reviewed_by?: {
+        tenant_id: string
+        uid: string
+      } | null
+      revision: number
+      scope_fingerprint?: string | null
+      snapshot_fingerprint?: string | null
+      status: string
+    } | null
+  }
+}
+
+export type ReviewIdentityDirectoryEventResponse =
+  ReviewIdentityDirectoryEventResponses[keyof ReviewIdentityDirectoryEventResponses]
+
 export type ListCheckbacksData = {
   body?: never
   path?: never
@@ -4738,6 +5387,43 @@ export type ResolveBrainTakeResponses = {
 
 export type ResolveBrainTakeResponse = ResolveBrainTakeResponses[keyof ResolveBrainTakeResponses]
 
+export type ListIdentityProvidersData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/identity-providers'
+}
+
+export type ListIdentityProvidersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListIdentityProvidersError = ListIdentityProvidersErrors[keyof ListIdentityProvidersErrors]
+
+export type ListIdentityProvidersResponses = {
+  /**
+   * Success
+   */
+  200: {
+    identity_providers: Array<{
+      adapter_id: string
+      config: {
+        [key: string]: unknown
+      }
+      config_key: string
+      enabled: boolean
+      plugin_id?: string | null
+      provider_id: string
+      stored_secret_paths: Array<string>
+    }>
+  }
+}
+
+export type ListIdentityProvidersResponse = ListIdentityProvidersResponses[keyof ListIdentityProvidersResponses]
+
 export type ListAutomationJobRunsData = {
   body?: never
   path: {
@@ -4825,6 +5511,106 @@ export type ResumeCronScheduleResponses = {
 }
 
 export type ResumeCronScheduleResponse = ResumeCronScheduleResponses[keyof ResumeCronScheduleResponses]
+
+export type RetryHumanWorkCleanupData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/principals/{uid}/work-cleanup-retries'
+}
+
+export type RetryHumanWorkCleanupErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RetryHumanWorkCleanupError = RetryHumanWorkCleanupErrors[keyof RetryHumanWorkCleanupErrors]
+
+export type RetryHumanWorkCleanupResponses = {
+  /**
+   * Success
+   */
+  201: {
+    access_revoked_at?: string | null
+    access_version: number
+    cleanup_jobs: Array<{
+      attempt: number
+      completed_at?: string | null
+      discarded_at?: string | null
+      id: number
+      max_attempts: number
+      scheduled_at?: string | null
+      state: string
+    }>
+    history: Array<{
+      access_version: number
+      action: string
+      actor?: {
+        tenant_id: string
+        uid: string
+      } | null
+      details?: unknown | null
+      id: string
+      inserted_at: string
+      reason: string
+      source: string
+    }>
+    permission_review: {
+      fingerprint: string
+      permissions: {
+        grants: Array<{
+          action: string
+          condition?: unknown | null
+          group_id?: string | null
+          id: string
+          principal_uid?: string | null
+          resource_pattern: string
+        }>
+        groups: Array<{
+          condition?: unknown | null
+          domain: string
+          id: string
+          kind: string
+          name: string
+        }>
+        principal: {
+          access_version: number
+          avatar_url?: string | null
+          display_name?: string | null
+          uid: string
+        }
+      }
+    }
+    restrictions: Array<{
+      cleared_at?: string | null
+      id: string
+      inserted_at: string
+      provider_time?: string | null
+      reason: string
+      recovery_verified_at?: string | null
+      source: string
+    }>
+    status: string
+    uid: string
+    work: Array<{
+      agent_uid: string
+      authorization_kind: string
+      can_reauthorize: boolean
+      human_access_version?: number | null
+      human_uid?: string | null
+      id: string
+      kind: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type RetryHumanWorkCleanupResponse = RetryHumanWorkCleanupResponses[keyof RetryHumanWorkCleanupResponses]
 
 export type ListGrantsOfPrincipalData = {
   body?: never
@@ -5394,6 +6180,91 @@ export type RunCronScheduleResponses = {
 
 export type RunCronScheduleResponse = RunCronScheduleResponses[keyof RunCronScheduleResponses]
 
+export type ListWorkAccessReviewsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/work-access-reviews'
+}
+
+export type ListWorkAccessReviewsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListWorkAccessReviewsError = ListWorkAccessReviewsErrors[keyof ListWorkAccessReviewsErrors]
+
+export type ListWorkAccessReviewsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    work: Array<{
+      agent_uid: string
+      authorization_kind: string
+      can_reauthorize: boolean
+      human_access_version?: number | null
+      human_uid?: string | null
+      id: string
+      kind: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type ListWorkAccessReviewsResponse = ListWorkAccessReviewsResponses[keyof ListWorkAccessReviewsResponses]
+
+export type ClassifyWorkAccessData = {
+  /**
+   * Request body for the classify_work_access operation on human_access resource
+   */
+  body: {
+    data: {
+      authorization_kind: 'human' | 'service'
+      human_uid?: string | null
+      id: string
+      kind: string
+      reason: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/work-access-reviews'
+}
+
+export type ClassifyWorkAccessErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ClassifyWorkAccessError = ClassifyWorkAccessErrors[keyof ClassifyWorkAccessErrors]
+
+export type ClassifyWorkAccessResponses = {
+  /**
+   * Success
+   */
+  201: {
+    work: Array<{
+      agent_uid: string
+      authorization_kind: string
+      can_reauthorize: boolean
+      human_access_version?: number | null
+      human_uid?: string | null
+      id: string
+      kind: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type ClassifyWorkAccessResponse = ClassifyWorkAccessResponses[keyof ClassifyWorkAccessResponses]
+
 export type ArchiveBrainSourceData = {
   body?: never
   path: {
@@ -5420,6 +6291,116 @@ export type ArchiveBrainSourceResponses = {
 }
 
 export type ArchiveBrainSourceResponse = ArchiveBrainSourceResponses[keyof ArchiveBrainSourceResponses]
+
+export type RestoreHumanAccessData = {
+  /**
+   * Request body for the restore_human_access operation on human_access resource
+   */
+  body: {
+    data: {
+      identity_verified: boolean
+      operation_id: string
+      reason: string
+      review_fingerprint: string
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/principals/{uid}/access-restorations'
+}
+
+export type RestoreHumanAccessErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RestoreHumanAccessError = RestoreHumanAccessErrors[keyof RestoreHumanAccessErrors]
+
+export type RestoreHumanAccessResponses = {
+  /**
+   * Success
+   */
+  201: {
+    access_revoked_at?: string | null
+    access_version: number
+    cleanup_jobs: Array<{
+      attempt: number
+      completed_at?: string | null
+      discarded_at?: string | null
+      id: number
+      max_attempts: number
+      scheduled_at?: string | null
+      state: string
+    }>
+    history: Array<{
+      access_version: number
+      action: string
+      actor?: {
+        tenant_id: string
+        uid: string
+      } | null
+      details?: unknown | null
+      id: string
+      inserted_at: string
+      reason: string
+      source: string
+    }>
+    permission_review: {
+      fingerprint: string
+      permissions: {
+        grants: Array<{
+          action: string
+          condition?: unknown | null
+          group_id?: string | null
+          id: string
+          principal_uid?: string | null
+          resource_pattern: string
+        }>
+        groups: Array<{
+          condition?: unknown | null
+          domain: string
+          id: string
+          kind: string
+          name: string
+        }>
+        principal: {
+          access_version: number
+          avatar_url?: string | null
+          display_name?: string | null
+          uid: string
+        }
+      }
+    }
+    restrictions: Array<{
+      cleared_at?: string | null
+      id: string
+      inserted_at: string
+      provider_time?: string | null
+      reason: string
+      recovery_verified_at?: string | null
+      source: string
+    }>
+    status: string
+    uid: string
+    work: Array<{
+      agent_uid: string
+      authorization_kind: string
+      can_reauthorize: boolean
+      human_access_version?: number | null
+      human_uid?: string | null
+      id: string
+      kind: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type RestoreHumanAccessResponse = RestoreHumanAccessResponses[keyof RestoreHumanAccessResponses]
 
 export type ListAgentWorkersData = {
   body?: never
@@ -5652,6 +6633,36 @@ export type UpdateBrainSourceResponses = {
 }
 
 export type UpdateBrainSourceResponse = UpdateBrainSourceResponses[keyof UpdateBrainSourceResponses]
+
+export type ListOidcLoginSourcesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/oidc-clients/login-sources'
+}
+
+export type ListOidcLoginSourcesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListOidcLoginSourcesError = ListOidcLoginSourcesErrors[keyof ListOidcLoginSourcesErrors]
+
+export type ListOidcLoginSourcesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    sources: Array<{
+      enabled: boolean
+      provider_id: string
+    }>
+  }
+}
+
+export type ListOidcLoginSourcesResponse = ListOidcLoginSourcesResponses[keyof ListOidcLoginSourcesResponses]
 
 export type BindIdentityMappingRequestData = {
   /**
@@ -6850,6 +7861,117 @@ export type CreateBrainSourceResponses = {
 }
 
 export type CreateBrainSourceResponse = CreateBrainSourceResponses[keyof CreateBrainSourceResponses]
+
+export type ClearHumanAccessRestrictionData = {
+  /**
+   * Request body for the clear_human_access_restriction operation on human_access resource
+   */
+  body: {
+    data: {
+      operation_id: string
+      reason: string
+    }
+  }
+  path: {
+    restriction_id: string
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/principals/{uid}/access-restrictions/{restriction_id}/clear'
+}
+
+export type ClearHumanAccessRestrictionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ClearHumanAccessRestrictionError =
+  ClearHumanAccessRestrictionErrors[keyof ClearHumanAccessRestrictionErrors]
+
+export type ClearHumanAccessRestrictionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    access_revoked_at?: string | null
+    access_version: number
+    cleanup_jobs: Array<{
+      attempt: number
+      completed_at?: string | null
+      discarded_at?: string | null
+      id: number
+      max_attempts: number
+      scheduled_at?: string | null
+      state: string
+    }>
+    history: Array<{
+      access_version: number
+      action: string
+      actor?: {
+        tenant_id: string
+        uid: string
+      } | null
+      details?: unknown | null
+      id: string
+      inserted_at: string
+      reason: string
+      source: string
+    }>
+    permission_review: {
+      fingerprint: string
+      permissions: {
+        grants: Array<{
+          action: string
+          condition?: unknown | null
+          group_id?: string | null
+          id: string
+          principal_uid?: string | null
+          resource_pattern: string
+        }>
+        groups: Array<{
+          condition?: unknown | null
+          domain: string
+          id: string
+          kind: string
+          name: string
+        }>
+        principal: {
+          access_version: number
+          avatar_url?: string | null
+          display_name?: string | null
+          uid: string
+        }
+      }
+    }
+    restrictions: Array<{
+      cleared_at?: string | null
+      id: string
+      inserted_at: string
+      provider_time?: string | null
+      reason: string
+      recovery_verified_at?: string | null
+      source: string
+    }>
+    status: string
+    uid: string
+    work: Array<{
+      agent_uid: string
+      authorization_kind: string
+      can_reauthorize: boolean
+      human_access_version?: number | null
+      human_uid?: string | null
+      id: string
+      kind: string
+      status: string
+      updated_at: string
+    }>
+  }
+}
+
+export type ClearHumanAccessRestrictionResponse =
+  ClearHumanAccessRestrictionResponses[keyof ClearHumanAccessRestrictionResponses]
 
 export type ListAgentSkillLessonsData = {
   body?: never

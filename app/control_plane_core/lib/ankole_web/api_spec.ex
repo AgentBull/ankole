@@ -62,14 +62,6 @@ defmodule AnkoleWeb.APISpec do
           description: "Operator-managed agent principals"
         },
         %Tag{
-          name: "Principals",
-          description: "Active accountable subjects available to operator surfaces"
-        },
-        %Tag{
-          name: "Identity Providers",
-          description: "Operator-managed identity-provider configuration and directory sync"
-        },
-        %Tag{
           name: "AIGateway",
           description: "Agent and OIDC Human AI provider gateway"
         },

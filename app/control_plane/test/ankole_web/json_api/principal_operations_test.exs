@@ -1,4 +1,4 @@
-defmodule AnkoleWeb.PrincipalControllerTest do
+defmodule AnkoleWeb.JSONAPI.PrincipalOperationsTest do
   use AnkoleWeb.ConnCase, async: false
 
   import Ankole.PrincipalsFixtures
@@ -27,9 +27,9 @@ defmodule AnkoleWeb.PrincipalControllerTest do
       reset_conn =
         conn
         |> recycle_api()
-        |> post(~p"/api/v1/principals/#{human.uid}/local-password-resets", %{})
+        |> v2_post(~p"/api/v2/principals/#{human.uid}/local-password-resets", %{})
 
-      assert %{"error" => %{"code" => "local_identity_provider_disabled"}} =
+      assert %{"errors" => [%{"code" => "local_identity_provider_disabled"}]} =
                json_response(reset_conn, 409)
     end
 
@@ -41,11 +41,17 @@ defmodule AnkoleWeb.PrincipalControllerTest do
       conn =
         conn
         |> recycle_api()
-        |> post(~p"/api/v1/principals/#{human.uid}/local-password-resets", %{
+        |> v2_post(~p"/api/v2/principals/#{human.uid}/local-password-resets", %{
           "must_change_password" => false
         })
 
-      assert %{"initial_password" => initial_password} = json_response(conn, 200)
+      assert %{"initial_password" => initial_password} = json_response(conn, 201)
+      assert get_resp_header(conn, "cache-control") == ["private, no-store"]
+
+      detail =
+        conn |> recycle_api() |> v2_get("/api/v2/principals/#{human.uid}") |> json_response(200)
+
+      refute inspect(detail) =~ initial_password
 
       assert {:ok, %{must_change_password: false}} =
                Ankole.IdentityProviders.LocalPassword.authenticate(
@@ -58,9 +64,9 @@ defmodule AnkoleWeb.PrincipalControllerTest do
       agent_conn =
         conn
         |> recycle_api()
-        |> post(~p"/api/v1/principals/#{agent.uid}/local-password-resets", %{})
+        |> v2_post(~p"/api/v2/principals/#{agent.uid}/local-password-resets", %{})
 
-      assert %{"error" => %{"code" => "not_human"}} = json_response(agent_conn, 422)
+      assert %{"errors" => [%{"code" => "not_human"}]} = json_response(agent_conn, 422)
     end
 
     test "resetting a password for an unknown principal returns 404", %{conn: conn} do
@@ -70,9 +76,9 @@ defmodule AnkoleWeb.PrincipalControllerTest do
       conn =
         conn
         |> recycle_api()
-        |> post(~p"/api/v1/principals/no-such-user/local-password-resets", %{})
+        |> v2_post(~p"/api/v2/principals/no-such-user/local-password-resets", %{})
 
-      assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
+      assert %{"errors" => [%{"code" => "not_found"}]} = json_response(conn, 404)
     end
   end
 
@@ -81,5 +87,14 @@ defmodule AnkoleWeb.PrincipalControllerTest do
       Ankole.IdentityProviders.save_provider("local-main", "local", %{}, true)
 
     :ok
+  end
+
+  defp v2_get(conn, path), do: get(json_api(conn), path)
+  defp v2_post(conn, path, body), do: post(json_api(conn), path, %{data: body})
+
+  defp json_api(conn) do
+    conn
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
   end
 end

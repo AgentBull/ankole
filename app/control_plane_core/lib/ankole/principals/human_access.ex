@@ -15,6 +15,69 @@ defmodule Ankole.Principals.HumanAccess do
   alias Ankole.Principals.Principal
   alias Ankole.Repo
 
+  @doc "Returns the access, permission review, history, and cleanup state of a Human."
+  def console_view(uid) do
+    with {:ok, %{type: :human} = principal} <- Principals.get_principal(uid),
+         {:ok, review} <- AuthZ.restoration_review(uid) do
+      {:ok,
+       %{
+         uid: uid,
+         status: principal.status,
+         access_version: principal.access_version,
+         access_revoked_at: principal.access_revoked_at,
+         permission_review: review,
+         restrictions:
+           Enum.map(
+             restrictions(uid),
+             &Map.take(&1, [
+               :id,
+               :source,
+               :reason,
+               :provider_time,
+               :recovery_verified_at,
+               :cleared_at,
+               :inserted_at
+             ])
+           ),
+         history:
+           Enum.map(
+             history(uid),
+             fn event ->
+               event
+               |> Map.take([
+                 :id,
+                 :source,
+                 :action,
+                 :reason,
+                 :actor,
+                 :access_version,
+                 :details,
+                 :inserted_at
+               ])
+               |> Map.update!(:actor, fn actor -> actor && Map.from_struct(actor) end)
+             end
+           ),
+         work: Ankole.Principals.WorkAccess.list_for_human(uid),
+         cleanup_jobs:
+           Enum.map(
+             Ankole.Principals.WorkCleanup.jobs_for_human(uid),
+             &Map.take(&1, [
+               :id,
+               :state,
+               :attempt,
+               :max_attempts,
+               :scheduled_at,
+               :completed_at,
+               :discarded_at
+             ])
+           )
+       }}
+    else
+      {:ok, _} -> {:error, :not_human}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   def check(uid, version) when is_binary(uid) and is_integer(version) do
     case Principals.get_principal_across_tenants(uid) do
       {:ok, %Principal{type: :human, status: :active, access_version: ^version}} -> :ok

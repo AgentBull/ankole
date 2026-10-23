@@ -73,14 +73,6 @@ export type AiGatewayChatGptBrowserLoginRequest = {
 }
 
 /**
- * DirectoryEventReviewRequest
- */
-export type DirectoryEventReviewRequest = {
-  action: 'retry' | 'dismiss'
-  reason: string
-}
-
-/**
  * AppConfigurationResponse
  */
 export type AppConfigurationResponse = {
@@ -138,14 +130,6 @@ export type WorkerEnvDecryptionResponse = {
 }
 
 /**
- * OIDCClientSecretResponse
- */
-export type OidcClientSecretResponse = {
-  client_secret: string | null
-  oidc_client: OidcClientItem
-}
-
-/**
  * BackgroundAgentJobTurnPlanStep
  */
 export type BackgroundAgentJobTurnPlanStep = {
@@ -159,40 +143,6 @@ export type BackgroundAgentJobTurnPlanStep = {
  * Any JSON-compatible value. AppConfigure validates the concrete key schema.
  */
 export type JsonValue = unknown
-
-/**
- * WorkClassifyRequest
- */
-export type WorkClassifyRequest = {
-  authorization_kind: 'human' | 'service'
-  human_uid?: string | null
-  id: string
-  kind: string
-  reason: string
-}
-
-/**
- * DirectoryAccessResponse
- */
-export type DirectoryAccessResponse = {
-  events: Array<DirectoryEventItem>
-  snapshot: DirectorySnapshot | null
-}
-
-/**
- * HumanAccessResponse
- */
-export type HumanAccessResponse = {
-  access_revoked_at: string | null
-  access_version: number
-  cleanup_jobs: Array<CleanupJobItem>
-  history: Array<AccessHistoryItem>
-  permission_review: AccessPermissionReview
-  restrictions: Array<AccessRestrictionItem>
-  status: string
-  uid: string
-  work: Array<HumanWorkItem>
-}
 
 /**
  * BackgroundAgentJobHealthResponse
@@ -234,42 +184,6 @@ export type WorkerEnvListResponse = {
  */
 export type ConsoleApiErrorEnvelope = {
   error: ConsoleApiError
-}
-
-/**
- * LocalPasswordResetResponse
- */
-export type LocalPasswordResetResponse = {
-  initial_password: string
-}
-
-/**
- * IdentityProviderSyncRunItem
- */
-export type IdentityProviderSyncRunItem = {
-  job_id?: number | null
-  provider_id: string
-  status: 'enqueued'
-}
-
-/**
- * DirectorySnapshot
- */
-export type DirectorySnapshot = {
-  approved_scope_fingerprint: string | null
-  last_error: string | null
-  last_started_at: string | null
-  last_success_at: string | null
-  member_uids: Array<string>
-  missing_uids: Array<string>
-  provider_id: string
-  review_reason: string | null
-  reviewed_at: string | null
-  reviewed_by: ConsoleActorRef | null
-  revision: number
-  scope_fingerprint: string | null
-  snapshot_fingerprint: string | null
-  status: string
 }
 
 /**
@@ -434,21 +348,6 @@ export type ModelProfileResponse = {
 }
 
 /**
- * IdentityProviderListResponse
- */
-export type IdentityProviderListResponse = {
-  identity_providers: Array<IdentityProviderItem>
-}
-
-/**
- * AccessReasonRequest
- */
-export type AccessReasonRequest = {
-  operation_id: string
-  reason: string
-}
-
-/**
  * AIGatewayProviderItem
  */
 export type AiGatewayProviderItem = {
@@ -483,32 +382,12 @@ export type BrainPageContradiction = {
 }
 
 /**
- * AccessReviewPrincipal
- */
-export type AccessReviewPrincipal = {
-  access_version: number
-  avatar_url: string | null
-  display_name: string | null
-  uid: string
-}
-
-/**
  * ConsoleReadinessModelProfiles
  */
 export type ConsoleReadinessModelProfiles = {
   agent_uid: string | null
   complete: boolean
   missing_profiles: Array<string>
-}
-
-/**
- * OIDCLoginSources
- */
-export type OidcLoginSources = {
-  sources: Array<{
-    enabled: boolean
-    provider_id: string
-  }>
 }
 
 /**
@@ -571,17 +450,6 @@ export type BackgroundActivityWorkflowCall = {
   updated_at: string | null
   wake_at: string | null
   wake_kind: 'sleep' | 'agent_capacity' | null
-}
-
-/**
- * AccessReviewGroup
- */
-export type AccessReviewGroup = {
-  condition: JsonValue
-  domain: string
-  id: string
-  kind: string
-  name: string
 }
 
 /**
@@ -656,31 +524,6 @@ export type AgentLibraryCapabilitiesResponse = {
 }
 
 /**
- * AccessReviewGrant
- */
-export type AccessReviewGrant = {
-  action: string
-  condition: JsonValue
-  group_id: string | null
-  id: string
-  principal_uid: string | null
-  resource_pattern: string
-}
-
-/**
- * IdentityProviderItem
- */
-export type IdentityProviderItem = {
-  adapter_id: string
-  config: JsonValue
-  config_key: string
-  enabled: boolean
-  plugin_id: string
-  provider_id: string
-  stored_secret_paths: Array<string>
-}
-
-/**
  * AgentLibraryAgentOverrideWriteRequest
  */
 export type AgentLibraryAgentOverrideWriteRequest = {
@@ -716,13 +559,6 @@ export type AiGatewayProviderSetting = {
   required: boolean
   scope: 'connection' | 'credential' | 'request'
   type: 'boolean' | 'float' | 'integer' | 'map' | 'select' | 'string'
-}
-
-/**
- * IdentityProviderResponse
- */
-export type IdentityProviderResponse = {
-  identity_provider: IdentityProviderItem
 }
 
 /**
@@ -816,32 +652,10 @@ export type SignalBindingResponse = {
 }
 
 /**
- * AccessPermissionReview
- */
-export type AccessPermissionReview = {
-  fingerprint: string
-  permissions: AccessReviewPermissions
-}
-
-/**
  * AgentLibraryDocumentResponse
  */
 export type AgentLibraryDocumentResponse = {
   library_document: AgentLibraryDocumentItem
-}
-
-/**
- * AccessHistoryItem
- */
-export type AccessHistoryItem = {
-  access_version: number
-  action: string
-  actor: ConsoleActorRef | null
-  details: JsonValue
-  id: string
-  inserted_at: string
-  reason: string
-  source: string
 }
 
 /**
@@ -1150,24 +964,6 @@ export type BackgroundActivityJobsResponse = {
 }
 
 /**
- * DirectoryEventItem
- */
-export type DirectoryEventItem = {
-  event_id: string
-  event_type: string
-  external_ids: Array<string>
-  id: string
-  inserted_at: string
-  last_error: string | null
-  processed_at: string | null
-  provider_time: string | null
-  reason: string | null
-  review_reason: string | null
-  reviewed_by: ConsoleActorRef | null
-  status: string
-}
-
-/**
  * BrainHealthResponse
  */
 export type BrainHealthResponse = {
@@ -1226,19 +1022,6 @@ export type BackgroundActivityWorkflowResponse = {
   observed_at: string
   runs: Array<BackgroundActivityWorkflowRun>
   runs_next_cursor: string | null
-}
-
-/**
- * CleanupJobItem
- */
-export type CleanupJobItem = {
-  attempt: number
-  completed_at: string | null
-  discarded_at: string | null
-  id: number
-  max_attempts: number
-  scheduled_at: string | null
-  state: string
 }
 
 /**
@@ -1385,15 +1168,6 @@ export type AiGatewayProviderKindItem = {
 }
 
 /**
- * DirectoryApproveRequest
- */
-export type DirectoryApproveRequest = {
-  confirm_removals: boolean
-  reason: string
-  snapshot_fingerprint: string
-}
-
-/**
  * WorkerProviderKind
  */
 export type WorkerProviderKind = {
@@ -1436,20 +1210,6 @@ export type BrainClaim = {
   valid_from?: string | null
   valid_until?: string | null
   weight?: number | null
-}
-
-/**
- * IdentityProviderSyncRunResponse
- */
-export type IdentityProviderSyncRunResponse = {
-  sync_run: IdentityProviderSyncRunItem
-}
-
-/**
- * WorkReviewResponse
- */
-export type WorkReviewResponse = {
-  work: Array<HumanWorkItem>
 }
 
 /**
@@ -1504,13 +1264,6 @@ export type ConsoleReadinessSignalRoute = {
 }
 
 /**
- * IdentityProviderAdapterListResponse
- */
-export type IdentityProviderAdapterListResponse = {
-  identity_provider_adapters: Array<IdentityProviderAdapterItem>
-}
-
-/**
  * BackgroundAgentJobTurnUsage
  */
 export type BackgroundAgentJobTurnUsage = {
@@ -1555,15 +1308,6 @@ export type AiGatewayProviderKindListResponse = {
 }
 
 /**
- * AccessReviewPermissions
- */
-export type AccessReviewPermissions = {
-  grants: Array<AccessReviewGrant>
-  groups: Array<AccessReviewGroup>
-  principal: AccessReviewPrincipal
-}
-
-/**
  * SignalDeliveryRequeueRequest
  */
 export type SignalDeliveryRequeueRequest = {
@@ -1576,19 +1320,6 @@ export type SignalDeliveryRequeueRequest = {
  */
 export type AiGatewayProviderResponse = {
   ai_gateway_provider: AiGatewayProviderItem
-}
-
-/**
- * AccessRestrictionItem
- */
-export type AccessRestrictionItem = {
-  cleared_at: string | null
-  id: string
-  inserted_at: string
-  provider_time: string | null
-  reason: string
-  recovery_verified_at: string | null
-  source: string
 }
 
 /**
@@ -1616,18 +1347,6 @@ export type AgentFileDeleteResponse = {
  */
 export type AgentLibraryDocumentsResponse = {
   library_documents: AgentLibraryDocuments
-}
-
-/**
- * IdentityProviderAdapterItem
- */
-export type IdentityProviderAdapterItem = {
-  adapter_id: string
-  capabilities: Array<string>
-  default_provider_id: string
-  display_name?: LocalizedText
-  fields: Array<SignalAdapterField>
-  plugin_id?: string | null
 }
 
 /**
@@ -1714,13 +1433,6 @@ export type BrainObjectPage = {
 }
 
 /**
- * LocalPasswordResetRequest
- */
-export type LocalPasswordResetRequest = {
-  must_change_password?: boolean
-}
-
-/**
  * TokenQuotaWriteRequest
  */
 export type TokenQuotaWriteRequest = {
@@ -1790,31 +1502,6 @@ export type ControlPlanePluginItem = {
 }
 
 /**
- * HumanWorkItem
- */
-export type HumanWorkItem = {
-  agent_uid: string
-  authorization_kind: string
-  can_reauthorize: boolean
-  human_access_version: number | null
-  human_uid: string | null
-  id: string
-  kind: string
-  status: string
-  updated_at: string
-}
-
-/**
- * AccessRestoreRequest
- */
-export type AccessRestoreRequest = {
-  identity_verified: boolean
-  operation_id: string
-  reason: string
-  review_fingerprint: string
-}
-
-/**
  * SignalDeliveryFailureItem
  */
 export type SignalDeliveryFailureItem = {
@@ -1850,15 +1537,6 @@ export type SignalAdapterJsonObjectValidation = {
 }
 
 /**
- * IdentityProviderWriteRequest
- */
-export type IdentityProviderWriteRequest = {
-  adapter_id: string
-  config: JsonValue
-  enabled?: boolean
-}
-
-/**
  * SignalDeliveryRequeueResponse
  */
 export type SignalDeliveryRequeueResponse = {
@@ -1871,29 +1549,6 @@ export type SignalDeliveryRequeueResponse = {
 export type ConsoleReadinessWorker = {
   complete: boolean
   ready_count: number
-}
-
-/**
- * OIDCClientItem
- */
-export type OidcClientItem = {
-  allow_insecure_local_logout: boolean
-  allowed_group_ids: Array<string>
-  allowed_identity_provider_ids: Array<string>
-  allowed_models: {
-    [key: string]: ModelProfileWriteRequest
-  }
-  backchannel_logout_session_required: boolean
-  backchannel_logout_uri: string | null
-  enabled: boolean
-  id: string
-  inserted_at: string
-  name: string
-  post_logout_redirect_uris: Array<string>
-  redirect_uris: Array<string>
-  scopes: Array<string>
-  type: 'public' | 'confidential'
-  updated_at: string
 }
 
 /**
@@ -1967,33 +1622,6 @@ export type AnkoleWebAiGatewayFilesControllerContentResponses = {
 
 export type AnkoleWebAiGatewayFilesControllerContentResponse =
   AnkoleWebAiGatewayFilesControllerContentResponses[keyof AnkoleWebAiGatewayFilesControllerContentResponses]
-
-export type AnkoleWebIdentityProviderControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/identity-providers'
-}
-
-export type AnkoleWebIdentityProviderControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebIdentityProviderControllerIndexError =
-  AnkoleWebIdentityProviderControllerIndexErrors[keyof AnkoleWebIdentityProviderControllerIndexErrors]
-
-export type AnkoleWebIdentityProviderControllerIndexResponses = {
-  /**
-   * Identity providers
-   */
-  200: IdentityProviderListResponse
-}
-
-export type AnkoleWebIdentityProviderControllerIndexResponse =
-  AnkoleWebIdentityProviderControllerIndexResponses[keyof AnkoleWebIdentityProviderControllerIndexResponses]
 
 export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginData = {
   /**
@@ -2234,38 +1862,6 @@ export type AnkoleWebAgentFileControllerMoveResponses = {
 export type AnkoleWebAgentFileControllerMoveResponse =
   AnkoleWebAgentFileControllerMoveResponses[keyof AnkoleWebAgentFileControllerMoveResponses]
 
-export type AnkoleWebPrincipalControllerCreateLocalPasswordResetData = {
-  /**
-   * Reset options
-   */
-  body: LocalPasswordResetRequest
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v1/principals/{uid}/local-password-resets'
-}
-
-export type AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPrincipalControllerCreateLocalPasswordResetError =
-  AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors[keyof AnkoleWebPrincipalControllerCreateLocalPasswordResetErrors]
-
-export type AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses = {
-  /**
-   * New one-time password
-   */
-  200: LocalPasswordResetResponse
-}
-
-export type AnkoleWebPrincipalControllerCreateLocalPasswordResetResponse =
-  AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses[keyof AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses]
-
 export type AnkoleWebAgentControllerResetTokenQuotaData = {
   body?: never
   path: {
@@ -2387,28 +1983,6 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideRespo
 export type AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponse =
   AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponses[keyof AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponses]
 
-export type AnkoleWebDirectoryAccessControllerApproveData = {
-  /**
-   * Snapshot review
-   */
-  body: DirectoryApproveRequest
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/identity-providers/{provider_id}/directory-reviews'
-}
-
-export type AnkoleWebDirectoryAccessControllerApproveResponses = {
-  /**
-   * Directory evidence
-   */
-  200: DirectoryAccessResponse
-}
-
-export type AnkoleWebDirectoryAccessControllerApproveResponse =
-  AnkoleWebDirectoryAccessControllerApproveResponses[keyof AnkoleWebDirectoryAccessControllerApproveResponses]
-
 export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData = {
   /**
    * Credential strategy
@@ -2476,25 +2050,6 @@ export type AnkoleWebAiGatewayControllerResponsesResponses = {
 
 export type AnkoleWebAiGatewayControllerResponsesResponse =
   AnkoleWebAiGatewayControllerResponsesResponses[keyof AnkoleWebAiGatewayControllerResponsesResponses]
-
-export type AnkoleWebHumanAccessControllerRetryCleanupData = {
-  body?: never
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v1/principals/{uid}/work-cleanup-retries'
-}
-
-export type AnkoleWebHumanAccessControllerRetryCleanupResponses = {
-  /**
-   * Human access
-   */
-  200: HumanAccessResponse
-}
-
-export type AnkoleWebHumanAccessControllerRetryCleanupResponse =
-  AnkoleWebHumanAccessControllerRetryCleanupResponses[keyof AnkoleWebHumanAccessControllerRetryCleanupResponses]
 
 export type AnkoleWebAgentLibraryCapabilityControllerAgentIndexData = {
   body?: never
@@ -2887,38 +2442,6 @@ export type AnkoleWebAiGatewayControllerWebFetchResponses = {
 export type AnkoleWebAiGatewayControllerWebFetchResponse =
   AnkoleWebAiGatewayControllerWebFetchResponses[keyof AnkoleWebAiGatewayControllerWebFetchResponses]
 
-export type AnkoleWebIdentityProviderControllerPutProviderData = {
-  /**
-   * Identity provider
-   */
-  body: IdentityProviderWriteRequest
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/identity-providers/{provider_id}'
-}
-
-export type AnkoleWebIdentityProviderControllerPutProviderErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebIdentityProviderControllerPutProviderError =
-  AnkoleWebIdentityProviderControllerPutProviderErrors[keyof AnkoleWebIdentityProviderControllerPutProviderErrors]
-
-export type AnkoleWebIdentityProviderControllerPutProviderResponses = {
-  /**
-   * Identity provider
-   */
-  200: IdentityProviderResponse
-}
-
-export type AnkoleWebIdentityProviderControllerPutProviderResponse =
-  AnkoleWebIdentityProviderControllerPutProviderResponses[keyof AnkoleWebIdentityProviderControllerPutProviderResponses]
-
 export type AnkoleWebWorkerProviderControllerKindsData = {
   body?: never
   path?: never
@@ -3072,33 +2595,6 @@ export type AnkoleWebAgentControllerPutModelProfileResponses = {
 export type AnkoleWebAgentControllerPutModelProfileResponse =
   AnkoleWebAgentControllerPutModelProfileResponses[keyof AnkoleWebAgentControllerPutModelProfileResponses]
 
-export type AnkoleWebIdentityProviderControllerAdaptersData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/identity-provider-adapters'
-}
-
-export type AnkoleWebIdentityProviderControllerAdaptersErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebIdentityProviderControllerAdaptersError =
-  AnkoleWebIdentityProviderControllerAdaptersErrors[keyof AnkoleWebIdentityProviderControllerAdaptersErrors]
-
-export type AnkoleWebIdentityProviderControllerAdaptersResponses = {
-  /**
-   * Identity-provider adapters
-   */
-  200: IdentityProviderAdapterListResponse
-}
-
-export type AnkoleWebIdentityProviderControllerAdaptersResponse =
-  AnkoleWebIdentityProviderControllerAdaptersResponses[keyof AnkoleWebIdentityProviderControllerAdaptersResponses]
-
 export type AnkoleWebAiGatewayControllerRetrieveResponseData = {
   body?: never
   path: {
@@ -3140,35 +2636,6 @@ export type AnkoleWebAiGatewayControllerRetrieveResponseResponses = {
 
 export type AnkoleWebAiGatewayControllerRetrieveResponseResponse =
   AnkoleWebAiGatewayControllerRetrieveResponseResponses[keyof AnkoleWebAiGatewayControllerRetrieveResponseResponses]
-
-export type AnkoleWebOidcClientControllerRotateSecretData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v1/oidc-clients/{id}/secret-rotations'
-}
-
-export type AnkoleWebOidcClientControllerRotateSecretErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebOidcClientControllerRotateSecretError =
-  AnkoleWebOidcClientControllerRotateSecretErrors[keyof AnkoleWebOidcClientControllerRotateSecretErrors]
-
-export type AnkoleWebOidcClientControllerRotateSecretResponses = {
-  /**
-   * OIDC Client and one-time secret
-   */
-  200: OidcClientSecretResponse
-}
-
-export type AnkoleWebOidcClientControllerRotateSecretResponse =
-  AnkoleWebOidcClientControllerRotateSecretResponses[keyof AnkoleWebOidcClientControllerRotateSecretResponses]
 
 export type AnkoleWebWorkerEnvControllerDecryptForAgentData = {
   body?: never
@@ -3228,35 +2695,6 @@ export type AnkoleWebWorkerEnvControllerDecryptTenantResponses = {
 
 export type AnkoleWebWorkerEnvControllerDecryptTenantResponse =
   AnkoleWebWorkerEnvControllerDecryptTenantResponses[keyof AnkoleWebWorkerEnvControllerDecryptTenantResponses]
-
-export type AnkoleWebIdentityProviderControllerRunSyncData = {
-  body?: never
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/identity-providers/{provider_id}/sync-runs'
-}
-
-export type AnkoleWebIdentityProviderControllerRunSyncErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebIdentityProviderControllerRunSyncError =
-  AnkoleWebIdentityProviderControllerRunSyncErrors[keyof AnkoleWebIdentityProviderControllerRunSyncErrors]
-
-export type AnkoleWebIdentityProviderControllerRunSyncResponses = {
-  /**
-   * Identity-provider sync run
-   */
-  200: IdentityProviderSyncRunResponse
-}
-
-export type AnkoleWebIdentityProviderControllerRunSyncResponse =
-  AnkoleWebIdentityProviderControllerRunSyncResponses[keyof AnkoleWebIdentityProviderControllerRunSyncResponses]
 
 export type AnkoleWebSignalBindingControllerIndexData = {
   body?: never
@@ -3447,53 +2885,6 @@ export type AnkoleWebWorkerProviderControllerCheckResponses = {
 export type AnkoleWebWorkerProviderControllerCheckResponse =
   AnkoleWebWorkerProviderControllerCheckResponses[keyof AnkoleWebWorkerProviderControllerCheckResponses]
 
-export type AnkoleWebHumanAccessControllerUnresolvedWorkData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/work-access-reviews'
-}
-
-export type AnkoleWebHumanAccessControllerUnresolvedWorkResponses = {
-  /**
-   * Work review
-   */
-  200: WorkReviewResponse
-}
-
-export type AnkoleWebHumanAccessControllerUnresolvedWorkResponse =
-  AnkoleWebHumanAccessControllerUnresolvedWorkResponses[keyof AnkoleWebHumanAccessControllerUnresolvedWorkResponses]
-
-export type AnkoleWebHumanAccessControllerClassifyWorkData = {
-  /**
-   * Work review
-   */
-  body: WorkClassifyRequest
-  path?: never
-  query?: never
-  url: '/api/v1/work-access-reviews'
-}
-
-export type AnkoleWebHumanAccessControllerClassifyWorkErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebHumanAccessControllerClassifyWorkError =
-  AnkoleWebHumanAccessControllerClassifyWorkErrors[keyof AnkoleWebHumanAccessControllerClassifyWorkErrors]
-
-export type AnkoleWebHumanAccessControllerClassifyWorkResponses = {
-  /**
-   * Work review
-   */
-  200: WorkReviewResponse
-}
-
-export type AnkoleWebHumanAccessControllerClassifyWorkResponse =
-  AnkoleWebHumanAccessControllerClassifyWorkResponses[keyof AnkoleWebHumanAccessControllerClassifyWorkResponses]
-
 export type AnkoleWebAgentControllerIndexModelProfilesData = {
   body?: never
   path: {
@@ -3644,39 +3035,6 @@ export type AnkoleWebSignalBindingControllerUpdateBindingResponses = {
 
 export type AnkoleWebSignalBindingControllerUpdateBindingResponse =
   AnkoleWebSignalBindingControllerUpdateBindingResponses[keyof AnkoleWebSignalBindingControllerUpdateBindingResponses]
-
-export type AnkoleWebHumanAccessControllerClearRestrictionData = {
-  /**
-   * Review
-   */
-  body: AccessReasonRequest
-  path: {
-    uid: string
-    restriction_id: string
-  }
-  query?: never
-  url: '/api/v1/principals/{uid}/access-restrictions/{restriction_id}/clear'
-}
-
-export type AnkoleWebHumanAccessControllerClearRestrictionErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebHumanAccessControllerClearRestrictionError =
-  AnkoleWebHumanAccessControllerClearRestrictionErrors[keyof AnkoleWebHumanAccessControllerClearRestrictionErrors]
-
-export type AnkoleWebHumanAccessControllerClearRestrictionResponses = {
-  /**
-   * Human access
-   */
-  200: HumanAccessResponse
-}
-
-export type AnkoleWebHumanAccessControllerClearRestrictionResponse =
-  AnkoleWebHumanAccessControllerClearRestrictionResponses[keyof AnkoleWebHumanAccessControllerClearRestrictionResponses]
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideData = {
   /**
@@ -3853,35 +3211,6 @@ export type AnkoleWebBrainControllerPrincipalKnowledgeResponses = {
 export type AnkoleWebBrainControllerPrincipalKnowledgeResponse =
   AnkoleWebBrainControllerPrincipalKnowledgeResponses[keyof AnkoleWebBrainControllerPrincipalKnowledgeResponses]
 
-export type AnkoleWebHumanAccessControllerShowData = {
-  body?: never
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v1/principals/{uid}/access'
-}
-
-export type AnkoleWebHumanAccessControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebHumanAccessControllerShowError =
-  AnkoleWebHumanAccessControllerShowErrors[keyof AnkoleWebHumanAccessControllerShowErrors]
-
-export type AnkoleWebHumanAccessControllerShowResponses = {
-  /**
-   * Human access
-   */
-  200: HumanAccessResponse
-}
-
-export type AnkoleWebHumanAccessControllerShowResponse =
-  AnkoleWebHumanAccessControllerShowResponses[keyof AnkoleWebHumanAccessControllerShowResponses]
-
 export type BackgroundActivityAutomationRunsData = {
   body?: never
   path: {
@@ -4047,31 +3376,6 @@ export type AnkoleWebSignalBindingControllerPutBindingResponses = {
 
 export type AnkoleWebSignalBindingControllerPutBindingResponse =
   AnkoleWebSignalBindingControllerPutBindingResponses[keyof AnkoleWebSignalBindingControllerPutBindingResponses]
-
-export type OidcLoginSourcesData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/oidc-clients/login-sources'
-}
-
-export type OidcLoginSourcesErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type OidcLoginSourcesError = OidcLoginSourcesErrors[keyof OidcLoginSourcesErrors]
-
-export type OidcLoginSourcesResponses = {
-  /**
-   * Sources
-   */
-  200: OidcLoginSources
-}
-
-export type OidcLoginSourcesResponse = OidcLoginSourcesResponses[keyof OidcLoginSourcesResponses]
 
 export type AnkoleWebWorkerEnvControllerDeleteTenantData = {
   body?: never
@@ -4515,38 +3819,6 @@ export type AnkoleWebAgentLibraryControllerIndexResponses = {
 export type AnkoleWebAgentLibraryControllerIndexResponse =
   AnkoleWebAgentLibraryControllerIndexResponses[keyof AnkoleWebAgentLibraryControllerIndexResponses]
 
-export type AnkoleWebHumanAccessControllerDisableData = {
-  /**
-   * Reason
-   */
-  body: AccessReasonRequest
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v1/principals/{uid}/access-disables'
-}
-
-export type AnkoleWebHumanAccessControllerDisableErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebHumanAccessControllerDisableError =
-  AnkoleWebHumanAccessControllerDisableErrors[keyof AnkoleWebHumanAccessControllerDisableErrors]
-
-export type AnkoleWebHumanAccessControllerDisableResponses = {
-  /**
-   * Human access
-   */
-  200: HumanAccessResponse
-}
-
-export type AnkoleWebHumanAccessControllerDisableResponse =
-  AnkoleWebHumanAccessControllerDisableResponses[keyof AnkoleWebHumanAccessControllerDisableResponses]
-
 export type AnkoleWebAiGatewayProviderControllerProviderKindsData = {
   body?: never
   path?: never
@@ -4675,48 +3947,6 @@ export type AnkoleWebBackgroundAgentJobControllerHealthResponses = {
 
 export type AnkoleWebBackgroundAgentJobControllerHealthResponse =
   AnkoleWebBackgroundAgentJobControllerHealthResponses[keyof AnkoleWebBackgroundAgentJobControllerHealthResponses]
-
-export type AnkoleWebDirectoryAccessControllerReviewEventData = {
-  /**
-   * Event review
-   */
-  body: DirectoryEventReviewRequest
-  path: {
-    provider_id: string
-    event_id: string
-  }
-  query?: never
-  url: '/api/v1/identity-providers/{provider_id}/directory-events/{event_id}/reviews'
-}
-
-export type AnkoleWebDirectoryAccessControllerReviewEventResponses = {
-  /**
-   * Directory evidence
-   */
-  200: DirectoryAccessResponse
-}
-
-export type AnkoleWebDirectoryAccessControllerReviewEventResponse =
-  AnkoleWebDirectoryAccessControllerReviewEventResponses[keyof AnkoleWebDirectoryAccessControllerReviewEventResponses]
-
-export type AnkoleWebDirectoryAccessControllerShowData = {
-  body?: never
-  path: {
-    provider_id: string
-  }
-  query?: never
-  url: '/api/v1/identity-providers/{provider_id}/directory'
-}
-
-export type AnkoleWebDirectoryAccessControllerShowResponses = {
-  /**
-   * Directory evidence
-   */
-  200: DirectoryAccessResponse
-}
-
-export type AnkoleWebDirectoryAccessControllerShowResponse =
-  AnkoleWebDirectoryAccessControllerShowResponses[keyof AnkoleWebDirectoryAccessControllerShowResponses]
 
 export type AnkoleWebAgentLibraryControllerUpdateData = {
   /**
@@ -5106,38 +4336,6 @@ export type AnkoleWebAppConfigurationControllerDecryptResponses = {
 
 export type AnkoleWebAppConfigurationControllerDecryptResponse =
   AnkoleWebAppConfigurationControllerDecryptResponses[keyof AnkoleWebAppConfigurationControllerDecryptResponses]
-
-export type AnkoleWebHumanAccessControllerRestoreData = {
-  /**
-   * Approved review
-   */
-  body: AccessRestoreRequest
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v1/principals/{uid}/access-restorations'
-}
-
-export type AnkoleWebHumanAccessControllerRestoreErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebHumanAccessControllerRestoreError =
-  AnkoleWebHumanAccessControllerRestoreErrors[keyof AnkoleWebHumanAccessControllerRestoreErrors]
-
-export type AnkoleWebHumanAccessControllerRestoreResponses = {
-  /**
-   * Human access
-   */
-  200: HumanAccessResponse
-}
-
-export type AnkoleWebHumanAccessControllerRestoreResponse =
-  AnkoleWebHumanAccessControllerRestoreResponses[keyof AnkoleWebHumanAccessControllerRestoreResponses]
 
 export type AnkoleWebWorkerEnvControllerDeleteForAgentData = {
   body?: never
