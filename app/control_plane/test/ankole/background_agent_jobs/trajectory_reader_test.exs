@@ -546,8 +546,8 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
 
   defp create_job!(agent_uid, suffix) do
     assert {:ok, %{job: job}} =
-             Repo.transact(fn _repo ->
-               BackgroundAgentJobs.create_with_dispatch(%{
+             Repo.transact(fn repo ->
+               BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(repo, %{
                  "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
                  "agent_uid" => agent_uid,
                  "owner_session_id" => "parent-session-#{suffix}",

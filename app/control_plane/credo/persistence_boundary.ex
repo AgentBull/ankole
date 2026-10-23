@@ -5,10 +5,8 @@ defmodule Ankole.Credo.PersistenceBoundary do
   `Ankole.Credo.AshBoundary`, `Ankole.Credo.RawSQLTenant`, and
   `Ankole.PersistenceBoundaryTest` use these occurrences and the same data
   file: `test/ankole/persistence_boundary.exs`. That file lists the registered
-  exception modules and the reviewed count of each crossing per file. A private
-  checkout adds the counts of its files in
-  `internals/control_plane/test/persistence_boundary.exs`. Each domain task
-  removes the counts of its own files.
+  exception modules. A private checkout adds its exceptions in
+  `internals/control_plane/test/persistence_boundary.exs`.
 
   Each occurrence gives its kind, module, function, line, and the module that
   its first argument names (or `nil`). The kinds are:
@@ -17,8 +15,14 @@ defmodule Ankole.Credo.PersistenceBoundary do
       error-class construction, and a pattern or guard that names an
       `Ash.Error` module outside `Ankole.Ash`, `Ankole.Errors`, and
       `AnkoleWeb.ConsoleErrors`.
+    * `:ash_bulk`, `:transaction_hook` - a direct `Ash.bulk_*` call and an
+      `Ash.Changeset` transaction hook outside those owners. `Ankole.Ash` runs
+      bulk actions in the tenant context, and a generic action owns the
+      transaction effects.
     * `:ecto_write`, `:ecto_lock`, `:repo_transact` - an Ecto write, an Ecto row
       lock, or a `Repo` transaction outside the registered exception modules.
+      A `lock:` keyword is an Ecto lock only in an Ecto `from` query; in a
+      code interface `query:` keyword it is an Ash lock.
     * `:consumer_ash` - an Ash call in `ankole_web`, a plugin, or the control
       plane application. `Ash.PlugHelpers` only puts request values on a
       connection, so it is not an Ash call.
@@ -71,10 +75,14 @@ defmodule Ankole.Credo.PersistenceBoundary do
   @sql_modules [Ecto.Adapters.SQL, Postgrex]
   @table_reference ~r/\b(FROM|JOIN|INTO|UPDATE|TABLE|INDEX)\b/i
   @exemptible [:ecto_write, :ecto_lock, :repo_transact, :ecto_source, :consumer_ash, :ash_call]
+  @bulk_actions [:bulk_create, :bulk_update, :bulk_destroy]
+  @transaction_hooks [:before_transaction, :after_transaction, :around_transaction]
   @enforced [
     :bulk_result,
     :error_class,
     :ash_error_match,
+    :ash_bulk,
+    :transaction_hook,
     :ecto_write,
     :ecto_lock,
     :repo_transact,
@@ -82,37 +90,32 @@ defmodule Ankole.Credo.PersistenceBoundary do
     :raw_sql_tenant
   ]
 
-  @doc "Reads the registered exceptions and the reviewed baseline."
+  @doc "Reads the registered exceptions."
   def data do
-    [@data, @private_data]
-    |> Enum.filter(&File.exists?/1)
-    |> Enum.map(&(&1 |> Code.eval_file() |> elem(0)))
-    |> Enum.reduce(fn private, public ->
-      %{
-        exceptions: Map.merge(public.exceptions, private.exceptions),
-        baseline: Map.merge(public.baseline, private.baseline)
-      }
-    end)
+    exceptions =
+      [@data, @private_data]
+      |> Enum.filter(&File.exists?/1)
+      |> Enum.map(&(&1 |> Code.eval_file() |> elem(0) |> Map.fetch!(:exceptions)))
+      |> Enum.reduce(&Map.merge(&2, &1))
+
+    %{exceptions: exceptions}
   end
 
   @doc """
-  Gives the occurrences of a source file that exceed the reviewed baseline.
+  Gives the occurrences of the given kinds in a source file that no registered
+  exception covers.
 
   Credo checks call this function once for each file, so the data stays in a
   persistent term until the data file changes.
   """
-  def excess(ast, filename, kinds) do
-    %{exceptions: exceptions, baseline: baseline} = cached_data()
+  def crossings(ast, filename, kinds) do
+    %{exceptions: exceptions} = cached_data()
     path = Path.relative_to(Path.expand(filename), File.cwd!(), force: true)
 
     ast
     |> occurrences(path)
     |> Enum.filter(&(&1.kind in kinds and not exempt?(&1, exceptions)))
-    |> Enum.group_by(& &1.kind)
-    |> Enum.flat_map(fn {kind, found} ->
-      allowed = Map.get(baseline, key(kind, path), 0)
-      found |> Enum.sort_by(& &1.line) |> Enum.drop(allowed) |> Enum.map(&{&1, allowed})
-    end)
+    |> Enum.sort_by(& &1.line)
   end
 
   defp cached_data do
@@ -129,10 +132,10 @@ defmodule Ankole.Credo.PersistenceBoundary do
     end
   end
 
-  @doc "Gives the kinds that Credo enforces against the baseline."
+  @doc "Gives the kinds that Credo enforces."
   def enforced_kinds, do: @enforced
 
-  @doc "Gives the baseline key of an occurrence kind in a file."
+  @doc "Gives the report key of an occurrence kind in a file."
   def key(kind, path), do: "#{kind}:#{path}"
 
   @doc """
@@ -163,6 +166,7 @@ defmodule Ankole.Credo.PersistenceBoundary do
       function: nil,
       aliases: %{},
       site_sql?: false,
+      ecto_query?: false,
       owner?: owner?(path),
       consumer?: consumer?(path)
     }
@@ -233,7 +237,7 @@ defmodule Ankole.Credo.PersistenceBoundary do
     acc = classify_node(node, context, acc)
     acc = classify({form, meta, args}, context, acc)
     {_ast, acc} = if call_target?(form), do: {nil, acc}, else: walk(form, context, acc)
-    walk(args, context, acc)
+    walk(args, ecto_query(form, context), acc)
   end
 
   defp walk({left, right}, context, acc) do
@@ -259,7 +263,7 @@ defmodule Ankole.Credo.PersistenceBoundary do
     do: add(acc, :ash_error_match, meta, context, nil, ash_error?(resolve(name, context)) and not context.owner?)
 
   defp classify_node({:lock, value}, context, acc) when is_binary(value),
-    do: add(acc, :ecto_lock, [], context, nil, lock_clause?(value))
+    do: add(acc, :ecto_lock, [], context, nil, context.ecto_query? and lock_clause?(value))
 
   defp classify_node({:in, meta, [_left, right]}, context, acc) do
     case resolve(right, context) do
@@ -346,6 +350,14 @@ defmodule Ankole.Credo.PersistenceBoundary do
       acc
       |> add(:consumer_ash, meta, context, nil, context.consumer? and not context.owner?)
       |> add(:error_class, meta, context, nil, function == :to_error_class and not context.owner?)
+      |> add(:ash_bulk, meta, context, nil, module == Ash and function in @bulk_actions and not context.owner?)
+      |> add(
+        :transaction_hook,
+        meta,
+        context,
+        nil,
+        module == Ash.Changeset and function in @transaction_hooks and not context.owner?
+      )
       |> add(:ash_call, meta, context, first, not context.consumer? and module?(first))
     else
       acc
@@ -353,6 +365,14 @@ defmodule Ankole.Credo.PersistenceBoundary do
   end
 
   defp at_line(context, meta), do: %{context | line: Keyword.get(meta, :line, context.line)}
+
+  # The arguments of an Ecto `from` query, where a `lock:` keyword is an Ecto lock.
+  defp ecto_query(:from, context), do: %{context | ecto_query?: true}
+
+  defp ecto_query({:., _meta, [target, :from]}, context),
+    do: %{context | ecto_query?: context.ecto_query? or resolve(target, context) == Ecto.Query}
+
+  defp ecto_query(_form, context), do: context
 
   defp add(acc, _kind, _meta, _context, _target, false), do: acc
 

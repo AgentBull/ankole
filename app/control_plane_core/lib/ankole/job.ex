@@ -1,5 +1,11 @@
 defmodule Ankole.Job do
-  @moduledoc "Sets the tenant context at the durable job boundary."
+  @moduledoc """
+  Sets the tenant context at the durable job boundary.
+
+  A worker module depends on this module at compile time (`use Ankole.Job`).
+  This module calls only the Repo and Oban, so a change to a domain does not
+  recompile the workers. `Ankole.Job.Context` runs each job.
+  """
 
   @callback run(Oban.Job.t()) :: term()
 
@@ -22,7 +28,7 @@ defmodule Ankole.Job do
       end
 
       @impl Oban.Worker
-      def perform(job), do: Ankole.Job.perform(unquote(tenancy), job, &run/1)
+      def perform(job), do: Ankole.Job.Context.perform(unquote(tenancy), job, &run/1)
     end
   end
 
@@ -83,17 +89,5 @@ defmodule Ankole.Job do
     tenant_id = Map.get(args, "tenant_id") || Ankole.Repo.tenant_id!()
     {:ok, tenant_id} = Ecto.UUID.cast(tenant_id)
     Map.put(args, "tenant_id", tenant_id)
-  end
-
-  @doc false
-  def perform(:site, job, run), do: Ankole.Repo.without_tenant(fn -> run.(job) end)
-
-  def perform(:tenant, %Oban.Job{args: %{"tenant_id" => tenant_id}} = job, run) do
-    Ankole.Repo.with_tenant(tenant_id, fn ->
-      case Ankole.Tenants.get(tenant_id) do
-        {:ok, _tenant} -> run.(job)
-        {:error, :not_found} -> {:cancel, :tenant_deleted}
-      end
-    end)
   end
 end

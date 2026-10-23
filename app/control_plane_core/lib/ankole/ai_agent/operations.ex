@@ -7,22 +7,9 @@ defmodule Ankole.AIAgent.Operations do
   action locks the Agent row and writes the new options in one transaction.
   The resource keeps no rows.
   """
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIAgent
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIAgent, operations: true
 
   alias Ankole.AIAgent.{ModelProfiles, TokenQuota}
-
-  # Ash rolls back a failed generic action through the data layer of its own
-  # resource, and Ash.DataLayer.Simple cannot roll back. A polymorphic
-  # AshPostgres resource has no table but uses the Repo transaction.
-  postgres do
-    repo(Ankole.Repo)
-    polymorphic?(true)
-    migrate?(false)
-  end
-
-  resource do
-    require_primary_key?(false)
-  end
 
   actions do
     action :put_token_quota, :term do

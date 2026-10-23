@@ -14,9 +14,7 @@ defmodule Ankole.PersistenceBoundaryTest do
 
   alias Ankole.Credo.PersistenceBoundary
 
-  @boundary PersistenceBoundary.data()
-  @exception_modules @boundary.exceptions
-  @baseline @boundary.baseline
+  @exception_modules PersistenceBoundary.data().exceptions
   @usage [:persistence, :ecto_write, :ecto_lock, :ecto_source, :repo_transact, :raw_sql_tenant]
 
   setup_all do
@@ -30,27 +28,15 @@ defmodule Ankole.PersistenceBoundaryTest do
     %{resources: resources}
   end
 
-  test "each crossing outside the registered exceptions keeps its reviewed count", %{
+  test "only the registered exceptions cross the persistence boundary", %{
     resources: resources
   } do
-    occurrences = occurrences()
-    files = MapSet.new(Map.keys(occurrences))
-    actual = occurrences |> Enum.flat_map(&crossings(&1, resources)) |> Enum.frequencies()
+    actual = occurrences() |> Enum.flat_map(&crossings(&1, resources)) |> Enum.frequencies()
 
-    expected =
-      Map.filter(@baseline, fn {key, _count} ->
-        [_kind, path] = String.split(key, ":", parts: 2)
-        MapSet.member?(files, path)
-      end)
-
-    changes =
-      for key <- Enum.uniq(Map.keys(actual) ++ Map.keys(expected)),
-          actual[key] != expected[key],
-          do: {key, expected[key], actual[key]}
-
-    assert actual == expected,
-           "Review each crossing and update test/ankole/persistence_boundary.exs " <>
-             "({key, reviewed, actual}): #{inspect(Enum.sort(changes), limit: :infinity)}"
+    assert actual == %{},
+           "Move each crossing to its owner or register its module in " <>
+             "test/ankole/persistence_boundary.exs ({kind:path, count}): " <>
+             inspect(Enum.sort(actual), limit: :infinity)
   end
 
   test "each registered exception still uses the database directly" do
@@ -79,6 +65,7 @@ defmodule Ankole.PersistenceBoundaryTest do
         Tenant |> Ash.Query.filter(id == ^1) |> Ankole.Ash.read()
         Signal |> Ash.Query.filter(id == ^1) |> Ankole.Ash.read()
         Repo.one(from(s in Signal, lock: "FOR UPDATE"))
+        Ankole.Tenants.get_tenant!(1, query: [lock: "FOR KEY SHARE"])
         Repo.query!("SELECT * FROM signals")
         Repo.query!("SELECT clock_timestamp()")
         case result do

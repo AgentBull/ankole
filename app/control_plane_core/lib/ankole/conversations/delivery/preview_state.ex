@@ -7,7 +7,6 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
     domain: Ankole.Conversations
 
   require Ash.Query
-  alias Ankole.Conversations.Locks
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.Delivery.{InteractionState, PreviewAdapter}
 
@@ -212,19 +211,17 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
   end
 
   @doc "Gives the preview state of a Signal, or an empty state when it has none."
-  def get(signal, _repo \\ nil)
-  def get(%Signal{preview: %__MODULE__{} = preview}, _repo), do: preview
-  def get(%Signal{id: id}, _repo), do: get(id)
+  def get(%Signal{preview: %__MODULE__{} = preview}), do: preview
+  def get(%Signal{id: id}), do: get(id)
 
-  def get(id, _repo) when is_binary(id),
+  def get(id) when is_binary(id),
     do:
       __MODULE__ |> Ash.Query.filter(signal_id == ^id) |> Ankole.Ash.read_one!() ||
         struct(__MODULE__, signal_id: id)
 
-  @doc "Gives the Signal with its preview state. The second argument is not used."
-  def load(signal, _repo \\ nil)
-  def load(nil, _repo), do: nil
-  def load(%Signal{} = signal, _repo), do: %{signal | preview: get(signal.id)}
+  @doc "Gives the Signal with its preview state."
+  def load(nil), do: nil
+  def load(%Signal{} = signal), do: %{signal | preview: get(signal.id)}
 
   @doc "Reads a Signal with its preview state. The result is nil when the Signal is missing."
   def load_signal(signal_id), do: signal_id |> Ankole.Signals.get_signal!() |> load()
@@ -652,11 +649,11 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
       |> Ankole.Ash.read!()
       |> Enum.map(& &1.signal_id)
 
-    [
-      filter: [id: [in: signal_ids], agent_uid: agent_uid, reply_binding_name: binding_name],
+    repo
+    |> Ankole.Signals.lock_signals_in_tx(
+      [id: [in: signal_ids], agent_uid: agent_uid, reply_binding_name: binding_name],
       sort: [id: :asc]
-    ]
-    |> Locks.signals()
+    )
     |> Enum.reduce_while({:ok, :ok}, fn event, acc ->
       checkpoint = get(event).checkpoint || %{}
 

@@ -21,6 +21,20 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:../control_plane_core/lib/ankole_web/controllers/oidc_logout_controller.ex:confirmation" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole_web/plugs/oidc_cors.ex:call" => 1,
+    "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:read_principals" =>
+      1,
+    "across_tenants:../control_plane_core/lib/ankole/work/owner.ex:revoke_human_work_in_tx" => 1,
+    "across_tenants:../control_plane_core/lib/ankole/app_configure.ex:platform_application_in_other_tenant?" =>
+      1,
+    "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:lock_principals" =>
+      1,
+    "across_tenants:../control_plane_core/lib/ankole/ash.ex:read_across_tenants!" => 1,
+    "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:list_for_human" =>
+      1,
+    "across_tenants:../control_plane_core/lib/ankole/work/owner.ex:lock_revocation_parents_in_tx" =>
+      2,
+    "across_tenants:../control_plane_core/lib/ankole/automation_jobs.ex:count_running_runs_for_human" =>
+      2,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:assign_legacy_provider_in_tx" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:assigned_worker" => 1,
@@ -28,7 +42,6 @@ defmodule Ankole.TenancyGuardTest do
       1,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:provider_worker_count" => 1,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:provider_workers" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/browser_sessions.ex:site_principals" => 1,
     "across_tenants:../control_plane_core/lib/ankole/browser_sessions.ex:save_pod_authentications" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/conversations/delivery/dispatch.ex:reconcile_wakeups" =>
@@ -49,7 +62,7 @@ defmodule Ankole.TenancyGuardTest do
       1,
     "across_tenants:../control_plane_core/lib/ankole/principals.ex:resolve_tenant" => 1,
     "across_tenants:../control_plane_core/lib/ankole/principals/work_cleanup.ex:cleanup_in_tx" =>
-      2,
+      1,
     "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:valid_subject_now?" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/signals.ex:count_admitted_attempts_for_human" =>
@@ -57,8 +70,6 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:../control_plane_core/lib/ankole/signals.ex:due_sessions_across_tenants" => 1,
     "across_tenants:../control_plane_core/lib/ankole/signals/bindings.ex:config_ref_shared?" => 1,
     "across_tenants:../control_plane_core/lib/ankole/signals/bindings.ex:site_application_bound_in_other_tenant?" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/signals/bindings.ex:tenant_application_in_other_tenant?" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/signals/webhooks.ex:endpoint_across_tenants" =>
       1,
@@ -70,7 +81,6 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:lib/ankole/upgrade_202610.ex:migrate_shared_key" => 1,
     "across_tenants:../control_plane_core/lib/ankole/workflow/recovery.ex:reconcile_run_wakeups" =>
       1,
-    "across_tenants:../control_plane_core/lib/ankole/work/owner.ex:read_across_tenants" => 1,
     "raw_sql:../control_plane_core/lib/ankole/advisory_lock.ex:lock" => 1,
     "raw_sql:../control_plane_core/lib/ankole/advisory_lock.ex:lock!" => 1,
     "raw_sql:../control_plane_core/lib/ankole/ai_gateway/provider_configs.ex:provider_references" =>
@@ -677,8 +687,9 @@ defmodule Ankole.TenancyGuardTest do
   defp function_name({:when, _, [head | _]}), do: function_name(head)
   defp function_name({name, _, _args}), do: name
 
-  defp query_escape_kind({{:., _, [_module, :across_tenants]}, _, args}) when is_list(args),
-    do: :across_tenants
+  defp query_escape_kind({{:., _, [_module, call]}, _, args})
+       when call in [:across_tenants, :read_across_tenants!] and is_list(args),
+       do: :across_tenants
 
   defp query_escape_kind({{:., _, [module, call]}, _, args})
        when call in [:query, :query!, :query_many, :query_many!] and is_list(args) do

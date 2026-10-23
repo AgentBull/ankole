@@ -123,18 +123,6 @@ defmodule Ankole.Brain.Claims do
   end
 
   @doc """
-  Writes one Fact through the shared contract.
-
-  Transitional: callers outside the Brain directory move to
-  `Ankole.Brain.write_fact/2`, and Brain modules use `write_fact_in_tx/3` or
-  the `:write_fact` action.
-  """
-  @spec write_fact(map(), writer(), keyword()) ::
-          {:ok, %{claim: Claim.t(), status: atom()}} | {:error, term()}
-  def write_fact(attrs, writer, opts \\ []),
-    do: Ankole.Ash.run_action(Claim, :write_fact, %{attrs: attrs, writer: writer, options: opts})
-
-  @doc """
   Writes one Fact in the caller's transaction.
 
   Returns `{:ok, %{claim: claim, status: status}}` where status is

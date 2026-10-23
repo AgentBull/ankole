@@ -198,17 +198,6 @@ defmodule Ankole.Brain.Objects do
   end
 
   @doc """
-  Creates one object through the shared write contract.
-
-  Transitional: callers outside the Brain directory move to
-  `Ankole.Brain.create_object/2`, and Brain modules use `create_object_in_tx/2`
-  or the `:create_object` action.
-  """
-  @spec create_object(map(), writer()) :: {:ok, Object.t()} | {:error, term()}
-  def create_object(attrs, writer),
-    do: Ankole.Ash.run_action(Object, :create_object, %{attrs: attrs, writer: writer})
-
-  @doc """
   Creates one object in the caller's transaction.
 
   `writer` is the Principal whose scope eligibility applies; `:system`

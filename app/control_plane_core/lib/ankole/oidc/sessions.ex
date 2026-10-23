@@ -173,22 +173,20 @@ defmodule Ankole.OIDC.Sessions do
     end
   end
 
-  # Tenants owns the row. FOR KEY SHARE keeps the tenant while a credential refers to it.
+  # FOR KEY SHARE keeps the tenant while a credential refers to it.
   defp lock_tenant do
-    case Ankole.Tenants.get_tenant!(Repo.tenant_id!(), query: [lock: "FOR KEY SHARE"]) do
-      nil -> {:error, :context_unavailable}
-      _tenant -> :ok
+    case Ankole.Tenants.lock_tenant_in_tx(Repo, Repo.tenant_id!(), :key_share) do
+      {:ok, _tenant} -> :ok
+      {:error, :not_found} -> {:error, :context_unavailable}
     end
   end
 
-  # Principals owns the row. FOR KEY SHARE keeps the Human while a credential refers to it.
+  # FOR KEY SHARE keeps the Human while a credential refers to it.
   defp lock_principal(uid) do
-    Ankole.LockOrder.with_identity({"principals", uid}, fn ->
-      principals =
-        Ankole.Principals.list_principals!(query: [filter: [uid: uid], lock: "FOR KEY SHARE"])
-
-      List.first(principals)
-    end)
+    case Ankole.Principals.lock_principal_in_tx(Repo, uid, :key_share) do
+      {:ok, principal} -> principal
+      {:error, _reason} -> nil
+    end
   end
 
   defp lock_client(id) do

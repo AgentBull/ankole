@@ -3,6 +3,10 @@ defmodule Ankole.AdvisoryLock do
 
   alias Ecto.Adapters.SQL
 
+  # The statements read no table: each locks one key of the database.
+  Module.register_attribute(__MODULE__, :raw_sql_scope, persist: true)
+  @raw_sql_scope :site
+
   @doc "Locks a key without changing its existing PostgreSQL hash representation."
   def lock(repo, key, opts \\ []) do
     Ankole.LockOrder.check_advisory(key)

@@ -24,10 +24,9 @@ run; `fire_due_event`; `fire_cron`) is a generic action on `ScheduledEvent` or
 `CronSchedule`. The action owns its transaction and must be the top-level call.
 A failed fire records its error in a second generic action after the first
 transaction rolls back. Code that already has a transaction composes the
-`_in_tx` functions of `Schedule.Checkbacks` and `Schedule.Cron`. The Sessions
-schedule tools still call the entry points in their receipt transaction; there
-an entry point joins that transaction through its `_in_tx` function until the
-tools call those functions directly. Reads and row locks use Ash queries.
+`_in_tx` functions of `Schedule.Checkbacks` and `Schedule.Cron`; the Sessions
+schedule tools do this in their receipt transaction. Reads and row locks use
+Ash queries.
 
 ScheduledEvent actions declare their durable types and required input directly.
 Structured provenance, wake payloads, and errors use the shared strict JSON

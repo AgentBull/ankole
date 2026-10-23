@@ -269,7 +269,7 @@ defmodule Ankole.AIGateway.ResponseChain do
         deleted =
           case Message
                |> Ash.Query.filter(id in ^message_ids)
-               |> Ankole.Ash.destroy_where(:remove_suffix, select: [:id]) do
+               |> Ankole.Ash.destroy_where(:remove_suffix, %{}, select: [:id]) do
             {:ok, records} -> records
             {:error, error} -> raise error
           end

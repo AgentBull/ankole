@@ -95,7 +95,7 @@ defmodule Ankole.AIGateway.Schemas.Artifact do
 
     destroy :collect do
       require_atomic?(true)
-      argument(:now, :utc_datetime_usec, allow_nil?: false, public?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
 
       change(
         filter(

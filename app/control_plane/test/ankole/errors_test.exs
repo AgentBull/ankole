@@ -39,6 +39,21 @@ defmodule Ankole.ErrorsTest do
     assert Errors.wrap(:ok) == :ok
   end
 
+  test "rollback_result/1 gives a rolled-back changeset as its class and keeps other results" do
+    changeset =
+      %Ash.Changeset{resource: TenantIsolationFixture.Probe}
+      |> Ash.Changeset.add_error(Ash.Error.Changes.StaleRecord.exception(filter: %{id: 1}))
+
+    assert {:error, %Ash.Error.Invalid{errors: [%Stale{}]}} =
+             Errors.rollback_result({:error, changeset})
+
+    # A generic action rolls back with its declared rejection; the class stays.
+    rejected = Ash.Error.to_error_class(Rejected.exception(reason: :job_not_found))
+    assert Errors.rollback_result({:error, rejected}) == {:error, rejected}
+    assert Errors.rollback_result({:error, :reason}) == {:error, :reason}
+    assert Errors.rollback_result({:ok, 1}) == {:ok, 1}
+  end
+
   test "reason/1 gives domain code its reason and keeps other failures" do
     for {error, reason} <- [
           {Rejected.exception(reason: :job_not_found), :job_not_found},

@@ -7,7 +7,6 @@ defmodule Ankole.Credo.RawSQLTenant do
   The SQL text must contain `tenant_id`, or its module must declare
   `@raw_sql_scope :site` for site tables, catalogs, and DDL. SQL without a
   table reference (a clock, a sequence, or an advisory lock) needs neither.
-  Each file can keep the reviewed count of `test/ankole/persistence_boundary.exs`.
   """
   use Credo.Check, base_priority: :high, category: :warning
 
@@ -19,12 +18,11 @@ defmodule Ankole.Credo.RawSQLTenant do
 
     source_file
     |> Credo.SourceFile.ast()
-    |> PersistenceBoundary.excess(source_file.filename, [:raw_sql_tenant])
-    |> Enum.map(fn {occurrence, allowed} ->
+    |> PersistenceBoundary.crossings(source_file.filename, [:raw_sql_tenant])
+    |> Enum.map(fn occurrence ->
       format_issue(issue_meta,
         line_no: occurrence.line,
-        message:
-          "Bind tenant_id in raw SQL or declare @raw_sql_scope :site (reviewed count: #{allowed})"
+        message: "Bind tenant_id in raw SQL or declare @raw_sql_scope :site"
       )
     end)
   end
