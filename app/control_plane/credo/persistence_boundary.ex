@@ -20,7 +20,8 @@ defmodule Ankole.Credo.PersistenceBoundary do
     * `:ecto_write`, `:ecto_lock`, `:repo_transact` - an Ecto write, an Ecto row
       lock, or a `Repo` transaction outside the registered exception modules.
     * `:consumer_ash` - an Ash call in `ankole_web`, a plugin, or the control
-      plane application.
+      plane application. `Ash.PlugHelpers` only puts request values on a
+      connection, so it is not an Ash call.
     * `:raw_sql_tenant` - raw SQL that reads or changes a table without a
       `tenant_id` predicate, in a module without `@raw_sql_scope :site`.
     * `:ecto_source` and `:ash_call` - candidates that the boundary test
@@ -381,6 +382,7 @@ defmodule Ankole.Credo.PersistenceBoundary do
 
   defp ash_module?(module) when is_atom(module) and not is_nil(module) do
     case Module.split(module) do
+      ["Ash", "PlugHelpers"] -> false
       ["Ash" | _rest] -> true
       ["Ankole", "Ash" | _rest] -> true
       _other -> false

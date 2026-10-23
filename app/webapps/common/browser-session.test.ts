@@ -119,7 +119,8 @@ test('cancelling a tenant switch cannot send an old draft to the requested tenan
     return new Response('{}')
   }) as typeof fetch
   await withDataContext(transport)('https://ankole.test/api/v1/agents', { method: 'POST' })
-  expect(tenants).toEqual(['tenant-a'])
+  await withDataContext(transport)('https://ankole.test/api/v2/agents', { method: 'POST' })
+  expect(tenants).toEqual(['tenant-a', 'tenant-a'])
   expect(requestedURL?.searchParams.get('data_tenant')).toBe('tenant-b')
 })
 
@@ -144,7 +145,8 @@ test('explicit author context and site requests cannot inherit the selected data
   const request = withDataContext(transport)
   await request('https://ankole.test/api/v1/principals/author', { headers: { 'x-ankole-tenant': 'author-tenant' } })
   await request('https://ankole.test/api/v1/site/tenants')
-  expect(tenants).toEqual(['author-tenant', null])
+  await request('https://ankole.test/api/v2/site/tenants')
+  expect(tenants).toEqual(['author-tenant', null, null])
 })
 
 test('a new document for another authentication has its own Console data selection', () => {

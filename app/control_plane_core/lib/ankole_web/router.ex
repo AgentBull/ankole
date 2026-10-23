@@ -29,7 +29,8 @@ defmodule AnkoleWeb.Router do
 
   pipeline :session_api do
     # Setup, authentication, and Console JSON requests share cookie and CSRF protection.
-    plug :accepts, ["json"]
+    # The v2 Console API uses the JSON:API media type.
+    plug :accepts, ["json", "json_api"]
     plug :fetch_session
     plug :browser_csrf
     plug :put_secure_browser_headers
@@ -573,6 +574,20 @@ defmodule AnkoleWeb.Router do
     get "/agents/:agent_uid/automation-jobs/:automation_job_id",
         AutomationJobController,
         :show
+  end
+
+  # The JSON:API routers serve the routes that the Ash domains declare. The site
+  # router comes first because the Console router serves all other v2 paths.
+  scope "/api/v2/site" do
+    pipe_through [:session_api, :site_admin]
+
+    forward "/", AnkoleWeb.JSONAPI.SiteRouter
+  end
+
+  scope "/api/v2" do
+    pipe_through [:session_api, :site_admin, :data_context]
+
+    forward "/", AnkoleWeb.JSONAPI.ConsoleRouter
   end
 
   scope "/api/v1/ai-gateway", AnkoleWeb do

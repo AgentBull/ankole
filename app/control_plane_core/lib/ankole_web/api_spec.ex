@@ -36,13 +36,7 @@ defmodule AnkoleWeb.APISpec do
       # Console requests use browser sessions. AIGateway uses Agent and OIDC Human tokens.
       components: %Components{
         securitySchemes: %{
-          "consoleSession" => %SecurityScheme{
-            type: "apiKey",
-            in: "header",
-            name: "Cookie",
-            description:
-              "The browser sends the sealed group and selected authentication cookies in the Cookie header. The group alone is not authentication. The shell supplies x-ankole-authentication for selection and x-csrf-token for unsafe requests."
-          },
+          "consoleSession" => console_session(),
           "aiGatewayBearer" => %SecurityScheme{
             type: "http",
             scheme: "bearer",
@@ -119,4 +113,14 @@ defmodule AnkoleWeb.APISpec do
     }
     |> OpenAPISpex.resolve_schema_modules()
   end
+
+  @doc "Gives the security scheme of a Console request. The JSON:API documents use it too."
+  def console_session,
+    do: %SecurityScheme{
+      type: "apiKey",
+      in: "header",
+      name: "Cookie",
+      description:
+        "The browser sends the sealed group and selected authentication cookies in the Cookie header. The group alone is not authentication. The shell supplies x-ankole-authentication for selection and x-csrf-token for unsafe requests."
+    }
 end
