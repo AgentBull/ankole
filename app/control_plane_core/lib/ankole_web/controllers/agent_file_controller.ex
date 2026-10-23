@@ -12,7 +12,7 @@ defmodule AnkoleWeb.AgentFileController do
     try do
       with {:ok, agent_uid} <-
              Attrs.required_text(Map.get(params, "agent_uid"), {:missing, :agent_uid}),
-           {:ok, path} <- Attrs.required_text(Map.get(params, "path"), {:missing, :path}),
+           {:ok, path} <- Files.Path.normalize(Map.get(params, "path")),
            {:ok, agent_uid} <- authorize(conn, agent_uid, "read"),
            {:ok, %DriveFile{} = file} <- Files.read_to_file(agent_uid, path, local_path) do
         conn
@@ -35,7 +35,7 @@ defmodule AnkoleWeb.AgentFileController do
     with {:ok, agent_uid} <-
            Attrs.required_text(Map.get(params, "agent_uid"), {:missing, :agent_uid}),
          {:ok, agent_uid} <- authorize(conn, agent_uid, "update"),
-         {:ok, path} <- Attrs.required_text(Map.get(body, "path"), {:missing, :path}),
+         {:ok, path} <- Files.Path.normalize(Map.get(body, "path")),
          {:ok, upload} <- upload_param(body),
          :ok <- assert_upload_size(upload),
          {:ok, %{sha256: sha256}} <- Files.store({:file, upload.path}),

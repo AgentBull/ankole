@@ -139,6 +139,45 @@ defmodule AnkoleWeb.AgentFileControllerTest do
              |> json_response(404)
   end
 
+  test "downloads the exact path when file names have leading or trailing spaces", %{
+    conn: conn,
+    agent_uid: agent_uid
+  } do
+    conn = console_conn(conn)
+    drive_file_fixture(agent_uid, "report.txt", "ordinary file")
+
+    for {path, content} <- [{" report.txt", "leading space"}, {"report.txt ", "trailing space"}] do
+      drive_file_fixture(agent_uid, path, content)
+
+      assert conn
+             |> recycle_api()
+             |> api_get(~p"/api/v1/agents/#{agent_uid}/files/content?path=#{path}")
+             |> response(200) == content
+    end
+  end
+
+  test "uploads preserve spaces in a path and leave the ordinary name unchanged", %{
+    conn: conn,
+    agent_uid: agent_uid
+  } do
+    conn = console_conn(conn)
+    drive_file_fixture(agent_uid, "report.txt", "ordinary file")
+
+    for {path, content} <- [{" report.txt", "leading space"}, {"report.txt ", "trailing space"}] do
+      assert %{"uploaded_file" => %{"path" => ^path}} =
+               conn
+               |> recycle_api()
+               |> multipart(~p"/api/v1/agents/#{agent_uid}/files",
+                 path: path,
+                 file: build_upload!(content)
+               )
+               |> json_response(200)
+
+      assert {:ok, _file, ^content} = Files.read(agent_uid, path)
+      assert {:ok, _file, "ordinary file"} = Files.read(agent_uid, "report.txt")
+    end
+  end
+
   test "rejects an upload over the transfer limit", %{conn: conn, agent_uid: agent_uid} do
     conn = console_conn(conn)
 
