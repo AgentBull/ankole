@@ -163,29 +163,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderItem do
   )
 end
 
-defmodule AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderListResponse do
-  alias OpenApiSpex, as: OpenAPISpex
-  alias OpenAPISpex.Schema
-  alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderItem
-
-  @moduledoc false
-
-  require OpenAPISpex
-
-  OpenAPISpex.schema(
-    %{
-      title: "AIGatewayProviderListResponse",
-      type: :object,
-      properties: %{
-        ai_gateway_providers: %Schema{type: :array, items: AIGatewayProviderItem}
-      },
-      required: [:ai_gateway_providers],
-      additionalProperties: false
-    },
-    struct?: false
-  )
-end
-
 defmodule AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderResponse do
   alias OpenApiSpex, as: OpenAPISpex
   alias OpenAPISpex.Schema
@@ -203,31 +180,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderResponse do
         ai_gateway_provider: AIGatewayProviderItem
       },
       required: [:ai_gateway_provider],
-      additionalProperties: false
-    },
-    struct?: false
-  )
-end
-
-defmodule AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderWriteRequest do
-  alias OpenApiSpex, as: OpenAPISpex
-  alias OpenAPISpex.Schema
-
-  @moduledoc false
-
-  require OpenAPISpex
-
-  OpenAPISpex.schema(
-    %{
-      title: "AIGatewayProviderWriteRequest",
-      type: :object,
-      properties: %{
-        provider_id: %Schema{type: :string},
-        provider_kind: %Schema{type: :string},
-        base_url: %Schema{type: :string, nullable: true},
-        connection_options: %Schema{type: :object, additionalProperties: true},
-        credential_pool: %Schema{type: :object, additionalProperties: true}
-      },
       additionalProperties: false
     },
     struct?: false

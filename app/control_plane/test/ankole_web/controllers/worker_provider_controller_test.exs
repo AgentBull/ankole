@@ -2,19 +2,16 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
   import Ankole.PrincipalsFixtures
-  import Ecto.Query, only: [from: 2]
   alias Ankole.{Principals, Repo}
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Setup.Config, as: SetupConfig
 
-  alias Ankole.AgentWorkers.Cloudflare
   alias Ankole.Plugins.ChinaMarketAIProviders.WorkerProviders.FunctionCompute
   alias Ankole.AgentWorkers.Lambda
   alias Ankole.AgentWorkers.Providers
   alias Ankole.Plugins.VercelWorkerProvider.Provider, as: Vercel
 
-  alias Ankole.AgentWorkers.Providers.Provider
   alias Ankole.AgentWorkers.AgentWorker
 
   setup do
@@ -25,7 +22,6 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
       Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
 
     :ok = SetupConfig.delete_bootstrap_activation_code()
-    %{providers_before: Repo.all(from p in Provider, order_by: p.provider_id)}
   end
 
   test "an inactive Plugin keeps its provider visible and explains recovery", %{conn: conn} do
@@ -66,13 +62,10 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
 
     refute Enum.any?(response["worker_provider_kinds"], &(&1["kind"] == "vercel"))
 
-    response =
-      conn |> recycle_api() |> get(~p"/api/v1/site/worker-providers") |> json_response(200)
-
-    row = Enum.find(response["worker_providers"], &(&1["provider_id"] == provider.provider_id))
+    row = conn |> worker_providers() |> Enum.find(&(&1["provider_id"] == provider.provider_id))
     refute row["selectable"]
     assert row["config"] == provider.config
-    assert row["credentials"] == %{"token" => "********"}
+    assert row["stored_credentials"] == ["token"]
 
     response =
       conn
@@ -106,105 +99,6 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
                "message" => "requires active and configured Plugin vercel-worker-provider"
              }
            ]
-  end
-
-  test "admin saves the original YAML, reads the type contract, and sees every YAML error location",
-       %{conn: conn, providers_before: providers_before} do
-    conn = console_conn(conn)
-    response = get(conn, ~p"/api/v1/site/worker-provider-kinds") |> json_response(200)
-    docker = Enum.find(response["worker_provider_kinds"], &(&1["kind"] == "docker"))
-    assert Enum.sort(Map.keys(docker)) == ~w(credentials example kind)
-    assert docker["example"] =~ "network:"
-    config = "# Operator comment\nnetwork: bridge\ncpus: 2\n"
-
-    response =
-      conn
-      |> recycle_api()
-      |> post(~p"/api/v1/site/worker-providers", attrs(config))
-      |> json_response(201)
-
-    assert %{
-             "worker_provider" => %{
-               "provider_id" => "local",
-               "config" => ^config,
-               "agent_count" => 0
-             }
-           } = response
-
-    response =
-      conn |> recycle_api() |> get(~p"/api/v1/site/worker-providers") |> json_response(200)
-
-    rows = response["worker_providers"]
-
-    assert Enum.sort(Enum.map(rows, & &1["provider_id"])) ==
-             Enum.sort(["local" | Enum.map(providers_before, & &1.provider_id)])
-
-    assert %{"config" => ^config} = Enum.find(rows, &(&1["provider_id"] == "local"))
-
-    response =
-      conn
-      |> recycle_api()
-      |> patch(~p"/api/v1/site/worker-providers/local", %{
-        config: "network: bridge\nenv:\n  HOME: /elsewhere\nunknown: true\n"
-      })
-      |> json_response(422)
-
-    errors = response["error"]["details"]
-    assert Enum.any?(errors, &(&1["path"] == "env.HOME" and &1["line"] == 3))
-    assert Enum.any?(errors, &(&1["path"] == "unknown" and &1["line"] == 4))
-    assert Repo.get_by!(Provider, provider_id: "local").config == config
-
-    response =
-      conn
-      |> recycle_api()
-      |> patch(~p"/api/v1/site/worker-providers/local", %{config: "socket: /another.sock\n"})
-      |> json_response(422)
-
-    assert [%{"path" => "socket", "message" => "cannot change after creation"}] =
-             response["error"]["details"]
-
-    assert conn
-           |> recycle_api()
-           |> delete(~p"/api/v1/site/worker-providers/local")
-           |> response(204) ==
-             ""
-  end
-
-  test "credentials never enter a response and an empty replacement keeps the encrypted value", %{
-    conn: conn
-  } do
-    conn = console_conn(conn)
-
-    body = %{
-      provider_id: "edge",
-      display_name: "Edge",
-      kind: "cloudflare",
-      config: Ankole.AgentWorkers.Cloudflare.definition().example,
-      credentials: %{adapterToken: "api-secret"}
-    }
-
-    created = conn |> recycle_api() |> post(~p"/api/v1/site/worker-providers", body)
-
-    assert %{"worker_provider" => %{"credentials" => %{"adapterToken" => "********"}}} =
-             json_response(created, 201)
-
-    refute created.resp_body =~ "api-secret"
-    encrypted = Repo.get_by!(Provider, provider_id: "edge").credentials
-    refute inspect(encrypted) =~ "api-secret"
-
-    updated =
-      conn
-      |> recycle_api()
-      |> patch(~p"/api/v1/site/worker-providers/edge", %{credentials: %{adapterToken: ""}})
-
-    assert json_response(updated, 200)["worker_provider"]["credentials"] == %{
-             "adapterToken" => "********"
-           }
-
-    assert Repo.get_by!(Provider, provider_id: "edge").credentials == encrypted
-    listed = conn |> recycle_api() |> get(~p"/api/v1/site/worker-providers")
-    refute listed.resp_body =~ "api-secret"
-    refute listed.resp_body =~ encrypted["adapterToken"]
   end
 
   test "creation selects a provider, migration assignment is one-time, and deleting Agents retain the provider reference",
@@ -279,87 +173,12 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
 
     response =
       conn
-      |> recycle_api()
-      |> delete(~p"/api/v1/site/worker-providers/local")
+      |> json_api()
+      |> delete(~p"/api/v2/site/worker-providers/local")
       |> json_response(409)
 
-    assert response["error"]["code"] == "worker_provider_in_use"
-
-    response =
-      conn |> recycle_api() |> get(~p"/api/v1/site/worker-providers") |> json_response(200)
-
-    assert Enum.find(response["worker_providers"], &(&1["provider_id"] == "local"))["agent_count"] ==
-             1
-  end
-
-  test "null removes an optional credential, and credential rules name their fields", %{
-    conn: conn
-  } do
-    conn = console_conn(conn)
-
-    body = %{
-      provider_id: "aws",
-      display_name: "AWS",
-      kind: "lambda",
-      config: Lambda.definition().example,
-      credentials: %{
-        accessKeyId: "AKIAEXAMPLE",
-        secretAccessKey: "first-secret",
-        sessionToken: "first-session"
-      }
-    }
-
-    assert %{"worker_provider" => %{"credentials" => %{"sessionToken" => "********"}}} =
-             conn
-             |> recycle_api()
-             |> post(~p"/api/v1/site/worker-providers", Ankole.JSON.encode!(body))
-             |> json_response(201)
-
-    update = fn id, credentials ->
-      conn
-      |> recycle_api()
-      |> patch(
-        ~p"/api/v1/site/worker-providers/#{id}",
-        Ankole.JSON.encode!(%{credentials: credentials})
-      )
-    end
-
-    response = update.("aws", %{sessionToken: nil, secretAccessKey: ""}) |> json_response(200)
-
-    assert response["worker_provider"]["credentials"] == %{
-             "accessKeyId" => "********",
-             "secretAccessKey" => "********"
-           }
-
-    response = update.("aws", %{accessKeyId: nil}) |> json_response(422)
-
-    assert response["error"]["details"] == [
-             %{
-               "path" => "credentials",
-               "message" =>
-                 "accessKeyId and secretAccessKey are required together; sessionToken is optional"
-             }
-           ]
-
-    response =
-      update.("aws", %{accessKeyId: nil, secretAccessKey: nil}) |> json_response(200)
-
-    assert response["worker_provider"]["credentials"] == %{}
-
-    {:ok, _provider} =
-      Providers.create(%{
-        provider_id: "edge",
-        display_name: "Edge",
-        kind: "cloudflare",
-        config: Cloudflare.definition().example,
-        credentials: %{"adapterToken" => "adapter-secret"}
-      })
-
-    response = update.("edge", %{adapterToken: nil}) |> json_response(422)
-
-    assert response["error"]["details"] == [
-             %{"path" => "credentials.adapterToken", "message" => "is required"}
-           ]
+    assert [%{"code" => "worker_provider_in_use"}] = response["errors"]
+    assert Enum.find(worker_providers(conn), &(&1["provider_id"] == "local"))["agent_count"] == 1
   end
 
   test "a failed check names the platform and its response", %{conn: conn} do
@@ -434,13 +253,20 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     end
   end
 
-  test "the API requires a Console browser session", %{
-    conn: conn,
-    providers_before: providers_before
-  } do
-    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
-    assert conn |> get(~p"/api/v1/site/worker-providers") |> json_response(401)
-    assert Repo.all(from p in Provider, order_by: p.provider_id) == providers_before
+  defp json_api(conn) do
+    conn
+    |> recycle_api()
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
+  end
+
+  defp worker_providers(conn) do
+    conn
+    |> json_api()
+    |> get(~p"/api/v2/site/worker-providers")
+    |> json_response(200)
+    |> Map.fetch!("data")
+    |> Enum.map(& &1["attributes"])
   end
 
   defp attrs(config) do

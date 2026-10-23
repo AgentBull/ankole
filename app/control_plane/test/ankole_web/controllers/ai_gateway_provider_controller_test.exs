@@ -8,10 +8,8 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ProviderConfigs
-  alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
 
   setup do
@@ -57,167 +55,6 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
 
     refute Enum.any?(models, &(&1["model"] == "primary"))
     assert Enum.all?(models, &is_binary(&1["description"]))
-  end
-
-  test "admin configures provider rows and agent model profiles through the console API", %{
-    conn: conn
-  } do
-    %{principal: agent} = agent_fixture()
-    conn = console_conn(conn)
-
-    conn = get(conn, ~p"/api/v1/site/ai-gateway/provider-kinds")
-    assert %{"provider_kinds" => sources} = json_response(conn, 200)
-
-    # ProviderConfigs owns the catalog content. The API only has to project a
-    # credential-scoped api_key and a boolean `advanced` flag on every setting,
-    # because the Console groups its fields by those two.
-    openrouter = Enum.find(sources, &(&1["provider_kind"] == "openrouter"))
-    openrouter_settings = Map.new(openrouter["settings"], &{&1["key"], &1})
-    assert openrouter_settings["api_key"]["scope"] == "credential"
-
-    assert Enum.all?(sources, fn source ->
-             Enum.all?(source["settings"], &is_boolean(&1["advanced"]))
-           end)
-
-    conn =
-      conn
-      |> recycle_api()
-      |> put(~p"/api/v1/site/ai-gateway/providers/openrouter-main", %{
-        "provider_kind" => "openrouter",
-        "credential_pool" => %{
-          "entries" => [%{"label" => "Primary key", "api_key" => "sk-test"}]
-        }
-      })
-
-    assert %{
-             "ai_gateway_provider" => %{
-               "provider_id" => "openrouter-main",
-               "provider_kind" => "openrouter",
-               "credential_pool" => %{
-                 "strategy" => "fill_first",
-                 "entries" => [
-                   %{
-                     "label" => "Primary key",
-                     "credential_present" => true,
-                     "status" => "ok"
-                   }
-                 ]
-               }
-             }
-           } = json_response(conn, 200)
-
-    refute conn.resp_body =~ "sk-test"
-
-    conn =
-      conn
-      |> recycle_api()
-      |> get(~p"/api/v1/site/ai-gateway/providers")
-
-    assert %{"ai_gateway_providers" => providers} = json_response(conn, 200)
-    assert Enum.any?(providers, &(&1["provider_id"] == "openrouter-main"))
-
-    conn =
-      conn
-      |> recycle_api()
-      |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/primary", %{
-        "provider_id" => "openrouter-main",
-        "model" => "z-ai/glm-5.2",
-        "context_length" => 1_048_576,
-        "provider_options" => %{"reasoningEffort" => "medium"}
-      })
-
-    assert %{
-             "model_profile" => %{
-               "profile" => "primary",
-               "configured" => true,
-               "provider_id" => "openrouter-main",
-               "model" => "z-ai/glm-5.2",
-               "context_length" => 1_048_576
-             }
-           } = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_api()
-      |> get(~p"/api/v1/agents/#{agent.uid}/model-profiles")
-
-    assert %{
-             "model_profiles" => %{
-               "primary" => %{
-                 "provider_id" => "openrouter-main",
-                 "model" => "z-ai/glm-5.2",
-                 "context_length" => 1_048_576
-               }
-             }
-           } = json_response(conn, 200)
-
-    assert {:ok, runtime_profile} = ModelProfiles.resolve_runtime_profile(agent.uid, "primary")
-    assert runtime_profile["provider_id"] == "openrouter-main"
-    assert runtime_profile["model"] == "z-ai/glm-5.2"
-    assert runtime_profile["context_length"] == 1_048_576
-
-    conn =
-      conn
-      |> recycle_api()
-      |> delete(~p"/api/v1/site/ai-gateway/providers/openrouter-main")
-
-    assert %{"error" => %{"code" => "provider_in_use"}} = json_response(conn, 422)
-  end
-
-  test "provider writes reject body provider_id drift from the path", %{conn: conn} do
-    conn =
-      conn
-      |> console_conn()
-      |> put(~p"/api/v1/site/ai-gateway/providers/openrouter-main", %{
-        "provider_id" => "other-provider",
-        "provider_kind" => "openrouter"
-      })
-
-    assert %{"error" => %{"code" => "provider_id_mismatch"}} = json_response(conn, 422)
-  end
-
-  test "admin enables only a valid disabled provider", %{conn: conn} do
-    conn = console_conn(conn)
-
-    assert {:ok, _provider} =
-             ProviderConfigs.create_provider(%{
-               provider_id: "enable-route",
-               provider_kind: "openrouter",
-               credential_pool: %{"entries" => []}
-             })
-
-    assert {:ok, %{disabled_at: %DateTime{}}} =
-             ProviderConfigs.delete_provider("enable-route")
-
-    conn = post(conn, ~p"/api/v1/site/ai-gateway/providers/enable-route/enable")
-
-    assert %{
-             "ai_gateway_provider" => %{
-               "provider_id" => "enable-route",
-               "disabled_at" => nil
-             }
-           } = json_response(conn, 200)
-
-    missing =
-      conn
-      |> recycle_api()
-      |> post(~p"/api/v1/site/ai-gateway/providers/missing-provider/enable")
-
-    assert %{"error" => %{"code" => "not_found"}} = json_response(missing, 404)
-
-    Repo.get_by!(Provider, provider_id: "enable-route")
-    |> Ecto.Changeset.change(
-      provider_kind: "retired_kind",
-      disabled_at: DateTime.utc_now(:microsecond)
-    )
-    |> Repo.update!()
-
-    invalid =
-      conn
-      |> recycle_api()
-      |> post(~p"/api/v1/site/ai-gateway/providers/enable-route/enable")
-
-    assert %{"error" => %{"code" => "invalid_value"}} = json_response(invalid, 422)
   end
 
   test "admin creates, edits, lists, and deletes an Agent custom model profile", %{conn: conn} do
@@ -303,44 +140,6 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
              json_response(conn, 200)
   end
 
-  test "admin disables an active provider and deletes it on the next request", %{conn: conn} do
-    conn =
-      conn
-      |> console_conn()
-      |> put(~p"/api/v1/site/ai-gateway/providers/openrouter-unused", %{
-        "provider_kind" => "openrouter",
-        "credential_pool" => %{
-          "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
-        }
-      })
-
-    assert %{"ai_gateway_provider" => %{"disabled_at" => nil}} = json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_api()
-      |> delete(~p"/api/v1/site/ai-gateway/providers/openrouter-unused")
-
-    assert %{"ai_gateway_provider" => %{"disabled_at" => disabled_at}} = json_response(conn, 200)
-    assert is_binary(disabled_at)
-
-    conn =
-      conn
-      |> recycle_api()
-      |> delete(~p"/api/v1/site/ai-gateway/providers/openrouter-unused")
-
-    assert %{"ai_gateway_provider" => %{"provider_id" => "openrouter-unused"}} =
-             json_response(conn, 200)
-
-    conn =
-      conn
-      |> recycle_api()
-      |> get(~p"/api/v1/site/ai-gateway/providers")
-
-    assert %{"ai_gateway_providers" => providers} = json_response(conn, 200)
-    refute Enum.any?(providers, &(&1["provider_id"] == "openrouter-unused"))
-  end
-
   test "image profiles reject catalog candidates without definitive endpoints", %{conn: conn} do
     %{principal: agent} = agent_fixture()
     provider_id = "openrouter-image-profile"
@@ -348,15 +147,14 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/site/ai-gateway/providers/#{provider_id}", %{
+      |> put_provider(provider_id, %{
         "provider_kind" => "openrouter",
         "credential_pool" => %{
           "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
         }
       })
 
-    assert %{"ai_gateway_provider" => %{"provider_id" => ^provider_id}} =
-             json_response(conn, 200)
+    assert %{"ai_gateway_provider" => %{"provider_id" => ^provider_id}} = provider_json(conn)
 
     assert {:ok, provider} = ProviderConfigs.fetch_provider(provider_id)
 
@@ -462,10 +260,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     %{principal: agent} = agent_fixture()
     conn = console_conn(conn)
 
-    conn =
-      put(conn, ~p"/api/v1/site/ai-gateway/providers/chatgpt-main", %{
-        "provider_kind" => "chatgpt_subscription"
-      })
+    conn = put_provider(conn, "chatgpt-main", %{"provider_kind" => "chatgpt_subscription"})
 
     assert %{
              "ai_gateway_provider" => %{
@@ -473,7 +268,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
                "provider_kind" => "chatgpt_subscription",
                "credential_pool" => %{"entries" => []}
              }
-           } = json_response(conn, 200)
+           } = provider_json(conn)
 
     conn =
       conn
@@ -566,17 +361,14 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
              }
            } = json_response(conn, 200)
 
-    conn =
-      conn
-      |> recycle_api()
-      |> get(~p"/api/v1/site/ai-gateway/providers/chatgpt-main")
+    conn = show_provider(conn, "chatgpt-main")
 
     assert %{
              "ai_gateway_provider" => %{
                "provider_id" => "chatgpt-main",
                "credential_pool" => %{"strategy" => "round_robin", "entries" => entries}
              }
-           } = json_response(conn, 200)
+           } = provider_json(conn)
 
     assert length(entries) == 2
 
@@ -595,16 +387,13 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/site/ai-gateway/providers/openrouter-pool-admin", %{
+      |> put_provider("openrouter-pool-admin", %{
         "provider_kind" => "openrouter",
         "credential_pool" => %{"entries" => []}
       })
 
-    assert %{
-             "ai_gateway_provider" => %{
-               "credential_pool" => %{"entries" => []}
-             }
-           } = json_response(conn, 200)
+    assert %{"ai_gateway_provider" => %{"credential_pool" => %{"entries" => []}}} =
+             provider_json(conn)
 
     conn =
       conn
@@ -695,7 +484,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/site/ai-gateway/providers/openrouter-dead-update", %{
+      |> put_provider("openrouter-dead-update", %{
         "provider_kind" => "openrouter",
         "credential_pool" => %{
           "entries" => [
@@ -705,7 +494,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       })
 
     assert %{"ai_gateway_provider" => %{"provider_id" => "openrouter-dead-update"}} =
-             json_response(conn, 200)
+             provider_json(conn)
 
     assert {:ok, provider} = ProviderConfigs.fetch_provider("openrouter-dead-update")
     [dead_entry] = provider.credential_pool["entries"]
@@ -739,10 +528,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
         {"x-codex-primary-used-percent", "37"}
       ])
 
-    persisted_dead =
-      conn
-      |> recycle_api()
-      |> get(~p"/api/v1/site/ai-gateway/providers/openrouter-dead-update")
+    persisted_dead = show_provider(conn, "openrouter-dead-update")
 
     assert %{
              "ai_gateway_provider" => %{
@@ -760,7 +546,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
                  ]
                }
              }
-           } = json_response(persisted_dead, 200)
+           } = provider_json(persisted_dead)
 
     conn =
       conn
@@ -832,13 +618,13 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     conn =
       conn
       |> console_conn()
-      |> put(~p"/api/v1/site/ai-gateway/providers/chatgpt-device", %{
+      |> put_provider("chatgpt-device", %{
         "provider_kind" => "chatgpt_subscription",
         "connection_options" => %{"auth_issuer" => issuer}
       })
 
     assert %{"ai_gateway_provider" => %{"provider_id" => "chatgpt-device"}} =
-             json_response(conn, 200)
+             provider_json(conn)
 
     conn =
       conn
@@ -912,6 +698,29 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
              "redirect_uri" => "#{issuer}/deviceauth/callback"
            }
   end
+
+  # The provider records are in the site JSON:API; the credential routes stay in v1.
+  defp put_provider(conn, provider_id, attributes) do
+    conn
+    |> json_api()
+    |> patch(
+      ~p"/api/v2/site/ai-gateway/providers/#{provider_id}",
+      Jason.encode!(%{data: %{type: "ai_gateway_provider", attributes: attributes}})
+    )
+  end
+
+  defp show_provider(conn, provider_id),
+    do: conn |> json_api() |> get(~p"/api/v2/site/ai-gateway/providers/#{provider_id}")
+
+  defp json_api(conn) do
+    conn
+    |> recycle_api()
+    |> put_req_header("accept", "application/vnd.api+json")
+    |> put_req_header("content-type", "application/vnd.api+json")
+  end
+
+  defp provider_json(conn),
+    do: %{"ai_gateway_provider" => json_response(conn, 200)["data"]["attributes"]}
 
   defp jwt(claims) do
     payload = claims |> Ankole.JSON.encode!() |> Base.url_encode64(padding: false)

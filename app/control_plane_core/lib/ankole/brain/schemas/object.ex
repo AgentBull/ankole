@@ -323,7 +323,10 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
 
       run(fn %{arguments: args}, _context ->
-        Ankole.Brain.Console.result(Ankole.Brain.Objects.fork_library_page_in_tx(args.slug), __MODULE__)
+        Ankole.Brain.Console.result(
+          Ankole.Brain.Objects.fork_library_page_in_tx(args.slug),
+          __MODULE__
+        )
       end)
     end
 

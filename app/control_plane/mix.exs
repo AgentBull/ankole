@@ -124,7 +124,7 @@ defmodule Ankole.MixProject do
   # Build before deps.loadpaths snapshots dependencies, including warm builds.
   defp compile_ash_dependencies(args) do
     unless "--no-compile" in args or "--no-deps-check" in args do
-      Mix.Task.rerun("deps.compile", ["ash", "ash_postgres", "--include-children"])
+      Mix.Task.rerun("deps.compile", ["ash", "ash_postgres", "ash_json_api", "--include-children"])
     end
   end
 

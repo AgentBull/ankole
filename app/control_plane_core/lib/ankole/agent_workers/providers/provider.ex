@@ -3,12 +3,31 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
 
   use Ankole.Ash.Resource,
     tenancy: :site,
-    domain: Ankole.AgentWorkers
+    domain: Ankole.AgentWorkers.Providers,
+    extensions: [AshJsonApi.Resource]
 
   alias Ankole.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.Providers.Projection
   alias Ankole.AgentWorkers.Providers.Seed
   alias Ankole.Errors
   alias Ankole.Repo
+
+  json_api do
+    type("worker_provider")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :provider_id,
+      :kind,
+      :display_name,
+      :config,
+      :is_default,
+      :agent_count,
+      :selectable,
+      :stored_credentials
+    ])
+  end
 
   postgres do
     table("worker_providers")
@@ -64,6 +83,25 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
     identity(:provider_id, [:provider_id])
   end
 
+  # The operator projection. A credential value never leaves the row: only the
+  # names of the stored credentials do.
+  calculations do
+    calculate(:agent_count, :integer, {Projection, field: :agent_count},
+      allow_nil?: false,
+      public?: true
+    )
+
+    calculate(:selectable, :boolean, {Projection, field: :selectable},
+      allow_nil?: false,
+      public?: true
+    )
+
+    calculate(:stored_credentials, {:array, :string}, {Projection, field: :stored_credentials},
+      allow_nil?: false,
+      public?: true
+    )
+  end
+
   validations do
     validate(match(:provider_id, ~r/\A[a-z]([a-z0-9-]{0,61}[a-z0-9])?\z/),
       message: "has invalid format"
@@ -75,6 +113,10 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
 
   actions do
     defaults([:read])
+
+    read :list do
+      prepare(build(sort: [provider_id: :asc]))
+    end
 
     create :create do
       accept([:provider_id, :kind, :display_name, :config, :is_default])
@@ -102,23 +144,42 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
     # The registry operations own their transaction and take the registry
     # lock before they read or change a provider.
 
+    # The arguments keep the raw values: the `create` and `configure`
+    # actions validate them. An omitted argument keeps the stored value.
     action :add, :struct do
       constraints(instance_of: __MODULE__)
-      argument(:attrs, :map, allow_nil?: false, sensitive?: true)
+      argument(:provider_id, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:kind, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:display_name, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:config, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:is_default, :boolean)
+      argument(:credentials, :map, sensitive?: true)
 
       run(fn input, _context ->
-        Errors.wrap(Providers.create_in_tx(Repo, input.arguments.attrs))
+        Errors.wrap(
+          Providers.create_in_tx(Repo, input.arguments),
+          &Providers.Errors.rejection/1
+        )
       end)
     end
 
     action :configure_provider, :struct do
       constraints(instance_of: __MODULE__)
       argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
-      argument(:attrs, :map, allow_nil?: false, sensitive?: true)
+      argument(:kind, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:display_name, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:config, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:is_default, :boolean)
+      argument(:credentials, :map, sensitive?: true)
       after_commit({Providers, :reconcile_workers})
 
       run(fn %{arguments: arguments}, _context ->
-        Errors.wrap(Providers.configure_in_tx(Repo, arguments.provider_id, arguments.attrs))
+        {provider_id, attrs} = Map.pop!(arguments, :provider_id)
+
+        Errors.wrap(
+          Providers.configure_in_tx(Repo, provider_id, attrs),
+          &Providers.Errors.rejection/1
+        )
       end)
     end
 
@@ -127,7 +188,10 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
       argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
 
       run(fn input, _context ->
-        Errors.wrap(Providers.delete_in_tx(Repo, input.arguments.provider_id))
+        Errors.wrap(
+          Providers.delete_in_tx(Repo, input.arguments.provider_id),
+          &Providers.Errors.rejection/1
+        )
       end)
     end
 

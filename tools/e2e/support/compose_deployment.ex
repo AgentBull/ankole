@@ -199,14 +199,14 @@ defmodule Ankole.E2E.ComposeDeployment do
     deployment = deployment |> Map.put(:token, nil) |> wait_http!()
 
     {_response, deployment} =
-      request!(deployment, :get, "/api/v1/site/privileged-tenant", nil, 401)
+      request!(deployment, :get, "/api/v2/site/privileged-tenant", nil, 401)
 
     deployment = login_admin!(deployment)
 
     assert %{"authenticated" => true, "principalUID" => ^principal_uid} =
              api!(deployment, :get, "/.internal-apis/session")
 
-    %{"tenant" => %{"id" => tenant_id}} = api!(deployment, :get, "/api/v1/site/privileged-tenant")
+    %{"data" => %{"id" => tenant_id}} = api!(deployment, :get, "/api/v2/site/privileged-tenant")
     %{deployment | tenant_id: tenant_id}
   end
 
@@ -347,6 +347,19 @@ defmodule Ankole.E2E.ComposeDeployment do
     output
   end
 
+  # Req decodes only `application/json`; the v2 API sends `application/vnd.api+json`.
+  defp decode_json_api(%Req.Response{body: body} = response)
+       when is_binary(body) and body != "" do
+    if Enum.any?(
+         Req.Response.get_header(response, "content-type"),
+         &(&1 =~ "application/vnd.api+json")
+       ),
+       do: %{response | body: Jason.decode!(body)},
+       else: response
+  end
+
+  defp decode_json_api(response), do: response
+
   defp request!(deployment, method, path, body \\ nil, expected_status \\ 200) do
     headers = [{"origin", deployment.origin}]
 
@@ -375,8 +388,21 @@ defmodule Ankole.E2E.ComposeDeployment do
       redirect: false
     ]
 
-    options = if body, do: Keyword.put(options, :json, body), else: options
-    response = Req.request!(options)
+    options =
+      cond do
+        is_nil(body) ->
+          options
+
+        String.starts_with?(path, "/api/v2/") ->
+          options
+          |> Keyword.put(:body, Jason.encode!(body))
+          |> Keyword.update!(:headers, &[{"content-type", "application/vnd.api+json"} | &1])
+
+        true ->
+          Keyword.put(options, :json, body)
+      end
+
+    response = options |> Req.request!() |> decode_json_api()
 
     assert response.status == expected_status,
            "#{method} #{path}: #{response.status} #{inspect(response.body)}"

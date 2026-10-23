@@ -26,7 +26,7 @@ export type AutomationJob = {
      */
     drive_prefix: string
     human_access_version?: number | null
-    human_uid?: unknown
+    human_uid?: unknown | null
     /**
      * Field included by default.
      */
@@ -849,13 +849,13 @@ export type CronSchedule = {
     /**
      * Field included by default.
      */
-    delivery?: unknown
+    delivery?: unknown | null
     /**
      * Field included by default.
      */
     execution_session_id?: string | null
     human_access_version?: number | null
-    human_uid?: unknown
+    human_uid?: unknown | null
     /**
      * Field included by default.
      */
@@ -935,7 +935,7 @@ export type CronScheduleType = {
   /**
    * Field included by default.
    */
-  delivery?: unknown
+  delivery?: unknown | null
   /**
    * Field included by default.
    */
@@ -947,7 +947,7 @@ export type CronScheduleType = {
   /**
    * Field included by default.
    */
-  human_uid?: unknown
+  human_uid?: unknown | null
   /**
    * Field included by default.
    */
@@ -1334,7 +1334,7 @@ export type ScheduledEvent = {
      */
     fired_at?: string | null
     human_access_version?: number | null
-    human_uid?: unknown
+    human_uid?: unknown | null
     /**
      * Field included by default.
      */
@@ -1466,7 +1466,7 @@ export type ScheduledEventType = {
   /**
    * Field included by default.
    */
-  human_uid?: unknown
+  human_uid?: unknown | null
   /**
    * Field included by default.
    */
@@ -1654,7 +1654,7 @@ export type WebhookEndpoint = {
     /**
      * Field included by default.
      */
-    agent_uid?: unknown
+    agent_uid?: unknown | null
     /**
      * Field included by default.
      */
@@ -1738,7 +1738,7 @@ export type WebhookEndpointType = {
   /**
    * Field included by default.
    */
-  agent_uid?: unknown
+  agent_uid?: unknown | null
   /**
    * Field included by default.
    */
@@ -3823,7 +3823,7 @@ export type CreateBrainSourceData = {
    */
   body: {
     data: {
-      config?: unknown
+      config?: unknown | null
       default_audience_scope?: string | null
       kind: string
       name: string

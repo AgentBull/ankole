@@ -185,7 +185,10 @@ defmodule Ankole.Brain.Schemas.Source do
       argument(:source_id, :uuid, allow_nil?: false)
 
       run(fn %{arguments: args}, _context ->
-        Ankole.Brain.Console.result(Ankole.Brain.Sources.archive_in_tx(args.source_id), __MODULE__)
+        Ankole.Brain.Console.result(
+          Ankole.Brain.Sources.archive_in_tx(args.source_id),
+          __MODULE__
+        )
       end)
     end
 

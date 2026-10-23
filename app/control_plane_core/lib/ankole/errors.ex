@@ -10,7 +10,7 @@ defmodule Ankole.Errors do
   routers.
   """
 
-  alias Ankole.Errors.Invalid.{NotFound, Rejected, Stale, StatusTransition}
+  alias Ankole.Errors.Invalid.{Conflict, NotFound, Rejected, Stale, StatusTransition}
 
   @type reason ::
           :stale
@@ -83,6 +83,49 @@ defmodule Ankole.Errors do
   def wrap(result), do: result
 
   @doc """
+  Makes the result of a generic action use declared errors, like `wrap/1`, and
+  adds the operator text of a known rejection.
+
+  `describe` gets the reason of the rejection. It gives `{detail, details}`:
+  one sentence for the operator and a list of maps, one for each rejected field
+  (for example `%{path: "config", line: 3, message: "..."}`), or `nil` for a
+  reason without text. The v2 JSON:API error of the rejection contains them.
+  `{:conflict, detail, details}` makes the rejection an
+  `Ankole.Errors.Invalid.Conflict` with the same reason. An exception replaces
+  the rejection, for example `Ankole.Errors.Invalid.NotFound` for a missing
+  target.
+  """
+  @spec wrap(
+          term(),
+          (reason() ->
+             {String.t(), [map()]}
+             | {:conflict, String.t(), [map()]}
+             | Exception.t()
+             | nil)
+        ) :: term()
+  def wrap(result, describe) when is_function(describe, 1) do
+    case wrap(result) do
+      {:error, %Rejected{reason: reason} = rejected} ->
+        case describe.(reason) do
+          {detail, details} ->
+            {:error, %{rejected | detail: detail, details: details}}
+
+          {:conflict, detail, details} ->
+            {:error, Conflict.exception(reason: reason, detail: detail, details: details)}
+
+          nil ->
+            {:error, rejected}
+
+          exception when is_exception(exception) ->
+            {:error, exception}
+        end
+
+      other ->
+        other
+    end
+  end
+
+  @doc """
   Makes a missing-target reason of a generic action `run` result an
   `Ankole.Errors.Invalid.NotFound` for the resource. An API renders it as not
   found, not as a rejection. Other results stay the same.
@@ -121,6 +164,7 @@ defmodule Ankole.Errors do
   def boundary_result({:error, %Ash.Error.Invalid{errors: errors} = invalid}) do
     case Enum.find_value(errors, fn
            %Rejected{reason: reason} -> {:ok, reason}
+           %Conflict{reason: reason} -> {:ok, reason}
            _other -> nil
          end) do
       {:ok, reason} -> {:error, reason}
@@ -156,6 +200,7 @@ defmodule Ankole.Errors do
   end
 
   defp known_reason(%Rejected{reason: reason}), do: {:ok, reason}
+  defp known_reason(%Conflict{reason: reason}), do: {:ok, reason}
   defp known_reason(%Stale{}), do: {:ok, :stale}
   defp known_reason(%Ash.Error.Changes.StaleRecord{}), do: {:ok, :stale}
   defp known_reason(%NotFound{}), do: {:ok, :not_found}

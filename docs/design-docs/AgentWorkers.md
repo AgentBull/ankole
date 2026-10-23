@@ -36,6 +36,18 @@ is the single source for its schema, credential fields, example, pause support,
 and instance lifetime. The Console kinds endpoint returns the kind, example,
 and credential fields; it has no separate list of supported types.
 
+`Ankole.AgentWorkers.Providers` is the Ash domain of `Provider`. It is
+separate from `Ankole.AgentWorkers` because a domain is in one JSON:API router:
+providers are site resources at `/api/v2/site/worker-providers`, and the Worker
+rows of a tenant are Console resources at `/api/v2`. The site routes list,
+create, change, and delete a provider through the generic actions `add`,
+`configure_provider`, and `delete_provider`. The calculated `agent_count`,
+`selectable`, and `stored_credentials` fields give the operator projection;
+`stored_credentials` gives only the names of the stored credentials. A
+rejection carries the operator text of `Providers.Errors.rejection/1`, for
+example each YAML error with its path and line. The kinds, check, and Agent
+assignment routes stay in `/api/v1`.
+
 Docker, Kubernetes, Cloudflare, and Lambda are built in. Control Plane Plugins
 declare other kinds with `contract_id: "agent_workers.provider_kind"`, an `id`,
 and a `module` that implements `ProviderKind`. The declaration ID must match
@@ -210,8 +222,9 @@ Its state machine admits only the declared transition from the stored state.
 `Ankole.AgentWorkers` is the Ash domain of the Worker resources. Each
 operation that locks a row and writes more than one step is a generic action
 of its subject resource: admission, heartbeat renewal, drain, route release,
-connection expiry, provider assignment, each locked reconciliation step, and
-the provider registry changes. The generic action owns the transaction, and
+connection expiry, provider assignment, and each locked reconciliation step.
+The provider registry changes are generic actions of `Provider` in the
+`Ankole.AgentWorkers.Providers` domain. The generic action owns the transaction, and
 its publish function (for example `worker_changed`) runs only after the
 commit. Platform requests run outside these transactions. Disconnect and
 settlement derive the next state from this same machine. State time uses the
