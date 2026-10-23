@@ -236,8 +236,9 @@ delete, and `PUT /api/v2/agents/:agent_uid/signal-bindings/:adapter_id/:binding_
 for create or enable. These JSON:API actions call the existing Bindings
 owner; it keeps commit and adapter-hook authority. An edit on the same Agent
 requires its binding update permission. A move requires binding delete on the
-source Agent and binding update on the target Agent. A refusal changes neither
-binding. The edit response omits secrets. Delivery requeue uses
+source Agent and binding update on the target Agent. The permission check
+uses the same target Agent as the move. A refusal changes neither binding.
+The edit response omits secrets. Delivery requeue uses
 `POST /api/v2/agents/:agent_uid/signal-deliveries/requeue` and the
 existing durable Outbox admission rules.
 

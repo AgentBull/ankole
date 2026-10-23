@@ -436,7 +436,13 @@ defmodule AnkoleWeb.JSONAPI.Policy do
          action
        ) do
     source = Map.fetch!(params, "agent_uid")
-    target = get_in(conn.body_params, ["data", "target_agent_uid"])
+    # Generic actions read a query argument before the same body argument.
+    target =
+      Map.get(
+        conn.query_params,
+        "target_agent_uid",
+        get_in(conn.body_params, ["data", "target_agent_uid"])
+      )
 
     if is_binary(target) and target != source do
       with :ok <- ConsolePolicy.authorize(conn, "agent:#{source}:signal_bindings", "delete"),

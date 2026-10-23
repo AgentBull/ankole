@@ -1266,6 +1266,36 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert {:error, :binding_disabled} = Bindings.get_binding(source.uid, "permission-move")
   end
 
+  test "a query target cannot bypass the permissions of a binding move", %{conn: conn} do
+    %{principal: source} = agent_fixture()
+    %{principal: target} = agent_fixture()
+    {conn, uid} = console_conn_with_principal(conn)
+    conn = put_binding(conn, source.uid, "lark", "query-move", lark_config("query-move"))
+    assert response(conn, 200)
+    Repo.delete_all(Grant)
+
+    assert {:ok, _grant} =
+             Ankole.AuthZ.create_permission_grant(%{
+               principal_uid: uid,
+               resource_pattern: "agent:#{source.uid}:signal_bindings",
+               action: "update",
+               condition: "true"
+             })
+
+    conn =
+      conn
+      |> recycle_api()
+      |> api_patch(
+        "/api/v2/agents/#{source.uid}/signal-bindings/query-move?target_agent_uid=#{target.uid}",
+        %{target_agent_uid: source.uid, config: %{}}
+      )
+
+    assert %{"errors" => [%{"code" => "forbidden"}]} = json_response(conn, 403)
+    assert {:ok, %{agent_uid: source_uid}} = Bindings.get_binding(source.uid, "query-move")
+    assert source_uid == source.uid
+    assert {:error, :binding_not_found} = Bindings.get_binding(target.uid, "query-move")
+  end
+
   test "HTTP standing orders persist and enter the next runtime Signal snapshot", %{conn: conn} do
     %{principal: agent} = agent_fixture()
 
