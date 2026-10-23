@@ -130,19 +130,26 @@ Objects 校验写入作用域并按 segment 分块。GetPage 按读取与披露�
 
 ### Console API
 
-以下路径相对于 `/api/v1`。Object slug 可包含 `/`，创建和更新在请求 body
-中携带 slug。
+Object slug 可包含 `/`，所以 slug 放在查询参数或请求 body 中，不放在路径中。
+详情是组合读模型（正文、Claims、链接、矛盾、时间线），保留在 v1；写入在
+JSON:API v2（`Ankole.Brain` 的 `json_api` 路由，请求和响应使用
+`application/vnd.api+json`，泛型动作的参数在 `data` 中）。
 
 | 方法与路径 | 用途 | 关键输入或输出 |
 | --- | --- | --- |
-| `GET /brain/objects/show?slug=...` | 加载详情和编辑基线 | raw `body`、`content_hash`、`editable`、`edit_block_reason` |
-| `POST /brain/objects` | 创建租户自有 Object | slug、type、subtype、title、body、meta、effective_date |
-| `PUT /brain/objects` | 更新租户自有 Object | slug、可变字段、`expected_content_hash` |
+| `GET /api/v1/brain/objects/show?slug=...` | 加载详情和编辑基线 | raw `body`、`content_hash`、`editable`、`edit_block_reason` |
+| `POST /api/v2/brain/objects` | 创建租户自有 Object（`:console_create`） | slug、type、subtype、title、body、meta、effective_date |
+| `PATCH /api/v2/brain/objects` | 更新租户自有 Object（`:console_update`） | slug、可变字段、`expected_content_hash` |
+| `GET /api/v2/brain/object-versions?slug=...` | 版本历史 | author、body、meta、tags、snapshot_at |
+
+写入响应是 Object 摘要；编辑器保存后重新读取详情，取新的 content hash 和规范化标签。
 
 创建和更新在 `brain:update` 权限下接受可选的 `tags` 数组。更新时省略该字段会保留当前标签；显式传入空数组会清空所有标签。编辑器为每个标签提供独立输入框，支持包含换行的标签。标签计入并发保存基线（compare-and-swap），更新前的标签集合随带作者归属的版本快照一同保存。版本回滚仅恢复 `body` 和 `meta`。
 
 创建和更新要求 `brain:update`；raw body 只在 `brain:read` 管理边界返回。
-语法错误返回 422，包含错误码和正文行号；content hash 冲突返回 409。
+领域拒绝返回 422，错误码是领域理由（语法错误为 `unclosed_audience_tag` 等），
+编辑器用本地预览给出语法错误的行号；content hash 冲突（`content_hash_conflict`）、
+已删除（`object_deleted`）和 slug 已占用（`slug_taken`）返回 409。
 
 ### 编辑器行为
 
@@ -154,7 +161,7 @@ fenced、indented 和跨行 inline code 的源码范围，再按范围外的标�
 
 本地预览检查错位、嵌套、未打开和未闭合的 `audience` 标签语法。正文无效时显示诊断信息和行号，不显示 scope badge。原生解析器测试与 Console 测试共用 `app/kernel/test/fixtures/brain_markdoc.json` 语料库。有效 segment 保留原始文本与换行符，仅含空白的 segment 在预览中隐藏。保存时服务端重新解析正文，并对语法、作用域有效性和写入权限保持最终裁决权；服务端诊断显示在 Problems 区域。
 
-保存携带加载时的 `expected_content_hash`。409 时保留本地草稿；操作员可加载
+保存携带加载时的 `expected_content_hash`。`content_hash_conflict` 时保留本地草稿；操作员可加载
 最新版本对比并更新保存基线，不自动覆盖正文。离开有未保存修改的页面时提示。
 并发基线覆盖同次保存替换的 title、body、meta、tags、subtype 和 effective_date；检索、
 embedding 等派生状态不改变它。已删除页的普通保存和版本回滚在持有 Object 锁时拒绝，返回

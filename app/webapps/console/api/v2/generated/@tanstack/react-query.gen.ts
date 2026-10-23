@@ -4,26 +4,48 @@ import { type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutation
 
 import { client } from '../client.gen'
 import {
+  addPrincipalGroupMember,
+  approveBrainMergeSuggestion,
+  approveBrainSuggestion,
+  archiveBrainSource,
   assignAgentWorkerProvider,
+  bindIdentityMappingRequest,
   cancelBackgroundAgentJob,
   cancelCheckback,
   cancelWebhookEndpoint,
   completeBackgroundAgentJob,
   createAgent,
   createAgentSkillLesson,
+  createBrainObject,
+  createBrainSource,
   createCronSchedule,
+  createIdentityMapping,
+  createLocalUser,
   createOidcClient,
+  createPermissionGrant,
+  createPrincipalGroup,
   createWebhookEndpoint,
+  decideBrainContradiction,
   deleteAgent,
+  deleteIdentityMappingRequest,
   deleteOidcClient,
+  deletePermissionGrant,
+  deletePrincipalGroup,
   disableSignalBinding,
   enableAgent,
+  forgetBrainClaim,
+  forgetBrainObject,
+  forkBrainObject,
   getAgent,
   getAiGatewayConversation,
   getAutomationJob,
   getBackgroundAgentJob,
   getCronSchedule,
   getOidcClient,
+  getPermissionGrant,
+  getPrincipal,
+  getPrincipalGroup,
+  learnBrainSource,
   listAgents,
   listAgentSkillLessons,
   listAgentWorkers,
@@ -32,27 +54,69 @@ import {
   listAutomationJobRuns,
   listAutomationJobs,
   listBackgroundAgentJobs,
+  listBrainClaims,
+  listBrainContradictions,
+  listBrainMergeSuggestions,
+  listBrainObjects,
+  listBrainObjectVersions,
+  listBrainSources,
+  listBrainSuggestions,
   listCheckbacks,
   listCronScheduleRuns,
   listCronSchedules,
+  listGrantsOfPrincipal,
+  listGroupsOfPrincipal,
+  listIdentityMappingRequests,
   listOidcClients,
   listOidcLogoutDeliveries,
+  listPrincipalGroupGrants,
+  listPrincipalGroupMembers,
+  listPrincipalGroups,
+  listPrincipals,
   listWebhookEndpoints,
   type Options,
   pauseCronSchedule,
+  previewComputedPrincipalGroupMembers,
+  rejectBrainMergeSuggestion,
+  rejectBrainSuggestion,
   removeCronSchedule,
+  removePrincipalGroupMember,
+  resolveBrainTake,
+  restoreBrainObject,
   resumeCronSchedule,
   retireAgentSkillLesson,
   retryOidcLogoutDelivery,
+  rollbackBrainObject,
   runCronSchedule,
+  supersedeBrainClaim,
   updateAgent,
+  updateBrainObject,
+  updateBrainSource,
   updateCronSchedule,
-  updateOidcClient
+  updateHuman,
+  updateOidcClient,
+  updatePermissionGrant,
+  updatePrincipalGroup
 } from '../sdk.gen'
 import type {
+  AddPrincipalGroupMemberData,
+  AddPrincipalGroupMemberError,
+  AddPrincipalGroupMemberResponse,
+  ApproveBrainMergeSuggestionData,
+  ApproveBrainMergeSuggestionError,
+  ApproveBrainMergeSuggestionResponse,
+  ApproveBrainSuggestionData,
+  ApproveBrainSuggestionError,
+  ApproveBrainSuggestionResponse,
+  ArchiveBrainSourceData,
+  ArchiveBrainSourceError,
+  ArchiveBrainSourceResponse,
   AssignAgentWorkerProviderData,
   AssignAgentWorkerProviderError,
   AssignAgentWorkerProviderResponse,
+  BindIdentityMappingRequestData,
+  BindIdentityMappingRequestError,
+  BindIdentityMappingRequestResponse,
   CancelBackgroundAgentJobData,
   CancelBackgroundAgentJobError,
   CancelBackgroundAgentJobResponse,
@@ -71,27 +135,63 @@ import type {
   CreateAgentSkillLessonData,
   CreateAgentSkillLessonError,
   CreateAgentSkillLessonResponse,
+  CreateBrainObjectData,
+  CreateBrainObjectError,
+  CreateBrainObjectResponse,
+  CreateBrainSourceData,
+  CreateBrainSourceError,
+  CreateBrainSourceResponse,
   CreateCronScheduleData,
   CreateCronScheduleError,
   CreateCronScheduleResponse,
+  CreateIdentityMappingData,
+  CreateIdentityMappingError,
+  CreateIdentityMappingResponse,
+  CreateLocalUserData,
+  CreateLocalUserError,
+  CreateLocalUserResponse,
   CreateOidcClientData,
   CreateOidcClientError,
   CreateOidcClientResponse,
+  CreatePermissionGrantData,
+  CreatePermissionGrantError,
+  CreatePermissionGrantResponse,
+  CreatePrincipalGroupData,
+  CreatePrincipalGroupError,
+  CreatePrincipalGroupResponse,
   CreateWebhookEndpointData,
   CreateWebhookEndpointError,
   CreateWebhookEndpointResponse,
+  DecideBrainContradictionData,
+  DecideBrainContradictionError,
+  DecideBrainContradictionResponse,
   DeleteAgentData,
   DeleteAgentError,
   DeleteAgentResponse,
+  DeleteIdentityMappingRequestData,
+  DeleteIdentityMappingRequestError,
   DeleteOidcClientData,
   DeleteOidcClientError,
   DeleteOidcClientResponse,
+  DeletePermissionGrantData,
+  DeletePermissionGrantError,
+  DeletePrincipalGroupData,
+  DeletePrincipalGroupError,
   DisableSignalBindingData,
   DisableSignalBindingError,
   DisableSignalBindingResponse,
   EnableAgentData,
   EnableAgentError,
   EnableAgentResponse,
+  ForgetBrainClaimData,
+  ForgetBrainClaimError,
+  ForgetBrainClaimResponse,
+  ForgetBrainObjectData,
+  ForgetBrainObjectError,
+  ForgetBrainObjectResponse,
+  ForkBrainObjectData,
+  ForkBrainObjectError,
+  ForkBrainObjectResponse,
   GetAgentData,
   GetAgentError,
   GetAgentResponse,
@@ -110,6 +210,18 @@ import type {
   GetOidcClientData,
   GetOidcClientError,
   GetOidcClientResponse,
+  GetPermissionGrantData,
+  GetPermissionGrantError,
+  GetPermissionGrantResponse,
+  GetPrincipalData,
+  GetPrincipalError,
+  GetPrincipalGroupData,
+  GetPrincipalGroupError,
+  GetPrincipalGroupResponse,
+  GetPrincipalResponse,
+  LearnBrainSourceData,
+  LearnBrainSourceError,
+  LearnBrainSourceResponse,
   ListAgentsData,
   ListAgentsError,
   ListAgentSkillLessonsData,
@@ -134,6 +246,27 @@ import type {
   ListBackgroundAgentJobsData,
   ListBackgroundAgentJobsError,
   ListBackgroundAgentJobsResponse,
+  ListBrainClaimsData,
+  ListBrainClaimsError,
+  ListBrainClaimsResponse,
+  ListBrainContradictionsData,
+  ListBrainContradictionsError,
+  ListBrainContradictionsResponse,
+  ListBrainMergeSuggestionsData,
+  ListBrainMergeSuggestionsError,
+  ListBrainMergeSuggestionsResponse,
+  ListBrainObjectsData,
+  ListBrainObjectsError,
+  ListBrainObjectsResponse,
+  ListBrainObjectVersionsData,
+  ListBrainObjectVersionsError,
+  ListBrainObjectVersionsResponse,
+  ListBrainSourcesData,
+  ListBrainSourcesError,
+  ListBrainSourcesResponse,
+  ListBrainSuggestionsData,
+  ListBrainSuggestionsError,
+  ListBrainSuggestionsResponse,
   ListCheckbacksData,
   ListCheckbacksError,
   ListCheckbacksResponse,
@@ -143,21 +276,60 @@ import type {
   ListCronSchedulesData,
   ListCronSchedulesError,
   ListCronSchedulesResponse,
+  ListGrantsOfPrincipalData,
+  ListGrantsOfPrincipalError,
+  ListGrantsOfPrincipalResponse,
+  ListGroupsOfPrincipalData,
+  ListGroupsOfPrincipalError,
+  ListGroupsOfPrincipalResponse,
+  ListIdentityMappingRequestsData,
+  ListIdentityMappingRequestsError,
+  ListIdentityMappingRequestsResponse,
   ListOidcClientsData,
   ListOidcClientsError,
   ListOidcClientsResponse,
   ListOidcLogoutDeliveriesData,
   ListOidcLogoutDeliveriesError,
   ListOidcLogoutDeliveriesResponse,
+  ListPrincipalGroupGrantsData,
+  ListPrincipalGroupGrantsError,
+  ListPrincipalGroupGrantsResponse,
+  ListPrincipalGroupMembersData,
+  ListPrincipalGroupMembersError,
+  ListPrincipalGroupMembersResponse,
+  ListPrincipalGroupsData,
+  ListPrincipalGroupsError,
+  ListPrincipalGroupsResponse,
+  ListPrincipalsData,
+  ListPrincipalsError,
+  ListPrincipalsResponse,
   ListWebhookEndpointsData,
   ListWebhookEndpointsError,
   ListWebhookEndpointsResponse,
   PauseCronScheduleData,
   PauseCronScheduleError,
   PauseCronScheduleResponse,
+  PreviewComputedPrincipalGroupMembersData,
+  PreviewComputedPrincipalGroupMembersError,
+  PreviewComputedPrincipalGroupMembersResponse,
+  RejectBrainMergeSuggestionData,
+  RejectBrainMergeSuggestionError,
+  RejectBrainMergeSuggestionResponse,
+  RejectBrainSuggestionData,
+  RejectBrainSuggestionError,
+  RejectBrainSuggestionResponse,
   RemoveCronScheduleData,
   RemoveCronScheduleError,
   RemoveCronScheduleResponse,
+  RemovePrincipalGroupMemberData,
+  RemovePrincipalGroupMemberError,
+  RemovePrincipalGroupMemberResponse,
+  ResolveBrainTakeData,
+  ResolveBrainTakeError,
+  ResolveBrainTakeResponse,
+  RestoreBrainObjectData,
+  RestoreBrainObjectError,
+  RestoreBrainObjectResponse,
   ResumeCronScheduleData,
   ResumeCronScheduleError,
   ResumeCronScheduleResponse,
@@ -167,19 +339,63 @@ import type {
   RetryOidcLogoutDeliveryData,
   RetryOidcLogoutDeliveryError,
   RetryOidcLogoutDeliveryResponse,
+  RollbackBrainObjectData,
+  RollbackBrainObjectError,
+  RollbackBrainObjectResponse,
   RunCronScheduleData,
   RunCronScheduleError,
   RunCronScheduleResponse,
+  SupersedeBrainClaimData,
+  SupersedeBrainClaimError,
+  SupersedeBrainClaimResponse,
   UpdateAgentData,
   UpdateAgentError,
   UpdateAgentResponse,
+  UpdateBrainObjectData,
+  UpdateBrainObjectError,
+  UpdateBrainObjectResponse,
+  UpdateBrainSourceData,
+  UpdateBrainSourceError,
+  UpdateBrainSourceResponse,
   UpdateCronScheduleData,
   UpdateCronScheduleError,
   UpdateCronScheduleResponse,
+  UpdateHumanData,
+  UpdateHumanError,
+  UpdateHumanResponse,
   UpdateOidcClientData,
   UpdateOidcClientError,
-  UpdateOidcClientResponse
+  UpdateOidcClientResponse,
+  UpdatePermissionGrantData,
+  UpdatePermissionGrantError,
+  UpdatePermissionGrantResponse,
+  UpdatePrincipalGroupData,
+  UpdatePrincipalGroupError,
+  UpdatePrincipalGroupResponse
 } from '../types.gen'
+
+/**
+ * delete_identity_mapping_request operation on identity_mapping_request resource
+ */
+export const deleteIdentityMappingRequestMutation = (
+  options?: Partial<Options<DeleteIdentityMappingRequestData>>
+): UseMutationOptions<unknown, DeleteIdentityMappingRequestError, Options<DeleteIdentityMappingRequestData>> => {
+  const mutationOptions: UseMutationOptions<
+    unknown,
+    DeleteIdentityMappingRequestError,
+    Options<DeleteIdentityMappingRequestData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await deleteIdentityMappingRequest({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 export type QueryKey<TOptions extends Options> = [
   Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -475,6 +691,33 @@ export const createWebhookEndpointMutation = (
 }
 
 /**
+ * Creates a grant for a Principal or a group. A Pod page action is refused.
+ */
+export const createPermissionGrantMutation = (
+  options?: Partial<Options<CreatePermissionGrantData>>
+): UseMutationOptions<
+  CreatePermissionGrantResponse,
+  CreatePermissionGrantError,
+  Options<CreatePermissionGrantData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreatePermissionGrantResponse,
+    CreatePermissionGrantError,
+    Options<CreatePermissionGrantData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await createPermissionGrant({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * cancel_checkback operation on scheduled_event resource
  */
 export const cancelCheckbackMutation = (
@@ -496,6 +739,102 @@ export const cancelCheckbackMutation = (
   }
   return mutationOptions
 }
+
+/**
+ * Deletes a grant. A Pod page grant is refused.
+ */
+export const deletePermissionGrantMutation = (
+  options?: Partial<Options<DeletePermissionGrantData>>
+): UseMutationOptions<unknown, DeletePermissionGrantError, Options<DeletePermissionGrantData>> => {
+  const mutationOptions: UseMutationOptions<unknown, DeletePermissionGrantError, Options<DeletePermissionGrantData>> = {
+    mutationFn: async fnOptions => {
+      const { data } = await deletePermissionGrant({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getPermissionGrantQueryKey = (options: Options<GetPermissionGrantData>) =>
+  createQueryKey('getPermissionGrant', options)
+
+/**
+ * Reads one row by ID. An ID that is not a UUID matches no row.
+ */
+export const getPermissionGrantOptions = (options: Options<GetPermissionGrantData>) =>
+  queryOptions<
+    GetPermissionGrantResponse,
+    GetPermissionGrantError,
+    GetPermissionGrantResponse,
+    ReturnType<typeof getPermissionGrantQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getPermissionGrant({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getPermissionGrantQueryKey(options)
+  })
+
+/**
+ * Updates a grant. A Pod page grant can change only its description.
+ */
+export const updatePermissionGrantMutation = (
+  options?: Partial<Options<UpdatePermissionGrantData>>
+): UseMutationOptions<
+  UpdatePermissionGrantResponse,
+  UpdatePermissionGrantError,
+  Options<UpdatePermissionGrantData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    UpdatePermissionGrantResponse,
+    UpdatePermissionGrantError,
+    Options<UpdatePermissionGrantData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updatePermissionGrant({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listBrainObjectVersionsQueryKey = (options: Options<ListBrainObjectVersionsData>) =>
+  createQueryKey('listBrainObjectVersions', options)
+
+/**
+ * list_brain_object_versions operation on brain_object_version resource
+ */
+export const listBrainObjectVersionsOptions = (options: Options<ListBrainObjectVersionsData>) =>
+  queryOptions<
+    ListBrainObjectVersionsResponse,
+    ListBrainObjectVersionsError,
+    ListBrainObjectVersionsResponse,
+    ReturnType<typeof listBrainObjectVersionsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listBrainObjectVersions({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listBrainObjectVersionsQueryKey(options)
+  })
 
 /**
  * retry_oidc_logout_delivery operation on oidc_logout_delivery resource
@@ -524,6 +863,31 @@ export const retryOidcLogoutDeliveryMutation = (
   return mutationOptions
 }
 
+export const listPrincipalGroupMembersQueryKey = (options: Options<ListPrincipalGroupMembersData>) =>
+  createQueryKey('listPrincipalGroupMembers', options)
+
+/**
+ * Lists the effective members of a group.
+ */
+export const listPrincipalGroupMembersOptions = (options: Options<ListPrincipalGroupMembersData>) =>
+  queryOptions<
+    ListPrincipalGroupMembersResponse,
+    ListPrincipalGroupMembersError,
+    ListPrincipalGroupMembersResponse,
+    ReturnType<typeof listPrincipalGroupMembersQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listPrincipalGroupMembers({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listPrincipalGroupMembersQueryKey(options)
+  })
+
 export const listCronSchedulesQueryKey = (options?: Options<ListCronSchedulesData>) =>
   createQueryKey('listCronSchedules', options)
 
@@ -550,6 +914,56 @@ export const listCronSchedulesOptions = (options?: Options<ListCronSchedulesData
   })
 
 /**
+ * decide_brain_contradiction operation on brain_contradiction resource
+ */
+export const decideBrainContradictionMutation = (
+  options?: Partial<Options<DecideBrainContradictionData>>
+): UseMutationOptions<
+  DecideBrainContradictionResponse,
+  DecideBrainContradictionError,
+  Options<DecideBrainContradictionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    DecideBrainContradictionResponse,
+    DecideBrainContradictionError,
+    Options<DecideBrainContradictionData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await decideBrainContradiction({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * supersede_brain_claim operation on brain_claim resource
+ */
+export const supersedeBrainClaimMutation = (
+  options?: Partial<Options<SupersedeBrainClaimData>>
+): UseMutationOptions<SupersedeBrainClaimResponse, SupersedeBrainClaimError, Options<SupersedeBrainClaimData>> => {
+  const mutationOptions: UseMutationOptions<
+    SupersedeBrainClaimResponse,
+    SupersedeBrainClaimError,
+    Options<SupersedeBrainClaimData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await supersedeBrainClaim({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * disable_signal_binding operation on signal_binding resource
  */
 export const disableSignalBindingMutation = (
@@ -562,6 +976,33 @@ export const disableSignalBindingMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await disableSignalBinding({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * approve_brain_merge_suggestion operation on brain_merge_suggestion resource
+ */
+export const approveBrainMergeSuggestionMutation = (
+  options?: Partial<Options<ApproveBrainMergeSuggestionData>>
+): UseMutationOptions<
+  ApproveBrainMergeSuggestionResponse,
+  ApproveBrainMergeSuggestionError,
+  Options<ApproveBrainMergeSuggestionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    ApproveBrainMergeSuggestionResponse,
+    ApproveBrainMergeSuggestionError,
+    Options<ApproveBrainMergeSuggestionData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await approveBrainMergeSuggestion({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -596,6 +1037,123 @@ export const createCronScheduleMutation = (
 }
 
 /**
+ * Deletes an operator group that has no grants.
+ */
+export const deletePrincipalGroupMutation = (
+  options?: Partial<Options<DeletePrincipalGroupData>>
+): UseMutationOptions<unknown, DeletePrincipalGroupError, Options<DeletePrincipalGroupData>> => {
+  const mutationOptions: UseMutationOptions<unknown, DeletePrincipalGroupError, Options<DeletePrincipalGroupData>> = {
+    mutationFn: async fnOptions => {
+      const { data } = await deletePrincipalGroup({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getPrincipalGroupQueryKey = (options: Options<GetPrincipalGroupData>) =>
+  createQueryKey('getPrincipalGroup', options)
+
+/**
+ * get_principal_group operation on principal_group resource
+ */
+export const getPrincipalGroupOptions = (options: Options<GetPrincipalGroupData>) =>
+  queryOptions<
+    GetPrincipalGroupResponse,
+    GetPrincipalGroupError,
+    GetPrincipalGroupResponse,
+    ReturnType<typeof getPrincipalGroupQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getPrincipalGroup({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getPrincipalGroupQueryKey(options)
+  })
+
+/**
+ * Updates the display fields or the condition of a group.
+ */
+export const updatePrincipalGroupMutation = (
+  options?: Partial<Options<UpdatePrincipalGroupData>>
+): UseMutationOptions<UpdatePrincipalGroupResponse, UpdatePrincipalGroupError, Options<UpdatePrincipalGroupData>> => {
+  const mutationOptions: UseMutationOptions<
+    UpdatePrincipalGroupResponse,
+    UpdatePrincipalGroupError,
+    Options<UpdatePrincipalGroupData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updatePrincipalGroup({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * learn_brain_source operation on brain_source resource
+ */
+export const learnBrainSourceMutation = (
+  options?: Partial<Options<LearnBrainSourceData>>
+): UseMutationOptions<LearnBrainSourceResponse, LearnBrainSourceError, Options<LearnBrainSourceData>> => {
+  const mutationOptions: UseMutationOptions<
+    LearnBrainSourceResponse,
+    LearnBrainSourceError,
+    Options<LearnBrainSourceData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await learnBrainSource({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Lists the active Principals that a computed group condition matches.
+ */
+export const previewComputedPrincipalGroupMembersMutation = (
+  options?: Partial<Options<PreviewComputedPrincipalGroupMembersData>>
+): UseMutationOptions<
+  PreviewComputedPrincipalGroupMembersResponse,
+  PreviewComputedPrincipalGroupMembersError,
+  Options<PreviewComputedPrincipalGroupMembersData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    PreviewComputedPrincipalGroupMembersResponse,
+    PreviewComputedPrincipalGroupMembersError,
+    Options<PreviewComputedPrincipalGroupMembersData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await previewComputedPrincipalGroupMembers({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * assign_agent_worker_provider operation on agent_worker resource
  */
 export const assignAgentWorkerProviderMutation = (
@@ -612,6 +1170,29 @@ export const assignAgentWorkerProviderMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await assignAgentWorkerProvider({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * forget_brain_object operation on brain_object resource
+ */
+export const forgetBrainObjectMutation = (
+  options?: Partial<Options<ForgetBrainObjectData>>
+): UseMutationOptions<ForgetBrainObjectResponse, ForgetBrainObjectError, Options<ForgetBrainObjectData>> => {
+  const mutationOptions: UseMutationOptions<
+    ForgetBrainObjectResponse,
+    ForgetBrainObjectError,
+    Options<ForgetBrainObjectData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await forgetBrainObject({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -694,6 +1275,31 @@ export const listCronScheduleRunsInfiniteOptions = (options: Options<ListCronSch
   return opts as Omit<typeof opts, 'initialData'>
 }
 
+export const listBrainClaimsQueryKey = (options?: Options<ListBrainClaimsData>) =>
+  createQueryKey('listBrainClaims', options)
+
+/**
+ * list_brain_claims operation on brain_claim resource
+ */
+export const listBrainClaimsOptions = (options?: Options<ListBrainClaimsData>) =>
+  queryOptions<
+    ListBrainClaimsResponse,
+    ListBrainClaimsError,
+    ListBrainClaimsResponse,
+    ReturnType<typeof listBrainClaimsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listBrainClaims({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listBrainClaimsQueryKey(options)
+  })
+
 export const getAutomationJobQueryKey = (options: Options<GetAutomationJobData>) =>
   createQueryKey('getAutomationJob', options)
 
@@ -736,6 +1342,67 @@ export const cancelBackgroundAgentJobMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await cancelBackgroundAgentJob({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const getPrincipalQueryKey = (options: Options<GetPrincipalData>) => createQueryKey('getPrincipal', options)
+
+/**
+ * get_principal operation on principal resource
+ */
+export const getPrincipalOptions = (options: Options<GetPrincipalData>) =>
+  queryOptions<GetPrincipalResponse, GetPrincipalError, GetPrincipalResponse, ReturnType<typeof getPrincipalQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await getPrincipal({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: getPrincipalQueryKey(options)
+  })
+
+/**
+ * Updates the display name or the email of a Human with local sign-in.
+ */
+export const updateHumanMutation = (
+  options?: Partial<Options<UpdateHumanData>>
+): UseMutationOptions<UpdateHumanResponse, UpdateHumanError, Options<UpdateHumanData>> => {
+  const mutationOptions: UseMutationOptions<UpdateHumanResponse, UpdateHumanError, Options<UpdateHumanData>> = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateHuman({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * restore_brain_object operation on brain_object resource
+ */
+export const restoreBrainObjectMutation = (
+  options?: Partial<Options<RestoreBrainObjectData>>
+): UseMutationOptions<RestoreBrainObjectResponse, RestoreBrainObjectError, Options<RestoreBrainObjectData>> => {
+  const mutationOptions: UseMutationOptions<
+    RestoreBrainObjectResponse,
+    RestoreBrainObjectError,
+    Options<RestoreBrainObjectData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await restoreBrainObject({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -818,6 +1485,31 @@ export const listAutomationJobsInfiniteOptions = (options?: Options<ListAutomati
   return opts as Omit<typeof opts, 'initialData'>
 }
 
+export const listPrincipalGroupGrantsQueryKey = (options: Options<ListPrincipalGroupGrantsData>) =>
+  createQueryKey('listPrincipalGroupGrants', options)
+
+/**
+ * Lists the grants that one group owns.
+ */
+export const listPrincipalGroupGrantsOptions = (options: Options<ListPrincipalGroupGrantsData>) =>
+  queryOptions<
+    ListPrincipalGroupGrantsResponse,
+    ListPrincipalGroupGrantsError,
+    ListPrincipalGroupGrantsResponse,
+    ReturnType<typeof listPrincipalGroupGrantsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listPrincipalGroupGrants({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listPrincipalGroupGrantsQueryKey(options)
+  })
+
 export const listCheckbacksQueryKey = (options?: Options<ListCheckbacksData>) =>
   createQueryKey('listCheckbacks', options)
 
@@ -888,6 +1580,29 @@ export const listCheckbacksInfiniteOptions = (options?: Options<ListCheckbacksDa
     }
   )
   return opts as Omit<typeof opts, 'initialData'>
+}
+
+/**
+ * resolve_brain_take operation on brain_claim resource
+ */
+export const resolveBrainTakeMutation = (
+  options?: Partial<Options<ResolveBrainTakeData>>
+): UseMutationOptions<ResolveBrainTakeResponse, ResolveBrainTakeError, Options<ResolveBrainTakeData>> => {
+  const mutationOptions: UseMutationOptions<
+    ResolveBrainTakeResponse,
+    ResolveBrainTakeError,
+    Options<ResolveBrainTakeData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await resolveBrainTake({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
 }
 
 export const listAutomationJobRunsQueryKey = (options: Options<ListAutomationJobRunsData>) =>
@@ -985,6 +1700,31 @@ export const resumeCronScheduleMutation = (
   return mutationOptions
 }
 
+export const listGrantsOfPrincipalQueryKey = (options: Options<ListGrantsOfPrincipalData>) =>
+  createQueryKey('listGrantsOfPrincipal', options)
+
+/**
+ * Lists the grants that one Principal owns directly.
+ */
+export const listGrantsOfPrincipalOptions = (options: Options<ListGrantsOfPrincipalData>) =>
+  queryOptions<
+    ListGrantsOfPrincipalResponse,
+    ListGrantsOfPrincipalError,
+    ListGrantsOfPrincipalResponse,
+    ReturnType<typeof listGrantsOfPrincipalQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listGrantsOfPrincipal({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listGrantsOfPrincipalQueryKey(options)
+  })
+
 /**
  * enable_agent operation on agent resource
  */
@@ -1052,6 +1792,200 @@ export const createOidcClientMutation = (
   return mutationOptions
 }
 
+export const listPrincipalsQueryKey = (options?: Options<ListPrincipalsData>) =>
+  createQueryKey('listPrincipals', options)
+
+/**
+ * list_principals operation on principal resource
+ */
+export const listPrincipalsOptions = (options?: Options<ListPrincipalsData>) =>
+  queryOptions<
+    ListPrincipalsResponse,
+    ListPrincipalsError,
+    ListPrincipalsResponse,
+    ReturnType<typeof listPrincipalsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listPrincipals({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listPrincipalsQueryKey(options)
+  })
+
+/**
+ * Creates a Human with an email and a generated one-time local password.
+ */
+export const createLocalUserMutation = (
+  options?: Partial<Options<CreateLocalUserData>>
+): UseMutationOptions<CreateLocalUserResponse, CreateLocalUserError, Options<CreateLocalUserData>> => {
+  const mutationOptions: UseMutationOptions<
+    CreateLocalUserResponse,
+    CreateLocalUserError,
+    Options<CreateLocalUserData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await createLocalUser({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listIdentityMappingRequestsQueryKey = (options?: Options<ListIdentityMappingRequestsData>) =>
+  createQueryKey('listIdentityMappingRequests', options)
+
+/**
+ * list_identity_mapping_requests operation on identity_mapping_request resource
+ */
+export const listIdentityMappingRequestsOptions = (options?: Options<ListIdentityMappingRequestsData>) =>
+  queryOptions<
+    ListIdentityMappingRequestsResponse,
+    ListIdentityMappingRequestsError,
+    ListIdentityMappingRequestsResponse,
+    ReturnType<typeof listIdentityMappingRequestsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listIdentityMappingRequests({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listIdentityMappingRequestsQueryKey(options)
+  })
+
+/**
+ * reject_brain_suggestion operation on brain_schema_suggestion resource
+ */
+export const rejectBrainSuggestionMutation = (
+  options?: Partial<Options<RejectBrainSuggestionData>>
+): UseMutationOptions<
+  RejectBrainSuggestionResponse,
+  RejectBrainSuggestionError,
+  Options<RejectBrainSuggestionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RejectBrainSuggestionResponse,
+    RejectBrainSuggestionError,
+    Options<RejectBrainSuggestionData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await rejectBrainSuggestion({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listBrainObjectsQueryKey = (options?: Options<ListBrainObjectsData>) =>
+  createQueryKey('listBrainObjects', options)
+
+/**
+ * list_brain_objects operation on brain_object resource
+ */
+export const listBrainObjectsOptions = (options?: Options<ListBrainObjectsData>) =>
+  queryOptions<
+    ListBrainObjectsResponse,
+    ListBrainObjectsError,
+    ListBrainObjectsResponse,
+    ReturnType<typeof listBrainObjectsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listBrainObjects({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listBrainObjectsQueryKey(options)
+  })
+
+/**
+ * update_brain_object operation on brain_object resource
+ */
+export const updateBrainObjectMutation = (
+  options?: Partial<Options<UpdateBrainObjectData>>
+): UseMutationOptions<UpdateBrainObjectResponse, UpdateBrainObjectError, Options<UpdateBrainObjectData>> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateBrainObjectResponse,
+    UpdateBrainObjectError,
+    Options<UpdateBrainObjectData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateBrainObject({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * create_brain_object operation on brain_object resource
+ */
+export const createBrainObjectMutation = (
+  options?: Partial<Options<CreateBrainObjectData>>
+): UseMutationOptions<CreateBrainObjectResponse, CreateBrainObjectError, Options<CreateBrainObjectData>> => {
+  const mutationOptions: UseMutationOptions<
+    CreateBrainObjectResponse,
+    CreateBrainObjectError,
+    Options<CreateBrainObjectData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await createBrainObject({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * fork_brain_object operation on brain_object resource
+ */
+export const forkBrainObjectMutation = (
+  options?: Partial<Options<ForkBrainObjectData>>
+): UseMutationOptions<ForkBrainObjectResponse, ForkBrainObjectError, Options<ForkBrainObjectData>> => {
+  const mutationOptions: UseMutationOptions<
+    ForkBrainObjectResponse,
+    ForkBrainObjectError,
+    Options<ForkBrainObjectData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await forkBrainObject({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 /**
  * run_cron_schedule operation on cron_schedule resource
  */
@@ -1065,6 +1999,29 @@ export const runCronScheduleMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await runCronSchedule({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * archive_brain_source operation on brain_source resource
+ */
+export const archiveBrainSourceMutation = (
+  options?: Partial<Options<ArchiveBrainSourceData>>
+): UseMutationOptions<ArchiveBrainSourceResponse, ArchiveBrainSourceError, Options<ArchiveBrainSourceData>> => {
+  const mutationOptions: UseMutationOptions<
+    ArchiveBrainSourceResponse,
+    ArchiveBrainSourceError,
+    Options<ArchiveBrainSourceData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await archiveBrainSource({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1194,6 +2151,127 @@ export const updateOidcClientMutation = (
 }
 
 /**
+ * update_brain_source operation on brain_source resource
+ */
+export const updateBrainSourceMutation = (
+  options?: Partial<Options<UpdateBrainSourceData>>
+): UseMutationOptions<UpdateBrainSourceResponse, UpdateBrainSourceError, Options<UpdateBrainSourceData>> => {
+  const mutationOptions: UseMutationOptions<
+    UpdateBrainSourceResponse,
+    UpdateBrainSourceError,
+    Options<UpdateBrainSourceData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await updateBrainSource({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Binds a pending request to a Human and removes the request.
+ */
+export const bindIdentityMappingRequestMutation = (
+  options?: Partial<Options<BindIdentityMappingRequestData>>
+): UseMutationOptions<
+  BindIdentityMappingRequestResponse,
+  BindIdentityMappingRequestError,
+  Options<BindIdentityMappingRequestData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    BindIdentityMappingRequestResponse,
+    BindIdentityMappingRequestError,
+    Options<BindIdentityMappingRequestData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await bindIdentityMappingRequest({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * rollback_brain_object operation on brain_object resource
+ */
+export const rollbackBrainObjectMutation = (
+  options?: Partial<Options<RollbackBrainObjectData>>
+): UseMutationOptions<RollbackBrainObjectResponse, RollbackBrainObjectError, Options<RollbackBrainObjectData>> => {
+  const mutationOptions: UseMutationOptions<
+    RollbackBrainObjectResponse,
+    RollbackBrainObjectError,
+    Options<RollbackBrainObjectData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await rollbackBrainObject({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listPrincipalGroupsQueryKey = (options?: Options<ListPrincipalGroupsData>) =>
+  createQueryKey('listPrincipalGroups', options)
+
+/**
+ * list_principal_groups operation on principal_group resource
+ */
+export const listPrincipalGroupsOptions = (options?: Options<ListPrincipalGroupsData>) =>
+  queryOptions<
+    ListPrincipalGroupsResponse,
+    ListPrincipalGroupsError,
+    ListPrincipalGroupsResponse,
+    ReturnType<typeof listPrincipalGroupsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listPrincipalGroups({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listPrincipalGroupsQueryKey(options)
+  })
+
+/**
+ * Creates an operator group.
+ */
+export const createPrincipalGroupMutation = (
+  options?: Partial<Options<CreatePrincipalGroupData>>
+): UseMutationOptions<CreatePrincipalGroupResponse, CreatePrincipalGroupError, Options<CreatePrincipalGroupData>> => {
+  const mutationOptions: UseMutationOptions<
+    CreatePrincipalGroupResponse,
+    CreatePrincipalGroupError,
+    Options<CreatePrincipalGroupData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await createPrincipalGroup({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * remove_cron_schedule operation on cron_schedule resource
  */
 export const removeCronScheduleMutation = (
@@ -1254,6 +2332,60 @@ export const updateCronScheduleMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await updateCronSchedule({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Removes a Principal from a static operator group.
+ */
+export const removePrincipalGroupMemberMutation = (
+  options?: Partial<Options<RemovePrincipalGroupMemberData>>
+): UseMutationOptions<
+  RemovePrincipalGroupMemberResponse,
+  RemovePrincipalGroupMemberError,
+  Options<RemovePrincipalGroupMemberData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RemovePrincipalGroupMemberResponse,
+    RemovePrincipalGroupMemberError,
+    Options<RemovePrincipalGroupMemberData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await removePrincipalGroupMember({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Adds a Principal to a static operator group.
+ */
+export const addPrincipalGroupMemberMutation = (
+  options?: Partial<Options<AddPrincipalGroupMemberData>>
+): UseMutationOptions<
+  AddPrincipalGroupMemberResponse,
+  AddPrincipalGroupMemberError,
+  Options<AddPrincipalGroupMemberData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AddPrincipalGroupMemberResponse,
+    AddPrincipalGroupMemberError,
+    Options<AddPrincipalGroupMemberData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await addPrincipalGroupMember({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1394,6 +2526,31 @@ export const listAiGatewayConversationsInfiniteOptions = (options?: Options<List
   return opts as Omit<typeof opts, 'initialData'>
 }
 
+export const listGroupsOfPrincipalQueryKey = (options: Options<ListGroupsOfPrincipalData>) =>
+  createQueryKey('listGroupsOfPrincipal', options)
+
+/**
+ * Lists the static groups of one Principal.
+ */
+export const listGroupsOfPrincipalOptions = (options: Options<ListGroupsOfPrincipalData>) =>
+  queryOptions<
+    ListGroupsOfPrincipalResponse,
+    ListGroupsOfPrincipalError,
+    ListGroupsOfPrincipalResponse,
+    ReturnType<typeof listGroupsOfPrincipalQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listGroupsOfPrincipal({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listGroupsOfPrincipalQueryKey(options)
+  })
+
 export const getBackgroundAgentJobQueryKey = (options: Options<GetBackgroundAgentJobData>) =>
   createQueryKey('getBackgroundAgentJob', options)
 
@@ -1419,6 +2576,56 @@ export const getBackgroundAgentJobOptions = (options: Options<GetBackgroundAgent
     queryKey: getBackgroundAgentJobQueryKey(options)
   })
 
+export const listBrainSuggestionsQueryKey = (options?: Options<ListBrainSuggestionsData>) =>
+  createQueryKey('listBrainSuggestions', options)
+
+/**
+ * list_brain_suggestions operation on brain_schema_suggestion resource
+ */
+export const listBrainSuggestionsOptions = (options?: Options<ListBrainSuggestionsData>) =>
+  queryOptions<
+    ListBrainSuggestionsResponse,
+    ListBrainSuggestionsError,
+    ListBrainSuggestionsResponse,
+    ReturnType<typeof listBrainSuggestionsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listBrainSuggestions({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listBrainSuggestionsQueryKey(options)
+  })
+
+export const listBrainContradictionsQueryKey = (options?: Options<ListBrainContradictionsData>) =>
+  createQueryKey('listBrainContradictions', options)
+
+/**
+ * list_brain_contradictions operation on brain_contradiction resource
+ */
+export const listBrainContradictionsOptions = (options?: Options<ListBrainContradictionsData>) =>
+  queryOptions<
+    ListBrainContradictionsResponse,
+    ListBrainContradictionsError,
+    ListBrainContradictionsResponse,
+    ReturnType<typeof listBrainContradictionsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listBrainContradictions({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listBrainContradictionsQueryKey(options)
+  })
+
 /**
  * cancel_webhook_endpoint operation on webhook_endpoint resource
  */
@@ -1436,6 +2643,33 @@ export const cancelWebhookEndpointMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await cancelWebhookEndpoint({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * reject_brain_merge_suggestion operation on brain_merge_suggestion resource
+ */
+export const rejectBrainMergeSuggestionMutation = (
+  options?: Partial<Options<RejectBrainMergeSuggestionData>>
+): UseMutationOptions<
+  RejectBrainMergeSuggestionResponse,
+  RejectBrainMergeSuggestionError,
+  Options<RejectBrainMergeSuggestionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    RejectBrainMergeSuggestionResponse,
+    RejectBrainMergeSuggestionError,
+    Options<RejectBrainMergeSuggestionData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await rejectBrainMergeSuggestion({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1473,6 +2707,58 @@ export const completeBackgroundAgentJobMutation = (
   return mutationOptions
 }
 
+export const listBrainMergeSuggestionsQueryKey = (options?: Options<ListBrainMergeSuggestionsData>) =>
+  createQueryKey('listBrainMergeSuggestions', options)
+
+/**
+ * list_brain_merge_suggestions operation on brain_merge_suggestion resource
+ */
+export const listBrainMergeSuggestionsOptions = (options?: Options<ListBrainMergeSuggestionsData>) =>
+  queryOptions<
+    ListBrainMergeSuggestionsResponse,
+    ListBrainMergeSuggestionsError,
+    ListBrainMergeSuggestionsResponse,
+    ReturnType<typeof listBrainMergeSuggestionsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listBrainMergeSuggestions({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listBrainMergeSuggestionsQueryKey(options)
+  })
+
+/**
+ * approve_brain_suggestion operation on brain_schema_suggestion resource
+ */
+export const approveBrainSuggestionMutation = (
+  options?: Partial<Options<ApproveBrainSuggestionData>>
+): UseMutationOptions<
+  ApproveBrainSuggestionResponse,
+  ApproveBrainSuggestionError,
+  Options<ApproveBrainSuggestionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    ApproveBrainSuggestionResponse,
+    ApproveBrainSuggestionError,
+    Options<ApproveBrainSuggestionData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await approveBrainSuggestion({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 /**
  * retire_agent_skill_lesson operation on agent_skill_lesson resource
  */
@@ -1490,6 +2776,33 @@ export const retireAgentSkillLessonMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await retireAgentSkillLesson({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Binds a provider subject to a Human and removes its pending request.
+ */
+export const createIdentityMappingMutation = (
+  options?: Partial<Options<CreateIdentityMappingData>>
+): UseMutationOptions<
+  CreateIdentityMappingResponse,
+  CreateIdentityMappingError,
+  Options<CreateIdentityMappingData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    CreateIdentityMappingResponse,
+    CreateIdentityMappingError,
+    Options<CreateIdentityMappingData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await createIdentityMapping({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1528,6 +2841,77 @@ export const createAgentMutation = (
   const mutationOptions: UseMutationOptions<CreateAgentResponse, CreateAgentError, Options<CreateAgentData>> = {
     mutationFn: async fnOptions => {
       const { data } = await createAgent({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * forget_brain_claim operation on brain_claim resource
+ */
+export const forgetBrainClaimMutation = (
+  options?: Partial<Options<ForgetBrainClaimData>>
+): UseMutationOptions<ForgetBrainClaimResponse, ForgetBrainClaimError, Options<ForgetBrainClaimData>> => {
+  const mutationOptions: UseMutationOptions<
+    ForgetBrainClaimResponse,
+    ForgetBrainClaimError,
+    Options<ForgetBrainClaimData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await forgetBrainClaim({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const listBrainSourcesQueryKey = (options?: Options<ListBrainSourcesData>) =>
+  createQueryKey('listBrainSources', options)
+
+/**
+ * list_brain_sources operation on brain_source resource
+ */
+export const listBrainSourcesOptions = (options?: Options<ListBrainSourcesData>) =>
+  queryOptions<
+    ListBrainSourcesResponse,
+    ListBrainSourcesError,
+    ListBrainSourcesResponse,
+    ReturnType<typeof listBrainSourcesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await listBrainSources({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: listBrainSourcesQueryKey(options)
+  })
+
+/**
+ * create_brain_source operation on brain_source resource
+ */
+export const createBrainSourceMutation = (
+  options?: Partial<Options<CreateBrainSourceData>>
+): UseMutationOptions<CreateBrainSourceResponse, CreateBrainSourceError, Options<CreateBrainSourceData>> => {
+  const mutationOptions: UseMutationOptions<
+    CreateBrainSourceResponse,
+    CreateBrainSourceError,
+    Options<CreateBrainSourceData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await createBrainSource({
         ...options,
         ...fnOptions,
         throwOnError: true

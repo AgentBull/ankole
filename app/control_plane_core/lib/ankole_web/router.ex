@@ -271,8 +271,6 @@ defmodule AnkoleWeb.Router do
          WorkerEnvController,
          :decrypt_for_agent
 
-    get "/principals", PrincipalController, :index
-    post "/principals", PrincipalController, :create
     get "/work-access-reviews", HumanAccessController, :unresolved_work
     post "/work-access-reviews", HumanAccessController, :classify_work
     get "/principals/:uid/access", HumanAccessController, :show
@@ -284,10 +282,6 @@ defmodule AnkoleWeb.Router do
          :clear_restriction
 
     post "/principals/:uid/work-cleanup-retries", HumanAccessController, :retry_cleanup
-    get "/principals/:uid", PrincipalController, :show
-    patch "/principals/:uid", PrincipalController, :update
-    get "/principals/:uid/groups", PrincipalController, :groups
-    get "/principals/:uid/grants", PrincipalController, :grants
 
     post "/principals/:uid/local-password-resets",
          PrincipalController,
@@ -296,62 +290,15 @@ defmodule AnkoleWeb.Router do
     get "/oidc-clients/login-sources", OIDCClientController, :login_sources
     post "/oidc-clients/:id/secret-rotations", OIDCClientController, :rotate_secret
 
-    get "/principal-groups", AuthZGroupController, :index
-    post "/principal-groups", AuthZGroupController, :create
-
-    post "/principal-groups/computed-member-previews",
-         AuthZGroupController,
-         :preview_computed_members
-
-    get "/principal-groups/:name", AuthZGroupController, :show
-    patch "/principal-groups/:name", AuthZGroupController, :update
-    delete "/principal-groups/:name", AuthZGroupController, :delete
-    get "/principal-groups/:name/members", AuthZGroupController, :members
-    put "/principal-groups/:name/members/:principal_uid", AuthZGroupController, :add_member
-    delete "/principal-groups/:name/members/:principal_uid", AuthZGroupController, :remove_member
-    get "/principal-groups/:name/grants", AuthZGroupController, :grants
-
-    post "/permission-grants", PermissionGrantController, :create
-    get "/permission-grants/:id", PermissionGrantController, :show
-    patch "/permission-grants/:id", PermissionGrantController, :update
-    delete "/permission-grants/:id", PermissionGrantController, :delete
-
     get "/brain/health", BrainController, :health
     post "/brain/dream", BrainController, :dream
-    get "/brain/objects", BrainController, :list_objects
     get "/brain/object-types", BrainController, :object_types
-    post "/brain/objects", BrainController, :create_object
-    put "/brain/objects", BrainController, :update_object
     post "/brain/search-preview", BrainController, :search_preview
-    post "/brain/objects/fork", BrainController, :fork_object
-    get "/brain/suggestions", BrainController, :list_suggestions
-    post "/brain/suggestions/:suggestion_id/decide", BrainController, :decide_suggestion
-    get "/brain/claims", BrainController, :list_claims
-    post "/brain/claims/:claim_id/supersede", BrainController, :supersede_claim
-    post "/brain/claims/:claim_id/forget", BrainController, :forget_claim
-    post "/brain/claims/:claim_id/resolve", BrainController, :resolve_take
-    get "/brain/contradictions", BrainController, :list_contradictions
-    post "/brain/contradictions/:contradiction_id/decide", BrainController, :decide_contradiction
-    get "/brain/merge-suggestions", BrainController, :list_merge_suggestions
-
-    post "/brain/merge-suggestions/:suggestion_id/decide",
-         BrainController,
-         :decide_merge_suggestion
-
-    get "/brain/sources", BrainController, :list_sources
-    post "/brain/sources", BrainController, :create_source
-    patch "/brain/sources/:source_id", BrainController, :update_source
-    post "/brain/sources/:source_id/learn", BrainController, :learn_source
-    post "/brain/sources/:source_id/archive", BrainController, :archive_source
     get "/brain/principals/:principal_uid/knowledge", BrainController, :principal_knowledge
-    # Object slugs contain `/`, so these operations carry the slug as a query
-    # parameter or in the body instead of a wildcard path segment, which the
-    # OpenAPI document could not express.
+    # Object slugs contain `/`, so the object page carries the slug as a query
+    # parameter instead of a wildcard path segment, which the OpenAPI document
+    # could not express.
     get "/brain/objects/show", BrainController, :show_object
-    get "/brain/objects/versions", BrainController, :object_versions
-    post "/brain/objects/rollback", BrainController, :rollback_object
-    post "/brain/objects/forget", BrainController, :forget_object
-    post "/brain/objects/restore", BrainController, :restore_object
 
     get "/agent-library/capabilities", AgentLibraryCapabilityController, :global_index
 
@@ -417,11 +364,6 @@ defmodule AnkoleWeb.Router do
     get "/identity-providers", IdentityProviderController, :index
     put "/identity-providers/:provider_id", IdentityProviderController, :put_provider
     post "/identity-providers/:provider_id/sync-runs", IdentityProviderController, :run_sync
-
-    get "/identity-mapping-requests", IdentityMappingRequestController, :index
-    post "/identity-mapping-requests/:id/bind", IdentityMappingRequestController, :bind
-    delete "/identity-mapping-requests/:id", IdentityMappingRequestController, :delete
-    post "/identity-mappings", IdentityMappingRequestController, :create_mapping
 
     put "/agents/:agent_uid/provider-hosted", AgentController, :put_provider_hosted
 

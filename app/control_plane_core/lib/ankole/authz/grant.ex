@@ -1,6 +1,11 @@
 defmodule Ankole.AuthZ.Grant do
   @moduledoc "Permission grant owned by one Principal or one Principal group."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AuthZ
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.AuthZ,
+    extensions: [AshJsonApi.Resource]
+
+  require Ash.Query
 
   @fields [
     :principal_uid,
@@ -11,6 +16,21 @@ defmodule Ankole.AuthZ.Grant do
     :description,
     :metadata
   ]
+
+  json_api do
+    type("permission_grant")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :principal_uid,
+      :group_id,
+      :resource_pattern,
+      :action,
+      :condition,
+      :description
+    ])
+  end
 
   postgres do
     table("permission_grants")
@@ -133,6 +153,33 @@ defmodule Ankole.AuthZ.Grant do
   actions do
     defaults([:read])
 
+    read :by_id do
+      description("Reads one row by ID. An ID that is not a UUID matches no row.")
+      argument(:id, :string, allow_nil?: false)
+      get?(true)
+
+      prepare(fn query, _context ->
+        case Ecto.UUID.cast(Ash.Query.get_argument(query, :id)) do
+          {:ok, id} -> Ash.Query.filter(query, id == ^id)
+          :error -> Ash.Query.filter(query, false)
+        end
+      end)
+    end
+
+    read :of_principal do
+      description("Lists the grants that one Principal owns directly.")
+      argument(:uid, :string, allow_nil?: false)
+      filter(expr(principal_uid == ^arg(:uid)))
+      prepare(build(sort: [resource_pattern: :asc, action: :asc]))
+    end
+
+    read :of_group do
+      description("Lists the grants that one group owns.")
+      argument(:name, :string, allow_nil?: false)
+      filter(expr(group.name == ^arg(:name)))
+      prepare(build(sort: [resource_pattern: :asc, action: :asc]))
+    end
+
     create :create_in_tx do
       accept(@fields)
     end
@@ -175,6 +222,53 @@ defmodule Ankole.AuthZ.Grant do
 
       run(fn input, _context ->
         Ankole.AuthZ.Grants.delete_permission_grant(Ankole.Repo, input.arguments.id)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :create_operator_grant, :struct do
+      description("Creates a grant for a Principal or a group. A Pod page action is refused.")
+      constraints(instance_of: __MODULE__)
+      argument(:principal_uid, :string)
+      argument(:group_name, :string)
+      argument(:resource_pattern, :string, allow_nil?: false)
+      argument(:action, :string, allow_nil?: false)
+      argument(:condition, :string)
+      argument(:description, :string)
+
+      run(fn input, _context ->
+        Ankole.AuthZ.Grants.create_operator_grant(Ankole.Repo, input.arguments)
+        |> Ankole.Errors.not_found([:not_found, :principal_not_found], Ankole.AuthZ.Group)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :update_operator_grant, :struct do
+      description("Updates a grant. A Pod page grant can change only its description.")
+      constraints(instance_of: __MODULE__)
+      argument(:id, :string, allow_nil?: false)
+      argument(:resource_pattern, :string)
+      argument(:action, :string)
+      argument(:condition, :string)
+      argument(:description, :string)
+
+      run(fn input, _context ->
+        Ankole.AuthZ.Grants.update_operator_grant(
+          Ankole.Repo,
+          input.arguments.id,
+          Map.delete(input.arguments, :id)
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :delete_operator_grant, :struct do
+      description("Deletes a grant. A Pod page grant is refused.")
+      constraints(instance_of: __MODULE__)
+      argument(:id, :string, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.AuthZ.Grants.delete_operator_grant(Ankole.Repo, input.arguments.id)
         |> Ankole.Errors.wrap()
       end)
     end

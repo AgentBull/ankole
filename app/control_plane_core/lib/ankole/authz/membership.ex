@@ -1,6 +1,21 @@
 defmodule Ankole.AuthZ.Membership do
   @moduledoc "Static Principal membership in an AuthZ group."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AuthZ
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.AuthZ,
+    extensions: [AshJsonApi.Resource]
+
+  json_api do
+    type("principal_group_membership")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    primary_key do
+      keys([:group_id, :principal_uid])
+    end
+
+    default_fields([:group_id, :principal_uid, :inserted_at])
+  end
 
   postgres do
     table("principal_group_memberships")

@@ -141,7 +141,65 @@ defmodule AnkoleWeb.JSONAPI.Policy do
         {"agent:{agent_uid}:schedules", "delete"},
       # J3 signal bindings (v1: signal_binding_controller.ex)
       {Ankole.Signals.Binding, :route, :console_disable} =>
-        {"agent:{agent_uid}:signal_bindings", "delete"}
+        {"agent:{agent_uid}:signal_bindings", "delete"},
+      # J5 brain (v1: brain_controller.ex)
+      {Ankole.Brain.Schemas.Object, :index, :console_list} => {"brain", "read"},
+      {Ankole.Brain.Schemas.Object, :route, :console_create} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Object, :route, :console_update} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Object, :route, :fork_library_page} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Object, :route, :console_rollback} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Object, :route, :console_forget} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Object, :route, :restore_object} => {"brain", "update"},
+      {Ankole.Brain.Schemas.ObjectVersion, :index, :console_list} => {"brain", "read"},
+      {Ankole.Brain.Schemas.Claim, :index, :console_list} => {"brain", "read"},
+      {Ankole.Brain.Schemas.Claim, :route, :console_supersede} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Claim, :route, :console_forget} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Claim, :route, :console_resolve} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Contradiction, :index, :console_list} => {"brain", "read"},
+      {Ankole.Brain.Schemas.Contradiction, :route, :decide} => {"brain", "update"},
+      {Ankole.Brain.Schemas.SchemaSuggestion, :index, :console_list} => {"brain", "read"},
+      {Ankole.Brain.Schemas.SchemaSuggestion, :route, :console_approve} => {"brain", "update"},
+      {Ankole.Brain.Schemas.SchemaSuggestion, :route, :console_reject} => {"brain", "update"},
+      {Ankole.Brain.Schemas.MergeSuggestion, :index, :console_list} => {"brain", "read"},
+      {Ankole.Brain.Schemas.MergeSuggestion, :route, :console_approve} => {"brain", "update"},
+      {Ankole.Brain.Schemas.MergeSuggestion, :route, :console_reject} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Source, :index, :console_list} => {"brain", "read"},
+      {Ankole.Brain.Schemas.Source, :route, :console_register} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Source, :route, :update_default_scope} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Source, :route, :console_learn} => {"brain", "update"},
+      {Ankole.Brain.Schemas.Source, :route, :archive_source} => {"brain", "update"},
+      # J2 identity (v1: principal_controller.ex, authz_group_controller.ex,
+      # permission_grant_controller.ex, identity_mapping_request_controller.ex)
+      {Ankole.Principals.Principal, :index, :console_list} => {"principals", "read"},
+      {Ankole.Principals.Principal, :get, :read} => {"principal:{uid}", "read"},
+      {Ankole.Principals.Principal, :post, :create_local_user} => {"principals", "update"},
+      {Ankole.Principals.Principal, :patch, :update_human} => {"principal:{uid}", "update"},
+      {Ankole.Principals.MappingRequest, :index, :console_list} =>
+        {"identity_mapping_requests", "read"},
+      {Ankole.Principals.MappingRequest, :delete, :delete_in_tx} =>
+        {"identity_mapping_requests", "update"},
+      {Ankole.Principals.MappingRequest, :route, :bind_request} =>
+        {"identity_mapping_requests", "update"},
+      {Ankole.Principals.MappingRequest, :route, :bind_subject} =>
+        {"identity_mapping_requests", "update"},
+      {Ankole.AuthZ.Group, :index, :console_list} => {"principal_groups", "read"},
+      {Ankole.AuthZ.Group, :post, :create} => {"principal_groups", "update"},
+      {Ankole.AuthZ.Group, :route, :preview_computed_members} => {"principal_groups", "read"},
+      {Ankole.AuthZ.Group, :get, :read} => {"principal_group:{name}", "read"},
+      {Ankole.AuthZ.Group, :patch, :update} => {"principal_group:{name}", "update"},
+      {Ankole.AuthZ.Group, :delete, :delete_operator_group} =>
+        {"principal_group:{name}", "delete"},
+      {Ankole.AuthZ.Group, :route, :list_members} => {"principal_group:{name}:members", "read"},
+      {Ankole.AuthZ.Group, :route, :add_member} => {"principal_group:{name}:members", "update"},
+      {Ankole.AuthZ.Group, :route, :remove_member} =>
+        {"principal_group:{name}:members", "update"},
+      {Ankole.AuthZ.Group, :index, :of_principal} => {"principal:{uid}:groups", "read"},
+      {Ankole.AuthZ.Grant, :index, :of_principal} => {"principal:{uid}:grants", "read"},
+      {Ankole.AuthZ.Grant, :index, :of_group} => {"principal_group:{name}:grants", "read"},
+      {Ankole.AuthZ.Grant, :post, :create_operator_grant} => {"permission_grants", "update"},
+      {Ankole.AuthZ.Grant, :get, :by_id} => {"permission_grant:{id}", "read"},
+      {Ankole.AuthZ.Grant, :patch, :update_operator_grant} => {"permission_grant:{id}", "update"},
+      {Ankole.AuthZ.Grant, :delete, :delete_operator_grant} => {"permission_grant:{id}", "delete"}
     }
   }
 

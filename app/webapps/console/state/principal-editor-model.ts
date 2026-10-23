@@ -1,6 +1,9 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { z } from 'zod'
-import type { PrincipalCreateRequest, PrincipalUpdateRequest } from '../api/generated/types.gen'
+import type { CreateLocalUserData, UpdateHumanData } from '../api/v2/generated/types.gen'
+
+type PrincipalCreateRequest = NonNullable<CreateLocalUserData['body']['data']['attributes']>
+type PrincipalUpdateRequest = NonNullable<NonNullable<UpdateHumanData['body']>['data']['attributes']>
 
 export type PrincipalEditorDraft = {
   displayName: string

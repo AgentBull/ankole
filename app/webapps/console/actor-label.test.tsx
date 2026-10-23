@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ActorLabel } from './actor-label'
-import { ankoleWebPrincipalControllerShowQueryKey } from './api/generated/@tanstack/react-query.gen'
+import { getPrincipalQueryKey } from './api/v2/generated/@tanstack/react-query.gen'
 import { listTenantsQueryKey } from './api/v2-site/generated/@tanstack/react-query.gen'
 
 const authorTenant = '019a2b00-0000-7000-8000-000000000001'
@@ -33,11 +33,11 @@ describe('ActorLabel', () => {
   test('uses the author tenant for its lookup independently of the active resource context', () => {
     const queryClient = client()
     queryClient.setQueryData(
-      ankoleWebPrincipalControllerShowQueryKey({
+      getPrincipalQueryKey({
         path: { uid: 'legacy@example.com' },
         headers: { 'x-ankole-tenant': authorTenant }
       }),
-      { principal: { uid: 'legacy@example.com', display_name: 'Alice' } }
+      { data: { id: 'legacy@example.com', type: 'principal', attributes: { display_name: 'Alice' } } }
     )
 
     expect(render(queryClient)).toContain('Original team / Alice')

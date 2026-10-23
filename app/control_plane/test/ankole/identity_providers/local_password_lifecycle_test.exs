@@ -7,6 +7,8 @@ defmodule Ankole.IdentityProviders.LocalPasswordLifecycleTest do
   alias Ankole.Principals
   alias Ankole.Principals.LocalCredential
 
+  @account_fields [:email, :has_external_identity, :local_credential_status]
+
   describe "generate_initial_password/0" do
     test "returns 16 characters from the unambiguous alphabet" do
       passwords = for _round <- 1..20, do: LocalCredential.generate_initial_password()
@@ -21,6 +23,11 @@ defmodule Ankole.IdentityProviders.LocalPasswordLifecycleTest do
   end
 
   describe "create_local_user/2" do
+    setup do
+      {:ok, _provider} = Ankole.IdentityProviders.save_provider("local-main", "local", %{}, true)
+      :ok
+    end
+
     test "creates the principal, profile, and credential in one call" do
       email = "new-user-#{System.unique_integer([:positive])}@example.com"
 
@@ -40,7 +47,16 @@ defmodule Ankole.IdentityProviders.LocalPasswordLifecycleTest do
     end
 
     test "requires an email" do
-      assert {:error, {:missing, :email}} = Principals.create_local_user(%{uid: "x"}, true)
+      assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.Required{field: :email}]}} =
+               Principals.create_local_user(%{uid: "x"}, true)
+    end
+
+    test "requires an enabled local identity provider" do
+      {:ok, _provider} =
+        Ankole.IdentityProviders.save_provider("local-main", "local", %{}, false)
+
+      assert {:error, :local_identity_provider_disabled} =
+               Principals.create_local_user(%{email: "off@example.com"}, true)
     end
 
     test "rejects a duplicate email with a validation error" do
@@ -141,19 +157,18 @@ defmodule Ankole.IdentityProviders.LocalPasswordLifecycleTest do
   describe "account read model" do
     test "carries email, external identity, and credential facts" do
       %{principal: principal, human_user: human_user} = human_fixture()
+      account = fn -> Principals.get_principal_record!(principal.uid, load: @account_fields) end
 
-      assert {:ok, account} = Principals.get_principal_account(principal.uid)
-      assert account.email == human_user.email
-      refute account.has_external_identity
-      assert account.local_credential_status == nil
+      assert %{email: email, has_external_identity: false, local_credential_status: nil} =
+               account.()
+
+      assert email == human_user.email
 
       {:ok, _credential} = LocalPassword.set_local_password(principal.uid, "secret1", true)
-      assert {:ok, account} = Principals.get_principal_account(principal.uid)
-      assert account.local_credential_status == :must_change
+      assert account.().local_credential_status == :must_change
 
       {:ok, _credential} = LocalPassword.set_local_password(principal.uid, "secret1", false)
-      assert {:ok, account} = Principals.get_principal_account(principal.uid)
-      assert account.local_credential_status == :active
+      assert account.().local_credential_status == :active
 
       {:ok, _identity} =
         Ankole.PrincipalsFixtures.create_external_identity(%{
@@ -162,13 +177,7 @@ defmodule Ankole.IdentityProviders.LocalPasswordLifecycleTest do
           external_id: "ou-#{System.unique_integer([:positive])}"
         })
 
-      assert {:ok, %{has_external_identity: true}} =
-               Principals.get_principal_account(principal.uid)
-
-      accounts = Principals.list_principal_accounts()
-      listed = Enum.find(accounts, &(&1.principal.uid == principal.uid))
-      assert listed.local_credential_status == :active
-      assert listed.has_external_identity
+      assert account.().has_external_identity
     end
   end
 end

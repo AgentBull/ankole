@@ -3,11 +3,8 @@ import {
   ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions,
   ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions,
   ankoleWebAppConfigurationControllerIndexOptions,
-  ankoleWebAuthZGroupControllerIndexOptions,
   ankoleWebControlPlanePluginControllerIndexOptions,
-  ankoleWebIdentityMappingRequestControllerIndexOptions,
   ankoleWebIdentityProviderControllerIndexOptions,
-  ankoleWebPrincipalControllerIndexOptions,
   ankoleWebSignalBindingControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerTurnsOptions,
   ankoleWebWorkerEnvControllerIndexOptions
@@ -16,7 +13,13 @@ import { agentWorkerListOptions } from './api/agent-workers'
 import { agentListOptions } from './api/agents'
 import { aiGatewayConversationsOptions } from './api/ai-gateway-conversations'
 import { backgroundAgentJobOptions, backgroundAgentJobsOptions } from './api/background-agent-jobs'
-import { listAgentSkillLessonsOptions, listOidcClientsOptions } from './api/v2/generated/@tanstack/react-query.gen'
+import {
+  listAgentSkillLessonsOptions,
+  listIdentityMappingRequestsOptions,
+  listOidcClientsOptions,
+  listPrincipalGroupsOptions,
+  listPrincipalsOptions
+} from './api/v2/generated/@tanstack/react-query.gen'
 import { listAiGatewayProvidersOptions } from './api/v2-site/generated/@tanstack/react-query.gen'
 import { automationJobListOptions } from './pages/automation-jobs'
 import { backgroundAgentJobListOptions } from './pages/background-agent-jobs'
@@ -71,14 +74,10 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
     },
     providers: () => ensure(listAiGatewayProvidersOptions()).then(() => null),
     identity: () => ensure(ankoleWebIdentityProviderControllerIndexOptions()).then(() => null),
-    oidcClients: () => all(ensure(listOidcClientsOptions()), ensure(ankoleWebAuthZGroupControllerIndexOptions())),
-    identityMappings: () =>
-      all(
-        ensure(ankoleWebIdentityMappingRequestControllerIndexOptions()),
-        ensure(ankoleWebPrincipalControllerIndexOptions())
-      ),
-    principalGroups: () => ensure(ankoleWebAuthZGroupControllerIndexOptions()).then(() => null),
-    principals: () => ensure(ankoleWebPrincipalControllerIndexOptions()).then(() => null),
+    oidcClients: () => all(ensure(listOidcClientsOptions()), ensure(listPrincipalGroupsOptions())),
+    identityMappings: () => all(ensure(listIdentityMappingRequestsOptions()), ensure(listPrincipalsOptions())),
+    principalGroups: () => ensure(listPrincipalGroupsOptions()).then(() => null),
+    principals: () => ensure(listPrincipalsOptions()).then(() => null),
     signals: ({ location }: ConsoleRouteLoaderContext) =>
       all(
         ensure(agentListOptions()),

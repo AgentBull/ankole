@@ -559,6 +559,21 @@ The action locks its rows, runs its write steps, and commits them together:
 | Source | `archive_source`, `update_source_default_scope` |
 | SchemaSuggestion, MergeSuggestion, Contradiction | `approve_promotion`, `reject_promotion`, `approve_merge`, `reject_merge`, `decide_contradiction` |
 
+The Console API at `/api/v2/brain` (`AnkoleWeb.JSONAPI.ConsoleRouter`) gives
+the `json_api` routes of `Ankole.Brain`. Each list is a `:console_list` read
+action that gives the first 100 rows. A Console write that records its
+operator is a `console_*` generic action: the Principal of the session is the
+Ash actor of the action (`Ankole.Brain.Console`), and the action runs the same
+`_in_tx` steps as the operation define. A missing target gives 404, and a
+reason that conflicts with the current state (`content_hash_conflict`,
+`object_deleted`, `slug_taken`, `conflict`) gives 409; another domain reason
+gives 422 with the reason as the code. The routes for
+`fork_library_page`, `restore_object`, `decide`, `archive_source`, and
+`update_default_scope` give the operation actions directly. The health
+snapshot, the object page, the object types, the search preview, the
+per-principal audit, and the Dreaming trigger combine many resources, so they
+stay routes of `AnkoleWeb.BrainController` at `/api/v1/brain`.
+
 The background writes of the Brain modules are generic actions without a
 define. Each module function keeps its name and runs its action with
 `Ankole.Ash.run_action/4`:

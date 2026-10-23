@@ -1,6 +1,25 @@
 defmodule Ankole.Brain.Schemas.Source do
   @moduledoc "A stable learning source with explicit archive, sync, and extraction writes."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Brain,
+    extensions: [AshJsonApi.Resource]
+
+  json_api do
+    type("brain_source")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :upstream_id,
+      :kind,
+      :name,
+      :default_audience_scope,
+      :upstream_revision,
+      :last_sync_at,
+      :archived_at
+    ])
+  end
 
   postgres do
     table("brain_sources")
@@ -24,14 +43,19 @@ defmodule Ankole.Brain.Schemas.Source do
       default: &Ankole.Ecto.UUIDv7.autogenerate/0
     )
 
-    attribute(:upstream_id, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:kind, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:name, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:default_audience_scope, :string, constraints: [trim?: false])
+    attribute(:upstream_id, :string,
+      allow_nil?: false,
+      public?: true,
+      constraints: [trim?: false]
+    )
+
+    attribute(:kind, :string, allow_nil?: false, public?: true, constraints: [trim?: false])
+    attribute(:name, :string, allow_nil?: false, public?: true, constraints: [trim?: false])
+    attribute(:default_audience_scope, :string, public?: true, constraints: [trim?: false])
     attribute(:config, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
-    attribute(:upstream_revision, :string, constraints: [trim?: false])
-    attribute(:last_sync_at, :utc_datetime_usec)
-    attribute(:archived_at, :utc_datetime_usec)
+    attribute(:upstream_revision, :string, public?: true, constraints: [trim?: false])
+    attribute(:last_sync_at, :utc_datetime_usec, public?: true)
+    attribute(:archived_at, :utc_datetime_usec, public?: true)
     attribute(:extracted_through_at, :utc_datetime_usec)
     attribute(:extracted_through_seq, :integer, constraints: [min: 0])
     attribute(:created_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
@@ -44,6 +68,11 @@ defmodule Ankole.Brain.Schemas.Source do
 
   actions do
     defaults([:read])
+
+    # The Console list: the 100 most recently changed Sources.
+    read :console_list do
+      prepare(build(sort: [updated_at: :desc], limit: 100))
+    end
 
     create :register do
       accept([
@@ -122,13 +151,44 @@ defmodule Ankole.Brain.Schemas.Source do
       change(set_attribute(:updated_at, &DateTime.utc_now/0))
     end
 
+    # The Console registers a file or a URL Source;
+    # Ankole.Brain.SourceLearning validates the kind and the scope.
+    action :console_register, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:upstream_id, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:kind, :string, allow_nil?: false)
+      argument(:name, :string, allow_nil?: false)
+      argument(:default_audience_scope, :string)
+      argument(:config, Ankole.Ash.Types.JSONMap, default: %{})
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Brain.Console.result(Ankole.Brain.SourceLearning.register_source(args), __MODULE__)
+      end)
+    end
+
+    action :console_learn do
+      argument(:source_id, :uuid, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        with {:ok, _result} <-
+               Ankole.Brain.Console.result(
+                 Ankole.Brain.SourceLearning.enqueue_learn(args.source_id),
+                 __MODULE__
+               ),
+             do: :ok
+      end)
+    end
+
     # Each operation owns its transaction; Ankole.Brain.Sources gives the steps.
     action :archive_source, :struct do
       constraints(instance_of: __MODULE__)
       argument(:source_id, :uuid, allow_nil?: false)
 
       run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.Brain.Sources.archive_in_tx(args.source_id))
+        Ankole.Brain.Console.result(
+          Ankole.Brain.Sources.archive_in_tx(args.source_id),
+          __MODULE__
+        )
       end)
     end
 
@@ -140,7 +200,7 @@ defmodule Ankole.Brain.Schemas.Source do
       run(fn %{arguments: args}, _context ->
         args.source_id
         |> Ankole.Brain.Sources.update_default_scope_in_tx(args[:scope])
-        |> Ankole.Errors.wrap()
+        |> Ankole.Brain.Console.result(__MODULE__)
       end)
     end
 

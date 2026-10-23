@@ -79,19 +79,22 @@ defmodule Ankole.Brain.Claims do
   @spec fact_kinds() :: [String.t()]
   def fact_kinds, do: @fact_kinds
 
-  @doc "Lists Claims for the Console read model."
-  @spec list_for_console(keyword()) :: [Claim.t()]
-  def list_for_console(opts) when is_list(opts) do
-    limit = Keyword.fetch!(opts, :limit)
+  @console_list_limit 100
 
-    Claim
-    |> maybe_console_object(Keyword.get(opts, :object_slug))
-    |> maybe_console_type(Keyword.get(opts, :claim_type))
-    |> maybe_console_status(Keyword.get(opts, :status))
-    |> maybe_console_search(Keyword.get(opts, :search))
+  @doc """
+  Prepares the `:console_list` read of Claims: the first 100 Claims, newest
+  first, that match the Object slug, the Claim type, the current state, and
+  the text search.
+  """
+  @spec console_list(Ash.Query.t(), map()) :: Ash.Query.t()
+  def console_list(query, _context) do
+    query
+    |> maybe_console_object(Ash.Query.get_argument(query, :object_slug))
+    |> maybe_console_type(Ash.Query.get_argument(query, :claim_type))
+    |> maybe_console_status(Ash.Query.get_argument(query, :status))
+    |> maybe_console_search(Ash.Query.get_argument(query, :search))
     |> Ash.Query.sort(created_at: :desc)
-    |> Ash.Query.limit(limit)
-    |> Ankole.Ash.read!()
+    |> Ash.Query.limit(@console_list_limit)
   end
 
   @doc "Lists Claims related to one Principal for the Console audit read model."
@@ -722,11 +725,10 @@ defmodule Ankole.Brain.Claims do
 
   defp maybe_console_object(query, _slug), do: query
 
-  defp maybe_console_type(query, "fact"), do: Ash.Query.filter(query, claim_type == :fact)
-  defp maybe_console_type(query, "take"), do: Ash.Query.filter(query, claim_type == :take)
-  defp maybe_console_type(query, _type), do: query
+  defp maybe_console_type(query, nil), do: query
+  defp maybe_console_type(query, type), do: Ash.Query.filter(query, claim_type == ^type)
 
-  defp maybe_console_status(query, "current"), do: Ash.Query.filter(query, current? == true)
+  defp maybe_console_status(query, :current), do: Ash.Query.filter(query, current? == true)
   defp maybe_console_status(query, _status), do: query
 
   defp maybe_console_search(query, term) when is_binary(term) do

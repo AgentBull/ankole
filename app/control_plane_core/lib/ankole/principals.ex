@@ -27,6 +27,45 @@ defmodule Ankole.Principals do
   alias Ankole.Repo
   alias Ankole.AgentWorkers
 
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/principals", Principal do
+        index(:console_list, name: "list_principals", derive_sort?: false)
+        get(:read, route: "/:uid", name: "get_principal")
+
+        post(:create_local_user,
+          name: "create_local_user",
+          metadata: &__MODULE__.initial_password_meta/3
+        )
+
+        patch(:update_human, route: "/:uid", name: "update_human")
+      end
+
+      base_route "/identity-mapping-requests", MappingRequest do
+        index(:console_list, name: "list_identity_mapping_requests", derive_sort?: false)
+        delete(:delete_in_tx, name: "delete_identity_mapping_request", read_action: :by_id)
+        route(:post, "/:id/bind", :bind_request, name: "bind_identity_mapping_request")
+      end
+
+      base_route "/identity-mappings", MappingRequest do
+        route(:post, "/", :bind_subject, name: "create_identity_mapping")
+      end
+
+      base_route "/agents", Agent do
+        index(:console_list, name: "list_agents", derive_sort?: false)
+        get(:read, route: "/:uid", name: "get_agent")
+        route(:post, "/", :console_create, name: "create_agent")
+        route(:patch, "/:uid", :console_update, name: "update_agent")
+        route(:delete, "/:uid", :console_delete, name: "delete_agent")
+        route(:post, "/:uid/enable", :console_enable, name: "enable_agent")
+      end
+    end
+  end
+
   resources do
     resource Principal do
       define(:get_principal_record, action: :read, get_by: [:uid], not_found_error?: false)
@@ -73,23 +112,6 @@ defmodule Ankole.Principals do
     resource MappingRequest do
       define(:get_mapping_request, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_mapping_requests, action: :read)
-    end
-  end
-
-  json_api do
-    authorize?(false)
-    log_errors?(true)
-    show_raised_errors?(false)
-
-    routes do
-      base_route "/agents", Agent do
-        index(:console_list, name: "list_agents", derive_sort?: false)
-        get(:read, route: "/:uid", name: "get_agent")
-        route(:post, "/", :console_create, name: "create_agent")
-        route(:patch, "/:uid", :console_update, name: "update_agent")
-        route(:delete, "/:uid", :console_delete, name: "delete_agent")
-        route(:post, "/:uid/enable", :console_enable, name: "enable_agent")
-      end
     end
   end
 
@@ -207,21 +229,33 @@ defmodule Ankole.Principals do
   end
 
   @doc """
-  Updates mutable human profile fields.
+  Updates the display name or the email of a Human with local sign-in.
+
+  An omitted field keeps its value. The email is the local sign-in key, so it
+  cannot be cleared. The local identity provider must be enabled.
   """
-  @spec update_human(String.t(), map()) ::
-          {:ok, %{principal: Principal.t(), human_user: HumanUser.t()}} | {:error, term()}
-  def update_human(uid, attrs) when is_map(attrs),
-    do: Ankole.Ash.run_action(Principal, :update_human, %{uid: uid, attrs: attrs})
+  @spec update_human(String.t(), map()) :: {:ok, Principal.t()} | {:error, term()}
+  def update_human(uid, attrs) when is_map(attrs) do
+    Ankole.Ash.run_action(
+      Principal,
+      :update_human,
+      attrs |> Map.take([:display_name, :email]) |> Map.put(:uid, uid)
+    )
+    |> Ankole.Errors.reason()
+  end
 
   @doc false
-  def update_human_in_tx(repo, uid, attrs) do
-    with {:ok, principal} <- lock_principal_in_tx(repo, uid),
+  def update_human_in_tx(repo, %{uid: uid} = changes) do
+    attrs = Map.take(changes, [:display_name, :email])
+
+    with :ok <- require_local_identity_provider(),
+         :ok <- keep_email(attrs),
+         {:ok, principal} <- lock_principal_in_tx(repo, uid),
          :ok <- ensure_principal_type(principal, :human),
          {:ok, principal} <- update_principal_profile(repo, principal, attrs),
          {:ok, human_user} <-
            upsert_human_user(repo, principal.uid, take_attrs(attrs, @human_profile_fields)) do
-      {:ok, %{principal: principal, human_user: human_user}}
+      {:ok, %{principal | human_user: human_user}}
     end
   end
 
@@ -412,9 +446,11 @@ defmodule Ankole.Principals do
   end
 
   @doc """
-  Creates a human Principal with a generated local initial password.
+  Creates a human Principal with a generated one-time local password.
 
-  The email attribute is required because it is the local sign-in key.
+  The email attribute is required because it is the local sign-in key. The
+  local identity provider must be enabled. The result also gives the password,
+  which is not stored.
   """
   @spec create_local_user(map(), boolean()) ::
           {:ok,
@@ -422,28 +458,66 @@ defmodule Ankole.Principals do
           | {:error, term()}
   def create_local_user(attrs, must_change_password)
       when is_map(attrs) and is_boolean(must_change_password) do
-    initial_password = LocalCredential.generate_initial_password()
-
-    with {:ok, _email} <- required_text(attrs, :email),
-         {:ok, password_hash} <- LocalPassword.hash_password(initial_password),
-         {:ok, created} <-
+    with {:ok, principal} <-
            Ankole.Ash.run_action(Principal, :create_local_user, %{
-             attrs: attrs,
-             password_hash: password_hash,
+             email: Map.get(attrs, :email),
+             display_name: Map.get(attrs, :display_name),
              must_change_password: must_change_password
-           }) do
-      {:ok, Map.put(created, :initial_password, initial_password)}
+           })
+           |> Ankole.Errors.reason() do
+      {:ok,
+       %{
+         principal: principal,
+         human_user: principal.human_user,
+         initial_password: principal.__metadata__.initial_password
+       }}
     end
   end
 
   @doc false
-  def create_local_user_in_tx(repo, attrs, password_hash, must_change_password) do
-    with {:ok, %{principal: principal} = created} <- create_human_in_tx(repo, attrs),
+  # The `meta` of the JSON:API response that creates a local user.
+  def initial_password_meta(_input, %Principal{} = principal, _request),
+    do: %{initial_password: principal.__metadata__.initial_password}
+
+  @doc false
+  def create_local_user_in_tx(repo, args) do
+    with :ok <- require_local_identity_provider(),
+         {:ok, %{principal: principal, human_user: human_user}} <-
+           create_human_in_tx(repo, Map.take(args, [:email, :display_name])),
          {:ok, _credential} <-
-           put_local_credential_in_tx(repo, principal.uid, password_hash, must_change_password) do
-      {:ok, created}
+           put_local_credential_in_tx(
+             repo,
+             principal.uid,
+             args.password_hash,
+             Map.get(args, :must_change_password) != false
+           ) do
+      {:ok,
+       principal
+       |> Map.put(:human_user, human_user)
+       |> Ash.Resource.put_metadata(:initial_password, args.initial_password)}
     end
   end
+
+  @doc false
+  # The operator text of a refused local-account or identity binding change.
+  def describe_refusal(:local_identity_provider_disabled),
+    do: {:conflict, "Local account sign-in is not enabled.", []}
+
+  def describe_refusal(:platform_subject_already_bound),
+    do: {:conflict, "This provider account is already bound to another user.", []}
+
+  def describe_refusal(_reason), do: nil
+
+  # Each local-account write needs an enabled local identity provider, so that
+  # no credential is made that no login path accepts.
+  defp require_local_identity_provider do
+    if LocalPassword.enabled?(), do: :ok, else: {:error, :local_identity_provider_disabled}
+  end
+
+  defp keep_email(%{email: nil}),
+    do: {:error, Ash.Error.Changes.Required.exception(field: :email, type: :argument)}
+
+  defp keep_email(_attrs), do: :ok
 
   @doc """
   Loads the Principal, human profile, and local credential for one normalized
@@ -544,37 +618,6 @@ defmodule Ankole.Principals do
           {:ok, %Principal{}} -> {:error, :not_human}
           {:error, _missing} -> {:error, :not_found}
         end
-    end
-  end
-
-  @doc """
-  Lists Principal accounts. Disabled Principals are excluded unless requested.
-  """
-  @spec list_principal_accounts(keyword()) :: [map()]
-  def list_principal_accounts(opts \\ []) do
-    query =
-      if Keyword.get(opts, :include_disabled, false),
-        do: principal_account_query(),
-        else: Ash.Query.filter(principal_account_query(), status == :active)
-
-    query
-    |> Ankole.Ash.read!()
-    |> Enum.map(&principal_account/1)
-  end
-
-  @doc """
-  Loads one Principal with its account facts for the operator console.
-  """
-  @spec get_principal_account(String.t()) :: {:ok, map()} | {:error, term()}
-  def get_principal_account(uid) do
-    with {:ok, normalized_uid} <- normalize_uid(uid) do
-      principal_account_query()
-      |> Ash.Query.filter(uid == ^normalized_uid)
-      |> Ankole.Ash.read_one!()
-      |> case do
-        nil -> {:error, :not_found}
-        principal -> {:ok, principal_account(principal)}
-      end
     end
   end
 
@@ -841,29 +884,6 @@ defmodule Ankole.Principals do
       nil ->
         insert_human_user(repo, principal_uid, attrs)
     end
-  end
-
-  defp principal_account_query do
-    Principal
-    |> Ash.Query.load([:human_user, :agent, :local_credential, :has_external_identity])
-    |> Ash.Query.sort(uid: :asc)
-  end
-
-  defp principal_account(%Principal{} = principal) do
-    local_credential_status =
-      case principal.local_credential do
-        nil -> nil
-        %LocalCredential{must_change_password: true} -> :must_change
-        %LocalCredential{must_change_password: false} -> :active
-      end
-
-    %{
-      principal: principal,
-      email: principal.human_user && principal.human_user.email,
-      handle: principal.agent && principal.agent.handle,
-      has_external_identity: principal.has_external_identity,
-      local_credential_status: local_credential_status
-    }
   end
 
   defp upsert_external_identity(attrs) do

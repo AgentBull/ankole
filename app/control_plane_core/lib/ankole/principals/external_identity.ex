@@ -1,6 +1,17 @@
 defmodule Ankole.Principals.ExternalIdentity do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Principals,
+    extensions: [AshJsonApi.Resource]
+
+  # The Console API gives a bound identity without its provider metadata.
+  json_api do
+    type("external_identity")
+    derive_filter?(false)
+    derive_sort?(false)
+    default_fields([:principal_uid, :provider, :external_id])
+  end
 
   postgres do
     table("principal_external_identities")

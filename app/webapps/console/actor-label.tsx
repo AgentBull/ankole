@@ -1,7 +1,7 @@
 import { principalLabel } from './state/principal-label'
 import type { ConsoleActorRef } from './api/generated/types.gen'
 import { useQuery } from '@tanstack/react-query'
-import { ankoleWebPrincipalControllerShowOptions } from './api/generated/@tanstack/react-query.gen'
+import { getPrincipalOptions } from './api/v2/generated/@tanstack/react-query.gen'
 import { listTenantsOptions } from './api/v2-site/generated/@tanstack/react-query.gen'
 import { fromDocument } from './api/json-api'
 
@@ -13,15 +13,16 @@ export function ActorLabel({ actor }: { actor?: ConsoleActorRef | null }) {
     enabled: Boolean(actor)
   })
   const author = useQuery({
-    ...ankoleWebPrincipalControllerShowOptions({
+    ...getPrincipalOptions({
       path: { uid: actor?.uid ?? '' },
       headers: { 'x-ankole-tenant': actor?.tenant_id ?? '' }
     }),
+    select: data => fromDocument(data),
     enabled: Boolean(actor),
     retry: false
   })
   const tenant = tenants.data?.find(item => item.id === actor?.tenant_id)
-  const principal = author.data?.principal
+  const principal = author.data
   const label = tenant && principal ? `${tenant.display_name} / ${principalLabel(principal)}` : (actor?.uid ?? '—')
 
   return <span title={actor ? `${actor.tenant_id} / ${actor.uid}` : undefined}>{label}</span>

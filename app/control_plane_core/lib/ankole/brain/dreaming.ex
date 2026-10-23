@@ -135,37 +135,6 @@ defmodule Ankole.Brain.Dreaming do
     %{status: :ok, promoted: promoted, buckets: length(bucket_keys)}
   end
 
-  @doc "Lists contradiction findings and loads their Claims for the Console read model."
-  @spec list_contradictions_for_console(String.t(), keyword()) ::
-          {:ok, [map()]} | {:error, term()}
-  def list_contradictions_for_console(status, opts)
-      when is_binary(status) and is_list(opts) do
-    limit = Keyword.fetch!(opts, :limit)
-
-    with {:ok, contradictions} <-
-           Contradiction
-           |> Ash.Query.filter(status == ^status)
-           |> Ash.Query.sort(created_at: :desc)
-           |> Ash.Query.limit(limit)
-           |> Ankole.Ash.read() do
-      claims_by_id =
-        contradictions
-        |> Enum.flat_map(&[&1.a_claim_id, &1.b_claim_id])
-        |> Enum.reject(&is_nil/1)
-        |> Enum.uniq()
-        |> claims_by_id()
-
-      {:ok,
-       Enum.map(contradictions, fn contradiction ->
-         %{
-           contradiction: contradiction,
-           a_claim: Map.get(claims_by_id, contradiction.a_claim_id),
-           b_claim: Map.get(claims_by_id, contradiction.b_claim_id)
-         }
-       end)}
-    end
-  end
-
   # The buckets of unconsolidated current facts that can promote: an
   # aggregate read model that gives key tuples, not Claim rows.
   defp consolidation_buckets(threshold) do
@@ -189,15 +158,6 @@ defmodule Ankole.Brain.Dreaming do
     )
     |> limit(@consolidate_bucket_limit)
     |> Repo.all()
-  end
-
-  defp claims_by_id([]), do: %{}
-
-  defp claims_by_id(ids) do
-    Claim
-    |> Ash.Query.filter(id in ^ids)
-    |> Ankole.Ash.read!()
-    |> Map.new(&{&1.id, &1})
   end
 
   # Greedy clustering: newest first, each fact joins the first cluster whose

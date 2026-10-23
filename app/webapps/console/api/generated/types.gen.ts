@@ -5,13 +5,6 @@ export type ClientOptions = {
 }
 
 /**
- * BrainSuggestionListResponse
- */
-export type BrainSuggestionListResponse = {
-  suggestions: Array<BrainSuggestion>
-}
-
-/**
  * BrainObjectTypesResponse
  */
 export type BrainObjectTypesResponse = {
@@ -70,13 +63,6 @@ export type ProviderHostedWriteRequest = {
 }
 
 /**
- * BrainClaimForgetRequest
- */
-export type BrainClaimForgetRequest = {
-  reason: string
-}
-
-/**
  * AIGatewayChatGPTBrowserLoginRequest
  */
 export type AiGatewayChatGptBrowserLoginRequest = {
@@ -84,33 +70,6 @@ export type AiGatewayChatGptBrowserLoginRequest = {
   login_context: {
     [key: string]: unknown
   }
-}
-
-/**
- * BrainObjectUpdateRequest
- */
-export type BrainObjectUpdateRequest = {
-  body: string
-  effective_date?: string | null
-  expected_content_hash: string
-  meta: {
-    [key: string]: unknown
-  }
-  slug: string
-  subtype?: string | null
-  tags?: Array<string>
-  title: string
-}
-
-/**
- * BrainTakeResolveRequest
- */
-export type BrainTakeResolveRequest = {
-  resolution_provenance?: string | null
-  resolved_outcome?: boolean | null
-  resolved_quality: 'correct' | 'incorrect' | 'partial' | 'unresolvable'
-  resolved_unit?: string | null
-  resolved_value?: number | null
 }
 
 /**
@@ -140,49 +99,10 @@ export type ConversationStandingOrdersItem = {
 }
 
 /**
- * PrincipalGroupCreateRequest
- */
-export type PrincipalGroupCreateRequest = {
-  /**
-   * CEL condition required when kind is computed
-   */
-  computed_condition?: string | null
-  description?: string | null
-  display_name: string
-  kind?: 'static' | 'computed'
-  /**
-   * Lowercase stable policy key
-   */
-  name: string
-}
-
-/**
- * PrincipalGroupUpdateRequest
- */
-export type PrincipalGroupUpdateRequest = {
-  computed_condition?: string | null
-  description?: string | null
-  display_name?: string | null
-}
-
-/**
  * AIGatewayCredentialStrategyWriteRequest
  */
 export type AiGatewayCredentialStrategyWriteRequest = {
   strategy: 'fill_first' | 'round_robin' | 'least_used' | 'random'
-}
-
-/**
- * BrainClaimSupersedeRequest
- */
-export type BrainClaimSupersedeRequest = {
-  audience_scope?: string | null
-  claim: string
-  confidence?: number | null
-  kind?: string | null
-  notability?: string | null
-  provenance?: string | null
-  weight?: number | null
 }
 
 /**
@@ -303,15 +223,6 @@ export type BackgroundActivityAutomationRunsResponse = {
 }
 
 /**
- * BrainSourceLearnResponse
- */
-export type BrainSourceLearnResponse = {
-  result: {
-    status: 'enqueued'
-  }
-}
-
-/**
  * WorkerEnvListResponse
  */
 export type WorkerEnvListResponse = {
@@ -379,30 +290,6 @@ export type AiGatewayModelCatalogEntry = {
   model: string
   name: string
   provider_id: string
-}
-
-/**
- * BrainMergeSuggestionListResponse
- */
-export type BrainMergeSuggestionListResponse = {
-  suggestions: Array<BrainMergeSuggestion>
-}
-
-/**
- * BrainSourceArchiveResponse
- */
-export type BrainSourceArchiveResponse = {
-  source: {
-    archived_at: string
-    id: string
-  }
-}
-
-/**
- * BrainClaimResponse
- */
-export type BrainClaimResponse = {
-  claim: BrainClaim
 }
 
 /**
@@ -538,21 +425,6 @@ export type BrainHealth = {
 }
 
 /**
- * BrainObjectListResponse
- */
-export type BrainObjectListResponse = {
-  objects: Array<BrainObjectSummary>
-}
-
-/**
- * PrincipalCreateResponse
- */
-export type PrincipalCreateResponse = {
-  initial_password: string
-  principal: PrincipalItem
-}
-
-/**
  * ModelProfileResponse
  */
 export type ModelProfileResponse = {
@@ -654,35 +526,11 @@ export type AiGatewayChatGptEnterpriseCredentialRequest = {
 }
 
 /**
- * PrincipalItem
- */
-export type PrincipalItem = {
-  avatar_url?: string | null
-  display_name?: string | null
-  email?: string | null
-  handle?: string | null
-  has_external_identity: boolean
-  inserted_at: string
-  local_credential?: PrincipalLocalCredential
-  status: 'active' | 'disabled'
-  type: 'human' | 'agent' | 'system'
-  uid: string
-  updated_at: string
-}
-
-/**
  * AgentLibraryDocumentWriteRequest
  */
 export type AgentLibraryDocumentWriteRequest = {
   content: string
   expected_content_hash: string
-}
-
-/**
- * BrainPromotionResultResponse
- */
-export type BrainPromotionResultResponse = {
-  result: JsonValue
 }
 
 /**
@@ -726,15 +574,6 @@ export type BackgroundActivityWorkflowCall = {
 }
 
 /**
- * PrincipalCreateRequest
- */
-export type PrincipalCreateRequest = {
-  display_name?: string | null
-  email: string
-  must_change_password?: boolean
-}
-
-/**
  * AccessReviewGroup
  */
 export type AccessReviewGroup = {
@@ -743,14 +582,6 @@ export type AccessReviewGroup = {
   id: string
   kind: string
   name: string
-}
-
-/**
- * BrainObjectForgetRequest
- */
-export type BrainObjectForgetRequest = {
-  reason: string
-  slug: string
 }
 
 /**
@@ -803,13 +634,6 @@ export type BackgroundAgentJobTurnActiveItem = {
 }
 
 /**
- * PrincipalGroupListResponse
- */
-export type PrincipalGroupListResponse = {
-  principal_groups: Array<PrincipalGroupItem>
-}
-
-/**
  * ConsoleReadinessResponse
  */
 export type ConsoleReadinessResponse = {
@@ -821,24 +645,6 @@ export type ConsoleReadinessResponse = {
   signal_route: ConsoleReadinessSignalRoute
   total_core_steps: number
   worker: ConsoleReadinessWorker
-}
-
-/**
- * BrainSourceUpdateRequest
- */
-export type BrainSourceUpdateRequest = {
-  /**
-   * Applies when a conversation first enters Brain. Null keeps it private to the submitting Human. Existing conversations keep their audience.
-   */
-  default_audience_scope: string | null
-}
-
-/**
- * PrincipalUpdateRequest
- */
-export type PrincipalUpdateRequest = {
-  display_name?: string | null
-  email?: string
 }
 
 /**
@@ -882,13 +688,6 @@ export type AgentLibraryAgentOverrideWriteRequest = {
 }
 
 /**
- * PrincipalGroupResponse
- */
-export type PrincipalGroupResponse = {
-  principal_group: PrincipalGroupItem
-}
-
-/**
  * AIGatewayCredentialPool
  */
 export type AiGatewayCredentialPool = {
@@ -906,13 +705,6 @@ export type BrainDreamResponse = {
 }
 
 /**
- * PrincipalResponse
- */
-export type PrincipalResponse = {
-  principal: PrincipalItem
-}
-
-/**
  * AIGatewayProviderSetting
  */
 export type AiGatewayProviderSetting = {
@@ -924,28 +716,6 @@ export type AiGatewayProviderSetting = {
   required: boolean
   scope: 'connection' | 'credential' | 'request'
   type: 'boolean' | 'float' | 'integer' | 'map' | 'select' | 'string'
-}
-
-/**
- * BrainObjectSummaryResponse
- */
-export type BrainObjectSummaryResponse = {
-  object: BrainObjectSummary
-}
-
-/**
- * BrainContradiction
- */
-export type BrainContradiction = {
-  a_claim?: BrainClaim | null
-  axis?: string | null
-  b_claim?: BrainClaim | null
-  confidence: number
-  created_at: string
-  id: string
-  severity: string
-  status: string
-  verdict: string
 }
 
 /**
@@ -1014,13 +784,6 @@ export type SignalAdapterListResponse = {
 }
 
 /**
- * IdentityMappingRequestListResponse
- */
-export type IdentityMappingRequestListResponse = {
-  identity_mapping_requests: Array<IdentityMappingRequestItem>
-}
-
-/**
  * BrainPageLinks
  */
 export type BrainPageLinks = {
@@ -1082,24 +845,6 @@ export type AccessHistoryItem = {
 }
 
 /**
- * PrincipalGroupItem
- */
-export type PrincipalGroupItem = {
-  built_in: boolean
-  computed_condition?: string | null
-  description?: string | null
-  display_name: string
-  domain: 'operator' | 'directory' | 'im_group'
-  grant_count: number
-  id: string
-  inserted_at: string
-  kind: 'static' | 'computed'
-  member_count: number
-  name: string
-  updated_at: string
-}
-
-/**
  * BackgroundAgentJobTurnProgress
  */
 export type BackgroundAgentJobTurnProgress = {
@@ -1118,23 +863,6 @@ export type BackgroundAgentJobTurnProgress = {
 export type AgentFileFolder = {
   name: string
   path: string
-}
-
-/**
- * PrincipalLocalCredential
- */
-export type PrincipalLocalCredential = {
-  status: 'active' | 'must_change'
-} | null
-
-/**
- * BrainContradictionDecisionResponse
- */
-export type BrainContradictionDecisionResponse = {
-  contradiction: {
-    id: string
-    status: string
-  }
 }
 
 /**
@@ -1216,13 +944,6 @@ export type SignalAdapterField = {
   type: string
   validation?: SignalAdapterPatternValidation | SignalAdapterJsonObjectValidation
   [key: string]: unknown
-}
-
-/**
- * IdentityMappingResponse
- */
-export type IdentityMappingResponse = {
-  identity_mapping: IdentityMappingItem
 }
 
 /**
@@ -1312,42 +1033,11 @@ export type ConsoleActorRef = {
 }
 
 /**
- * BrainSuggestion
- */
-export type BrainSuggestion = {
-  created_at: string
-  evidence_count: number
-  id: string
-  kind: string
-  rationale?: string | null
-  status: string
-  target_type?: string | null
-  term: string
-}
-
-/**
- * PermissionGrantUpdateRequest
- */
-export type PermissionGrantUpdateRequest = {
-  action?: string | null
-  condition?: string | null
-  description?: string | null
-  resource_pattern?: string | null
-}
-
-/**
  * BrainObjectShowResponse
  */
 export type BrainObjectShowResponse = {
   candidates?: Array<BrainObjectCandidate>
   object?: BrainObjectPage
-}
-
-/**
- * BrainContradictionListResponse
- */
-export type BrainContradictionListResponse = {
-  contradictions: Array<BrainContradiction>
 }
 
 /**
@@ -1367,25 +1057,11 @@ export type AgentSessionListResponse = {
 }
 
 /**
- * BrainObjectRestoreRequest
- */
-export type BrainObjectRestoreRequest = {
-  slug: string
-}
-
-/**
  * SignalBindingListResponse
  */
 export type SignalBindingListResponse = {
   delivery_failures: Array<SignalDeliveryFailureItem>
   signal_bindings: Array<SignalBindingItem>
-}
-
-/**
- * IdentityMappingBindRequest
- */
-export type IdentityMappingBindRequest = {
-  principal_uid: string
 }
 
 /**
@@ -1397,15 +1073,6 @@ export type SignalBindingWriteRequest = {
   group_message_mode?: 'addressed_only' | 'observe_all' | 'may_intervene'
   target?: JsonValue
   unmatched_sender_policy?: 'manual_review' | 'create_standalone'
-}
-
-/**
- * IdentityMappingWriteRequest
- */
-export type IdentityMappingWriteRequest = {
-  external_id: string
-  principal_uid: string
-  provider: string
 }
 
 /**
@@ -1422,13 +1089,6 @@ export type ConsoleReadinessAgent = {
   complete: boolean
   display_name: string | null
   uid: string | null
-}
-
-/**
- * BrainSourceListResponse
- */
-export type BrainSourceListResponse = {
-  sources: Array<BrainSource>
 }
 
 /**
@@ -1481,17 +1141,6 @@ export type AgentFileUploadRequest = {
 }
 
 /**
- * BrainSuggestionDecideRequest
- */
-export type BrainSuggestionDecideRequest = {
-  decision: 'approve' | 'reject'
-  extractable?: boolean | null
-  primitive?: string | null
-  slug_prefix?: string | null
-  target_type?: string | null
-}
-
-/**
  * BackgroundActivityJobsResponse
  */
 export type BackgroundActivityJobsResponse = {
@@ -1535,22 +1184,6 @@ export type ConsoleApiError = {
 }
 
 /**
- * BrainMergeResultResponse
- */
-export type BrainMergeResultResponse = {
-  result: JsonValue
-}
-
-/**
- * IdentityMappingItem
- */
-export type IdentityMappingItem = {
-  external_id: string
-  principal_uid: string
-  provider: string
-}
-
-/**
  * ModelProfileWriteRequest
  */
 export type ModelProfileWriteRequest = {
@@ -1582,21 +1215,6 @@ export type WorkerProviderCheckResponse = {
  */
 export type WorkerEnvResponse = {
   worker_env: WorkerEnvItem
-}
-
-/**
- * IdentityMappingRequestItem
- */
-export type IdentityMappingRequestItem = {
-  display_name?: string | null
-  email?: string | null
-  external_id: string
-  first_seen_at: string
-  id: string
-  last_seen_at: string
-  metadata?: JsonValue
-  mobile?: string | null
-  provider: string
 }
 
 /**
@@ -1648,41 +1266,6 @@ export type AgentFileUploadResponse = {
 }
 
 /**
- * BrainObjectForkRequest
- */
-export type BrainObjectForkRequest = {
-  slug: string
-}
-
-/**
- * BrainObjectVersion
- */
-export type BrainObjectVersion = {
-  author?: ConsoleActorRef | null
-  body: string
-  id: string
-  meta: {
-    [key: string]: unknown
-  }
-  snapshot_at: string
-  tags?: Array<string>
-}
-
-/**
- * BrainObjectVersionsResponse
- */
-export type BrainObjectVersionsResponse = {
-  versions: Array<BrainObjectVersion>
-}
-
-/**
- * PrincipalGroupMemberListResponse
- */
-export type PrincipalGroupMemberListResponse = {
-  principal_group_members: Array<PrincipalGroupMemberItem>
-}
-
-/**
  * AppConfigurationUpdateRequest
  */
 export type AppConfigurationUpdateRequest = {
@@ -1718,14 +1301,6 @@ export type AiGatewayChatGptLoginStartRequest = {
   id?: string
   label?: string
   priority?: number
-}
-
-/**
- * BrainContradictionDecideRequest
- */
-export type BrainContradictionDecideRequest = {
-  resolution_note?: string | null
-  status: 'resolved' | 'dismissed'
 }
 
 /**
@@ -1864,14 +1439,6 @@ export type BrainClaim = {
 }
 
 /**
- * BrainMergeSuggestionDecideRequest
- */
-export type BrainMergeSuggestionDecideRequest = {
-  canonical_slug?: string | null
-  decision: 'approve' | 'reject'
-}
-
-/**
  * IdentityProviderSyncRunResponse
  */
 export type IdentityProviderSyncRunResponse = {
@@ -1922,34 +1489,11 @@ export type WorkerEnvItem = {
 }
 
 /**
- * BrainObjectRollbackRequest
- */
-export type BrainObjectRollbackRequest = {
-  slug: string
-  version_id: string
-}
-
-/**
  * WorkerEnvDecryptionValue
  */
 export type WorkerEnvDecryptionValue = {
   name: string
   value: string
-}
-
-/**
- * PermissionGrantItem
- */
-export type PermissionGrantItem = {
-  action: string
-  condition: string
-  description?: string | null
-  group_id: string | null
-  id: string
-  inserted_at: string
-  principal_uid: string | null
-  resource_pattern: string
-  updated_at: string
 }
 
 /**
@@ -1986,23 +1530,6 @@ export type BackgroundAgentJobTurnToolExecutionMechanism = {
 }
 
 /**
- * BrainObjectSummary
- */
-export type BrainObjectSummary = {
-  deleted_at?: string | null
-  effective_date?: string | null
-  /**
-   * True when a Brain Source owns the body projection. The detail endpoint gives the exact edit block reason.
-   */
-  library_managed?: boolean
-  slug: string
-  subtype?: string | null
-  title: string
-  type: string
-  updated_at: string
-}
-
-/**
  * BackgroundAgentJobTurnUsageBreakdown
  */
 export type BackgroundAgentJobTurnUsageBreakdown = {
@@ -2025,20 +1552,6 @@ export type AppConfigurationListResponse = {
  */
 export type AiGatewayProviderKindListResponse = {
   provider_kinds: Array<AiGatewayProviderKindItem>
-}
-
-/**
- * BrainSource
- */
-export type BrainSource = {
-  archived_at?: string | null
-  default_audience_scope?: string | null
-  id: string
-  kind: string
-  last_sync_at?: string | null
-  name: string
-  upstream_id: string
-  upstream_revision?: string | null
 }
 
 /**
@@ -2171,16 +1684,6 @@ export type TokenQuotaResponse = {
 }
 
 /**
- * ComputedMemberPreviewRequest
- */
-export type ComputedMemberPreviewRequest = {
-  /**
-   * CEL condition over the principal object
-   */
-  condition: string
-}
-
-/**
  * BrainObjectPage
  */
 export type BrainObjectPage = {
@@ -2227,13 +1730,6 @@ export type TokenQuotaWriteRequest = {
 }
 
 /**
- * PrincipalListResponse
- */
-export type PrincipalListResponse = {
-  principals: Array<PrincipalItem>
-}
-
-/**
  * SignalBindingItem
  */
 export type SignalBindingItem = {
@@ -2258,17 +1754,6 @@ export type AppConfigurationDecryptionResponse = {
 }
 
 /**
- * BrainSourceCreateResponse
- */
-export type BrainSourceCreateResponse = {
-  source: {
-    id: string
-    kind: string
-    name: string
-  }
-}
-
-/**
  * AgentSession
  *
  * One Session surfaced from durable schedule, Signal, or job rows.
@@ -2282,22 +1767,6 @@ export type AgentSession = {
   session_id: string
   status?: string | null
   title?: string | null
-}
-
-/**
- * BrainObjectCreateRequest
- */
-export type BrainObjectCreateRequest = {
-  body: string
-  effective_date?: string | null
-  meta: {
-    [key: string]: unknown
-  }
-  slug: string
-  subtype?: string | null
-  tags?: Array<string>
-  title: string
-  type: string
 }
 
 /**
@@ -2318,13 +1787,6 @@ export type ControlPlanePluginItem = {
   display_name: JsonValue
   id: string
   restart_required: boolean
-}
-
-/**
- * PermissionGrantListResponse
- */
-export type PermissionGrantListResponse = {
-  permission_grants: Array<PermissionGrantItem>
 }
 
 /**
@@ -2369,48 +1831,6 @@ export type SignalDeliveryFailureItem = {
 }
 
 /**
- * PermissionGrantCreateRequest
- *
- * Exactly one owner: principal_uid or group_name.
- */
-export type PermissionGrantCreateRequest = {
-  /**
-   * Exact action token without colons
-   */
-  action: string
-  condition?: string
-  description?: string | null
-  group_name?: string | null
-  principal_uid?: string | null
-  /**
-   * AuthZ resource glob pattern, for example workspace:**
-   */
-  resource_pattern: string
-}
-
-/**
- * BrainSourceCreateRequest
- */
-export type BrainSourceCreateRequest = {
-  config?: {
-    [key: string]: unknown
-  } | null
-  default_audience_scope?: string | null
-  kind: 'file' | 'url'
-  name: string
-  upstream_id: string
-}
-
-/**
- * BrainMergePageSummary
- */
-export type BrainMergePageSummary = {
-  slug: string
-  title?: string | null
-  type?: string | null
-}
-
-/**
  * ProviderHostedResponse
  */
 export type ProviderHostedResponse = {
@@ -2427,13 +1847,6 @@ export type SignalAdapterJsonObjectValidation = {
   stringPrefixes?: {
     [key: string]: string
   }
-}
-
-/**
- * PermissionGrantResponse
- */
-export type PermissionGrantResponse = {
-  permission_grant: PermissionGrantItem
 }
 
 /**
@@ -2461,18 +1874,6 @@ export type ConsoleReadinessWorker = {
 }
 
 /**
- * BrainMergeSuggestion
- */
-export type BrainMergeSuggestion = {
-  a: BrainMergePageSummary
-  b: BrainMergePageSummary
-  created_at: string
-  id: string
-  reason: string
-  status: string
-}
-
-/**
  * OIDCClientItem
  */
 export type OidcClientItem = {
@@ -2493,21 +1894,6 @@ export type OidcClientItem = {
   scopes: Array<string>
   type: 'public' | 'confidential'
   updated_at: string
-}
-
-/**
- * PrincipalGroupMemberItem
- */
-export type PrincipalGroupMemberItem = {
-  avatar_url?: string | null
-  display_name?: string | null
-  /**
-   * Stored membership timestamp; null for evaluated computed members
-   */
-  member_since: string | null
-  status: 'active' | 'disabled'
-  type: 'human' | 'agent' | 'system'
-  uid: string
 }
 
 /**
@@ -2608,35 +1994,6 @@ export type AnkoleWebIdentityProviderControllerIndexResponses = {
 
 export type AnkoleWebIdentityProviderControllerIndexResponse =
   AnkoleWebIdentityProviderControllerIndexResponses[keyof AnkoleWebIdentityProviderControllerIndexResponses]
-
-export type AnkoleWebPrincipalControllerGroupsData = {
-  body?: never
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v1/principals/{uid}/groups'
-}
-
-export type AnkoleWebPrincipalControllerGroupsErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPrincipalControllerGroupsError =
-  AnkoleWebPrincipalControllerGroupsErrors[keyof AnkoleWebPrincipalControllerGroupsErrors]
-
-export type AnkoleWebPrincipalControllerGroupsResponses = {
-  /**
-   * Principal groups
-   */
-  200: PrincipalGroupListResponse
-}
-
-export type AnkoleWebPrincipalControllerGroupsResponse =
-  AnkoleWebPrincipalControllerGroupsResponses[keyof AnkoleWebPrincipalControllerGroupsResponses]
 
 export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginData = {
   /**
@@ -2818,25 +2175,6 @@ export type AnkoleWebWorkerEnvControllerDecryptResponses = {
 export type AnkoleWebWorkerEnvControllerDecryptResponse =
   AnkoleWebWorkerEnvControllerDecryptResponses[keyof AnkoleWebWorkerEnvControllerDecryptResponses]
 
-export type AnkoleWebBrainControllerListMergeSuggestionsData = {
-  body?: never
-  path?: never
-  query?: {
-    status?: string
-  }
-  url: '/api/v1/brain/merge-suggestions'
-}
-
-export type AnkoleWebBrainControllerListMergeSuggestionsResponses = {
-  /**
-   * Merge suggestions
-   */
-  200: BrainMergeSuggestionListResponse
-}
-
-export type AnkoleWebBrainControllerListMergeSuggestionsResponse =
-  AnkoleWebBrainControllerListMergeSuggestionsResponses[keyof AnkoleWebBrainControllerListMergeSuggestionsResponses]
-
 export type AnkoleWebAppConfigurationControllerIndexTenantData = {
   body?: never
   path?: never
@@ -2863,63 +2201,6 @@ export type AnkoleWebAppConfigurationControllerIndexTenantResponses = {
 
 export type AnkoleWebAppConfigurationControllerIndexTenantResponse =
   AnkoleWebAppConfigurationControllerIndexTenantResponses[keyof AnkoleWebAppConfigurationControllerIndexTenantResponses]
-
-export type AnkoleWebAuthZGroupControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/principal-groups'
-}
-
-export type AnkoleWebAuthZGroupControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerIndexError =
-  AnkoleWebAuthZGroupControllerIndexErrors[keyof AnkoleWebAuthZGroupControllerIndexErrors]
-
-export type AnkoleWebAuthZGroupControllerIndexResponses = {
-  /**
-   * Principal groups
-   */
-  200: PrincipalGroupListResponse
-}
-
-export type AnkoleWebAuthZGroupControllerIndexResponse =
-  AnkoleWebAuthZGroupControllerIndexResponses[keyof AnkoleWebAuthZGroupControllerIndexResponses]
-
-export type AnkoleWebAuthZGroupControllerCreateData = {
-  /**
-   * Principal group
-   */
-  body: PrincipalGroupCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/principal-groups'
-}
-
-export type AnkoleWebAuthZGroupControllerCreateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerCreateError =
-  AnkoleWebAuthZGroupControllerCreateErrors[keyof AnkoleWebAuthZGroupControllerCreateErrors]
-
-export type AnkoleWebAuthZGroupControllerCreateResponses = {
-  /**
-   * Principal group
-   */
-  200: PrincipalGroupResponse
-}
-
-export type AnkoleWebAuthZGroupControllerCreateResponse =
-  AnkoleWebAuthZGroupControllerCreateResponses[keyof AnkoleWebAuthZGroupControllerCreateResponses]
 
 export type AnkoleWebAgentFileControllerMoveData = {
   /**
@@ -2984,36 +2265,6 @@ export type AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses = {
 
 export type AnkoleWebPrincipalControllerCreateLocalPasswordResetResponse =
   AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses[keyof AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses]
-
-export type AnkoleWebAuthZGroupControllerPreviewComputedMembersData = {
-  /**
-   * Computed member preview
-   */
-  body: ComputedMemberPreviewRequest
-  path?: never
-  query?: never
-  url: '/api/v1/principal-groups/computed-member-previews'
-}
-
-export type AnkoleWebAuthZGroupControllerPreviewComputedMembersErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerPreviewComputedMembersError =
-  AnkoleWebAuthZGroupControllerPreviewComputedMembersErrors[keyof AnkoleWebAuthZGroupControllerPreviewComputedMembersErrors]
-
-export type AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses = {
-  /**
-   * Principal group members
-   */
-  200: PrincipalGroupMemberListResponse
-}
-
-export type AnkoleWebAuthZGroupControllerPreviewComputedMembersResponse =
-  AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses[keyof AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses]
 
 export type AnkoleWebAgentControllerResetTokenQuotaData = {
   body?: never
@@ -3136,50 +2387,6 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideRespo
 export type AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponse =
   AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponses[keyof AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponses]
 
-export type AnkoleWebBrainControllerResolveTakeData = {
-  /**
-   * Resolve
-   */
-  body: BrainTakeResolveRequest
-  path: {
-    claim_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/claims/{claim_id}/resolve'
-}
-
-export type AnkoleWebBrainControllerResolveTakeResponses = {
-  /**
-   * Claim
-   */
-  200: BrainClaimResponse
-}
-
-export type AnkoleWebBrainControllerResolveTakeResponse =
-  AnkoleWebBrainControllerResolveTakeResponses[keyof AnkoleWebBrainControllerResolveTakeResponses]
-
-export type AnkoleWebBrainControllerForgetClaimData = {
-  /**
-   * Forget
-   */
-  body: BrainClaimForgetRequest
-  path: {
-    claim_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/claims/{claim_id}/forget'
-}
-
-export type AnkoleWebBrainControllerForgetClaimResponses = {
-  /**
-   * Claim
-   */
-  200: BrainClaimResponse
-}
-
-export type AnkoleWebBrainControllerForgetClaimResponse =
-  AnkoleWebBrainControllerForgetClaimResponses[keyof AnkoleWebBrainControllerForgetClaimResponses]
-
 export type AnkoleWebDirectoryAccessControllerApproveData = {
   /**
    * Snapshot review
@@ -3233,45 +2440,6 @@ export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses =
 
 export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponse =
   AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses[keyof AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses]
-
-export type AnkoleWebBrainControllerListSuggestionsData = {
-  body?: never
-  path?: never
-  query?: {
-    status?: string
-  }
-  url: '/api/v1/brain/suggestions'
-}
-
-export type AnkoleWebBrainControllerListSuggestionsResponses = {
-  /**
-   * Suggestions
-   */
-  200: BrainSuggestionListResponse
-}
-
-export type AnkoleWebBrainControllerListSuggestionsResponse =
-  AnkoleWebBrainControllerListSuggestionsResponses[keyof AnkoleWebBrainControllerListSuggestionsResponses]
-
-export type AnkoleWebBrainControllerForkObjectData = {
-  /**
-   * Fork
-   */
-  body: BrainObjectForkRequest
-  path?: never
-  query?: never
-  url: '/api/v1/brain/objects/fork'
-}
-
-export type AnkoleWebBrainControllerForkObjectResponses = {
-  /**
-   * Object
-   */
-  200: BrainObjectSummaryResponse
-}
-
-export type AnkoleWebBrainControllerForkObjectResponse =
-  AnkoleWebBrainControllerForkObjectResponses[keyof AnkoleWebBrainControllerForkObjectResponses]
 
 export type AnkoleWebAiGatewayControllerResponsesData = {
   /**
@@ -3356,86 +2524,6 @@ export type AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses = {
 
 export type AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponse =
   AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses[keyof AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses]
-
-export type AnkoleWebAuthZGroupControllerRemoveMemberData = {
-  body?: never
-  path: {
-    name: string
-    principal_uid: string
-  }
-  query?: never
-  url: '/api/v1/principal-groups/{name}/members/{principal_uid}'
-}
-
-export type AnkoleWebAuthZGroupControllerRemoveMemberErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerRemoveMemberError =
-  AnkoleWebAuthZGroupControllerRemoveMemberErrors[keyof AnkoleWebAuthZGroupControllerRemoveMemberErrors]
-
-export type AnkoleWebAuthZGroupControllerRemoveMemberResponses = {
-  /**
-   * Principal group members
-   */
-  200: PrincipalGroupMemberListResponse
-}
-
-export type AnkoleWebAuthZGroupControllerRemoveMemberResponse =
-  AnkoleWebAuthZGroupControllerRemoveMemberResponses[keyof AnkoleWebAuthZGroupControllerRemoveMemberResponses]
-
-export type AnkoleWebAuthZGroupControllerAddMemberData = {
-  body?: never
-  path: {
-    name: string
-    principal_uid: string
-  }
-  query?: never
-  url: '/api/v1/principal-groups/{name}/members/{principal_uid}'
-}
-
-export type AnkoleWebAuthZGroupControllerAddMemberErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerAddMemberError =
-  AnkoleWebAuthZGroupControllerAddMemberErrors[keyof AnkoleWebAuthZGroupControllerAddMemberErrors]
-
-export type AnkoleWebAuthZGroupControllerAddMemberResponses = {
-  /**
-   * Principal group members
-   */
-  200: PrincipalGroupMemberListResponse
-}
-
-export type AnkoleWebAuthZGroupControllerAddMemberResponse =
-  AnkoleWebAuthZGroupControllerAddMemberResponses[keyof AnkoleWebAuthZGroupControllerAddMemberResponses]
-
-export type AnkoleWebBrainControllerForgetObjectData = {
-  /**
-   * Forget
-   */
-  body: BrainObjectForgetRequest
-  path?: never
-  query?: never
-  url: '/api/v1/brain/objects/forget'
-}
-
-export type AnkoleWebBrainControllerForgetObjectResponses = {
-  /**
-   * Object
-   */
-  200: BrainObjectSummaryResponse
-}
-
-export type AnkoleWebBrainControllerForgetObjectResponse =
-  AnkoleWebBrainControllerForgetObjectResponses[keyof AnkoleWebBrainControllerForgetObjectResponses]
 
 export type AnkoleWebAgentFileControllerDownloadData = {
   body?: never
@@ -3641,36 +2729,6 @@ export type AnkoleWebAiGatewayFilesControllerCreateResponses = {
 export type AnkoleWebAiGatewayFilesControllerCreateResponse =
   AnkoleWebAiGatewayFilesControllerCreateResponses[keyof AnkoleWebAiGatewayFilesControllerCreateResponses]
 
-export type AnkoleWebIdentityMappingRequestControllerCreateMappingData = {
-  /**
-   * Identity mapping
-   */
-  body: IdentityMappingWriteRequest
-  path?: never
-  query?: never
-  url: '/api/v1/identity-mappings'
-}
-
-export type AnkoleWebIdentityMappingRequestControllerCreateMappingErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebIdentityMappingRequestControllerCreateMappingError =
-  AnkoleWebIdentityMappingRequestControllerCreateMappingErrors[keyof AnkoleWebIdentityMappingRequestControllerCreateMappingErrors]
-
-export type AnkoleWebIdentityMappingRequestControllerCreateMappingResponses = {
-  /**
-   * Bound identity
-   */
-  200: IdentityMappingResponse
-}
-
-export type AnkoleWebIdentityMappingRequestControllerCreateMappingResponse =
-  AnkoleWebIdentityMappingRequestControllerCreateMappingResponses[keyof AnkoleWebIdentityMappingRequestControllerCreateMappingResponses]
-
 export type AnkoleWebAiGatewayControllerModelsData = {
   body?: never
   path?: never
@@ -3787,38 +2845,6 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponses = {
 export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponse =
   AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponses[keyof AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponses]
 
-export type AnkoleWebIdentityMappingRequestControllerBindData = {
-  /**
-   * Bind target
-   */
-  body: IdentityMappingBindRequest
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v1/identity-mapping-requests/{id}/bind'
-}
-
-export type AnkoleWebIdentityMappingRequestControllerBindErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebIdentityMappingRequestControllerBindError =
-  AnkoleWebIdentityMappingRequestControllerBindErrors[keyof AnkoleWebIdentityMappingRequestControllerBindErrors]
-
-export type AnkoleWebIdentityMappingRequestControllerBindResponses = {
-  /**
-   * Bound identity
-   */
-  200: IdentityMappingResponse
-}
-
-export type AnkoleWebIdentityMappingRequestControllerBindResponse =
-  AnkoleWebIdentityMappingRequestControllerBindResponses[keyof AnkoleWebIdentityMappingRequestControllerBindResponses]
-
 export type AnkoleWebAiGatewayControllerWebFetchData = {
   /**
    * Web fetch request
@@ -3919,145 +2945,6 @@ export type AnkoleWebWorkerProviderControllerKindsResponses = {
 
 export type AnkoleWebWorkerProviderControllerKindsResponse =
   AnkoleWebWorkerProviderControllerKindsResponses[keyof AnkoleWebWorkerProviderControllerKindsResponses]
-
-export type AnkoleWebIdentityMappingRequestControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/identity-mapping-requests'
-}
-
-export type AnkoleWebIdentityMappingRequestControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebIdentityMappingRequestControllerIndexError =
-  AnkoleWebIdentityMappingRequestControllerIndexErrors[keyof AnkoleWebIdentityMappingRequestControllerIndexErrors]
-
-export type AnkoleWebIdentityMappingRequestControllerIndexResponses = {
-  /**
-   * Pending mapping requests
-   */
-  200: IdentityMappingRequestListResponse
-}
-
-export type AnkoleWebIdentityMappingRequestControllerIndexResponse =
-  AnkoleWebIdentityMappingRequestControllerIndexResponses[keyof AnkoleWebIdentityMappingRequestControllerIndexResponses]
-
-export type AnkoleWebAuthZGroupControllerDeleteData = {
-  body?: never
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/principal-groups/{name}'
-}
-
-export type AnkoleWebAuthZGroupControllerDeleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerDeleteError =
-  AnkoleWebAuthZGroupControllerDeleteErrors[keyof AnkoleWebAuthZGroupControllerDeleteErrors]
-
-export type AnkoleWebAuthZGroupControllerDeleteResponses = {
-  /**
-   * Principal group
-   */
-  200: PrincipalGroupResponse
-}
-
-export type AnkoleWebAuthZGroupControllerDeleteResponse =
-  AnkoleWebAuthZGroupControllerDeleteResponses[keyof AnkoleWebAuthZGroupControllerDeleteResponses]
-
-export type AnkoleWebAuthZGroupControllerShowData = {
-  body?: never
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/principal-groups/{name}'
-}
-
-export type AnkoleWebAuthZGroupControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerShowError =
-  AnkoleWebAuthZGroupControllerShowErrors[keyof AnkoleWebAuthZGroupControllerShowErrors]
-
-export type AnkoleWebAuthZGroupControllerShowResponses = {
-  /**
-   * Principal group
-   */
-  200: PrincipalGroupResponse
-}
-
-export type AnkoleWebAuthZGroupControllerShowResponse =
-  AnkoleWebAuthZGroupControllerShowResponses[keyof AnkoleWebAuthZGroupControllerShowResponses]
-
-export type AnkoleWebAuthZGroupControllerUpdateData = {
-  /**
-   * Principal group
-   */
-  body: PrincipalGroupUpdateRequest
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/principal-groups/{name}'
-}
-
-export type AnkoleWebAuthZGroupControllerUpdateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerUpdateError =
-  AnkoleWebAuthZGroupControllerUpdateErrors[keyof AnkoleWebAuthZGroupControllerUpdateErrors]
-
-export type AnkoleWebAuthZGroupControllerUpdateResponses = {
-  /**
-   * Principal group
-   */
-  200: PrincipalGroupResponse
-}
-
-export type AnkoleWebAuthZGroupControllerUpdateResponse =
-  AnkoleWebAuthZGroupControllerUpdateResponses[keyof AnkoleWebAuthZGroupControllerUpdateResponses]
-
-export type AnkoleWebBrainControllerUpdateSourceData = {
-  /**
-   * Source defaults
-   */
-  body: BrainSourceUpdateRequest
-  path: {
-    source_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/sources/{source_id}'
-}
-
-export type AnkoleWebBrainControllerUpdateSourceResponses = {
-  /**
-   * Source
-   */
-  200: BrainSourceCreateResponse
-}
-
-export type AnkoleWebBrainControllerUpdateSourceResponse =
-  AnkoleWebBrainControllerUpdateSourceResponses[keyof AnkoleWebBrainControllerUpdateSourceResponses]
 
 export type AnkoleWebAiGatewayProviderControllerDeleteCredentialData = {
   body?: never
@@ -4211,43 +3098,6 @@ export type AnkoleWebIdentityProviderControllerAdaptersResponses = {
 
 export type AnkoleWebIdentityProviderControllerAdaptersResponse =
   AnkoleWebIdentityProviderControllerAdaptersResponses[keyof AnkoleWebIdentityProviderControllerAdaptersResponses]
-
-export type AnkoleWebBrainControllerListSourcesData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/brain/sources'
-}
-
-export type AnkoleWebBrainControllerListSourcesResponses = {
-  /**
-   * Sources
-   */
-  200: BrainSourceListResponse
-}
-
-export type AnkoleWebBrainControllerListSourcesResponse =
-  AnkoleWebBrainControllerListSourcesResponses[keyof AnkoleWebBrainControllerListSourcesResponses]
-
-export type AnkoleWebBrainControllerCreateSourceData = {
-  /**
-   * Source
-   */
-  body: BrainSourceCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/brain/sources'
-}
-
-export type AnkoleWebBrainControllerCreateSourceResponses = {
-  /**
-   * Source
-   */
-  200: BrainSourceCreateResponse
-}
-
-export type AnkoleWebBrainControllerCreateSourceResponse =
-  AnkoleWebBrainControllerCreateSourceResponses[keyof AnkoleWebBrainControllerCreateSourceResponses]
 
 export type AnkoleWebAiGatewayControllerRetrieveResponseData = {
   body?: never
@@ -4464,55 +3314,6 @@ export type AnkoleWebWorkerEnvControllerIndexResponses = {
 export type AnkoleWebWorkerEnvControllerIndexResponse =
   AnkoleWebWorkerEnvControllerIndexResponses[keyof AnkoleWebWorkerEnvControllerIndexResponses]
 
-export type AnkoleWebPrincipalControllerGrantsData = {
-  body?: never
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v1/principals/{uid}/grants'
-}
-
-export type AnkoleWebPrincipalControllerGrantsErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPrincipalControllerGrantsError =
-  AnkoleWebPrincipalControllerGrantsErrors[keyof AnkoleWebPrincipalControllerGrantsErrors]
-
-export type AnkoleWebPrincipalControllerGrantsResponses = {
-  /**
-   * Permission grants
-   */
-  200: PermissionGrantListResponse
-}
-
-export type AnkoleWebPrincipalControllerGrantsResponse =
-  AnkoleWebPrincipalControllerGrantsResponses[keyof AnkoleWebPrincipalControllerGrantsResponses]
-
-export type AnkoleWebBrainControllerRestoreObjectData = {
-  /**
-   * Restore
-   */
-  body: BrainObjectRestoreRequest
-  path?: never
-  query?: never
-  url: '/api/v1/brain/objects/restore'
-}
-
-export type AnkoleWebBrainControllerRestoreObjectResponses = {
-  /**
-   * Object
-   */
-  200: BrainObjectSummaryResponse
-}
-
-export type AnkoleWebBrainControllerRestoreObjectResponse =
-  AnkoleWebBrainControllerRestoreObjectResponses[keyof AnkoleWebBrainControllerRestoreObjectResponses]
-
 export type BackgroundActivityJobsData = {
   body?: never
   path: {
@@ -4693,28 +3494,6 @@ export type AnkoleWebHumanAccessControllerClassifyWorkResponses = {
 export type AnkoleWebHumanAccessControllerClassifyWorkResponse =
   AnkoleWebHumanAccessControllerClassifyWorkResponses[keyof AnkoleWebHumanAccessControllerClassifyWorkResponses]
 
-export type AnkoleWebBrainControllerSupersedeClaimData = {
-  /**
-   * Supersede
-   */
-  body: BrainClaimSupersedeRequest
-  path: {
-    claim_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/claims/{claim_id}/supersede'
-}
-
-export type AnkoleWebBrainControllerSupersedeClaimResponses = {
-  /**
-   * Claim
-   */
-  200: BrainClaimResponse
-}
-
-export type AnkoleWebBrainControllerSupersedeClaimResponse =
-  AnkoleWebBrainControllerSupersedeClaimResponses[keyof AnkoleWebBrainControllerSupersedeClaimResponses]
-
 export type AnkoleWebAgentControllerIndexModelProfilesData = {
   body?: never
   path: {
@@ -4802,95 +3581,6 @@ export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses = {
 
 export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponse =
   AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses[keyof AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses]
-
-export type AnkoleWebPrincipalControllerIndexData = {
-  body?: never
-  path?: never
-  query?: {
-    include_disabled?: boolean
-  }
-  url: '/api/v1/principals'
-}
-
-export type AnkoleWebPrincipalControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPrincipalControllerIndexError =
-  AnkoleWebPrincipalControllerIndexErrors[keyof AnkoleWebPrincipalControllerIndexErrors]
-
-export type AnkoleWebPrincipalControllerIndexResponses = {
-  /**
-   * Principals
-   */
-  200: PrincipalListResponse
-}
-
-export type AnkoleWebPrincipalControllerIndexResponse =
-  AnkoleWebPrincipalControllerIndexResponses[keyof AnkoleWebPrincipalControllerIndexResponses]
-
-export type AnkoleWebPrincipalControllerCreateData = {
-  /**
-   * User
-   */
-  body: PrincipalCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/principals'
-}
-
-export type AnkoleWebPrincipalControllerCreateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPrincipalControllerCreateError =
-  AnkoleWebPrincipalControllerCreateErrors[keyof AnkoleWebPrincipalControllerCreateErrors]
-
-export type AnkoleWebPrincipalControllerCreateResponses = {
-  /**
-   * Created user
-   */
-  200: PrincipalCreateResponse
-}
-
-export type AnkoleWebPrincipalControllerCreateResponse =
-  AnkoleWebPrincipalControllerCreateResponses[keyof AnkoleWebPrincipalControllerCreateResponses]
-
-export type AnkoleWebPermissionGrantControllerCreateData = {
-  /**
-   * Permission grant
-   */
-  body: PermissionGrantCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/permission-grants'
-}
-
-export type AnkoleWebPermissionGrantControllerCreateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPermissionGrantControllerCreateError =
-  AnkoleWebPermissionGrantControllerCreateErrors[keyof AnkoleWebPermissionGrantControllerCreateErrors]
-
-export type AnkoleWebPermissionGrantControllerCreateResponses = {
-  /**
-   * Permission grant
-   */
-  200: PermissionGrantResponse
-}
-
-export type AnkoleWebPermissionGrantControllerCreateResponse =
-  AnkoleWebPermissionGrantControllerCreateResponses[keyof AnkoleWebPermissionGrantControllerCreateResponses]
 
 export type AnkoleWebSignalBindingControllerShowData = {
   body?: never
@@ -4987,35 +3677,6 @@ export type AnkoleWebHumanAccessControllerClearRestrictionResponses = {
 
 export type AnkoleWebHumanAccessControllerClearRestrictionResponse =
   AnkoleWebHumanAccessControllerClearRestrictionResponses[keyof AnkoleWebHumanAccessControllerClearRestrictionResponses]
-
-export type AnkoleWebAuthZGroupControllerMembersData = {
-  body?: never
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/principal-groups/{name}/members'
-}
-
-export type AnkoleWebAuthZGroupControllerMembersErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerMembersError =
-  AnkoleWebAuthZGroupControllerMembersErrors[keyof AnkoleWebAuthZGroupControllerMembersErrors]
-
-export type AnkoleWebAuthZGroupControllerMembersResponses = {
-  /**
-   * Principal group members
-   */
-  200: PrincipalGroupMemberListResponse
-}
-
-export type AnkoleWebAuthZGroupControllerMembersResponse =
-  AnkoleWebAuthZGroupControllerMembersResponses[keyof AnkoleWebAuthZGroupControllerMembersResponses]
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideData = {
   /**
@@ -5130,28 +3791,6 @@ export type AnkoleWebBrainControllerDreamResponses = {
 
 export type AnkoleWebBrainControllerDreamResponse =
   AnkoleWebBrainControllerDreamResponses[keyof AnkoleWebBrainControllerDreamResponses]
-
-export type AnkoleWebBrainControllerDecideSuggestionData = {
-  /**
-   * Decide
-   */
-  body: BrainSuggestionDecideRequest
-  path: {
-    suggestion_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/suggestions/{suggestion_id}/decide'
-}
-
-export type AnkoleWebBrainControllerDecideSuggestionResponses = {
-  /**
-   * Result
-   */
-  200: BrainPromotionResultResponse
-}
-
-export type AnkoleWebBrainControllerDecideSuggestionResponse =
-  AnkoleWebBrainControllerDecideSuggestionResponses[keyof AnkoleWebBrainControllerDecideSuggestionResponses]
 
 export type AnkoleWebAiGatewayControllerWebSearchData = {
   /**
@@ -5274,35 +3913,6 @@ export type BackgroundActivityAutomationRunsResponses = {
 
 export type BackgroundActivityAutomationRunsResponse2 =
   BackgroundActivityAutomationRunsResponses[keyof BackgroundActivityAutomationRunsResponses]
-
-export type AnkoleWebIdentityMappingRequestControllerDeleteData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v1/identity-mapping-requests/{id}'
-}
-
-export type AnkoleWebIdentityMappingRequestControllerDeleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebIdentityMappingRequestControllerDeleteError =
-  AnkoleWebIdentityMappingRequestControllerDeleteErrors[keyof AnkoleWebIdentityMappingRequestControllerDeleteErrors]
-
-export type AnkoleWebIdentityMappingRequestControllerDeleteResponses = {
-  /**
-   * Dismissed
-   */
-  200: IdentityMappingRequestListResponse
-}
-
-export type AnkoleWebIdentityMappingRequestControllerDeleteResponse =
-  AnkoleWebIdentityMappingRequestControllerDeleteResponses[keyof AnkoleWebIdentityMappingRequestControllerDeleteResponses]
 
 export type AnkoleWebAgentFileControllerDeleteData = {
   body?: never
@@ -5438,89 +4048,6 @@ export type AnkoleWebSignalBindingControllerPutBindingResponses = {
 export type AnkoleWebSignalBindingControllerPutBindingResponse =
   AnkoleWebSignalBindingControllerPutBindingResponses[keyof AnkoleWebSignalBindingControllerPutBindingResponses]
 
-export type AnkoleWebBrainControllerListClaimsData = {
-  body?: never
-  path?: never
-  query?: {
-    object_slug?: string
-    claim_type?: string
-    status?: string
-    q?: string
-  }
-  url: '/api/v1/brain/claims'
-}
-
-export type AnkoleWebBrainControllerListClaimsResponses = {
-  /**
-   * Claims
-   */
-  200: BrainClaimListResponse
-}
-
-export type AnkoleWebBrainControllerListClaimsResponse =
-  AnkoleWebBrainControllerListClaimsResponses[keyof AnkoleWebBrainControllerListClaimsResponses]
-
-export type AnkoleWebPrincipalControllerShowData = {
-  body?: never
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v1/principals/{uid}'
-}
-
-export type AnkoleWebPrincipalControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPrincipalControllerShowError =
-  AnkoleWebPrincipalControllerShowErrors[keyof AnkoleWebPrincipalControllerShowErrors]
-
-export type AnkoleWebPrincipalControllerShowResponses = {
-  /**
-   * Principal
-   */
-  200: PrincipalResponse
-}
-
-export type AnkoleWebPrincipalControllerShowResponse =
-  AnkoleWebPrincipalControllerShowResponses[keyof AnkoleWebPrincipalControllerShowResponses]
-
-export type AnkoleWebPrincipalControllerUpdateData = {
-  /**
-   * User changes
-   */
-  body: PrincipalUpdateRequest
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v1/principals/{uid}'
-}
-
-export type AnkoleWebPrincipalControllerUpdateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPrincipalControllerUpdateError =
-  AnkoleWebPrincipalControllerUpdateErrors[keyof AnkoleWebPrincipalControllerUpdateErrors]
-
-export type AnkoleWebPrincipalControllerUpdateResponses = {
-  /**
-   * Principal
-   */
-  200: PrincipalResponse
-}
-
-export type AnkoleWebPrincipalControllerUpdateResponse =
-  AnkoleWebPrincipalControllerUpdateResponses[keyof AnkoleWebPrincipalControllerUpdateResponses]
-
 export type OidcLoginSourcesData = {
   body?: never
   path?: never
@@ -5545,108 +4072,6 @@ export type OidcLoginSourcesResponses = {
 }
 
 export type OidcLoginSourcesResponse = OidcLoginSourcesResponses[keyof OidcLoginSourcesResponses]
-
-export type AnkoleWebBrainControllerDecideContradictionData = {
-  /**
-   * Decide
-   */
-  body: BrainContradictionDecideRequest
-  path: {
-    contradiction_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/contradictions/{contradiction_id}/decide'
-}
-
-export type AnkoleWebBrainControllerDecideContradictionResponses = {
-  /**
-   * Decision
-   */
-  200: BrainContradictionDecisionResponse
-}
-
-export type AnkoleWebBrainControllerDecideContradictionResponse =
-  AnkoleWebBrainControllerDecideContradictionResponses[keyof AnkoleWebBrainControllerDecideContradictionResponses]
-
-export type AnkoleWebBrainControllerListObjectsData = {
-  body?: never
-  path?: never
-  query?: {
-    prefix?: string
-    q?: string
-    deleted?: boolean
-  }
-  url: '/api/v1/brain/objects'
-}
-
-export type AnkoleWebBrainControllerListObjectsResponses = {
-  /**
-   * Objects
-   */
-  200: BrainObjectListResponse
-}
-
-export type AnkoleWebBrainControllerListObjectsResponse =
-  AnkoleWebBrainControllerListObjectsResponses[keyof AnkoleWebBrainControllerListObjectsResponses]
-
-export type AnkoleWebBrainControllerCreateObjectData = {
-  /**
-   * Object
-   */
-  body: BrainObjectCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/brain/objects'
-}
-
-export type AnkoleWebBrainControllerCreateObjectResponses = {
-  /**
-   * Object
-   */
-  200: BrainObjectShowResponse
-}
-
-export type AnkoleWebBrainControllerCreateObjectResponse =
-  AnkoleWebBrainControllerCreateObjectResponses[keyof AnkoleWebBrainControllerCreateObjectResponses]
-
-export type AnkoleWebBrainControllerUpdateObjectData = {
-  /**
-   * Object
-   */
-  body: BrainObjectUpdateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/brain/objects'
-}
-
-export type AnkoleWebBrainControllerUpdateObjectResponses = {
-  /**
-   * Object
-   */
-  200: BrainObjectShowResponse
-}
-
-export type AnkoleWebBrainControllerUpdateObjectResponse =
-  AnkoleWebBrainControllerUpdateObjectResponses[keyof AnkoleWebBrainControllerUpdateObjectResponses]
-
-export type AnkoleWebBrainControllerListContradictionsData = {
-  body?: never
-  path?: never
-  query?: {
-    status?: string
-  }
-  url: '/api/v1/brain/contradictions'
-}
-
-export type AnkoleWebBrainControllerListContradictionsResponses = {
-  /**
-   * Contradictions
-   */
-  200: BrainContradictionListResponse
-}
-
-export type AnkoleWebBrainControllerListContradictionsResponse =
-  AnkoleWebBrainControllerListContradictionsResponses[keyof AnkoleWebBrainControllerListContradictionsResponses]
 
 export type AnkoleWebWorkerEnvControllerDeleteTenantData = {
   body?: never
@@ -5879,25 +4304,6 @@ export type AnkoleWebAiGatewayControllerRerankResponses = {
 export type AnkoleWebAiGatewayControllerRerankResponse =
   AnkoleWebAiGatewayControllerRerankResponses[keyof AnkoleWebAiGatewayControllerRerankResponses]
 
-export type AnkoleWebBrainControllerObjectVersionsData = {
-  body?: never
-  path?: never
-  query: {
-    slug: string
-  }
-  url: '/api/v1/brain/objects/versions'
-}
-
-export type AnkoleWebBrainControllerObjectVersionsResponses = {
-  /**
-   * Versions
-   */
-  200: BrainObjectVersionsResponse
-}
-
-export type AnkoleWebBrainControllerObjectVersionsResponse =
-  AnkoleWebBrainControllerObjectVersionsResponses[keyof AnkoleWebBrainControllerObjectVersionsResponses]
-
 export type AnkoleWebWorkerEnvControllerIndexTenantData = {
   body?: never
   path?: never
@@ -6043,45 +4449,6 @@ export type AnkoleWebAppConfigurationControllerDecryptTenantResponses = {
 
 export type AnkoleWebAppConfigurationControllerDecryptTenantResponse =
   AnkoleWebAppConfigurationControllerDecryptTenantResponses[keyof AnkoleWebAppConfigurationControllerDecryptTenantResponses]
-
-export type AnkoleWebBrainControllerRollbackObjectData = {
-  /**
-   * Rollback
-   */
-  body: BrainObjectRollbackRequest
-  path?: never
-  query?: never
-  url: '/api/v1/brain/objects/rollback'
-}
-
-export type AnkoleWebBrainControllerRollbackObjectResponses = {
-  /**
-   * Object
-   */
-  200: BrainObjectSummaryResponse
-}
-
-export type AnkoleWebBrainControllerRollbackObjectResponse =
-  AnkoleWebBrainControllerRollbackObjectResponses[keyof AnkoleWebBrainControllerRollbackObjectResponses]
-
-export type AnkoleWebBrainControllerArchiveSourceData = {
-  body?: never
-  path: {
-    source_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/sources/{source_id}/archive'
-}
-
-export type AnkoleWebBrainControllerArchiveSourceResponses = {
-  /**
-   * Source
-   */
-  200: BrainSourceArchiveResponse
-}
-
-export type AnkoleWebBrainControllerArchiveSourceResponse =
-  AnkoleWebBrainControllerArchiveSourceResponses[keyof AnkoleWebBrainControllerArchiveSourceResponses]
 
 export type AnkoleWebAiGatewayControllerEmbeddingsData = {
   /**
@@ -6434,137 +4801,6 @@ export type AnkoleWebBrainControllerShowObjectResponses = {
 
 export type AnkoleWebBrainControllerShowObjectResponse =
   AnkoleWebBrainControllerShowObjectResponses[keyof AnkoleWebBrainControllerShowObjectResponses]
-
-export type AnkoleWebBrainControllerLearnSourceData = {
-  body?: never
-  path: {
-    source_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/sources/{source_id}/learn'
-}
-
-export type AnkoleWebBrainControllerLearnSourceResponses = {
-  /**
-   * Result
-   */
-  200: BrainSourceLearnResponse
-}
-
-export type AnkoleWebBrainControllerLearnSourceResponse =
-  AnkoleWebBrainControllerLearnSourceResponses[keyof AnkoleWebBrainControllerLearnSourceResponses]
-
-export type AnkoleWebPermissionGrantControllerDeleteData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v1/permission-grants/{id}'
-}
-
-export type AnkoleWebPermissionGrantControllerDeleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPermissionGrantControllerDeleteError =
-  AnkoleWebPermissionGrantControllerDeleteErrors[keyof AnkoleWebPermissionGrantControllerDeleteErrors]
-
-export type AnkoleWebPermissionGrantControllerDeleteResponses = {
-  /**
-   * Permission grant
-   */
-  200: PermissionGrantResponse
-}
-
-export type AnkoleWebPermissionGrantControllerDeleteResponse =
-  AnkoleWebPermissionGrantControllerDeleteResponses[keyof AnkoleWebPermissionGrantControllerDeleteResponses]
-
-export type AnkoleWebPermissionGrantControllerShowData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v1/permission-grants/{id}'
-}
-
-export type AnkoleWebPermissionGrantControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPermissionGrantControllerShowError =
-  AnkoleWebPermissionGrantControllerShowErrors[keyof AnkoleWebPermissionGrantControllerShowErrors]
-
-export type AnkoleWebPermissionGrantControllerShowResponses = {
-  /**
-   * Permission grant
-   */
-  200: PermissionGrantResponse
-}
-
-export type AnkoleWebPermissionGrantControllerShowResponse =
-  AnkoleWebPermissionGrantControllerShowResponses[keyof AnkoleWebPermissionGrantControllerShowResponses]
-
-export type AnkoleWebPermissionGrantControllerUpdateData = {
-  /**
-   * Permission grant
-   */
-  body: PermissionGrantUpdateRequest
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v1/permission-grants/{id}'
-}
-
-export type AnkoleWebPermissionGrantControllerUpdateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPermissionGrantControllerUpdateError =
-  AnkoleWebPermissionGrantControllerUpdateErrors[keyof AnkoleWebPermissionGrantControllerUpdateErrors]
-
-export type AnkoleWebPermissionGrantControllerUpdateResponses = {
-  /**
-   * Permission grant
-   */
-  200: PermissionGrantResponse
-}
-
-export type AnkoleWebPermissionGrantControllerUpdateResponse =
-  AnkoleWebPermissionGrantControllerUpdateResponses[keyof AnkoleWebPermissionGrantControllerUpdateResponses]
-
-export type AnkoleWebBrainControllerDecideMergeSuggestionData = {
-  /**
-   * Decide
-   */
-  body: BrainMergeSuggestionDecideRequest
-  path: {
-    suggestion_id: string
-  }
-  query?: never
-  url: '/api/v1/brain/merge-suggestions/{suggestion_id}/decide'
-}
-
-export type AnkoleWebBrainControllerDecideMergeSuggestionResponses = {
-  /**
-   * Result
-   */
-  200: BrainMergeResultResponse
-}
-
-export type AnkoleWebBrainControllerDecideMergeSuggestionResponse =
-  AnkoleWebBrainControllerDecideMergeSuggestionResponses[keyof AnkoleWebBrainControllerDecideMergeSuggestionResponses]
 
 export type AnkoleWebAppConfigurationControllerDeleteTenantData = {
   body?: never
@@ -6965,35 +5201,6 @@ export type AnkoleWebWorkerEnvControllerUpdateForAgentResponses = {
 
 export type AnkoleWebWorkerEnvControllerUpdateForAgentResponse =
   AnkoleWebWorkerEnvControllerUpdateForAgentResponses[keyof AnkoleWebWorkerEnvControllerUpdateForAgentResponses]
-
-export type AnkoleWebAuthZGroupControllerGrantsData = {
-  body?: never
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/principal-groups/{name}/grants'
-}
-
-export type AnkoleWebAuthZGroupControllerGrantsErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerGrantsError =
-  AnkoleWebAuthZGroupControllerGrantsErrors[keyof AnkoleWebAuthZGroupControllerGrantsErrors]
-
-export type AnkoleWebAuthZGroupControllerGrantsResponses = {
-  /**
-   * Permission grants
-   */
-  200: PermissionGrantListResponse
-}
-
-export type AnkoleWebAuthZGroupControllerGrantsResponse =
-  AnkoleWebAuthZGroupControllerGrantsResponses[keyof AnkoleWebAuthZGroupControllerGrantsResponses]
 
 export type AnkoleWebConsoleReadinessControllerShowData = {
   body?: never

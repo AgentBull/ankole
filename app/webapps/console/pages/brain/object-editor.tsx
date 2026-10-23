@@ -20,11 +20,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
-  ankoleWebBrainControllerCreateObjectMutation,
   ankoleWebBrainControllerObjectTypesOptions,
-  ankoleWebBrainControllerShowObjectOptions,
-  ankoleWebBrainControllerUpdateObjectMutation
+  ankoleWebBrainControllerShowObjectOptions
 } from '../../api/generated/@tanstack/react-query.gen'
+import { createBrainObjectMutation, updateBrainObjectMutation } from '../../api/v2/generated/@tanstack/react-query.gen'
 import type { BrainObjectPage } from '../../api/generated/types.gen'
 import { requestErrorCode, requestErrorDetails } from '../../../common/request-errors'
 import { ErrorBlock } from '../../../common/error-block'
@@ -35,6 +34,7 @@ import {
   BrainObjectEditorModel,
   brainObjectSnapshot,
   emptyBrainObjectSnapshot,
+  previewBrainObjectBody,
   type BrainObjectDraftError
 } from '../../state/brain-object-editor-model'
 import { brainObjectPath } from './brain-nav'
@@ -89,12 +89,12 @@ function BrainObjectEditor({ slug }: { slug: string }) {
     }
   }, [model])
 
-  const create = useMutation(ankoleWebBrainControllerCreateObjectMutation())
-  const update = useMutation(ankoleWebBrainControllerUpdateObjectMutation())
+  const create = useMutation(createBrainObjectMutation())
+  const update = useMutation(updateBrainObjectMutation())
 
   const writeError = mode === 'new' ? create.error : update.error
   const errorCode = requestErrorCode(writeError)
-  const diagnostic = markdocDiagnostic(writeError)
+  const diagnostic = markdocDiagnostic(writeError, model.body.value)
   const conflict = errorCode === 'content_hash_conflict'
   const pending = create.isPending || update.isPending
   const readOnly = mode === 'edit' && page?.editable === false
@@ -108,25 +108,26 @@ function BrainObjectEditor({ slug }: { slug: string }) {
     }
     if (mode === 'new') {
       create.mutate(
-        { body: model.createBody() },
+        { body: { data: model.createBody() } },
         {
           onSuccess: response => {
-            if (!response.object) return
-            model.markSaved(response.object)
-            toast.success(t('console.brain.object_created', { slug: response.object.slug }))
-            void navigate({ to: brainObjectPath(response.object.slug) })
+            toast.success(t('console.brain.object_created', { slug: response.slug }))
+            void navigate({ to: brainObjectPath(response.slug) })
           }
         }
       )
     } else if (page?.editable && model.contentHash.value) {
       update.mutate(
-        { body: model.updateBody() },
+        { body: { data: model.updateBody() } },
         {
-          onSuccess: response => {
-            if (!response.object) return
-            model.markSaved(response.object)
+          // The write gives the object summary; the editor takes the new
+          // content hash and the normalized tags from the page.
+          onSuccess: async response => {
+            const saved = await detail.refetch()
+            if (!active.current) return
+            if (saved.data?.object) model.markSaved(saved.data.object)
             setLatest(undefined)
-            toast.success(t('console.brain.object_saved', { slug: response.object.slug }))
+            toast.success(t('console.brain.object_saved', { slug: response.slug }))
           }
         }
       )
@@ -403,10 +404,11 @@ function Problems({ diagnostic }: { diagnostic?: { code: string; line?: number }
   )
 }
 
-function markdocDiagnostic(error: unknown): { code: string; line?: number } | undefined {
+/** The server gives the Markdoc code; the local preview of the sent body gives its line. */
+function markdocDiagnostic(error: unknown, body: string): { code: string; line?: number } | undefined {
   const code = requestErrorCode(error)
   if (!code || !MARKDOC_ERROR_CODES.has(code)) return undefined
-  const line = requestErrorDetails(error).line
+  const line = previewBrainObjectBody(body).error?.line
   return { code, ...(typeof line === 'number' ? { line } : {}) }
 }
 
@@ -443,7 +445,7 @@ function writeErrorText(error: unknown, t: Translate): string | undefined {
     }
     case 'invalid_slug':
       return t('console.brain.slug_invalid')
-    case 'reserved_slug':
+    case 'reserved_object_slug':
       return t('console.brain.slug_reserved')
     case 'slug_taken':
       return t('console.brain.slug_taken')

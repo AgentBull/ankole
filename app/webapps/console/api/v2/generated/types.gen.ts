@@ -5,71 +5,45 @@ export type ClientOptions = {
 }
 
 /**
- * A "Resource object" representing a agent
+ * A "Resource object" representing a brain_source
  */
-export type Agent = {
+export type BrainSource = {
   /**
-   * An attributes object for a agent
+   * An attributes object for a brain_source
    */
   attributes?: {
     /**
      * Field included by default.
      */
-    avatar_url?: string | null
+    archived_at?: string | null
     /**
      * Field included by default.
      */
-    created_by?: {
-      tenant_id: string
-      uid: string
-    } | null
+    default_audience_scope?: string | null
     /**
      * Field included by default.
      */
-    display_name?: string | null
+    kind: string
     /**
      * Field included by default.
      */
-    group_memory_disclosure_mode: 'strict' | 'relaxed'
+    last_sync_at?: string | null
     /**
      * Field included by default.
      */
-    handle: string
+    name: string
     /**
      * Field included by default.
      */
-    inserted_at: string
+    upstream_id: string
     /**
      * Field included by default.
      */
-    options: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    owner_principal_uid: string
-    /**
-     * Field included by default.
-     */
-    role: string
-    /**
-     * Field included by default.
-     */
-    status?: 'active' | 'disabled' | null
-    type: 'ai_colleague'
-    /**
-     * Field included by default.
-     */
-    updated_at: string
-    /**
-     * Field included by default.
-     */
-    worker_provider_id?: string | null
+    upstream_revision?: string | null
   }
   id: string
   /**
-   * A relationships object for a agent
+   * A relationships object for a brain_source
    */
   relationships?: {
     [key: string]: never
@@ -77,82 +51,61 @@ export type Agent = {
   type: string
 }
 
-export type AgentType = {
+export type SignalBindingType = {
   /**
    * Field included by default.
    */
-  avatar_url?: string | null
+  adapter: string
   /**
    * Field included by default.
    */
-  created_by?: {
-    tenant_id: string
-    uid: string
-  } | null
+  agent_uid: string
   /**
    * Field included by default.
    */
-  display_name?: string | null
+  config_ref: string
   /**
    * Field included by default.
    */
-  group_memory_disclosure_mode: 'strict' | 'relaxed'
+  enabled: boolean
   /**
    * Field included by default.
    */
-  handle: string
-  /**
-   * Field included by default.
-   */
-  inserted_at: string
-  /**
-   * Field included by default.
-   */
-  options: {
+  filters: {
     [key: string]: unknown
   }
   /**
    * Field included by default.
    */
-  owner_principal_uid: string
+  name: string
   /**
    * Field included by default.
    */
-  role: string
+  target: {
+    [key: string]: unknown
+  }
   /**
    * Field included by default.
    */
-  status?: 'active' | 'disabled' | null
+  unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
   /**
    * Field included by default.
    */
-  type: 'ai_colleague'
+  unavailable_reason?: string | null
   /**
    * Field included by default.
    */
-  uid?: string | null
-  /**
-   * Field included by default.
-   */
-  updated_at: string
-  /**
-   * Field included by default.
-   */
-  worker_provider_id?: string | null
+  unmatched_sender_policy: 'manual_review' | 'create_standalone'
 }
 
 /**
- * A "Resource object" representing a agent_skill_lesson
+ * A "Resource object" representing a brain_object_version
  */
-export type AgentSkillLesson = {
+export type BrainObjectVersion = {
   /**
-   * An attributes object for a agent_skill_lesson
+   * An attributes object for a brain_object_version
    */
   attributes?: {
-    /**
-     * Field included by default.
-     */
-    agent_uid: string
     /**
      * Field included by default.
      */
@@ -163,44 +116,25 @@ export type AgentSkillLesson = {
     /**
      * Field included by default.
      */
-    author_kind: 'dreaming' | 'human'
+    body: string
     /**
      * Field included by default.
      */
-    checked_release?: string | null
-    checked_skill_hash?: string | null
+    meta: {
+      [key: string]: unknown
+    }
     /**
      * Field included by default.
      */
-    content: string
+    snapshot_at: string
     /**
      * Field included by default.
      */
-    evidence_job_ids: Array<number>
-    /**
-     * Field included by default.
-     */
-    inserted_at: string
-    /**
-     * Field included by default.
-     */
-    retire_reason?: 'human_revoked' | 'lapsed' | 'obsolete' | null
-    /**
-     * Field included by default.
-     */
-    retired_at?: string | null
-    /**
-     * Field included by default.
-     */
-    review_after?: string | null
-    /**
-     * Field included by default.
-     */
-    skill_name: string
+    tags: Array<string>
   }
   id: string
   /**
-   * A relationships object for a agent_skill_lesson
+   * A relationships object for a brain_object_version
    */
   relationships?: {
     [key: string]: never
@@ -208,298 +142,39 @@ export type AgentSkillLesson = {
   type: string
 }
 
-export type AgentSkillLessonType = {
+export type BrainContradictionType = {
   /**
    * Field included by default.
    */
-  agent_uid: string
+  a_claim_text?: string | null
   /**
    * Field included by default.
    */
-  author?: {
-    tenant_id: string
-    uid: string
-  } | null
+  axis: string
   /**
    * Field included by default.
    */
-  author_kind: 'dreaming' | 'human'
+  b_claim_text?: string | null
   /**
    * Field included by default.
    */
-  checked_release?: string | null
+  confidence: number
   /**
    * Field included by default.
    */
-  checked_skill_hash?: string | null
+  created_at: string
   /**
    * Field included by default.
    */
-  content: string
+  severity: 'info' | 'low' | 'medium' | 'high'
   /**
    * Field included by default.
    */
-  evidence_job_ids: Array<number>
+  status: 'open' | 'resolved' | 'dismissed'
   /**
    * Field included by default.
    */
-  id?: string | null
-  /**
-   * Field included by default.
-   */
-  inserted_at: string
-  /**
-   * Field included by default.
-   */
-  retire_reason?: 'human_revoked' | 'lapsed' | 'obsolete' | null
-  /**
-   * Field included by default.
-   */
-  retired_at?: string | null
-  /**
-   * Field included by default.
-   */
-  review_after?: string | null
-  /**
-   * Field included by default.
-   */
-  skill_name: string
-}
-
-/**
- * A "Resource object" representing a agent_worker
- */
-export type AgentWorker = {
-  /**
-   * An attributes object for a agent_worker
-   */
-  attributes?: {
-    /**
-     * Field included by default.
-     */
-    capacity: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    drain_reason?: string | null
-    /**
-     * Field included by default.
-     */
-    generation?: string | null
-    /**
-     * Field included by default.
-     */
-    image?: string | null
-    /**
-     * Field included by default.
-     */
-    last_error?: string | null
-    /**
-     * Field included by default.
-     */
-    last_worker_heartbeat_at?: string | null
-    /**
-     * Field included by default.
-     */
-    load: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    provider_id?: string | null
-    /**
-     * Field included by default.
-     */
-    state: 'absent' | 'starting' | 'paused' | 'draining' | 'ready' | 'stale' | 'deleting'
-    /**
-     * Field included by default.
-     */
-    state_changed_at: string
-  }
-  id: string
-  /**
-   * A relationships object for a agent_worker
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-export type AgentWorkerType = {
-  /**
-   * Field included by default.
-   */
-  agent_uid?: string | null
-  /**
-   * Field included by default.
-   */
-  capacity: {
-    [key: string]: unknown
-  }
-  /**
-   * Field included by default.
-   */
-  drain_reason?: string | null
-  /**
-   * Field included by default.
-   */
-  generation?: string | null
-  /**
-   * Field included by default.
-   */
-  image?: string | null
-  /**
-   * Field included by default.
-   */
-  last_error?: string | null
-  /**
-   * Field included by default.
-   */
-  last_worker_heartbeat_at?: string | null
-  /**
-   * Field included by default.
-   */
-  load: {
-    [key: string]: unknown
-  }
-  /**
-   * Field included by default.
-   */
-  provider_id?: string | null
-  /**
-   * Field included by default.
-   */
-  state: 'absent' | 'starting' | 'paused' | 'draining' | 'ready' | 'stale' | 'deleting'
-  /**
-   * Field included by default.
-   */
-  state_changed_at: string
-}
-
-/**
- * A "Resource object" representing a ai_gateway_conversation
- */
-export type AiGatewayConversation = {
-  /**
-   * An attributes object for a ai_gateway_conversation
-   */
-  attributes?: {
-    /**
-     * Field included by default.
-     */
-    channel_kind?: 'im_dm' | 'im_group' | 'webhook_endpoint' | 'issue' | 'alert_stream' | 'unknown' | null
-    /**
-     * Field included by default.
-     */
-    conversation_key: string
-    /**
-     * Field included by default.
-     */
-    display_name?: string | null
-    /**
-     * Field included by default.
-     */
-    ended_at?: string | null
-    /**
-     * Field included by default.
-     */
-    inserted_at: string
-    /**
-     * Field included by default.
-     */
-    kind?: 'conversation' | 'signal' | 'dreaming' | 'job' | 'cron' | 'responses_api' | 'custom' | null
-    /**
-     * Field included by default.
-     */
-    message_count?: number | null
-    /**
-     * Field included by default.
-     */
-    metadata: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    signal_adapter?: string | null
-    /**
-     * Field included by default.
-     */
-    subject_uid: string
-    /**
-     * Field included by default.
-     */
-    updated_at: string
-  }
-  id: string
-  /**
-   * A relationships object for a ai_gateway_conversation
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-/**
- * A "Resource object" representing a ai_gateway_message
- */
-export type AiGatewayMessage = {
-  /**
-   * An attributes object for a ai_gateway_message
-   */
-  attributes?: {
-    /**
-     * Field included by default.
-     */
-    content: Array<unknown>
-    /**
-     * Field included by default.
-     */
-    conversation_id: string
-    /**
-     * Field included by default.
-     */
-    inserted_at: string
-    /**
-     * Field included by default.
-     */
-    metadata: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    previous_message_id?: string | null
-    /**
-     * Field included by default.
-     */
-    status: 'generating' | 'complete' | 'error' | 'retracted'
-    /**
-     * Field included by default.
-     */
-    subject_uid: string
-    /**
-     * Field included by default.
-     */
-    type: 'message' | 'checkpoint'
-    /**
-     * Field included by default.
-     */
-    updated_at: string
-  }
-  id: string
-  /**
-   * A relationships object for a ai_gateway_message
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
+  verdict: string
 }
 
 /**
@@ -582,72 +257,9 @@ export type AutomationJob = {
 }
 
 /**
- * A "Resource object" representing a automation_job_run
+ * A link MUST be represented as either: a string containing the link's URL or a link object.
  */
-export type AutomationJobRun = {
-  /**
-   * An attributes object for a automation_job_run
-   */
-  attributes?: {
-    attempt_id?: string | null
-    /**
-     * Field included by default.
-     */
-    attempts: number
-    /**
-     * Field included by default.
-     */
-    automation_job_id: number
-    /**
-     * Field included by default.
-     */
-    error?: string | null
-    event: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    exit_code?: number | null
-    /**
-     * Field included by default.
-     */
-    finished_at?: string | null
-    /**
-     * Field included by default.
-     */
-    started_at?: string | null
-    /**
-     * Field included by default.
-     */
-    status: 'queued' | 'running' | 'failed' | 'succeeded' | 'cancelled'
-    /**
-     * Field included by default.
-     */
-    stderr?: string | null
-    /**
-     * Field included by default.
-     */
-    stderr_truncated: boolean
-    /**
-     * Field included by default.
-     */
-    stdout?: string | null
-    /**
-     * Field included by default.
-     */
-    stdout_truncated: boolean
-    worker_wait_started_at?: string | null
-  }
-  id: string
-  /**
-   * A relationships object for a automation_job_run
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
+export type Link = string
 
 /**
  * A "Resource object" representing a background_agent_job
@@ -772,6 +384,666 @@ export type BackgroundAgentJob = {
   id: string
   /**
    * A relationships object for a background_agent_job
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type Errors = Array<Error>
+
+/**
+ * A "Resource object" representing a brain_merge_suggestion
+ */
+export type BrainMergeSuggestion = {
+  /**
+   * An attributes object for a brain_merge_suggestion
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    a_page?: {
+      slug: string
+      title?: string | null
+      type?: string | null
+    } | null
+    /**
+     * Field included by default.
+     */
+    b_page?: {
+      slug: string
+      title?: string | null
+      type?: string | null
+    } | null
+    /**
+     * Field included by default.
+     */
+    created_at: string
+    /**
+     * Field included by default.
+     */
+    reason: string
+    /**
+     * Field included by default.
+     */
+    status: 'pending' | 'approved' | 'rejected'
+  }
+  id: string
+  /**
+   * A relationships object for a brain_merge_suggestion
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a webhook_endpoint
+ */
+export type WebhookEndpoint = {
+  /**
+   * An attributes object for a webhook_endpoint
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    agent_uid?: string | null
+    /**
+     * Field included by default.
+     */
+    automation_job_id?: number | null
+    /**
+     * Field included by default.
+     */
+    binding_name?: string | null
+    /**
+     * Field included by default.
+     */
+    cancelled_at?: string | null
+    /**
+     * Field included by default.
+     */
+    conversation_id?: string | null
+    /**
+     * Field included by default.
+     */
+    event_format: string
+    /**
+     * Field included by default.
+     */
+    expires_at: string
+    /**
+     * Field included by default.
+     */
+    fired_at?: string | null
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    label: string
+    /**
+     * Field included by default.
+     */
+    mode: string
+    /**
+     * Field included by default.
+     */
+    provider_message_id?: string | null
+    /**
+     * Field included by default.
+     */
+    provider_thread_id?: string | null
+    /**
+     * Field included by default.
+     */
+    session_id?: string | null
+    /**
+     * Field included by default.
+     */
+    source_provenance: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    source_signal_id?: string | null
+    /**
+     * Field included by default.
+     */
+    status: 'armed' | 'fired' | 'active' | 'cancelled' | 'expired'
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a webhook_endpoint
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a identity_mapping_request
+ */
+export type IdentityMappingRequest = {
+  /**
+   * An attributes object for a identity_mapping_request
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    display_name?: string | null
+    /**
+     * Field included by default.
+     */
+    email?: string | null
+    /**
+     * Field included by default.
+     */
+    external_id: string
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    metadata: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    mobile?: string | null
+    /**
+     * Field included by default.
+     */
+    provider: string
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a identity_mapping_request
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a permission_grant
+ */
+export type PermissionGrant = {
+  /**
+   * An attributes object for a permission_grant
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    action: string
+    /**
+     * Field included by default.
+     */
+    condition: string
+    /**
+     * Field included by default.
+     */
+    description?: string | null
+    /**
+     * Field included by default.
+     */
+    group_id?: string | null
+    metadata: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    principal_uid?: string | null
+    /**
+     * Field included by default.
+     */
+    resource_pattern: string
+  }
+  id: string
+  /**
+   * A relationships object for a permission_grant
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a agent_skill_lesson
+ */
+export type AgentSkillLesson = {
+  /**
+   * An attributes object for a agent_skill_lesson
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    agent_uid: string
+    /**
+     * Field included by default.
+     */
+    author?: {
+      tenant_id: string
+      uid: string
+    } | null
+    /**
+     * Field included by default.
+     */
+    author_kind: 'dreaming' | 'human'
+    /**
+     * Field included by default.
+     */
+    checked_release?: string | null
+    checked_skill_hash?: string | null
+    /**
+     * Field included by default.
+     */
+    content: string
+    /**
+     * Field included by default.
+     */
+    evidence_job_ids: Array<number>
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    retire_reason?: 'human_revoked' | 'lapsed' | 'obsolete' | null
+    /**
+     * Field included by default.
+     */
+    retired_at?: string | null
+    /**
+     * Field included by default.
+     */
+    review_after?: string | null
+    /**
+     * Field included by default.
+     */
+    skill_name: string
+  }
+  id: string
+  /**
+   * A relationships object for a agent_skill_lesson
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type Links = {
+  [key: string]: Link
+}
+
+export type AgentWorkerType = {
+  /**
+   * Field included by default.
+   */
+  agent_uid?: string | null
+  /**
+   * Field included by default.
+   */
+  capacity: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  drain_reason?: string | null
+  /**
+   * Field included by default.
+   */
+  generation?: string | null
+  /**
+   * Field included by default.
+   */
+  image?: string | null
+  /**
+   * Field included by default.
+   */
+  last_error?: string | null
+  /**
+   * Field included by default.
+   */
+  last_worker_heartbeat_at?: string | null
+  /**
+   * Field included by default.
+   */
+  load: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  provider_id?: string | null
+  /**
+   * Field included by default.
+   */
+  state: 'absent' | 'starting' | 'paused' | 'draining' | 'ready' | 'stale' | 'deleting'
+  /**
+   * Field included by default.
+   */
+  state_changed_at: string
+}
+
+/**
+ * A "Resource object" representing a brain_contradiction
+ */
+export type BrainContradiction = {
+  /**
+   * An attributes object for a brain_contradiction
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    a_claim_text?: string | null
+    /**
+     * Field included by default.
+     */
+    axis: string
+    /**
+     * Field included by default.
+     */
+    b_claim_text?: string | null
+    /**
+     * Field included by default.
+     */
+    confidence: number
+    /**
+     * Field included by default.
+     */
+    created_at: string
+    /**
+     * Field included by default.
+     */
+    severity: 'info' | 'low' | 'medium' | 'high'
+    /**
+     * Field included by default.
+     */
+    status: 'open' | 'resolved' | 'dismissed'
+    /**
+     * Field included by default.
+     */
+    verdict: string
+  }
+  id: string
+  /**
+   * A relationships object for a brain_contradiction
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type Error = {
+  /**
+   * An application-specific error code, expressed as a string value.
+   */
+  code?: string
+  /**
+   * A human-readable explanation specific to this occurrence of the problem.
+   */
+  detail?: string
+  /**
+   * A unique identifier for this particular occurrence of the problem.
+   */
+  id?: string
+  links?: Links
+  source?: {
+    /**
+     * A string indicating which query parameter caused the error.
+     */
+    parameter?: string
+    /**
+     * A JSON Pointer [RFC6901] to the associated entity in the request document [e.g. "/data" for a primary data object, or "/data/attributes/title" for a specific attribute].
+     */
+    pointer?: string
+  }
+  /**
+   * The HTTP status code applicable to this problem, expressed as a string value.
+   */
+  status?: string
+  /**
+   * A short, human-readable summary of the problem. It SHOULD NOT change from occurrence to occurrence of the problem, except for purposes of localization.
+   */
+  title?: string
+}
+
+/**
+ * A "Resource object" representing a signal_binding
+ */
+export type SignalBinding = {
+  /**
+   * An attributes object for a signal_binding
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    adapter: string
+    /**
+     * Field included by default.
+     */
+    agent_uid: string
+    /**
+     * Field included by default.
+     */
+    config_ref: string
+    /**
+     * Field included by default.
+     */
+    enabled: boolean
+    /**
+     * Field included by default.
+     */
+    filters: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    target: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+    /**
+     * Field included by default.
+     */
+    unavailable_reason?: string | null
+    /**
+     * Field included by default.
+     */
+    unmatched_sender_policy: 'manual_review' | 'create_standalone'
+  }
+  id: string
+  /**
+   * A relationships object for a signal_binding
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a brain_schema_suggestion
+ */
+export type BrainSchemaSuggestion = {
+  /**
+   * An attributes object for a brain_schema_suggestion
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    created_at: string
+    /**
+     * Field included by default.
+     */
+    evidence_count: number
+    /**
+     * Field included by default.
+     */
+    kind: 'new_type' | 'new_subtype' | 'alias'
+    /**
+     * Field included by default.
+     */
+    rationale: string
+    /**
+     * Field included by default.
+     */
+    status: 'pending' | 'approved' | 'rejected'
+    /**
+     * Field included by default.
+     */
+    target_type?: string | null
+    /**
+     * Field included by default.
+     */
+    term: string
+  }
+  id: string
+  /**
+   * A relationships object for a brain_schema_suggestion
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type ExternalIdentityType = {
+  /**
+   * Field included by default.
+   */
+  external_id: string
+  /**
+   * Field included by default.
+   */
+  id?: string | null
+  /**
+   * Field included by default.
+   */
+  metadata: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  principal_uid: string
+  /**
+   * Field included by default.
+   */
+  provider: string
+}
+
+/**
+ * A "Resource object" representing a oidc_client
+ */
+export type OidcClient = {
+  /**
+   * An attributes object for a oidc_client
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    allow_insecure_local_logout: boolean
+    /**
+     * Field included by default.
+     */
+    allowed_group_ids?: Array<string> | null
+    /**
+     * Field included by default.
+     */
+    allowed_identity_provider_ids: Array<string>
+    /**
+     * Field included by default.
+     */
+    backchannel_logout_session_required: boolean
+    /**
+     * Field included by default.
+     */
+    backchannel_logout_uri?: string | null
+    /**
+     * Field included by default.
+     */
+    client_type: 'public' | 'confidential'
+    /**
+     * Field included by default.
+     */
+    enabled: boolean
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    model_aliases: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    name: string
+    /**
+     * Field included by default.
+     */
+    post_logout_redirect_uris: Array<string>
+    /**
+     * Field included by default.
+     */
+    redirect_uris: Array<string>
+    /**
+     * Field included by default.
+     */
+    scopes: Array<string>
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a oidc_client
    */
   relationships?: {
     [key: string]: never
@@ -913,48 +1185,21 @@ export type BackgroundAgentJobType = {
 }
 
 /**
- * A "Resource object" representing a cron_schedule
+ * A "Resource object" representing a ai_gateway_message
  */
-export type CronSchedule = {
+export type AiGatewayMessage = {
   /**
-   * An attributes object for a cron_schedule
+   * An attributes object for a ai_gateway_message
    */
   attributes?: {
     /**
      * Field included by default.
      */
-    agent_uid: string
-    authorization_kind?: string | null
+    content: Array<unknown>
     /**
      * Field included by default.
      */
-    automation_job_id?: number | null
-    /**
-     * Field included by default.
-     */
-    binding_name?: string | null
-    /**
-     * Field included by default.
-     */
-    created_by: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    delivery?: {
-      [key: string]: unknown
-    } | null
-    /**
-     * Field included by default.
-     */
-    execution_session_id?: string | null
-    human_access_version?: number | null
-    human_uid?: string | null
-    /**
-     * Field included by default.
-     */
-    idempotency_key: string
+    conversation_id: string
     /**
      * Field included by default.
      */
@@ -962,39 +1207,25 @@ export type CronSchedule = {
     /**
      * Field included by default.
      */
-    last_fire_at?: string | null
-    /**
-     * Field included by default.
-     */
-    name: string
-    /**
-     * Field included by default.
-     */
-    next_fire_at?: string | null
-    /**
-     * Field included by default.
-     */
-    owner_session_id: string
-    /**
-     * Field included by default.
-     */
-    payload: {
+    metadata: {
       [key: string]: unknown
     }
     /**
      * Field included by default.
      */
-    schedule: {
-      [key: string]: unknown
-    }
+    previous_message_id?: string | null
     /**
      * Field included by default.
      */
-    status: 'active' | 'paused' | 'completed' | 'deleted'
+    status: 'generating' | 'complete' | 'error' | 'retracted'
     /**
      * Field included by default.
      */
-    timezone: string
+    subject_uid: string
+    /**
+     * Field included by default.
+     */
+    type: 'message' | 'checkpoint'
     /**
      * Field included by default.
      */
@@ -1002,12 +1233,555 @@ export type CronSchedule = {
   }
   id: string
   /**
-   * A relationships object for a cron_schedule
+   * A relationships object for a ai_gateway_message
    */
   relationships?: {
     [key: string]: never
   }
   type: string
+}
+
+export type BrainMergeSuggestionType = {
+  /**
+   * Field included by default.
+   */
+  a_page?: {
+    slug: string
+    title?: string | null
+    type?: string | null
+  } | null
+  /**
+   * Field included by default.
+   */
+  b_page?: {
+    slug: string
+    title?: string | null
+    type?: string | null
+  } | null
+  /**
+   * Field included by default.
+   */
+  created_at: string
+  /**
+   * Field included by default.
+   */
+  reason: string
+  /**
+   * Field included by default.
+   */
+  status: 'pending' | 'approved' | 'rejected'
+}
+
+/**
+ * A "Resource object" representing a external_identity
+ */
+export type ExternalIdentity = {
+  /**
+   * An attributes object for a external_identity
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    external_id: string
+    metadata: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    principal_uid: string
+    /**
+     * Field included by default.
+     */
+    provider: string
+  }
+  id: string
+  /**
+   * A relationships object for a external_identity
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a brain_object
+ */
+export type BrainObject = {
+  /**
+   * An attributes object for a brain_object
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    deleted_at?: string | null
+    /**
+     * Field included by default.
+     */
+    effective_date?: string | null
+    /**
+     * Field included by default.
+     */
+    managed_by_source_id?: string | null
+    /**
+     * Field included by default.
+     */
+    slug: string
+    /**
+     * Field included by default.
+     */
+    subtype?: string | null
+    /**
+     * Field included by default.
+     */
+    title: string
+    /**
+     * Field included by default.
+     */
+    type: string
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a brain_object
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a principal
+ */
+export type Principal = {
+  /**
+   * An attributes object for a principal
+   */
+  attributes?: {
+    access_revoked_at?: string | null
+    access_version: number
+    /**
+     * Field included by default.
+     */
+    avatar_url?: string | null
+    /**
+     * Field included by default.
+     */
+    display_name?: string | null
+    /**
+     * Field included by default.
+     */
+    email?: string | null
+    /**
+     * Field included by default.
+     */
+    handle?: string | null
+    /**
+     * Field included by default.
+     */
+    has_external_identity?: boolean | null
+    /**
+     * Field included by default.
+     */
+    local_credential_status?: 'must_change' | 'active' | null
+    /**
+     * Field included by default.
+     */
+    status: 'active' | 'disabled'
+    /**
+     * Field included by default.
+     */
+    type: 'human' | 'agent' | 'system'
+  }
+  id: string
+  /**
+   * A relationships object for a principal
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a agent_worker
+ */
+export type AgentWorker = {
+  /**
+   * An attributes object for a agent_worker
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    capacity: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    drain_reason?: string | null
+    /**
+     * Field included by default.
+     */
+    generation?: string | null
+    /**
+     * Field included by default.
+     */
+    image?: string | null
+    /**
+     * Field included by default.
+     */
+    last_error?: string | null
+    /**
+     * Field included by default.
+     */
+    last_worker_heartbeat_at?: string | null
+    /**
+     * Field included by default.
+     */
+    load: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    provider_id?: string | null
+    /**
+     * Field included by default.
+     */
+    state: 'absent' | 'starting' | 'paused' | 'draining' | 'ready' | 'stale' | 'deleting'
+    /**
+     * Field included by default.
+     */
+    state_changed_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a agent_worker
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type BrainSourceType = {
+  /**
+   * Field included by default.
+   */
+  archived_at?: string | null
+  /**
+   * Field included by default.
+   */
+  default_audience_scope?: string | null
+  /**
+   * Field included by default.
+   */
+  kind: string
+  /**
+   * Field included by default.
+   */
+  last_sync_at?: string | null
+  /**
+   * Field included by default.
+   */
+  name: string
+  /**
+   * Field included by default.
+   */
+  upstream_id: string
+  /**
+   * Field included by default.
+   */
+  upstream_revision?: string | null
+}
+
+export type AgentSkillLessonType = {
+  /**
+   * Field included by default.
+   */
+  agent_uid: string
+  /**
+   * Field included by default.
+   */
+  author?: {
+    tenant_id: string
+    uid: string
+  } | null
+  /**
+   * Field included by default.
+   */
+  author_kind: 'dreaming' | 'human'
+  /**
+   * Field included by default.
+   */
+  checked_release?: string | null
+  /**
+   * Field included by default.
+   */
+  checked_skill_hash?: string | null
+  /**
+   * Field included by default.
+   */
+  content: string
+  /**
+   * Field included by default.
+   */
+  evidence_job_ids: Array<number>
+  /**
+   * Field included by default.
+   */
+  id?: string | null
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  retire_reason?: 'human_revoked' | 'lapsed' | 'obsolete' | null
+  /**
+   * Field included by default.
+   */
+  retired_at?: string | null
+  /**
+   * Field included by default.
+   */
+  review_after?: string | null
+  /**
+   * Field included by default.
+   */
+  skill_name: string
+}
+
+export type BrainObjectType = {
+  /**
+   * Field included by default.
+   */
+  deleted_at?: string | null
+  /**
+   * Field included by default.
+   */
+  effective_date?: string | null
+  /**
+   * Field included by default.
+   */
+  managed_by_source_id?: string | null
+  /**
+   * Field included by default.
+   */
+  slug: string
+  /**
+   * Field included by default.
+   */
+  subtype?: string | null
+  /**
+   * Field included by default.
+   */
+  title: string
+  /**
+   * Field included by default.
+   */
+  type: string
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+}
+
+export type WebhookEndpointType = {
+  /**
+   * Field included by default.
+   */
+  agent_uid?: string | null
+  /**
+   * Field included by default.
+   */
+  automation_job_id?: number | null
+  /**
+   * Field included by default.
+   */
+  binding_name?: string | null
+  /**
+   * Field included by default.
+   */
+  cancelled_at?: string | null
+  /**
+   * Field included by default.
+   */
+  conversation_id?: string | null
+  /**
+   * Field included by default.
+   */
+  event_format: string
+  /**
+   * Field included by default.
+   */
+  expires_at: string
+  /**
+   * Field included by default.
+   */
+  fired_at?: string | null
+  /**
+   * Field included by default.
+   */
+  id?: string | null
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  label: string
+  /**
+   * Field included by default.
+   */
+  mode: string
+  /**
+   * Field included by default.
+   */
+  provider_message_id?: string | null
+  /**
+   * Field included by default.
+   */
+  provider_thread_id?: string | null
+  /**
+   * Field included by default.
+   */
+  session_id?: string | null
+  /**
+   * Field included by default.
+   */
+  source_provenance: {
+    [key: string]: unknown
+  }
+  /**
+   * Field included by default.
+   */
+  source_signal_id?: string | null
+  /**
+   * Field included by default.
+   */
+  status: 'armed' | 'fired' | 'active' | 'cancelled' | 'expired'
+  /**
+   * Field included by default.
+   */
+  updated_at: string
+}
+
+export type BrainClaimType = {
+  /**
+   * Field included by default.
+   */
+  active?: boolean | null
+  /**
+   * Field included by default.
+   */
+  audience_scope: string
+  /**
+   * Field included by default.
+   */
+  author?: {
+    tenant_id: string
+    uid: string
+  } | null
+  /**
+   * Field included by default.
+   */
+  claim: string
+  /**
+   * Field included by default.
+   */
+  claim_type: 'fact' | 'take'
+  /**
+   * Field included by default.
+   */
+  confidence?: number | null
+  /**
+   * Field included by default.
+   */
+  conversation_id?: string | null
+  /**
+   * Field included by default.
+   */
+  created_at: string
+  /**
+   * Field included by default.
+   */
+  expired_at?: string | null
+  /**
+   * Field included by default.
+   */
+  graded_confidence?: number | null
+  /**
+   * Field included by default.
+   */
+  graded_quality?: string | null
+  /**
+   * Field included by default.
+   */
+  holder: string
+  /**
+   * Field included by default.
+   */
+  kind: string
+  /**
+   * Field included by default.
+   */
+  notability?: string | null
+  /**
+   * Field included by default.
+   */
+  object_slug?: string | null
+  /**
+   * Field included by default.
+   */
+  provenance: string
+  /**
+   * Field included by default.
+   */
+  resolved_at?: string | null
+  /**
+   * Field included by default.
+   */
+  resolved_outcome?: boolean | null
+  /**
+   * Field included by default.
+   */
+  resolved_quality?: string | null
+  /**
+   * Field included by default.
+   */
+  since_date?: string | null
+  /**
+   * Field included by default.
+   */
+  superseded_by?: string | null
+  /**
+   * Field included by default.
+   */
+  until_date?: string | null
+  /**
+   * Field included by default.
+   */
+  valid_from?: string | null
+  /**
+   * Field included by default.
+   */
+  valid_until?: string | null
+  /**
+   * Field included by default.
+   */
+  weight?: number | null
 }
 
 export type CronScheduleType = {
@@ -1105,302 +1879,12 @@ export type CronScheduleType = {
   updated_at: string
 }
 
-export type Error = {
-  /**
-   * An application-specific error code, expressed as a string value.
-   */
-  code?: string
-  /**
-   * A human-readable explanation specific to this occurrence of the problem.
-   */
-  detail?: string
-  /**
-   * A unique identifier for this particular occurrence of the problem.
-   */
-  id?: string
-  links?: Links
-  source?: {
-    /**
-     * A string indicating which query parameter caused the error.
-     */
-    parameter?: string
-    /**
-     * A JSON Pointer [RFC6901] to the associated entity in the request document [e.g. "/data" for a primary data object, or "/data/attributes/title" for a specific attribute].
-     */
-    pointer?: string
-  }
-  /**
-   * The HTTP status code applicable to this problem, expressed as a string value.
-   */
-  status?: string
-  /**
-   * A short, human-readable summary of the problem. It SHOULD NOT change from occurrence to occurrence of the problem, except for purposes of localization.
-   */
-  title?: string
-}
-
-export type Errors = Array<Error>
-
 /**
- * A link MUST be represented as either: a string containing the link's URL or a link object.
+ * A "Resource object" representing a cron_schedule
  */
-export type Link = string
-
-export type Links = {
-  [key: string]: Link
-}
-
-/**
- * A "Resource object" representing a oidc_client
- */
-export type OidcClient = {
+export type CronSchedule = {
   /**
-   * An attributes object for a oidc_client
-   */
-  attributes?: {
-    /**
-     * Field included by default.
-     */
-    allow_insecure_local_logout: boolean
-    /**
-     * Field included by default.
-     */
-    allowed_group_ids?: Array<string> | null
-    /**
-     * Field included by default.
-     */
-    allowed_identity_provider_ids: Array<string>
-    /**
-     * Field included by default.
-     */
-    backchannel_logout_session_required: boolean
-    /**
-     * Field included by default.
-     */
-    backchannel_logout_uri?: string | null
-    /**
-     * Field included by default.
-     */
-    client_type: 'public' | 'confidential'
-    /**
-     * Field included by default.
-     */
-    enabled: boolean
-    /**
-     * Field included by default.
-     */
-    inserted_at: string
-    /**
-     * Field included by default.
-     */
-    model_aliases: {
-      [key: string]: unknown
-    }
-    /**
-     * Field included by default.
-     */
-    name: string
-    /**
-     * Field included by default.
-     */
-    post_logout_redirect_uris: Array<string>
-    /**
-     * Field included by default.
-     */
-    redirect_uris: Array<string>
-    /**
-     * Field included by default.
-     */
-    scopes: Array<string>
-    /**
-     * Field included by default.
-     */
-    updated_at: string
-  }
-  id: string
-  /**
-   * A relationships object for a oidc_client
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-export type OidcClientType = {
-  /**
-   * Field included by default.
-   */
-  allow_insecure_local_logout: boolean
-  /**
-   * Field included by default.
-   */
-  allowed_group_ids?: Array<string> | null
-  /**
-   * Field included by default.
-   */
-  allowed_identity_provider_ids: Array<string>
-  /**
-   * Field included by default.
-   */
-  backchannel_logout_session_required: boolean
-  /**
-   * Field included by default.
-   */
-  backchannel_logout_uri?: string | null
-  /**
-   * Field included by default.
-   */
-  client_type: 'public' | 'confidential'
-  /**
-   * Field included by default.
-   */
-  enabled: boolean
-  /**
-   * Field included by default.
-   */
-  id?: string | null
-  /**
-   * Field included by default.
-   */
-  inserted_at: string
-  /**
-   * Field included by default.
-   */
-  model_aliases: {
-    [key: string]: unknown
-  }
-  /**
-   * Field included by default.
-   */
-  name: string
-  /**
-   * Field included by default.
-   */
-  post_logout_redirect_uris: Array<string>
-  /**
-   * Field included by default.
-   */
-  redirect_uris: Array<string>
-  /**
-   * Field included by default.
-   */
-  scopes: Array<string>
-  /**
-   * Field included by default.
-   */
-  updated_at: string
-}
-
-/**
- * A "Resource object" representing a oidc_logout_delivery
- */
-export type OidcLogoutDelivery = {
-  /**
-   * An attributes object for a oidc_logout_delivery
-   */
-  attributes?: {
-    /**
-     * Field included by default.
-     */
-    attempt_count: number
-    /**
-     * Field included by default.
-     */
-    deadline: string
-    /**
-     * Field included by default.
-     */
-    delivered_at?: string | null
-    endpoint: string
-    /**
-     * Field included by default.
-     */
-    last_attempt_at?: string | null
-    /**
-     * Field included by default.
-     */
-    last_error?: string | null
-    /**
-     * Field included by default.
-     */
-    next_attempt_at?: string | null
-    /**
-     * Field included by default.
-     */
-    principal_uid?: string | null
-    /**
-     * Field included by default.
-     */
-    session_id: string
-    /**
-     * Field included by default.
-     */
-    status: 'pending' | 'delivering' | 'failed' | 'delivered'
-  }
-  id: string
-  /**
-   * A relationships object for a oidc_logout_delivery
-   */
-  relationships?: {
-    [key: string]: never
-  }
-  type: string
-}
-
-export type OidcLogoutDeliveryType = {
-  /**
-   * Field included by default.
-   */
-  attempt_count: number
-  /**
-   * Field included by default.
-   */
-  deadline: string
-  /**
-   * Field included by default.
-   */
-  delivered_at?: string | null
-  /**
-   * Field included by default.
-   */
-  endpoint: string
-  /**
-   * Field included by default.
-   */
-  id?: string | null
-  /**
-   * Field included by default.
-   */
-  last_attempt_at?: string | null
-  /**
-   * Field included by default.
-   */
-  last_error?: string | null
-  /**
-   * Field included by default.
-   */
-  next_attempt_at?: string | null
-  /**
-   * Field included by default.
-   */
-  principal_uid?: string | null
-  /**
-   * Field included by default.
-   */
-  session_id: string
-  /**
-   * Field included by default.
-   */
-  status: 'pending' | 'delivering' | 'failed' | 'delivered'
-}
-
-/**
- * A "Resource object" representing a scheduled_event
- */
-export type ScheduledEvent = {
-  /**
-   * An attributes object for a scheduled_event
+   * An attributes object for a cron_schedule
    */
   attributes?: {
     /**
@@ -1415,35 +1899,23 @@ export type ScheduledEvent = {
     /**
      * Field included by default.
      */
-    automation_job_run_id?: number | null
-    /**
-     * Field included by default.
-     */
     binding_name?: string | null
     /**
      * Field included by default.
      */
-    cancelled_at?: string | null
+    created_by: {
+      [key: string]: unknown
+    }
     /**
      * Field included by default.
      */
-    conversation_id?: string | null
+    delivery?: {
+      [key: string]: unknown
+    } | null
     /**
      * Field included by default.
      */
-    cron_fire_slot_at?: string | null
-    /**
-     * Field included by default.
-     */
-    cron_schedule_id?: string | null
-    /**
-     * Field included by default.
-     */
-    due_at: string
-    /**
-     * Field included by default.
-     */
-    fired_at?: string | null
+    execution_session_id?: string | null
     human_access_version?: number | null
     human_uid?: string | null
     /**
@@ -1457,51 +1929,35 @@ export type ScheduledEvent = {
     /**
      * Field included by default.
      */
-    kind: string
+    last_fire_at?: string | null
     /**
      * Field included by default.
      */
-    last_fire_error: {
+    name: string
+    /**
+     * Field included by default.
+     */
+    next_fire_at?: string | null
+    /**
+     * Field included by default.
+     */
+    owner_session_id: string
+    /**
+     * Field included by default.
+     */
+    payload: {
       [key: string]: unknown
     }
     /**
      * Field included by default.
      */
-    origin_ai_message_id?: string | null
-    /**
-     * Field included by default.
-     */
-    provider_message_id?: string | null
-    /**
-     * Field included by default.
-     */
-    provider_thread_id?: string | null
-    /**
-     * Field included by default.
-     */
-    requested_at: string
-    /**
-     * Field included by default.
-     */
-    session_id: string
-    /**
-     * Field included by default.
-     */
-    signal_id?: string | null
-    /**
-     * Field included by default.
-     */
-    source_provenance: {
+    schedule: {
       [key: string]: unknown
     }
     /**
      * Field included by default.
      */
-    source_signal_id?: string | null
-    /**
-     * Field included by default.
-     */
-    status: 'scheduled' | 'fired' | 'cancelled' | 'failed'
+    status: 'active' | 'paused' | 'completed' | 'deleted'
     /**
      * Field included by default.
      */
@@ -1509,21 +1965,103 @@ export type ScheduledEvent = {
     /**
      * Field included by default.
      */
-    tool_call_id?: string | null
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a cron_schedule
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a principal_group_membership
+ */
+export type PrincipalGroupMembership = {
+  /**
+   * An attributes object for a principal_group_membership
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    group_id: string
+    /**
+     * Field included by default.
+     */
+    principal_uid: string
+  }
+  id: string
+  /**
+   * A relationships object for a principal_group_membership
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a ai_gateway_conversation
+ */
+export type AiGatewayConversation = {
+  /**
+   * An attributes object for a ai_gateway_conversation
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    channel_kind?: 'im_dm' | 'im_group' | 'webhook_endpoint' | 'issue' | 'alert_stream' | 'unknown' | null
+    /**
+     * Field included by default.
+     */
+    conversation_key: string
+    /**
+     * Field included by default.
+     */
+    display_name?: string | null
+    /**
+     * Field included by default.
+     */
+    ended_at?: string | null
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    kind?: 'conversation' | 'signal' | 'dreaming' | 'job' | 'cron' | 'responses_api' | 'custom' | null
+    /**
+     * Field included by default.
+     */
+    message_count?: number | null
+    /**
+     * Field included by default.
+     */
+    metadata: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    signal_adapter?: string | null
+    /**
+     * Field included by default.
+     */
+    subject_uid: string
     /**
      * Field included by default.
      */
     updated_at: string
-    /**
-     * Field included by default.
-     */
-    wake_payload: {
-      [key: string]: unknown
-    }
   }
   id: string
   /**
-   * A relationships object for a scheduled_event
+   * A relationships object for a ai_gateway_conversation
    */
   relationships?: {
     [key: string]: never
@@ -1665,61 +2203,66 @@ export type ScheduledEventType = {
 }
 
 /**
- * A "Resource object" representing a signal_binding
+ * A "Resource object" representing a automation_job_run
  */
-export type SignalBinding = {
+export type AutomationJobRun = {
   /**
-   * An attributes object for a signal_binding
+   * An attributes object for a automation_job_run
    */
   attributes?: {
+    attempt_id?: string | null
     /**
      * Field included by default.
      */
-    adapter: string
+    attempts: number
     /**
      * Field included by default.
      */
-    agent_uid: string
+    automation_job_id: number
     /**
      * Field included by default.
      */
-    config_ref: string
-    /**
-     * Field included by default.
-     */
-    enabled: boolean
-    /**
-     * Field included by default.
-     */
-    filters: {
+    error?: string | null
+    event: {
       [key: string]: unknown
     }
     /**
      * Field included by default.
      */
-    name: string
+    exit_code?: number | null
     /**
      * Field included by default.
      */
-    target: {
-      [key: string]: unknown
-    }
+    finished_at?: string | null
     /**
      * Field included by default.
      */
-    unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+    started_at?: string | null
     /**
      * Field included by default.
      */
-    unavailable_reason?: string | null
+    status: 'queued' | 'running' | 'failed' | 'succeeded' | 'cancelled'
     /**
      * Field included by default.
      */
-    unmatched_sender_policy: 'manual_review' | 'create_standalone'
+    stderr?: string | null
+    /**
+     * Field included by default.
+     */
+    stderr_truncated: boolean
+    /**
+     * Field included by default.
+     */
+    stdout?: string | null
+    /**
+     * Field included by default.
+     */
+    stdout_truncated: boolean
+    worker_wait_started_at?: string | null
   }
   id: string
   /**
-   * A relationships object for a signal_binding
+   * A relationships object for a automation_job_run
    */
   relationships?: {
     [key: string]: never
@@ -1727,19 +2270,211 @@ export type SignalBinding = {
   type: string
 }
 
-export type SignalBindingType = {
+/**
+ * A "Resource object" representing a brain_claim
+ */
+export type BrainClaim = {
+  /**
+   * An attributes object for a brain_claim
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    active?: boolean | null
+    /**
+     * Field included by default.
+     */
+    audience_scope: string
+    /**
+     * Field included by default.
+     */
+    author?: {
+      tenant_id: string
+      uid: string
+    } | null
+    /**
+     * Field included by default.
+     */
+    claim: string
+    /**
+     * Field included by default.
+     */
+    claim_type: 'fact' | 'take'
+    /**
+     * Field included by default.
+     */
+    confidence?: number | null
+    /**
+     * Field included by default.
+     */
+    conversation_id?: string | null
+    /**
+     * Field included by default.
+     */
+    created_at: string
+    /**
+     * Field included by default.
+     */
+    expired_at?: string | null
+    /**
+     * Field included by default.
+     */
+    graded_confidence?: number | null
+    /**
+     * Field included by default.
+     */
+    graded_quality?: string | null
+    /**
+     * Field included by default.
+     */
+    holder: string
+    /**
+     * Field included by default.
+     */
+    kind: string
+    /**
+     * Field included by default.
+     */
+    notability?: string | null
+    /**
+     * Field included by default.
+     */
+    object_slug?: string | null
+    /**
+     * Field included by default.
+     */
+    provenance: string
+    /**
+     * Field included by default.
+     */
+    resolved_at?: string | null
+    /**
+     * Field included by default.
+     */
+    resolved_outcome?: boolean | null
+    /**
+     * Field included by default.
+     */
+    resolved_quality?: string | null
+    /**
+     * Field included by default.
+     */
+    since_date?: string | null
+    /**
+     * Field included by default.
+     */
+    superseded_by?: string | null
+    /**
+     * Field included by default.
+     */
+    until_date?: string | null
+    /**
+     * Field included by default.
+     */
+    valid_from?: string | null
+    /**
+     * Field included by default.
+     */
+    valid_until?: string | null
+    /**
+     * Field included by default.
+     */
+    weight?: number | null
+  }
+  id: string
+  /**
+   * A relationships object for a brain_claim
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a principal_group
+ */
+export type PrincipalGroup = {
+  /**
+   * An attributes object for a principal_group
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    built_in: boolean
+    /**
+     * Field included by default.
+     */
+    computed_condition?: string | null
+    /**
+     * Field included by default.
+     */
+    description?: string | null
+    /**
+     * Field included by default.
+     */
+    display_name: string
+    /**
+     * Field included by default.
+     */
+    domain: 'operator' | 'directory' | 'im_group' | 'signal_source'
+    /**
+     * Field included by default.
+     */
+    grant_count?: number | null
+    /**
+     * Field included by default.
+     */
+    kind: 'static' | 'computed'
+    /**
+     * Field included by default.
+     */
+    member_count?: number | null
+    metadata: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    name: string
+  }
+  id: string
+  /**
+   * A relationships object for a principal_group
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type OidcClientType = {
   /**
    * Field included by default.
    */
-  adapter: string
+  allow_insecure_local_logout: boolean
   /**
    * Field included by default.
    */
-  agent_uid: string
+  allowed_group_ids?: Array<string> | null
   /**
    * Field included by default.
    */
-  config_ref: string
+  allowed_identity_provider_ids: Array<string>
+  /**
+   * Field included by default.
+   */
+  backchannel_logout_session_required: boolean
+  /**
+   * Field included by default.
+   */
+  backchannel_logout_uri?: string | null
+  /**
+   * Field included by default.
+   */
+  client_type: 'public' | 'confidential'
   /**
    * Field included by default.
    */
@@ -1747,7 +2482,15 @@ export type SignalBindingType = {
   /**
    * Field included by default.
    */
-  filters: {
+  id?: string | null
+  /**
+   * Field included by default.
+   */
+  inserted_at: string
+  /**
+   * Field included by default.
+   */
+  model_aliases: {
     [key: string]: unknown
   }
   /**
@@ -1757,39 +2500,42 @@ export type SignalBindingType = {
   /**
    * Field included by default.
    */
-  target: {
-    [key: string]: unknown
-  }
+  post_logout_redirect_uris: Array<string>
   /**
    * Field included by default.
    */
-  unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
+  redirect_uris: Array<string>
   /**
    * Field included by default.
    */
-  unavailable_reason?: string | null
+  scopes: Array<string>
   /**
    * Field included by default.
    */
-  unmatched_sender_policy: 'manual_review' | 'create_standalone'
+  updated_at: string
 }
 
 /**
- * A "Resource object" representing a webhook_endpoint
+ * A "Resource object" representing a scheduled_event
  */
-export type WebhookEndpoint = {
+export type ScheduledEvent = {
   /**
-   * An attributes object for a webhook_endpoint
+   * An attributes object for a scheduled_event
    */
   attributes?: {
     /**
      * Field included by default.
      */
-    agent_uid?: string | null
+    agent_uid: string
+    authorization_kind?: string | null
     /**
      * Field included by default.
      */
     automation_job_id?: number | null
+    /**
+     * Field included by default.
+     */
+    automation_job_run_id?: number | null
     /**
      * Field included by default.
      */
@@ -1805,15 +2551,25 @@ export type WebhookEndpoint = {
     /**
      * Field included by default.
      */
-    event_format: string
+    cron_fire_slot_at?: string | null
     /**
      * Field included by default.
      */
-    expires_at: string
+    cron_schedule_id?: string | null
+    /**
+     * Field included by default.
+     */
+    due_at: string
     /**
      * Field included by default.
      */
     fired_at?: string | null
+    human_access_version?: number | null
+    human_uid?: string | null
+    /**
+     * Field included by default.
+     */
+    idempotency_key: string
     /**
      * Field included by default.
      */
@@ -1821,11 +2577,17 @@ export type WebhookEndpoint = {
     /**
      * Field included by default.
      */
-    label: string
+    kind: string
     /**
      * Field included by default.
      */
-    mode: string
+    last_fire_error: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    origin_ai_message_id?: string | null
     /**
      * Field included by default.
      */
@@ -1837,7 +2599,15 @@ export type WebhookEndpoint = {
     /**
      * Field included by default.
      */
-    session_id?: string | null
+    requested_at: string
+    /**
+     * Field included by default.
+     */
+    session_id: string
+    /**
+     * Field included by default.
+     */
+    signal_id?: string | null
     /**
      * Field included by default.
      */
@@ -1851,15 +2621,29 @@ export type WebhookEndpoint = {
     /**
      * Field included by default.
      */
-    status: 'armed' | 'fired' | 'active' | 'cancelled' | 'expired'
+    status: 'scheduled' | 'fired' | 'cancelled' | 'failed'
+    /**
+     * Field included by default.
+     */
+    timezone: string
+    /**
+     * Field included by default.
+     */
+    tool_call_id?: string | null
     /**
      * Field included by default.
      */
     updated_at: string
+    /**
+     * Field included by default.
+     */
+    wake_payload: {
+      [key: string]: unknown
+    }
   }
   id: string
   /**
-   * A relationships object for a webhook_endpoint
+   * A relationships object for a scheduled_event
    */
   relationships?: {
     [key: string]: never
@@ -1867,39 +2651,107 @@ export type WebhookEndpoint = {
   type: string
 }
 
-export type WebhookEndpointType = {
+export type PrincipalGroupMembershipType = {
   /**
    * Field included by default.
    */
-  agent_uid?: string | null
+  group_id: string
   /**
    * Field included by default.
    */
-  automation_job_id?: number | null
+  principal_uid: string
+}
+
+/**
+ * A "Resource object" representing a agent
+ */
+export type Agent = {
+  /**
+   * An attributes object for a agent
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    avatar_url?: string | null
+    /**
+     * Field included by default.
+     */
+    created_by?: {
+      tenant_id: string
+      uid: string
+    } | null
+    /**
+     * Field included by default.
+     */
+    display_name?: string | null
+    /**
+     * Field included by default.
+     */
+    group_memory_disclosure_mode: 'strict' | 'relaxed'
+    /**
+     * Field included by default.
+     */
+    handle: string
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    options: {
+      [key: string]: unknown
+    }
+    /**
+     * Field included by default.
+     */
+    owner_principal_uid: string
+    /**
+     * Field included by default.
+     */
+    role: string
+    /**
+     * Field included by default.
+     */
+    status?: 'active' | 'disabled' | null
+    type: 'ai_colleague'
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+    /**
+     * Field included by default.
+     */
+    worker_provider_id?: string | null
+  }
+  id: string
+  /**
+   * A relationships object for a agent
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type OidcLogoutDeliveryType = {
   /**
    * Field included by default.
    */
-  binding_name?: string | null
+  attempt_count: number
   /**
    * Field included by default.
    */
-  cancelled_at?: string | null
+  deadline: string
   /**
    * Field included by default.
    */
-  conversation_id?: string | null
+  delivered_at?: string | null
   /**
    * Field included by default.
    */
-  event_format: string
-  /**
-   * Field included by default.
-   */
-  expires_at: string
-  /**
-   * Field included by default.
-   */
-  fired_at?: string | null
+  endpoint: string
   /**
    * Field included by default.
    */
@@ -1907,45 +2759,219 @@ export type WebhookEndpointType = {
   /**
    * Field included by default.
    */
+  last_attempt_at?: string | null
+  /**
+   * Field included by default.
+   */
+  last_error?: string | null
+  /**
+   * Field included by default.
+   */
+  next_attempt_at?: string | null
+  /**
+   * Field included by default.
+   */
+  principal_uid?: string | null
+  /**
+   * Field included by default.
+   */
+  session_id: string
+  /**
+   * Field included by default.
+   */
+  status: 'pending' | 'delivering' | 'failed' | 'delivered'
+}
+
+export type BrainSchemaSuggestionType = {
+  /**
+   * Field included by default.
+   */
+  created_at: string
+  /**
+   * Field included by default.
+   */
+  evidence_count: number
+  /**
+   * Field included by default.
+   */
+  kind: 'new_type' | 'new_subtype' | 'alias'
+  /**
+   * Field included by default.
+   */
+  rationale: string
+  /**
+   * Field included by default.
+   */
+  status: 'pending' | 'approved' | 'rejected'
+  /**
+   * Field included by default.
+   */
+  target_type?: string | null
+  /**
+   * Field included by default.
+   */
+  term: string
+}
+
+export type AgentType = {
+  /**
+   * Field included by default.
+   */
+  avatar_url?: string | null
+  /**
+   * Field included by default.
+   */
+  created_by?: {
+    tenant_id: string
+    uid: string
+  } | null
+  /**
+   * Field included by default.
+   */
+  display_name?: string | null
+  /**
+   * Field included by default.
+   */
+  group_memory_disclosure_mode: 'strict' | 'relaxed'
+  /**
+   * Field included by default.
+   */
+  handle: string
+  /**
+   * Field included by default.
+   */
   inserted_at: string
   /**
    * Field included by default.
    */
-  label: string
-  /**
-   * Field included by default.
-   */
-  mode: string
-  /**
-   * Field included by default.
-   */
-  provider_message_id?: string | null
-  /**
-   * Field included by default.
-   */
-  provider_thread_id?: string | null
-  /**
-   * Field included by default.
-   */
-  session_id?: string | null
-  /**
-   * Field included by default.
-   */
-  source_provenance: {
+  options: {
     [key: string]: unknown
   }
   /**
    * Field included by default.
    */
-  source_signal_id?: string | null
+  owner_principal_uid: string
   /**
    * Field included by default.
    */
-  status: 'armed' | 'fired' | 'active' | 'cancelled' | 'expired'
+  role: string
+  /**
+   * Field included by default.
+   */
+  status?: 'active' | 'disabled' | null
+  /**
+   * Field included by default.
+   */
+  type: 'ai_colleague'
+  /**
+   * Field included by default.
+   */
+  uid?: string | null
   /**
    * Field included by default.
    */
   updated_at: string
+  /**
+   * Field included by default.
+   */
+  worker_provider_id?: string | null
+}
+
+/**
+ * A "Resource object" representing a oidc_logout_delivery
+ */
+export type OidcLogoutDelivery = {
+  /**
+   * An attributes object for a oidc_logout_delivery
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    attempt_count: number
+    /**
+     * Field included by default.
+     */
+    deadline: string
+    /**
+     * Field included by default.
+     */
+    delivered_at?: string | null
+    endpoint: string
+    /**
+     * Field included by default.
+     */
+    last_attempt_at?: string | null
+    /**
+     * Field included by default.
+     */
+    last_error?: string | null
+    /**
+     * Field included by default.
+     */
+    next_attempt_at?: string | null
+    /**
+     * Field included by default.
+     */
+    principal_uid?: string | null
+    /**
+     * Field included by default.
+     */
+    session_id: string
+    /**
+     * Field included by default.
+     */
+    status: 'pending' | 'delivering' | 'failed' | 'delivered'
+  }
+  id: string
+  /**
+   * A relationships object for a oidc_logout_delivery
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type DeleteIdentityMappingRequestData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for identity_mapping_request
+       */
+      identity_mapping_request?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/identity-mapping-requests/{id}'
+}
+
+export type DeleteIdentityMappingRequestErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteIdentityMappingRequestError =
+  DeleteIdentityMappingRequestErrors[keyof DeleteIdentityMappingRequestErrors]
+
+export type DeleteIdentityMappingRequestResponses = {
+  /**
+   * Deleted successfully
+   */
+  200: unknown
 }
 
 export type GetAiGatewayConversationData = {
@@ -2282,6 +3308,70 @@ export type CreateWebhookEndpointResponses = {
 
 export type CreateWebhookEndpointResponse = CreateWebhookEndpointResponses[keyof CreateWebhookEndpointResponses]
 
+export type CreatePermissionGrantData = {
+  /**
+   * Request body for the create_permission_grant operation on permission_grant resource
+   */
+  body: {
+    data: {
+      attributes?: {
+        action: string
+        condition?: string | null
+        description?: string | null
+        group_name?: string | null
+        principal_uid?: string | null
+        resource_pattern: string
+      }
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'permission_grant'
+    }
+  }
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for permission_grant
+       */
+      permission_grant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/permission-grants'
+}
+
+export type CreatePermissionGrantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreatePermissionGrantError = CreatePermissionGrantErrors[keyof CreatePermissionGrantErrors]
+
+export type CreatePermissionGrantResponses = {
+  /**
+   * Success
+   */
+  201: {
+    data?: PermissionGrant
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type CreatePermissionGrantResponse = CreatePermissionGrantResponses[keyof CreatePermissionGrantResponses]
+
 export type CancelCheckbackData = {
   body?: never
   path: {
@@ -2310,6 +3400,209 @@ export type CancelCheckbackResponses = {
 
 export type CancelCheckbackResponse = CancelCheckbackResponses[keyof CancelCheckbackResponses]
 
+export type DeletePermissionGrantData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for permission_grant
+       */
+      permission_grant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/permission-grants/{id}'
+}
+
+export type DeletePermissionGrantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeletePermissionGrantError = DeletePermissionGrantErrors[keyof DeletePermissionGrantErrors]
+
+export type DeletePermissionGrantResponses = {
+  /**
+   * Deleted successfully
+   */
+  200: unknown
+}
+
+export type GetPermissionGrantData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for permission_grant
+       */
+      permission_grant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/permission-grants/{id}'
+}
+
+export type GetPermissionGrantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetPermissionGrantError = GetPermissionGrantErrors[keyof GetPermissionGrantErrors]
+
+export type GetPermissionGrantResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: PermissionGrant
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetPermissionGrantResponse = GetPermissionGrantResponses[keyof GetPermissionGrantResponses]
+
+export type UpdatePermissionGrantData = {
+  /**
+   * Request body for the update_permission_grant operation on permission_grant resource
+   */
+  body?: {
+    data: {
+      attributes?: {
+        action?: string | null
+        condition?: string | null
+        description?: string | null
+        resource_pattern?: string | null
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'permission_grant'
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for permission_grant
+       */
+      permission_grant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/permission-grants/{id}'
+}
+
+export type UpdatePermissionGrantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdatePermissionGrantError = UpdatePermissionGrantErrors[keyof UpdatePermissionGrantErrors]
+
+export type UpdatePermissionGrantResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: PermissionGrant
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type UpdatePermissionGrantResponse = UpdatePermissionGrantResponses[keyof UpdatePermissionGrantResponses]
+
+export type ListBrainObjectVersionsData = {
+  body?: never
+  path?: never
+  query: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_object_version
+       */
+      brain_object_version?: string
+      [key: string]: unknown
+    }
+    slug: string
+  }
+  url: '/api/v2/brain/object-versions'
+}
+
+export type ListBrainObjectVersionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainObjectVersionsError = ListBrainObjectVersionsErrors[keyof ListBrainObjectVersionsErrors]
+
+export type ListBrainObjectVersionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_object_version
+     */
+    data?: Array<BrainObjectVersion>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainObjectVersionsResponse = ListBrainObjectVersionsResponses[keyof ListBrainObjectVersionsResponses]
+
 export type RetryOidcLogoutDeliveryData = {
   body?: never
   path: {
@@ -2337,6 +3630,41 @@ export type RetryOidcLogoutDeliveryResponses = {
 }
 
 export type RetryOidcLogoutDeliveryResponse = RetryOidcLogoutDeliveryResponses[keyof RetryOidcLogoutDeliveryResponses]
+
+export type ListPrincipalGroupMembersData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v2/principal-groups/{name}/members'
+}
+
+export type ListPrincipalGroupMembersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListPrincipalGroupMembersError = ListPrincipalGroupMembersErrors[keyof ListPrincipalGroupMembersErrors]
+
+export type ListPrincipalGroupMembersResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    avatar_url?: string | null
+    display_name?: string | null
+    member_since?: string | null
+    status: 'active' | 'disabled'
+    type: 'human' | 'agent' | 'system'
+    uid: string
+  }>
+}
+
+export type ListPrincipalGroupMembersResponse =
+  ListPrincipalGroupMembersResponses[keyof ListPrincipalGroupMembersResponses]
 
 export type ListCronSchedulesData = {
   body?: never
@@ -2388,6 +3716,82 @@ export type ListCronSchedulesResponses = {
 
 export type ListCronSchedulesResponse = ListCronSchedulesResponses[keyof ListCronSchedulesResponses]
 
+export type DecideBrainContradictionData = {
+  /**
+   * Request body for the decide_brain_contradiction operation on brain_contradiction resource
+   */
+  body: {
+    data: {
+      resolution_note?: string | null
+      status: 'resolved' | 'dismissed'
+    }
+  }
+  path: {
+    contradiction_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/contradictions/{contradiction_id}/decide'
+}
+
+export type DecideBrainContradictionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DecideBrainContradictionError = DecideBrainContradictionErrors[keyof DecideBrainContradictionErrors]
+
+export type DecideBrainContradictionResponses = {
+  /**
+   * Success
+   */
+  201: BrainContradictionType
+}
+
+export type DecideBrainContradictionResponse =
+  DecideBrainContradictionResponses[keyof DecideBrainContradictionResponses]
+
+export type SupersedeBrainClaimData = {
+  /**
+   * Request body for the supersede_brain_claim operation on brain_claim resource
+   */
+  body: {
+    data: {
+      audience_scope?: string | null
+      claim: string
+      confidence?: number | null
+      kind?: string | null
+      notability?: string | null
+      provenance?: string | null
+      weight?: number | null
+    }
+  }
+  path: {
+    claim_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/claims/{claim_id}/supersede'
+}
+
+export type SupersedeBrainClaimErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SupersedeBrainClaimError = SupersedeBrainClaimErrors[keyof SupersedeBrainClaimErrors]
+
+export type SupersedeBrainClaimResponses = {
+  /**
+   * Success
+   */
+  201: BrainClaimType
+}
+
+export type SupersedeBrainClaimResponse = SupersedeBrainClaimResponses[keyof SupersedeBrainClaimResponses]
+
 export type DisableSignalBindingData = {
   body?: never
   path: {
@@ -2415,6 +3819,44 @@ export type DisableSignalBindingResponses = {
 }
 
 export type DisableSignalBindingResponse = DisableSignalBindingResponses[keyof DisableSignalBindingResponses]
+
+export type ApproveBrainMergeSuggestionData = {
+  /**
+   * Request body for the approve_brain_merge_suggestion operation on brain_merge_suggestion resource
+   */
+  body?: {
+    data: {
+      canonical_slug?: string | null
+    }
+  }
+  path: {
+    suggestion_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/merge-suggestions/{suggestion_id}/approve'
+}
+
+export type ApproveBrainMergeSuggestionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ApproveBrainMergeSuggestionError =
+  ApproveBrainMergeSuggestionErrors[keyof ApproveBrainMergeSuggestionErrors]
+
+export type ApproveBrainMergeSuggestionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    success: true
+  }
+}
+
+export type ApproveBrainMergeSuggestionResponse =
+  ApproveBrainMergeSuggestionResponses[keyof ApproveBrainMergeSuggestionResponses]
 
 export type CreateCronScheduleData = {
   /**
@@ -2464,6 +3906,231 @@ export type CreateCronScheduleResponses = {
 
 export type CreateCronScheduleResponse = CreateCronScheduleResponses[keyof CreateCronScheduleResponses]
 
+export type DeletePrincipalGroupData = {
+  body?: never
+  path: {
+    /**
+     * The group name or ID.
+     */
+    name: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal_group
+       */
+      principal_group?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principal-groups/{name}'
+}
+
+export type DeletePrincipalGroupErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeletePrincipalGroupError = DeletePrincipalGroupErrors[keyof DeletePrincipalGroupErrors]
+
+export type DeletePrincipalGroupResponses = {
+  /**
+   * Deleted successfully
+   */
+  200: unknown
+}
+
+export type GetPrincipalGroupData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal_group
+       */
+      principal_group?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principal-groups/{name}'
+}
+
+export type GetPrincipalGroupErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetPrincipalGroupError = GetPrincipalGroupErrors[keyof GetPrincipalGroupErrors]
+
+export type GetPrincipalGroupResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: PrincipalGroup
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetPrincipalGroupResponse = GetPrincipalGroupResponses[keyof GetPrincipalGroupResponses]
+
+export type UpdatePrincipalGroupData = {
+  /**
+   * Request body for the update_principal_group operation on principal_group resource
+   */
+  body?: {
+    data: {
+      attributes?: {
+        computed_condition?: string | null
+        description?: string | null
+        display_name?: string | null
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'principal_group'
+    }
+  }
+  path: {
+    name: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal_group
+       */
+      principal_group?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principal-groups/{name}'
+}
+
+export type UpdatePrincipalGroupErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdatePrincipalGroupError = UpdatePrincipalGroupErrors[keyof UpdatePrincipalGroupErrors]
+
+export type UpdatePrincipalGroupResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: PrincipalGroup
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type UpdatePrincipalGroupResponse = UpdatePrincipalGroupResponses[keyof UpdatePrincipalGroupResponses]
+
+export type LearnBrainSourceData = {
+  body?: never
+  path: {
+    source_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/sources/{source_id}/learn'
+}
+
+export type LearnBrainSourceErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type LearnBrainSourceError = LearnBrainSourceErrors[keyof LearnBrainSourceErrors]
+
+export type LearnBrainSourceResponses = {
+  /**
+   * Success
+   */
+  201: {
+    success: true
+  }
+}
+
+export type LearnBrainSourceResponse = LearnBrainSourceResponses[keyof LearnBrainSourceResponses]
+
+export type PreviewComputedPrincipalGroupMembersData = {
+  /**
+   * Request body for the preview_computed_principal_group_members operation on principal_group resource
+   */
+  body: {
+    data: {
+      condition: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/principal-groups/computed-member-previews'
+}
+
+export type PreviewComputedPrincipalGroupMembersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PreviewComputedPrincipalGroupMembersError =
+  PreviewComputedPrincipalGroupMembersErrors[keyof PreviewComputedPrincipalGroupMembersErrors]
+
+export type PreviewComputedPrincipalGroupMembersResponses = {
+  /**
+   * Success
+   */
+  201: Array<{
+    avatar_url?: string | null
+    display_name?: string | null
+    member_since?: string | null
+    status: 'active' | 'disabled'
+    type: 'human' | 'agent' | 'system'
+    uid: string
+  }>
+}
+
+export type PreviewComputedPrincipalGroupMembersResponse =
+  PreviewComputedPrincipalGroupMembersResponses[keyof PreviewComputedPrincipalGroupMembersResponses]
+
 export type AssignAgentWorkerProviderData = {
   /**
    * Request body for the assign_agent_worker_provider operation on agent_worker resource
@@ -2498,6 +4165,39 @@ export type AssignAgentWorkerProviderResponses = {
 
 export type AssignAgentWorkerProviderResponse =
   AssignAgentWorkerProviderResponses[keyof AssignAgentWorkerProviderResponses]
+
+export type ForgetBrainObjectData = {
+  /**
+   * Request body for the forget_brain_object operation on brain_object resource
+   */
+  body: {
+    data: {
+      reason?: string | null
+      slug: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/objects/forget'
+}
+
+export type ForgetBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ForgetBrainObjectError = ForgetBrainObjectErrors[keyof ForgetBrainObjectErrors]
+
+export type ForgetBrainObjectResponses = {
+  /**
+   * Success
+   */
+  201: BrainObjectType
+}
+
+export type ForgetBrainObjectResponse = ForgetBrainObjectResponses[keyof ForgetBrainObjectResponses]
 
 export type ListCronScheduleRunsData = {
   body?: never
@@ -2558,6 +4258,59 @@ export type ListCronScheduleRunsResponses = {
 }
 
 export type ListCronScheduleRunsResponse = ListCronScheduleRunsResponses[keyof ListCronScheduleRunsResponses]
+
+export type ListBrainClaimsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_claim
+       */
+      brain_claim?: string
+      [key: string]: unknown
+    }
+    object_slug?: string
+    claim_type?: 'fact' | 'take'
+    status?: 'current'
+    search?: string
+  }
+  url: '/api/v2/brain/claims'
+}
+
+export type ListBrainClaimsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainClaimsError = ListBrainClaimsErrors[keyof ListBrainClaimsErrors]
+
+export type ListBrainClaimsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_claim
+     */
+    data?: Array<BrainClaim>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainClaimsResponse = ListBrainClaimsResponses[keyof ListBrainClaimsResponses]
 
 export type GetAutomationJobData = {
   body?: never
@@ -2636,6 +4389,149 @@ export type CancelBackgroundAgentJobResponses = {
 export type CancelBackgroundAgentJobResponse =
   CancelBackgroundAgentJobResponses[keyof CancelBackgroundAgentJobResponses]
 
+export type GetPrincipalData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal
+       */
+      principal?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principals/{uid}'
+}
+
+export type GetPrincipalErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetPrincipalError = GetPrincipalErrors[keyof GetPrincipalErrors]
+
+export type GetPrincipalResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: Principal
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetPrincipalResponse = GetPrincipalResponses[keyof GetPrincipalResponses]
+
+export type UpdateHumanData = {
+  /**
+   * Request body for the update_human operation on principal resource
+   */
+  body?: {
+    data: {
+      attributes?: {
+        display_name?: string | null
+        email?: string | null
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'principal'
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal
+       */
+      principal?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principals/{uid}'
+}
+
+export type UpdateHumanErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateHumanError = UpdateHumanErrors[keyof UpdateHumanErrors]
+
+export type UpdateHumanResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: Principal
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type UpdateHumanResponse = UpdateHumanResponses[keyof UpdateHumanResponses]
+
+export type RestoreBrainObjectData = {
+  /**
+   * Request body for the restore_brain_object operation on brain_object resource
+   */
+  body: {
+    data: {
+      slug: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/objects/restore'
+}
+
+export type RestoreBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RestoreBrainObjectError = RestoreBrainObjectErrors[keyof RestoreBrainObjectErrors]
+
+export type RestoreBrainObjectResponses = {
+  /**
+   * Success
+   */
+  201: BrainObjectType
+}
+
+export type RestoreBrainObjectResponse = RestoreBrainObjectResponses[keyof RestoreBrainObjectResponses]
+
 export type ListAutomationJobsData = {
   body?: never
   path?: never
@@ -2694,6 +4590,58 @@ export type ListAutomationJobsResponses = {
 
 export type ListAutomationJobsResponse = ListAutomationJobsResponses[keyof ListAutomationJobsResponses]
 
+export type ListPrincipalGroupGrantsData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for permission_grant
+       */
+      permission_grant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principal-groups/{name}/grants'
+}
+
+export type ListPrincipalGroupGrantsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListPrincipalGroupGrantsError = ListPrincipalGroupGrantsErrors[keyof ListPrincipalGroupGrantsErrors]
+
+export type ListPrincipalGroupGrantsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a permission_grant
+     */
+    data?: Array<PermissionGrant>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListPrincipalGroupGrantsResponse =
+  ListPrincipalGroupGrantsResponses[keyof ListPrincipalGroupGrantsResponses]
+
 export type ListCheckbacksData = {
   body?: never
   path?: never
@@ -2751,6 +4699,44 @@ export type ListCheckbacksResponses = {
 }
 
 export type ListCheckbacksResponse = ListCheckbacksResponses[keyof ListCheckbacksResponses]
+
+export type ResolveBrainTakeData = {
+  /**
+   * Request body for the resolve_brain_take operation on brain_claim resource
+   */
+  body?: {
+    data: {
+      resolution_provenance?: string | null
+      resolved_outcome?: boolean | null
+      resolved_quality?: string | null
+      resolved_unit?: string | null
+      resolved_value?: number | null
+    }
+  }
+  path: {
+    claim_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/claims/{claim_id}/resolve'
+}
+
+export type ResolveBrainTakeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResolveBrainTakeError = ResolveBrainTakeErrors[keyof ResolveBrainTakeErrors]
+
+export type ResolveBrainTakeResponses = {
+  /**
+   * Success
+   */
+  201: BrainClaimType
+}
+
+export type ResolveBrainTakeResponse = ResolveBrainTakeResponses[keyof ResolveBrainTakeResponses]
 
 export type ListAutomationJobRunsData = {
   body?: never
@@ -2839,6 +4825,57 @@ export type ResumeCronScheduleResponses = {
 }
 
 export type ResumeCronScheduleResponse = ResumeCronScheduleResponses[keyof ResumeCronScheduleResponses]
+
+export type ListGrantsOfPrincipalData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for permission_grant
+       */
+      permission_grant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principals/{uid}/grants'
+}
+
+export type ListGrantsOfPrincipalErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListGrantsOfPrincipalError = ListGrantsOfPrincipalErrors[keyof ListGrantsOfPrincipalErrors]
+
+export type ListGrantsOfPrincipalResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a permission_grant
+     */
+    data?: Array<PermissionGrant>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListGrantsOfPrincipalResponse = ListGrantsOfPrincipalResponses[keyof ListGrantsOfPrincipalResponses]
 
 export type EnableAgentData = {
   body?: never
@@ -2964,6 +5001,364 @@ export type CreateOidcClientResponses = {
 
 export type CreateOidcClientResponse = CreateOidcClientResponses[keyof CreateOidcClientResponses]
 
+export type ListPrincipalsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal
+       */
+      principal?: string
+      [key: string]: unknown
+    }
+    include_disabled?: boolean
+  }
+  url: '/api/v2/principals'
+}
+
+export type ListPrincipalsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListPrincipalsError = ListPrincipalsErrors[keyof ListPrincipalsErrors]
+
+export type ListPrincipalsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a principal
+     */
+    data?: Array<Principal>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListPrincipalsResponse = ListPrincipalsResponses[keyof ListPrincipalsResponses]
+
+export type CreateLocalUserData = {
+  /**
+   * Request body for the create_local_user operation on principal resource
+   */
+  body: {
+    data: {
+      attributes?: {
+        display_name?: string | null
+        email: string
+        /**
+         * Omitted or null means true.
+         */
+        must_change_password?: boolean | null
+      }
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'principal'
+    }
+  }
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal
+       */
+      principal?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principals'
+}
+
+export type CreateLocalUserErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateLocalUserError = CreateLocalUserErrors[keyof CreateLocalUserErrors]
+
+export type CreateLocalUserResponses = {
+  /**
+   * Success
+   */
+  201: {
+    data?: Principal
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type CreateLocalUserResponse = CreateLocalUserResponses[keyof CreateLocalUserResponses]
+
+export type ListIdentityMappingRequestsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for identity_mapping_request
+       */
+      identity_mapping_request?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/identity-mapping-requests'
+}
+
+export type ListIdentityMappingRequestsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListIdentityMappingRequestsError =
+  ListIdentityMappingRequestsErrors[keyof ListIdentityMappingRequestsErrors]
+
+export type ListIdentityMappingRequestsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a identity_mapping_request
+     */
+    data?: Array<IdentityMappingRequest>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListIdentityMappingRequestsResponse =
+  ListIdentityMappingRequestsResponses[keyof ListIdentityMappingRequestsResponses]
+
+export type RejectBrainSuggestionData = {
+  body?: never
+  path: {
+    suggestion_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/suggestions/{suggestion_id}/reject'
+}
+
+export type RejectBrainSuggestionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RejectBrainSuggestionError = RejectBrainSuggestionErrors[keyof RejectBrainSuggestionErrors]
+
+export type RejectBrainSuggestionResponses = {
+  /**
+   * Success
+   */
+  201: BrainSchemaSuggestionType
+}
+
+export type RejectBrainSuggestionResponse = RejectBrainSuggestionResponses[keyof RejectBrainSuggestionResponses]
+
+export type ListBrainObjectsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_object
+       */
+      brain_object?: string
+      [key: string]: unknown
+    }
+    prefix?: string
+    search?: string
+    deleted?: boolean
+  }
+  url: '/api/v2/brain/objects'
+}
+
+export type ListBrainObjectsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainObjectsError = ListBrainObjectsErrors[keyof ListBrainObjectsErrors]
+
+export type ListBrainObjectsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_object
+     */
+    data?: Array<BrainObject>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainObjectsResponse = ListBrainObjectsResponses[keyof ListBrainObjectsResponses]
+
+export type UpdateBrainObjectData = {
+  /**
+   * Request body for the update_brain_object operation on brain_object resource
+   */
+  body: {
+    data: {
+      body: string
+      effective_date?: string | null
+      expected_content_hash: string
+      meta: {
+        [key: string]: unknown
+      }
+      slug: string
+      subtype?: string | null
+      tags?: Array<string> | null
+      title: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/objects'
+}
+
+export type UpdateBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateBrainObjectError = UpdateBrainObjectErrors[keyof UpdateBrainObjectErrors]
+
+export type UpdateBrainObjectResponses = {
+  /**
+   * Success
+   */
+  200: BrainObjectType
+}
+
+export type UpdateBrainObjectResponse = UpdateBrainObjectResponses[keyof UpdateBrainObjectResponses]
+
+export type CreateBrainObjectData = {
+  /**
+   * Request body for the create_brain_object operation on brain_object resource
+   */
+  body: {
+    data: {
+      body: string
+      effective_date?: string | null
+      meta: {
+        [key: string]: unknown
+      }
+      slug: string
+      subtype?: string | null
+      tags?: Array<string> | null
+      title: string
+      type: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/objects'
+}
+
+export type CreateBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateBrainObjectError = CreateBrainObjectErrors[keyof CreateBrainObjectErrors]
+
+export type CreateBrainObjectResponses = {
+  /**
+   * Success
+   */
+  201: BrainObjectType
+}
+
+export type CreateBrainObjectResponse = CreateBrainObjectResponses[keyof CreateBrainObjectResponses]
+
+export type ForkBrainObjectData = {
+  /**
+   * Request body for the fork_brain_object operation on brain_object resource
+   */
+  body: {
+    data: {
+      slug: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/objects/fork'
+}
+
+export type ForkBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ForkBrainObjectError = ForkBrainObjectErrors[keyof ForkBrainObjectErrors]
+
+export type ForkBrainObjectResponses = {
+  /**
+   * Success
+   */
+  201: BrainObjectType
+}
+
+export type ForkBrainObjectResponse = ForkBrainObjectResponses[keyof ForkBrainObjectResponses]
+
 export type RunCronScheduleData = {
   /**
    * Request body for the run_cron_schedule operation on cron_schedule resource
@@ -2998,6 +5393,33 @@ export type RunCronScheduleResponses = {
 }
 
 export type RunCronScheduleResponse = RunCronScheduleResponses[keyof RunCronScheduleResponses]
+
+export type ArchiveBrainSourceData = {
+  body?: never
+  path: {
+    source_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/sources/{source_id}/archive'
+}
+
+export type ArchiveBrainSourceErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ArchiveBrainSourceError = ArchiveBrainSourceErrors[keyof ArchiveBrainSourceErrors]
+
+export type ArchiveBrainSourceResponses = {
+  /**
+   * Success
+   */
+  201: BrainSourceType
+}
+
+export type ArchiveBrainSourceResponse = ArchiveBrainSourceResponses[keyof ArchiveBrainSourceResponses]
 
 export type ListAgentWorkersData = {
   body?: never
@@ -3197,6 +5619,220 @@ export type UpdateOidcClientResponses = {
 
 export type UpdateOidcClientResponse = UpdateOidcClientResponses[keyof UpdateOidcClientResponses]
 
+export type UpdateBrainSourceData = {
+  /**
+   * Request body for the update_brain_source operation on brain_source resource
+   */
+  body?: {
+    data: {
+      scope?: string | null
+    }
+  }
+  path: {
+    source_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/sources/{source_id}'
+}
+
+export type UpdateBrainSourceErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateBrainSourceError = UpdateBrainSourceErrors[keyof UpdateBrainSourceErrors]
+
+export type UpdateBrainSourceResponses = {
+  /**
+   * Success
+   */
+  200: BrainSourceType
+}
+
+export type UpdateBrainSourceResponse = UpdateBrainSourceResponses[keyof UpdateBrainSourceResponses]
+
+export type BindIdentityMappingRequestData = {
+  /**
+   * Request body for the bind_identity_mapping_request operation on identity_mapping_request resource
+   */
+  body: {
+    data: {
+      principal_uid: string
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/identity-mapping-requests/{id}/bind'
+}
+
+export type BindIdentityMappingRequestErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type BindIdentityMappingRequestError = BindIdentityMappingRequestErrors[keyof BindIdentityMappingRequestErrors]
+
+export type BindIdentityMappingRequestResponses = {
+  /**
+   * Success
+   */
+  201: ExternalIdentityType
+}
+
+export type BindIdentityMappingRequestResponse =
+  BindIdentityMappingRequestResponses[keyof BindIdentityMappingRequestResponses]
+
+export type RollbackBrainObjectData = {
+  /**
+   * Request body for the rollback_brain_object operation on brain_object resource
+   */
+  body: {
+    data: {
+      slug: string
+      version_id: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/objects/rollback'
+}
+
+export type RollbackBrainObjectErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RollbackBrainObjectError = RollbackBrainObjectErrors[keyof RollbackBrainObjectErrors]
+
+export type RollbackBrainObjectResponses = {
+  /**
+   * Success
+   */
+  201: BrainObjectType
+}
+
+export type RollbackBrainObjectResponse = RollbackBrainObjectResponses[keyof RollbackBrainObjectResponses]
+
+export type ListPrincipalGroupsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal_group
+       */
+      principal_group?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principal-groups'
+}
+
+export type ListPrincipalGroupsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListPrincipalGroupsError = ListPrincipalGroupsErrors[keyof ListPrincipalGroupsErrors]
+
+export type ListPrincipalGroupsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a principal_group
+     */
+    data?: Array<PrincipalGroup>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListPrincipalGroupsResponse = ListPrincipalGroupsResponses[keyof ListPrincipalGroupsResponses]
+
+export type CreatePrincipalGroupData = {
+  /**
+   * Request body for the create_principal_group operation on principal_group resource
+   */
+  body: {
+    data: {
+      attributes?: {
+        computed_condition?: string | null
+        description?: string | null
+        display_name: string
+        kind?: 'static' | 'computed' | null
+        name: string
+      }
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'principal_group'
+    }
+  }
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal_group
+       */
+      principal_group?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principal-groups'
+}
+
+export type CreatePrincipalGroupErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreatePrincipalGroupError = CreatePrincipalGroupErrors[keyof CreatePrincipalGroupErrors]
+
+export type CreatePrincipalGroupResponses = {
+  /**
+   * Success
+   */
+  201: {
+    data?: PrincipalGroup
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type CreatePrincipalGroupResponse = CreatePrincipalGroupResponses[keyof CreatePrincipalGroupResponses]
+
 export type RemoveCronScheduleData = {
   body?: never
   path: {
@@ -3318,6 +5954,69 @@ export type UpdateCronScheduleResponses = {
 }
 
 export type UpdateCronScheduleResponse = UpdateCronScheduleResponses[keyof UpdateCronScheduleResponses]
+
+export type RemovePrincipalGroupMemberData = {
+  body?: never
+  path: {
+    principal_uid: string
+    /**
+     * The group name or ID.
+     */
+    name: string
+  }
+  query?: never
+  url: '/api/v2/principal-groups/{name}/members/{principal_uid}'
+}
+
+export type RemovePrincipalGroupMemberErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RemovePrincipalGroupMemberError = RemovePrincipalGroupMemberErrors[keyof RemovePrincipalGroupMemberErrors]
+
+export type RemovePrincipalGroupMemberResponses = {
+  /**
+   * Success
+   */
+  200: string
+}
+
+export type RemovePrincipalGroupMemberResponse =
+  RemovePrincipalGroupMemberResponses[keyof RemovePrincipalGroupMemberResponses]
+
+export type AddPrincipalGroupMemberData = {
+  body?: never
+  path: {
+    principal_uid: string
+    /**
+     * The group name or ID.
+     */
+    name: string
+  }
+  query?: never
+  url: '/api/v2/principal-groups/{name}/members/{principal_uid}'
+}
+
+export type AddPrincipalGroupMemberErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type AddPrincipalGroupMemberError = AddPrincipalGroupMemberErrors[keyof AddPrincipalGroupMemberErrors]
+
+export type AddPrincipalGroupMemberResponses = {
+  /**
+   * Success
+   */
+  200: PrincipalGroupMembershipType
+}
+
+export type AddPrincipalGroupMemberResponse = AddPrincipalGroupMemberResponses[keyof AddPrincipalGroupMemberResponses]
 
 export type DeleteAgentData = {
   body?: never
@@ -3500,6 +6199,57 @@ export type ListAiGatewayConversationsResponses = {
 export type ListAiGatewayConversationsResponse =
   ListAiGatewayConversationsResponses[keyof ListAiGatewayConversationsResponses]
 
+export type ListGroupsOfPrincipalData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal_group
+       */
+      principal_group?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principals/{uid}/groups'
+}
+
+export type ListGroupsOfPrincipalErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListGroupsOfPrincipalError = ListGroupsOfPrincipalErrors[keyof ListGroupsOfPrincipalErrors]
+
+export type ListGroupsOfPrincipalResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a principal_group
+     */
+    data?: Array<PrincipalGroup>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListGroupsOfPrincipalResponse = ListGroupsOfPrincipalResponses[keyof ListGroupsOfPrincipalResponses]
+
 export type GetBackgroundAgentJobData = {
   body?: never
   path: {
@@ -3548,6 +6298,106 @@ export type GetBackgroundAgentJobResponses = {
 
 export type GetBackgroundAgentJobResponse = GetBackgroundAgentJobResponses[keyof GetBackgroundAgentJobResponses]
 
+export type ListBrainSuggestionsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_schema_suggestion
+       */
+      brain_schema_suggestion?: string
+      [key: string]: unknown
+    }
+    status?: 'pending' | 'approved' | 'rejected'
+  }
+  url: '/api/v2/brain/suggestions'
+}
+
+export type ListBrainSuggestionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainSuggestionsError = ListBrainSuggestionsErrors[keyof ListBrainSuggestionsErrors]
+
+export type ListBrainSuggestionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_schema_suggestion
+     */
+    data?: Array<BrainSchemaSuggestion>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainSuggestionsResponse = ListBrainSuggestionsResponses[keyof ListBrainSuggestionsResponses]
+
+export type ListBrainContradictionsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_contradiction
+       */
+      brain_contradiction?: string
+      [key: string]: unknown
+    }
+    status?: 'open' | 'resolved' | 'dismissed'
+  }
+  url: '/api/v2/brain/contradictions'
+}
+
+export type ListBrainContradictionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainContradictionsError = ListBrainContradictionsErrors[keyof ListBrainContradictionsErrors]
+
+export type ListBrainContradictionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_contradiction
+     */
+    data?: Array<BrainContradiction>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainContradictionsResponse = ListBrainContradictionsResponses[keyof ListBrainContradictionsResponses]
+
 export type CancelWebhookEndpointData = {
   body?: never
   path: {
@@ -3574,6 +6424,34 @@ export type CancelWebhookEndpointResponses = {
 }
 
 export type CancelWebhookEndpointResponse = CancelWebhookEndpointResponses[keyof CancelWebhookEndpointResponses]
+
+export type RejectBrainMergeSuggestionData = {
+  body?: never
+  path: {
+    suggestion_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/merge-suggestions/{suggestion_id}/reject'
+}
+
+export type RejectBrainMergeSuggestionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RejectBrainMergeSuggestionError = RejectBrainMergeSuggestionErrors[keyof RejectBrainMergeSuggestionErrors]
+
+export type RejectBrainMergeSuggestionResponses = {
+  /**
+   * Success
+   */
+  201: BrainMergeSuggestionType
+}
+
+export type RejectBrainMergeSuggestionResponse =
+  RejectBrainMergeSuggestionResponses[keyof RejectBrainMergeSuggestionResponses]
 
 export type CompleteBackgroundAgentJobData = {
   /**
@@ -3610,6 +6488,96 @@ export type CompleteBackgroundAgentJobResponses = {
 export type CompleteBackgroundAgentJobResponse =
   CompleteBackgroundAgentJobResponses[keyof CompleteBackgroundAgentJobResponses]
 
+export type ListBrainMergeSuggestionsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_merge_suggestion
+       */
+      brain_merge_suggestion?: string
+      [key: string]: unknown
+    }
+    status?: 'pending' | 'approved' | 'rejected'
+  }
+  url: '/api/v2/brain/merge-suggestions'
+}
+
+export type ListBrainMergeSuggestionsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainMergeSuggestionsError = ListBrainMergeSuggestionsErrors[keyof ListBrainMergeSuggestionsErrors]
+
+export type ListBrainMergeSuggestionsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_merge_suggestion
+     */
+    data?: Array<BrainMergeSuggestion>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainMergeSuggestionsResponse =
+  ListBrainMergeSuggestionsResponses[keyof ListBrainMergeSuggestionsResponses]
+
+export type ApproveBrainSuggestionData = {
+  /**
+   * Request body for the approve_brain_suggestion operation on brain_schema_suggestion resource
+   */
+  body?: {
+    data: {
+      extractable?: boolean | null
+      primitive?: string | null
+      slug_prefix?: string | null
+      target_type?: string | null
+    }
+  }
+  path: {
+    suggestion_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/suggestions/{suggestion_id}/approve'
+}
+
+export type ApproveBrainSuggestionErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ApproveBrainSuggestionError = ApproveBrainSuggestionErrors[keyof ApproveBrainSuggestionErrors]
+
+export type ApproveBrainSuggestionResponses = {
+  /**
+   * Success
+   */
+  201: {
+    success: true
+  }
+}
+
+export type ApproveBrainSuggestionResponse = ApproveBrainSuggestionResponses[keyof ApproveBrainSuggestionResponses]
+
 export type RetireAgentSkillLessonData = {
   body?: never
   path: {
@@ -3637,6 +6605,40 @@ export type RetireAgentSkillLessonResponses = {
 }
 
 export type RetireAgentSkillLessonResponse = RetireAgentSkillLessonResponses[keyof RetireAgentSkillLessonResponses]
+
+export type CreateIdentityMappingData = {
+  /**
+   * Request body for the create_identity_mapping operation on identity_mapping_request resource
+   */
+  body: {
+    data: {
+      external_id: string
+      principal_uid: string
+      provider: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/identity-mappings'
+}
+
+export type CreateIdentityMappingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateIdentityMappingError = CreateIdentityMappingErrors[keyof CreateIdentityMappingErrors]
+
+export type CreateIdentityMappingResponses = {
+  /**
+   * Success
+   */
+  201: ExternalIdentityType
+}
+
+export type CreateIdentityMappingResponse = CreateIdentityMappingResponses[keyof CreateIdentityMappingResponses]
 
 export type ListAgentsData = {
   body?: never
@@ -3727,6 +6729,127 @@ export type CreateAgentResponses = {
 }
 
 export type CreateAgentResponse = CreateAgentResponses[keyof CreateAgentResponses]
+
+export type ForgetBrainClaimData = {
+  /**
+   * Request body for the forget_brain_claim operation on brain_claim resource
+   */
+  body?: {
+    data: {
+      reason?: string | null
+    }
+  }
+  path: {
+    claim_id: string
+  }
+  query?: never
+  url: '/api/v2/brain/claims/{claim_id}/forget'
+}
+
+export type ForgetBrainClaimErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ForgetBrainClaimError = ForgetBrainClaimErrors[keyof ForgetBrainClaimErrors]
+
+export type ForgetBrainClaimResponses = {
+  /**
+   * Success
+   */
+  201: BrainClaimType
+}
+
+export type ForgetBrainClaimResponse = ForgetBrainClaimResponses[keyof ForgetBrainClaimResponses]
+
+export type ListBrainSourcesData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for brain_source
+       */
+      brain_source?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/brain/sources'
+}
+
+export type ListBrainSourcesErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListBrainSourcesError = ListBrainSourcesErrors[keyof ListBrainSourcesErrors]
+
+export type ListBrainSourcesResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a brain_source
+     */
+    data?: Array<BrainSource>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListBrainSourcesResponse = ListBrainSourcesResponses[keyof ListBrainSourcesResponses]
+
+export type CreateBrainSourceData = {
+  /**
+   * Request body for the create_brain_source operation on brain_source resource
+   */
+  body: {
+    data: {
+      config?: {
+        [key: string]: unknown
+      } | null
+      default_audience_scope?: string | null
+      kind: string
+      name: string
+      upstream_id: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/brain/sources'
+}
+
+export type CreateBrainSourceErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateBrainSourceError = CreateBrainSourceErrors[keyof CreateBrainSourceErrors]
+
+export type CreateBrainSourceResponses = {
+  /**
+   * Success
+   */
+  201: BrainSourceType
+}
+
+export type CreateBrainSourceResponse = CreateBrainSourceResponses[keyof CreateBrainSourceResponses]
 
 export type ListAgentSkillLessonsData = {
   body?: never

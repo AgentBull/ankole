@@ -9,7 +9,82 @@ defmodule Ankole.Brain do
   run the same actions with `Ankole.Ash.run_action/4`, and an action of
   another domain composes the `_in_tx` functions of the Brain modules.
   """
-  use Ankole.Ash.Domain
+  use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
+
+  alias Ankole.Brain.Schemas.Claim
+  alias Ankole.Brain.Schemas.Contradiction
+  alias Ankole.Brain.Schemas.MergeSuggestion
+  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.ObjectVersion
+  alias Ankole.Brain.Schemas.SchemaSuggestion
+  alias Ankole.Brain.Schemas.Source
+
+  # The Console API (`AnkoleWeb.JSONAPI.ConsoleRouter`). An Object slug can
+  # contain `/`, so an Object operation takes the slug in the query or in the
+  # body, not in the path.
+  json_api do
+    authorize?(false)
+    log_errors?(true)
+    show_raised_errors?(false)
+
+    routes do
+      base_route "/brain/objects", Object do
+        index(:console_list, name: "list_brain_objects", derive_sort?: false)
+        route(:post, "/", :console_create, name: "create_brain_object")
+        route(:patch, "/", :console_update, name: "update_brain_object")
+        route(:post, "/fork", :fork_library_page, name: "fork_brain_object")
+        route(:post, "/rollback", :console_rollback, name: "rollback_brain_object")
+        route(:post, "/forget", :console_forget, name: "forget_brain_object")
+        route(:post, "/restore", :restore_object, name: "restore_brain_object")
+      end
+
+      base_route "/brain/object-versions", ObjectVersion do
+        index(:console_list, name: "list_brain_object_versions", derive_sort?: false)
+      end
+
+      base_route "/brain/claims", Claim do
+        index(:console_list, name: "list_brain_claims", derive_sort?: false)
+        route(:post, "/:claim_id/supersede", :console_supersede, name: "supersede_brain_claim")
+        route(:post, "/:claim_id/forget", :console_forget, name: "forget_brain_claim")
+        route(:post, "/:claim_id/resolve", :console_resolve, name: "resolve_brain_take")
+      end
+
+      base_route "/brain/contradictions", Contradiction do
+        index(:console_list, name: "list_brain_contradictions", derive_sort?: false)
+        route(:post, "/:contradiction_id/decide", :decide, name: "decide_brain_contradiction")
+      end
+
+      base_route "/brain/suggestions", SchemaSuggestion do
+        index(:console_list, name: "list_brain_suggestions", derive_sort?: false)
+
+        route(:post, "/:suggestion_id/approve", :console_approve,
+          name: "approve_brain_suggestion"
+        )
+
+        route(:post, "/:suggestion_id/reject", :console_reject, name: "reject_brain_suggestion")
+      end
+
+      base_route "/brain/merge-suggestions", MergeSuggestion do
+        index(:console_list, name: "list_brain_merge_suggestions", derive_sort?: false)
+
+        route(:post, "/:suggestion_id/approve", :console_approve,
+          name: "approve_brain_merge_suggestion"
+        )
+
+        route(:post, "/:suggestion_id/reject", :console_reject,
+          name: "reject_brain_merge_suggestion"
+        )
+      end
+
+      base_route "/brain/sources", Source do
+        index(:console_list, name: "list_brain_sources", derive_sort?: false)
+        route(:post, "/", :console_register, name: "create_brain_source")
+        route(:patch, "/:source_id", :update_default_scope, name: "update_brain_source")
+        route(:post, "/:source_id/learn", :console_learn, name: "learn_brain_source")
+        route(:post, "/:source_id/archive", :archive_source, name: "archive_brain_source")
+      end
+    end
+  end
 
   resources do
     resource Ankole.Brain.Schemas.Object do

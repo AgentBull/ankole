@@ -282,11 +282,13 @@ or constraint for the reservation.
 
 The reservation belongs to the grant interfaces:
 
-- The Console grant API (`/api/v1/permission-grants`) rejects a create that names
-  a reserved action, for a Principal owner or a group owner, with `422
-  validation_failed` and an `action` detail path.
+- The Console grant API (`/api/v2/permission-grants`, the Grant actions
+  `create_operator_grant`, `update_operator_grant`, and `delete_operator_grant`)
+  rejects a create that names a reserved action, for a Principal owner or a
+  group owner, with a `400` JSON:API error at `/data/attributes/action`.
 - The same API rejects an update to a page grant. Its action, resource pattern,
-  and condition are fixed, so an update changes only the description.
+  and condition are fixed, so an update changes only the description. It
+  refuses the delete of a page grant with the code `page_grant`.
 - Ordinary grants keep partial updates. The action need not be included when
   the resource pattern or condition changes.
 

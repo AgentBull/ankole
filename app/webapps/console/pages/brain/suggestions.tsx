@@ -23,16 +23,20 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  ankoleWebBrainControllerDecideSuggestionMutation,
-  ankoleWebBrainControllerListSuggestionsOptions
-} from '../../api/generated/@tanstack/react-query.gen'
-import type { BrainSuggestion } from '../../api/generated/types.gen'
+  approveBrainSuggestionMutation,
+  listBrainSuggestionsOptions,
+  rejectBrainSuggestionMutation
+} from '../../api/v2/generated/@tanstack/react-query.gen'
+import type { ListBrainSuggestionsResponse } from '../../api/v2/generated/types.gen'
+import { fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
 import { ResourceListPage } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
 
 const SUGGESTION_STATUSES = ['pending', 'approved', 'rejected'] as const
+
+type BrainSuggestion = Flat<NonNullable<ListBrainSuggestionsResponse['data']>[number]>
 
 export function BrainSuggestionsPage() {
   const { t } = useTranslation()
@@ -43,11 +47,11 @@ export function BrainSuggestionsPage() {
   const [slugPrefix, setSlugPrefix] = useState('')
   const [targetType, setTargetType] = useState('')
 
-  const suggestions = useQuery(ankoleWebBrainControllerListSuggestionsOptions({ query: { status } }))
-  const rows = suggestions.data?.suggestions ?? []
+  const suggestions = useQuery({ ...listBrainSuggestionsOptions({ query: { status } }), select: document => fromDocument(document) })
+  const rows = suggestions.data ?? []
 
   const approve = useMutation({
-    ...ankoleWebBrainControllerDecideSuggestionMutation(),
+    ...approveBrainSuggestionMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.suggestion_approved'))
       setApproveTarget(undefined)
@@ -58,7 +62,7 @@ export function BrainSuggestionsPage() {
     onError: error => toast.error(requestErrorMessage(error))
   })
   const reject = useMutation({
-    ...ankoleWebBrainControllerDecideSuggestionMutation(),
+    ...rejectBrainSuggestionMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.suggestion_rejected'))
       setRejectTarget(undefined)
@@ -197,10 +201,11 @@ export function BrainSuggestionsPage() {
                 approve.mutate({
                   path: { suggestion_id: approveTarget.id },
                   body: {
-                    decision: 'approve',
-                    ...(primitive.trim() ? { primitive: primitive.trim() } : {}),
-                    ...(slugPrefix.trim() ? { slug_prefix: slugPrefix.trim() } : {}),
-                    ...(targetType.trim() ? { target_type: targetType.trim() } : {})
+                    data: {
+                      ...(primitive.trim() ? { primitive: primitive.trim() } : {}),
+                      ...(slugPrefix.trim() ? { slug_prefix: slugPrefix.trim() } : {}),
+                      ...(targetType.trim() ? { target_type: targetType.trim() } : {})
+                    }
                   }
                 })
               }>
@@ -228,10 +233,7 @@ export function BrainSuggestionsPage() {
               variant="destructive"
               onClick={() =>
                 rejectTarget &&
-                reject.mutate({
-                  path: { suggestion_id: rejectTarget.id },
-                  body: { decision: 'reject' }
-                })
+reject.mutate({ path: { suggestion_id: rejectTarget.id } })
               }>
               {reject.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.brain.reject')}

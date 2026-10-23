@@ -31,12 +31,13 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
 import {
-  ankoleWebBrainControllerForgetClaimMutation,
-  ankoleWebBrainControllerListClaimsOptions,
-  ankoleWebBrainControllerResolveTakeMutation,
-  ankoleWebBrainControllerSupersedeClaimMutation
-} from '../../api/generated/@tanstack/react-query.gen'
-import type { BrainClaim } from '../../api/generated/types.gen'
+  forgetBrainClaimMutation,
+  listBrainClaimsOptions,
+  resolveBrainTakeMutation,
+  supersedeBrainClaimMutation
+} from '../../api/v2/generated/@tanstack/react-query.gen'
+import type { ListBrainClaimsResponse } from '../../api/v2/generated/types.gen'
+import { fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
 import { FilterSwitch, ResourceListPage, ResourceSearch, useResourceSearchDraft } from '../../console-list-page'
@@ -45,6 +46,18 @@ import { BrainSubNav, brainObjectPath } from './brain-nav'
 const RESOLUTION_QUALITIES = ['correct', 'incorrect', 'partial', 'unresolvable'] as const
 
 type ResolutionQuality = (typeof RESOLUTION_QUALITIES)[number]
+
+type BrainClaim = Flat<NonNullable<ListBrainClaimsResponse['data']>[number]>
+
+/** The Claim fields that give the state badge, in the v2 list and the v1 audit read model. */
+type ClaimState = {
+  claim_type: string
+  superseded_by?: string | null
+  expired_at?: string | null
+  resolved_at?: string | null
+  resolved_quality?: string | null
+  active?: boolean | null
+}
 
 export function BrainClaimsPage() {
   const { t } = useTranslation()
@@ -58,17 +71,18 @@ export function BrainClaimsPage() {
   const [slugDraft, setSlugDraft] = useResourceSearchDraft(objectSlug, setObjectSlug)
 
   const claims = useQuery({
-    ...ankoleWebBrainControllerListClaimsOptions({
+    ...listBrainClaimsOptions({
       query: {
         ...(claimType === 'all' ? {} : { claim_type: claimType }),
         ...(currentOnly ? { status: 'current' } : {}),
         ...(objectSlug.trim() ? { object_slug: objectSlug.trim() } : {}),
-        ...(query.trim() ? { q: query.trim() } : {})
+        ...(query.trim() ? { search: query.trim() } : {})
       }
     }),
+    select: document => fromDocument(document),
     placeholderData: keepPreviousData
   })
-  const rows = claims.data?.claims ?? []
+  const rows = claims.data ?? []
 
   const [supersedeClaim, setSupersedeClaim] = useState<BrainClaim>()
   const [forgetClaim, setForgetClaim] = useState<BrainClaim>()
@@ -146,7 +160,7 @@ export function BrainClaimsPage() {
           />
         }>
         {rows.map(claim => {
-          const resolved = claim.claim_type === 'take' && claim.resolved_at !== null
+          const resolved = claim.claim_type === 'take' && Boolean(claim.resolved_at)
 
           return (
             <TableRow key={claim.id} className={resolved ? 'opacity-70' : undefined}>
@@ -214,7 +228,7 @@ export function BrainClaimsPage() {
   )
 }
 
-export function ClaimStateBadge({ claim }: { claim: BrainClaim }) {
+export function ClaimStateBadge({ claim }: { claim: ClaimState }) {
   const { t } = useTranslation()
 
   if (claim.superseded_by) return <Badge variant="outline">{t('console.brain.superseded')}</Badge>
@@ -245,7 +259,7 @@ function SupersedeClaimDialog({ claim, onClose }: { claim?: BrainClaim; onClose:
   }
 
   const supersede = useMutation({
-    ...ankoleWebBrainControllerSupersedeClaimMutation(),
+    ...supersedeBrainClaimMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.supersede_done'))
       onClose()
@@ -272,7 +286,7 @@ function SupersedeClaimDialog({ claim, onClose }: { claim?: BrainClaim; onClose:
           </DialogClose>
           <Button
             disabled={supersede.isPending || !text.trim() || text.trim() === claim?.claim}
-            onClick={() => supersede.mutate({ path: { claim_id: claim?.id ?? '' }, body: { claim: text.trim() } })}>
+            onClick={() => supersede.mutate({ path: { claim_id: claim?.id ?? '' }, body: { data: { claim: text.trim() } } })}>
             {supersede.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
             {t('console.brain.supersede')}
           </Button>
@@ -293,7 +307,7 @@ function ForgetClaimDialog({ claim, onClose }: { claim?: BrainClaim; onClose: ()
   }
 
   const forget = useMutation({
-    ...ankoleWebBrainControllerForgetClaimMutation(),
+    ...forgetBrainClaimMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.forget_claim_done'))
       onClose()
@@ -321,7 +335,7 @@ function ForgetClaimDialog({ claim, onClose }: { claim?: BrainClaim; onClose: ()
           <Button
             disabled={forget.isPending || !reason.trim()}
             variant="destructive"
-            onClick={() => forget.mutate({ path: { claim_id: claim?.id ?? '' }, body: { reason: reason.trim() } })}>
+            onClick={() => forget.mutate({ path: { claim_id: claim?.id ?? '' }, body: { data: { reason: reason.trim() } } })}>
             {forget.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
             {t('console.brain.forget')}
           </Button>
@@ -347,7 +361,7 @@ function ResolveTakeDialog({ claim, onClose }: { claim?: BrainClaim; onClose: ()
   const outcomeRequired = quality === 'correct' || quality === 'incorrect'
 
   const resolve = useMutation({
-    ...ankoleWebBrainControllerResolveTakeMutation(),
+    ...resolveBrainTakeMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.resolve_done'))
       onClose()
@@ -423,9 +437,11 @@ function ResolveTakeDialog({ claim, onClose }: { claim?: BrainClaim; onClose: ()
               resolve.mutate({
                 path: { claim_id: claim?.id ?? '' },
                 body: {
-                  resolved_quality: quality,
-                  resolved_outcome: outcomeRequired ? outcome : null,
-                  resolution_provenance: provenance.trim() || null
+                  data: {
+                    resolved_quality: quality,
+                    resolved_outcome: outcomeRequired ? outcome : null,
+                    resolution_provenance: provenance.trim() || null
+                  }
                 }
               })
             }>

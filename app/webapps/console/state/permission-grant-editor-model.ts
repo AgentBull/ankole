@@ -1,5 +1,8 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
-import type { PermissionGrantCreateRequest, PermissionGrantUpdateRequest } from '../api/generated/types.gen'
+import type { CreatePermissionGrantData, UpdatePermissionGrantData } from '../api/v2/generated/types.gen'
+
+type PermissionGrantCreateRequest = NonNullable<CreatePermissionGrantData['body']['data']['attributes']>
+type PermissionGrantUpdateRequest = NonNullable<NonNullable<UpdatePermissionGrantData['body']>['data']['attributes']>
 
 export type PermissionGrantEditorDraft = {
   resourcePattern: string

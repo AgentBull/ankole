@@ -1,6 +1,29 @@
 defmodule Ankole.Brain.Schemas.Object do
   @moduledoc "A current knowledge page with explicit content, ownership, and projection writes."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: Ankole.Brain,
+    extensions: [AshJsonApi.Resource]
+
+  # The Console API gives the summary fields. The page read model with the
+  # body, the Claims, and the links stays at the v1 route
+  # `GET /api/v1/brain/objects/show`.
+  json_api do
+    type("brain_object")
+    derive_filter?(false)
+    derive_sort?(false)
+
+    default_fields([
+      :slug,
+      :type,
+      :subtype,
+      :title,
+      :effective_date,
+      :managed_by_source_id,
+      :deleted_at,
+      :updated_at
+    ])
+  end
 
   postgres do
     table("brain_objects")
@@ -24,10 +47,10 @@ defmodule Ankole.Brain.Schemas.Object do
       default: &Ankole.Ecto.UUIDv7.autogenerate/0
     )
 
-    attribute(:slug, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:type, :string, allow_nil?: false, constraints: [trim?: false])
-    attribute(:subtype, :string, constraints: [trim?: false])
-    attribute(:title, :string, allow_nil?: false, constraints: [trim?: false])
+    attribute(:slug, :string, allow_nil?: false, public?: true, constraints: [trim?: false])
+    attribute(:type, :string, allow_nil?: false, public?: true, constraints: [trim?: false])
+    attribute(:subtype, :string, public?: true, constraints: [trim?: false])
+    attribute(:title, :string, allow_nil?: false, public?: true, constraints: [trim?: false])
 
     attribute(:body, :string,
       allow_nil?: false,
@@ -36,17 +59,21 @@ defmodule Ankole.Brain.Schemas.Object do
     )
 
     attribute(:meta, Ankole.Ash.Types.JSONMap, allow_nil?: false, default: %{})
-    attribute(:effective_date, :date)
+    attribute(:effective_date, :date, public?: true)
     attribute(:content_hash, :string, constraints: [trim?: false])
     attribute(:chunking_signature, :string, constraints: [trim?: false])
     attribute(:last_retrieved_at, :utc_datetime_usec)
     attribute(:links_extracted_at, :utc_datetime_usec)
     attribute(:timelines_extracted_at, :utc_datetime_usec)
-    attribute(:deleted_at, :utc_datetime_usec)
-    attribute(:managed_by_source_id, Ankole.Ash.Types.UUIDv7)
+    attribute(:deleted_at, :utc_datetime_usec, public?: true)
+    attribute(:managed_by_source_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:created_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
     # Projection writes must not advance the logical content clock.
-    attribute(:updated_at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
+    attribute(:updated_at, :utc_datetime_usec,
+      allow_nil?: false,
+      public?: true,
+      default: &DateTime.utc_now/0
+    )
   end
 
   identities do
@@ -80,6 +107,15 @@ defmodule Ankole.Brain.Schemas.Object do
 
   actions do
     defaults([:read])
+
+    # The Console list: a slug prefix, a title or slug search, and the live
+    # or the soft-deleted objects.
+    read :console_list do
+      argument(:prefix, :string, constraints: [trim?: false])
+      argument(:search, :string)
+      argument(:deleted, :boolean, default: false)
+      prepare(&Ankole.Brain.Objects.console_list/2)
+    end
 
     create :create do
       accept(@initial)
@@ -287,7 +323,10 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
 
       run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.Brain.Objects.fork_library_page_in_tx(args.slug))
+        Ankole.Brain.Console.result(
+          Ankole.Brain.Objects.fork_library_page_in_tx(args.slug),
+          __MODULE__
+        )
       end)
     end
 
@@ -296,7 +335,7 @@ defmodule Ankole.Brain.Schemas.Object do
       argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
 
       run(fn %{arguments: args}, _context ->
-        Ankole.Errors.wrap(Ankole.Brain.Objects.restore_in_tx(args.slug))
+        Ankole.Brain.Console.result(Ankole.Brain.Objects.restore_in_tx(args.slug), __MODULE__)
       end)
     end
 
@@ -318,6 +357,84 @@ defmodule Ankole.Brain.Schemas.Object do
 
       run(fn %{arguments: args}, _context ->
         Ankole.Errors.wrap(Ankole.Brain.Links.reconcile_object_links_in_tx(args.slug))
+      end)
+    end
+
+    # The Console operations. The operator is the actor of the action
+    # (Ankole.Brain.Console).
+    action :console_create, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false)
+      argument(:type, :string, allow_nil?: false)
+      argument(:subtype, :string)
+      argument(:title, :string, allow_nil?: false)
+      argument(:body, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+      argument(:meta, Ankole.Ash.Types.JSONMap, allow_nil?: false)
+      argument(:effective_date, :date)
+      argument(:tags, {:array, :string}, default: [])
+
+      run(fn %{arguments: args}, context ->
+        args
+        |> Map.take([:slug, :type, :subtype, :title, :body, :meta, :effective_date, :tags])
+        |> Ankole.Brain.Objects.create_object_in_tx(Ankole.Brain.Console.writer(context))
+        |> Ankole.Brain.Console.result(__MODULE__)
+      end)
+    end
+
+    # The content hash is a compare-and-swap token: the edit fails when the
+    # object changed after the editor read it. Without tags, the tags stay.
+    action :console_update, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:expected_content_hash, :string, allow_nil?: false)
+      argument(:subtype, :string)
+      argument(:title, :string, allow_nil?: false)
+      argument(:body, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+      argument(:meta, Ankole.Ash.Types.JSONMap, allow_nil?: false)
+      argument(:effective_date, :date)
+      argument(:tags, {:array, :string})
+
+      run(fn %{arguments: args}, context ->
+        attrs =
+          Map.take(args, [:expected_content_hash, :subtype, :title, :body, :meta, :effective_date])
+
+        attrs = if args[:tags], do: Map.put(attrs, :tags, args.tags), else: attrs
+
+        args.slug
+        |> Ankole.Brain.Objects.update_object_in_tx(
+          attrs,
+          Ankole.Brain.Console.writer(context),
+          author: Ankole.Brain.Console.actor_ref(context)
+        )
+        |> Ankole.Brain.Console.result(__MODULE__)
+      end)
+    end
+
+    action :console_rollback, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:version_id, :uuid, allow_nil?: false)
+
+      run(fn %{arguments: args}, context ->
+        args.slug
+        |> Ankole.Brain.Objects.rollback_in_tx(
+          args.version_id,
+          Ankole.Brain.Console.writer(context),
+          author: Ankole.Brain.Console.actor_ref(context)
+        )
+        |> Ankole.Brain.Console.result(__MODULE__)
+      end)
+    end
+
+    action :console_forget, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:reason, :string, constraints: [trim?: false, allow_empty?: true])
+
+      run(fn %{arguments: args}, _context ->
+        args.slug
+        |> Ankole.Brain.Forget.forget_object_in_tx(args[:reason] || "", :admin)
+        |> Ankole.Brain.Console.result(__MODULE__)
       end)
     end
 

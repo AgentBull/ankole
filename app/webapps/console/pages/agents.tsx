@@ -23,16 +23,17 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   ankoleWebAgentControllerIndexModelProfilesOptions,
   ankoleWebAiGatewayProviderControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
-  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
-  ankoleWebPrincipalControllerIndexOptions
+  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import { type AgentItem, agentListOptions, agentOptions } from '../api/agents'
 import {
   createAgentMutation,
   deleteAgentMutation,
   enableAgentMutation,
+  listPrincipalsOptions,
   updateAgentMutation
 } from '../api/v2/generated/@tanstack/react-query.gen'
+import { fromDocument } from '../api/json-api'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { blankToNull } from '../console-primitives'
 import { EditorNotFound, LabeledField, ResourceEditorPage, StatusIndicator } from '../console-form'
@@ -212,8 +213,8 @@ function AgentEditor({ uid }: { uid?: string }) {
   const mode = uid ? 'edit' : 'new'
 
   const agentDetail = useQuery(agentEditorDetailOptions(uid ?? ''))
-  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
-  const owners = (principals.data?.principals ?? []).filter(principal => principal.type === 'human')
+  const principals = useQuery({ ...listPrincipalsOptions(), select: data => fromDocument(data) })
+  const owners = (principals.data ?? []).filter(principal => principal.type === 'human')
   const needsOwner = mode === 'new' && principals.isSuccess && owners.length === 0
   const providers = useQuery({ ...listAiGatewayProvidersOptions(), select: aiGatewayProviders })
   const workerProviders = useQuery({ ...listWorkerProvidersOptions(), select: workerProviderRecords })
@@ -456,7 +457,7 @@ function AgentEditor({ uid }: { uid?: string }) {
             isLoading={principals.isLoading}
             placeholder={t('console.agents.owner_placeholder')}
             candidates={owners.map(principal => ({
-              id: principal.uid,
+              id: principal.id,
               label: principalLabel(principal),
               description: principal.email ?? principal.handle
             }))}

@@ -66,10 +66,6 @@ defmodule AnkoleWeb.APISpec do
           description: "Active accountable subjects available to operator surfaces"
         },
         %Tag{
-          name: "AuthZ",
-          description: "Principal groups, memberships, and permission grants"
-        },
-        %Tag{
           name: "LLM Runtime",
           description: "Operator-managed LLM provider and agent model profile configuration"
         },

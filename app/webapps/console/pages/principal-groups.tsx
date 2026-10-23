@@ -26,21 +26,23 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
-  ankoleWebAuthZGroupControllerAddMemberMutation,
-  ankoleWebAuthZGroupControllerCreateMutation,
-  ankoleWebAuthZGroupControllerDeleteMutation,
-  ankoleWebAuthZGroupControllerGrantsOptions,
-  ankoleWebAuthZGroupControllerIndexOptions,
-  ankoleWebAuthZGroupControllerMembersOptions,
-  ankoleWebAuthZGroupControllerPreviewComputedMembersMutation,
-  ankoleWebAuthZGroupControllerRemoveMemberMutation,
-  ankoleWebAuthZGroupControllerShowOptions,
-  ankoleWebAuthZGroupControllerUpdateMutation,
-  ankoleWebPrincipalControllerIndexOptions
-} from '../api/generated/@tanstack/react-query.gen'
-import type { PrincipalGroupItem, PrincipalGroupMemberItem } from '../api/generated/types.gen'
+  addPrincipalGroupMemberMutation,
+  createPrincipalGroupMutation,
+  deletePrincipalGroupMutation,
+  getPrincipalGroupOptions,
+  listPrincipalGroupGrantsOptions,
+  listPrincipalGroupMembersOptions,
+  listPrincipalGroupsOptions,
+  listPrincipalsOptions,
+  previewComputedPrincipalGroupMembersMutation,
+  removePrincipalGroupMemberMutation,
+  updatePrincipalGroupMutation
+} from '../api/v2/generated/@tanstack/react-query.gen'
+import type { ListPrincipalGroupMembersResponse, PrincipalGroup } from '../api/v2/generated/types.gen'
+import { type Flat, fromDocument } from '../api/json-api'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { AddMembershipPicker } from '../add-membership-picker'
 import { ErrorBlock } from '../../common/error-block'
@@ -58,13 +60,36 @@ import {
 import { PermissionGrantsSection } from './permission-grant-editor'
 import { AccessSubNav } from './principals'
 
+/** The flat Console record of a principal group. */
+export type PrincipalGroupRecord = Flat<PrincipalGroup>
+type PrincipalGroupMember = ListPrincipalGroupMembersResponse[number]
+
+const groupErrorCodes = [
+  'built_in_group',
+  'computed_group',
+  'group_domain_mismatch',
+  'group_has_grants',
+  'last_admin_member',
+  'last_active_human_admin',
+  'not_human',
+  'principal_disabled'
+]
+
+/** Localizes the domain refusals of group and membership writes. */
+export function principalGroupErrorMessage(t: TFunction, error: unknown): string {
+  const code = requestErrorCode(error)
+  return code && groupErrorCodes.includes(code)
+    ? t(`console.principal_groups.error_${code}`)
+    : requestErrorMessage(error)
+}
+
 export function PrincipalGroupsListPage() {
   const { t } = useTranslation()
-  const groups = useQuery(ankoleWebAuthZGroupControllerIndexOptions())
+  const groups = useQuery({ ...listPrincipalGroupsOptions(), select: data => fromDocument(data) })
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
-  const rows = (groups.data?.principal_groups ?? []).filter(group =>
+  const rows = (groups.data ?? []).filter(group =>
     matchesResourceSearch(
       searchQuery,
       group.name,
@@ -74,11 +99,11 @@ export function PrincipalGroupsListPage() {
     )
   )
   const deleteGroup = useMutation({
-    ...ankoleWebAuthZGroupControllerDeleteMutation(),
+    ...deletePrincipalGroupMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.principal_groups.deleted', { id: variables.path.name }))
     },
-    onError: error => toast.error(requestErrorMessage(error))
+    onError: error => toast.error(principalGroupErrorMessage(t, error))
   })
 
   return (
@@ -178,10 +203,11 @@ export function PrincipalGroupEditorPage() {
   const mode = name ? 'edit' : 'new'
 
   const group = useQuery({
-    ...ankoleWebAuthZGroupControllerShowOptions({ path: { name: name ?? '' } }),
+    ...getPrincipalGroupOptions({ path: { name: name ?? '' } }),
+    select: data => fromDocument(data),
     enabled: Boolean(name)
   })
-  const loadedGroup = group.data?.principal_group
+  const loadedGroup = group.data
   const groupDraft = useMemo(
     () => (mode === 'new' ? emptyGroupForm() : loadedGroup ? formFromGroup(loadedGroup) : undefined),
     [loadedGroup, mode]
@@ -193,28 +219,30 @@ export function PrincipalGroupEditorPage() {
   })
 
   const createGroup = useMutation({
-    ...ankoleWebAuthZGroupControllerCreateMutation(),
+    ...createPrincipalGroupMutation(),
     onMutate: () => model.captureSave(),
     onSuccess: (response, _variables, confirm) => {
+      const created = fromDocument(response)
       let accepted = false
       flushSync(() => {
-        accepted = confirm?.(formFromGroup(response.principal_group)) ?? false
+        accepted = confirm?.(formFromGroup(created)) ?? false
       })
       if (!accepted) return
-      toast.success(t('console.principal_groups.saved', { id: response.principal_group.name }))
+      toast.success(t('console.principal_groups.saved', { id: created.name }))
 
       // Land on the new group's editor so members and grants can be managed next.
       if (!model.dirty.value) {
-        void navigate({ to: `/access/groups/${encodeURIComponent(response.principal_group.name)}` })
+        void navigate({ to: `/access/groups/${encodeURIComponent(created.name)}` })
       }
     }
   })
   const updateGroup = useMutation({
-    ...ankoleWebAuthZGroupControllerUpdateMutation(),
+    ...updatePrincipalGroupMutation(),
     onMutate: () => model.captureSave(),
     onSuccess: (response, _variables, confirm) => {
-      if (!confirm?.(formFromGroup(response.principal_group))) return
-      toast.success(t('console.principal_groups.saved', { id: response.principal_group.name }))
+      const updated = fromDocument(response)
+      if (!confirm?.(formFromGroup(updated))) return
+      toast.success(t('console.principal_groups.saved', { id: updated.name }))
     }
   })
 
@@ -226,14 +254,19 @@ export function PrincipalGroupEditorPage() {
       return
     }
     if (mode === 'new') {
-      createGroup.mutate({ body: model.createBody() })
+      createGroup.mutate({ body: { data: { type: 'principal_group', attributes: model.createBody() } } })
       return
     }
-    if (loadedGroup) updateGroup.mutate({ body: model.updateBody(), path: { name: loadedGroup.name } })
+    if (loadedGroup) {
+      updateGroup.mutate({
+        body: { data: { type: 'principal_group', id: loadedGroup.id, attributes: model.updateBody() } },
+        path: { name: loadedGroup.name }
+      })
+    }
   }
 
   const kind = model.kind.value
-  // Built-in groups keep their seeded condition; the server ignores edits to it.
+  // Built-in groups keep their seeded condition; the server refuses a change to it.
   const conditionReadOnly = Boolean(mode === 'edit' && loadedGroup?.built_in)
 
   if (draftStatus === 'absent') {
@@ -339,10 +372,10 @@ export function PrincipalGroupEditorPage() {
 function ComputedMembershipPreview({ condition }: { condition: string }) {
   const { t } = useTranslation()
   const preview = useMutation({
-    ...ankoleWebAuthZGroupControllerPreviewComputedMembersMutation(),
+    ...previewComputedPrincipalGroupMembersMutation(),
     meta: { invalidates: false }
   })
-  const [result, setResult] = useState<{ condition: string; members?: PrincipalGroupMemberItem[]; error?: string }>()
+  const [result, setResult] = useState<{ condition: string; members?: PrincipalGroupMember[]; error?: string }>()
   const trimmed = condition.trim()
 
   useEffect(() => {
@@ -350,9 +383,9 @@ function ComputedMembershipPreview({ condition }: { condition: string }) {
     let cancelled = false
     const timer = window.setTimeout(() => {
       preview
-        .mutateAsync({ body: { condition: trimmed } })
-        .then(data => {
-          if (!cancelled) setResult({ condition: trimmed, members: data.principal_group_members })
+        .mutateAsync({ body: { data: { condition: trimmed } } })
+        .then(members => {
+          if (!cancelled) setResult({ condition: trimmed, members })
         })
         .catch((error: unknown) => {
           if (!cancelled) setResult({ condition: trimmed, error: requestErrorMessage(error) })
@@ -417,34 +450,35 @@ function ComputedMembershipPreview({ condition }: { condition: string }) {
  * memberships here; computed groups show the evaluated membership read-only;
  * directory/im_group groups are owned by external sync and skip the endpoint.
  */
-function GroupMembersSection({ group }: { group: PrincipalGroupItem }) {
+function GroupMembersSection({ group }: { group: PrincipalGroupRecord }) {
   const { t } = useTranslation()
   const synced = group.domain !== 'operator'
   const manageable = !synced && group.kind === 'static'
   const members = useQuery({
-    ...ankoleWebAuthZGroupControllerMembersOptions({ path: { name: group.name } }),
+    ...listPrincipalGroupMembersOptions({ path: { name: group.name } }),
     enabled: !synced
   })
   // Candidates feed the add picker, so only manageable groups fetch them.
   const principals = useQuery({
-    ...ankoleWebPrincipalControllerIndexOptions(),
+    ...listPrincipalsOptions(),
+    select: data => fromDocument(data),
     enabled: manageable
   })
-  const memberList = members.data?.principal_group_members ?? []
+  const memberList = members.data ?? []
 
   const addMember = useMutation({
-    ...ankoleWebAuthZGroupControllerAddMemberMutation(),
+    ...addPrincipalGroupMemberMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.principal_groups.member_added', { id: variables.path.principal_uid }))
     },
-    onError: error => toast.error(requestErrorMessage(error))
+    onError: error => toast.error(principalGroupErrorMessage(t, error))
   })
   const removeMember = useMutation({
-    ...ankoleWebAuthZGroupControllerRemoveMemberMutation(),
+    ...removePrincipalGroupMemberMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.principal_groups.member_removed', { id: variables.path.principal_uid }))
     },
-    onError: error => toast.error(requestErrorMessage(error))
+    onError: error => toast.error(principalGroupErrorMessage(t, error))
   })
 
   return (
@@ -466,8 +500,8 @@ function GroupMembersSection({ group }: { group: PrincipalGroupItem }) {
               ariaLabel={t('console.principal_groups.add_member')}
               placeholder={t('console.principal_groups.add_member_placeholder')}
               emptyText={t('console.principal_groups.add_member_empty')}
-              candidates={(principals.data?.principals ?? []).map(principal => ({
-                id: principal.uid,
+              candidates={(principals.data ?? []).map(principal => ({
+                id: principal.id,
                 label: principal.display_name
               }))}
               excludedIDs={new Set(memberList.map(member => member.uid))}
@@ -549,9 +583,12 @@ function GroupMembersSection({ group }: { group: PrincipalGroupItem }) {
 }
 
 /** Grant table for the group editor, fed by the group grants endpoint. */
-function GroupGrantsSection({ group }: { group: PrincipalGroupItem }) {
+function GroupGrantsSection({ group }: { group: PrincipalGroupRecord }) {
   const { t } = useTranslation()
-  const grants = useQuery(ankoleWebAuthZGroupControllerGrantsOptions({ path: { name: group.name } }))
+  const grants = useQuery({
+    ...listPrincipalGroupGrantsOptions({ path: { name: group.name } }),
+    select: data => fromDocument(data)
+  })
 
   return (
     <PermissionGrantsSection
@@ -561,13 +598,13 @@ function GroupGrantsSection({ group }: { group: PrincipalGroupItem }) {
       addTo={`/access/groups/${encodeURIComponent(group.name)}/grants/new`}
       empty={t('console.principal_groups.grants_empty')}
       error={grants.error}
-      grants={grants.data?.permission_grants ?? []}
+      grants={grants.data ?? []}
       isLoading={grants.isLoading}
     />
   )
 }
 
-function MemberAvatar({ member }: { member: PrincipalGroupMemberItem }) {
+function MemberAvatar({ member }: { member: PrincipalGroupMember }) {
   return (
     <Avatar size="sm">
       {member.avatar_url ? <AvatarImage src={member.avatar_url} alt="" /> : null}
@@ -580,7 +617,7 @@ function emptyGroupForm(): PrincipalGroupEditorDraft {
   return { name: '', displayName: '', description: '', kind: 'static', computedCondition: '' }
 }
 
-function formFromGroup(group: PrincipalGroupItem): PrincipalGroupEditorDraft {
+function formFromGroup(group: PrincipalGroupRecord): PrincipalGroupEditorDraft {
   return {
     name: group.name,
     displayName: group.display_name,

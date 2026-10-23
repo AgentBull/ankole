@@ -31,15 +31,16 @@ import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router'
+import { ankoleWebBrainControllerShowObjectOptions } from '../../api/generated/@tanstack/react-query.gen'
 import {
-  ankoleWebBrainControllerForgetObjectMutation,
-  ankoleWebBrainControllerForkObjectMutation,
-  ankoleWebBrainControllerListObjectsOptions,
-  ankoleWebBrainControllerObjectVersionsOptions,
-  ankoleWebBrainControllerRestoreObjectMutation,
-  ankoleWebBrainControllerRollbackObjectMutation,
-  ankoleWebBrainControllerShowObjectOptions
-} from '../../api/generated/@tanstack/react-query.gen'
+  forgetBrainObjectMutation,
+  forkBrainObjectMutation,
+  listBrainObjectsOptions,
+  listBrainObjectVersionsOptions,
+  restoreBrainObjectMutation,
+  rollbackBrainObjectMutation
+} from '../../api/v2/generated/@tanstack/react-query.gen'
+import { fromDocument } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { ErrorBlock } from '../../../common/error-block'
 import { formatConsoleDate } from '../../console-primitives'
@@ -74,18 +75,19 @@ function BrainObjectsList() {
   const searchQuery = query.trim()
 
   const objects = useQuery({
-    ...ankoleWebBrainControllerListObjectsOptions({
+    ...listBrainObjectsOptions({
       query: {
         ...(prefix ? { prefix } : {}),
-        ...(searchQuery ? { q: searchQuery } : {}),
+        ...(searchQuery ? { search: searchQuery } : {}),
         ...(deleted ? { deleted: true } : {})
       }
     }),
+    select: document => fromDocument(document),
     // A committed search changes the query key; keep the previous rows on
     // screen instead of swapping the table for skeletons.
     placeholderData: keepPreviousData
   })
-  const rows = objects.data?.objects ?? []
+  const rows = objects.data ?? []
   // The slug's first segment is the natural prefix tree level; the chips list
   // what the current result actually contains instead of a hardcoded taxonomy.
   const prefixes = prefix ? [prefix] : [...new Set(rows.map(object => `${object.slug.split('/')[0] ?? ''}/`))].sort()
@@ -164,7 +166,7 @@ function BrainObjectsList() {
           <TableCell className="text-xs text-muted-foreground">{formatConsoleDate(object.updated_at)}</TableCell>
           <TableCell>
             <div className="flex flex-wrap gap-1">
-              {object.library_managed ? <Badge variant="outline">{t('console.brain.source_managed')}</Badge> : null}
+              {object.managed_by_source_id ? <Badge variant="outline">{t('console.brain.source_managed')}</Badge> : null}
               {object.deleted_at ? <Badge variant="destructive">{t('console.brain.deleted')}</Badge> : null}
             </div>
           </TableCell>
@@ -191,12 +193,13 @@ export function BrainObjectDrawer() {
   })
   const page = detail.data?.object
   const versions = useQuery({
-    ...ankoleWebBrainControllerObjectVersionsOptions({ query: { slug } }),
+    ...listBrainObjectVersionsOptions({ query: { slug } }),
+    select: document => fromDocument(document),
     enabled: Boolean(page)
   })
 
   const rollback = useMutation({
-    ...ankoleWebBrainControllerRollbackObjectMutation(),
+    ...rollbackBrainObjectMutation(),
     onSuccess: () => {
       setRollbackVersionID(undefined)
       toast.success(t('console.brain.rollback_done', { slug }))
@@ -204,7 +207,7 @@ export function BrainObjectDrawer() {
     onError: error => toast.error(requestErrorMessage(error))
   })
   const forget = useMutation({
-    ...ankoleWebBrainControllerForgetObjectMutation(),
+    ...forgetBrainObjectMutation(),
     onSuccess: () => {
       setForgetOpen(false)
       toast.success(t('console.brain.forget_object_done', { slug }))
@@ -214,14 +217,14 @@ export function BrainObjectDrawer() {
     onError: error => toast.error(requestErrorMessage(error))
   })
   const restore = useMutation({
-    ...ankoleWebBrainControllerRestoreObjectMutation(),
+    ...restoreBrainObjectMutation(),
     onSuccess: () => {
       toast.success(t('console.brain.restore_object_done', { slug }))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
   const fork = useMutation({
-    ...ankoleWebBrainControllerForkObjectMutation(),
+    ...forkBrainObjectMutation(),
     onSuccess: () => {
       setForkOpen(false)
       toast.success(t('console.brain.fork_object_done', { slug }))
@@ -318,7 +321,7 @@ export function BrainObjectDrawer() {
                   size="xs"
                   type="button"
                   variant="outline"
-                  onClick={() => restore.mutate({ body: { slug } })}>
+                  onClick={() => restore.mutate({ body: { data: { slug } } })}>
                   {restore.isPending ? <RiLoaderLine className="animate-spin" /> : null}
                   {t('console.brain.restore_object')}
                 </Button>
@@ -487,8 +490,8 @@ export function BrainObjectDrawer() {
                             ''
                           ]}
                           empty={t('console.brain.no_versions')}
-                          rowCount={versions.data?.versions.length ?? 0}>
-                          {(versions.data?.versions ?? []).map(version => (
+                          rowCount={versions.data?.length ?? 0}>
+                          {(versions.data ?? []).map(version => (
                             <TableRow key={version.id}>
                               <TableCell className="text-xs">{formatConsoleDate(version.snapshot_at)}</TableCell>
                               <TableCell className="font-mono text-xs">
@@ -541,7 +544,7 @@ export function BrainObjectDrawer() {
             <Button
               disabled={forget.isPending || !forgetReason.trim()}
               variant="destructive"
-              onClick={() => forget.mutate({ body: { slug, reason: forgetReason.trim() } })}>
+              onClick={() => forget.mutate({ body: { data: { slug, reason: forgetReason.trim() } } })}>
               {forget.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.brain.forget_object')}
             </Button>
@@ -559,7 +562,7 @@ export function BrainObjectDrawer() {
             <DialogClose render={<Button variant="outline" />} disabled={fork.isPending}>
               {t('common.cancel')}
             </DialogClose>
-            <Button disabled={fork.isPending} onClick={() => fork.mutate({ body: { slug } })}>
+            <Button disabled={fork.isPending} onClick={() => fork.mutate({ body: { data: { slug } } })}>
               {fork.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.brain.fork_object')}
             </Button>
@@ -582,7 +585,7 @@ export function BrainObjectDrawer() {
             <Button
               disabled={rollback.isPending}
               variant="destructive"
-              onClick={() => rollbackVersionID && rollback.mutate({ body: { slug, version_id: rollbackVersionID } })}>
+              onClick={() => rollbackVersionID && rollback.mutate({ body: { data: { slug, version_id: rollbackVersionID } } })}>
               {rollback.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.brain.rollback')}
             </Button>
