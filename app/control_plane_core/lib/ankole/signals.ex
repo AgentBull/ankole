@@ -23,6 +23,7 @@ defmodule Ankole.Signals do
       define(:reauthorize_signal, action: :reauthorize)
       define(:remove_signal, action: :remove)
       define(:intake, action: :intake, args: [:attrs])
+      define(:intake_all, action: :intake_all, args: [:attrs_list])
     end
 
     resource Ankole.Signals.Binding do
@@ -282,6 +283,15 @@ defmodule Ankole.Signals do
   def accept(attrs) when is_map(attrs), do: attrs |> intake() |> Ankole.Errors.reason()
   def accept(_attrs), do: {:error, :invalid_request}
 
+  @doc """
+  Accepts a list of stimuli in one transaction and wakes their sessions after
+  the transaction commits.
+
+  A rejected stimulus rejects the full list and gives its domain reason.
+  """
+  def accept_all(attrs_list) when is_list(attrs_list),
+    do: attrs_list |> intake_all() |> Ankole.Errors.reason()
+
   @doc "Publishes one Signal or a list of Signals that a transaction committed."
   def publish_committed(signals) do
     Ankole.Repo.assert_outside_transaction!()
@@ -307,4 +317,18 @@ defmodule Ankole.Signals do
   end
 
   def accept_in_tx(_repo, _attrs), do: {:error, :invalid_request}
+
+  @doc """
+  Accepts a list of stimuli in the caller's transaction.
+
+  One query reads the existing Signals and one bulk insert writes the new
+  Signals. The result has one Signal for each input, in the input order.
+  """
+  def accept_all_in_tx(repo, attrs_list) when is_list(attrs_list) do
+    with :ok <- Ankole.Repo.require_transaction(repo) do
+      if Enum.all?(attrs_list, &is_map/1),
+        do: Intake.accept_all(repo, attrs_list),
+        else: {:error, :invalid_request}
+    end
+  end
 end
