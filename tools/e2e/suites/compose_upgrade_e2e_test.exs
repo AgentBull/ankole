@@ -828,12 +828,12 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
             %{
               state: state,
               stream_open: not is_nil(data.stream),
-              run: if(data.run, do: Map.take(data.run,
+              run: if(data.turn.run, do: Map.take(data.turn.run,
                 [:signal_id, :epoch, :iteration, :workspace_id, :workspace_open?, :recovered?])),
               tasks: Enum.map(data.tasks, fn {_ref, {kind, task}} ->
                 %{kind: kind, current_function: Process.info(task, :current_function)}
               end),
-              pending: Enum.map(data.pending, fn {id, pending} ->
+              pending: Enum.map(data.turn.pending, fn {id, pending} ->
                 %{call_id: id, status: pending.status, tool: pending.worker_name,
                   mode: pending.mode, probe: pending.probe?,
                   arguments: Map.take(pending.args || %{},

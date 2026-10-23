@@ -642,7 +642,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
     assert is_nil(schedule.binding_name)
 
     assert {:ok, %{status: :fired, signal: cron}} =
-             Ankole.Schedule.Fire.fire_cron(schedule.id, now: schedule.next_fire_at)
+             Ankole.Schedule.fire_cron(schedule.id, now: schedule.next_fire_at)
 
     request = await_request()
 
@@ -702,7 +702,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
              )
 
     assert {:ok, %{signal: silent}} =
-             Ankole.Schedule.Fire.fire_cron(quiet.id, now: quiet.next_fire_at)
+             Ankole.Schedule.fire_cron(quiet.id, now: quiet.next_fire_at)
 
     _ = await_request()
     _ = wait_for_completion(silent.id)
@@ -743,7 +743,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
     schedule = native_cron(context, id, false)
 
     assert {:ok, %{signal: cron}} =
-             Ankole.Schedule.Fire.fire_cron(schedule.id, now: schedule.next_fire_at)
+             Ankole.Schedule.fire_cron(schedule.id, now: schedule.next_fire_at)
 
     _ = await_request()
     _ = wait_for_completion(cron.id)
