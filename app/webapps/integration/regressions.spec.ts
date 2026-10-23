@@ -87,7 +87,7 @@ test('the first Webhook result survives the list switching from empty to populat
   await page.getByLabel('Expires', { exact: true }).fill('2030-01-01T12:00')
   await page.getByRole('dialog').getByRole('button', { name: 'Create CloudEvents endpoint', exact: true }).click()
   await expect(page.getByLabel('Capability URL (shown once)', { exact: true })).toHaveValue(
-    'http://127.0.0.1:3198/signals/v1/cloudevents/synthetic-capability'
+    new URL('/signals/v1/cloudevents/synthetic-capability', page.url()).href
   )
   await expect(page.getByLabel('Endpoint ID', { exact: true })).toHaveValue('endpoint-one')
   await expect(page.getByRole('row').filter({ hasText: 'Fixture' })).toHaveCount(1)

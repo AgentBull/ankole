@@ -360,9 +360,7 @@ defmodule AnkoleWeb.JSONAPI.AppConfigurationTest do
 
     conn
     |> recycle_api()
-    |> put_req_header("accept", "application/json")
-    |> put_req_header("content-type", "application/json")
-    |> put(~p"/api/v1/site/control-plane-plugins", %{
+    |> api_put(~p"/api/v2/site/control-plane-plugins", %{
       "id" => "vercel-worker-provider",
       "enabled" => false
     })

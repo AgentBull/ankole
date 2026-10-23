@@ -1,20 +1,19 @@
 ---
 title: Console API reference
-description: Reference for the /api/v1 and /api/v2 APIs that the Console uses, including authentication, resource routes, and authorization actions.
+description: Reference for the /api/v2 APIs that the Console uses, including authentication, resource routes, and authorization actions.
 section: Reference
 order: 203
 ---
 
-The Console REST API uses the browser session cookie. `RequireSiteAdminSession` checks the Console context, Human revocation state, and current site administrator membership on each request. A failed authentication check returns `401`. Requests other than GET and HEAD must send the shell's `x-csrf-token` header; missing or invalid CSRF proof returns `403`.
+The Console API uses the browser session cookie. `RequireSiteAdminSession` checks the Console context, Human revocation state, and current site administrator membership on each request. A failed authentication check returns `401`. Requests other than GET and HEAD must send the shell's `x-csrf-token` header; missing or invalid CSRF proof returns `403`.
 
-The tables give the full path of each route. The Console API has two versions:
+Console configuration, aggregate views, and audited secret operations use `/api/v2`. Site administration routes use `/api/v2/site`. Tenant routes use the selected data tenant. The tables give each full path.
 
-- `/api/v2` routes use JSON:API (`application/vnd.api+json`). A paginated list route uses keyset pagination with `page[limit]` and `page[after]`. A field error returns `400`. A missing record returns `404` with `not_found`. A conflict with the current state returns `409`, and another domain rejection returns `422`. The error `code` is the name of the reason.
-- `/api/v1` routes use `application/json`. They serve aggregate views, secrets, protocol operations, file transfer, and streams.
+Use `application/vnd.api+json` for v2 requests. Each operation's OpenAPI schema defines its request and response. Resource create and update requests use `data.type` and `data.attributes`. Generic operations put their action arguments directly under `data`; they can return a typed object instead of a JSON:API resource document. For example, `PUT /api/v2/worker-envs/EXAMPLE` accepts `{"data":{"value":"example","secret":false}}` and returns a `worker_env` object. Resource list routes use `page[limit]` and `page[after]` when their schema declares keyset pagination.
 
-Site administration routes are under `/api/v2/site` and `/api/v1/site` and use the `:session_api` + `:site_admin` pipeline. Tenant data routes are under `/api/v2` and `/api/v1` and use the `:session_api` + `:site_admin` + `:data_context` pipeline and `PutDataContext`. For tenant routes, `x-ankole-tenant: <tenant UUID>` selects the data tenant. Without this header, the caller's tenant is used. An invalid, unavailable, or deleting tenant returns `404` with `data_tenant_unavailable`. The header does not change the caller's identity or site administration permission, and does not select a scope for site routes.
+For tenant routes, `x-ankole-tenant: <tenant UUID>` selects the data tenant. Without this header, the caller's tenant is used. An invalid, unavailable, or deleting tenant returns `404` with `data_tenant_unavailable`. The header does not change the caller's identity or site administration permission, and does not select a scope for site routes.
 
-The public `/api/v1/openapi.json` document describes the v1 routes. The `/api/v2/openapi.json` and `/api/v2/site/openapi.json` documents describe the v2 routes and need the same authentication as those routes. Runtime AI calls and webhooks have separate authentication rules.
+`/api/v2/openapi.json` and `/api/v2/site/openapi.json` describe the Console operations and need the same authentication as those routes. File upload and download retain the native routes listed below. Runtime AI calls, OIDC protocol operations, webhooks, and private browser APIs use their own contracts.
 
 ## The configuration surfaces
 
@@ -26,23 +25,23 @@ A running agent needs a model behind it. The operator wires that through AIGatew
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/site/ai-gateway/provider-kinds` | List the provider kinds this deployment instance can configure |
-| `GET` | `/api/v1/site/ai-gateway/models` | List typed provider models for Console configuration |
+| `GET` | `/api/v2/site/ai-gateway/provider-kinds` | List the provider kinds this deployment instance can configure |
+| `GET` | `/api/v2/site/ai-gateway/models` | List typed provider models for Console configuration |
 | `GET` | `/api/v2/site/ai-gateway/providers` | List configured providers |
 | `GET` | `/api/v2/site/ai-gateway/providers/:provider_id` | Read one provider and its credential-pool status |
 | `PATCH` | `/api/v2/site/ai-gateway/providers/:provider_id` | Create or replace a provider |
 | `DELETE` | `/api/v2/site/ai-gateway/providers/:provider_id` | Remove a provider |
-| `POST` | `/api/v1/site/ai-gateway/providers/:provider_id/credentials` | Add a credential-pool member |
-| `PUT` | `/api/v1/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | Update or reauthenticate a pool member |
-| `DELETE` | `/api/v1/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | Remove a pool member |
-| `PUT` | `/api/v1/site/ai-gateway/providers/:provider_id/credential-pool/strategy` | Set the pool selection strategy |
-| `POST` | `/api/v1/site/ai-gateway/providers/:provider_id/chatgpt-login` | Start one ChatGPT device or browser login |
-| `POST` | `/api/v1/site/ai-gateway/providers/:provider_id/chatgpt-login/poll` | Poll one device login |
-| `POST` | `/api/v1/site/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | Complete the browser-paste fallback |
-| `POST` | `/api/v1/site/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | Add an Enterprise access token |
-| `GET` | `/api/v1/agents/:agent_uid/model-profiles` | List an agent's model profiles |
-| `PUT` | `/api/v1/agents/:agent_uid/model-profiles/:profile` | Create or replace a profile |
-| `DELETE` | `/api/v1/agents/:agent_uid/model-profiles/:profile` | Remove a profile |
+| `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/credentials` | Add a credential-pool member |
+| `PATCH` | `/api/v2/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | Update or reauthenticate a pool member |
+| `DELETE` | `/api/v2/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | Remove a pool member |
+| `PATCH` | `/api/v2/site/ai-gateway/providers/:provider_id/credential-pool/strategy` | Set the pool selection strategy |
+| `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login` | Start one ChatGPT device or browser login |
+| `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login/poll` | Poll one device login |
+| `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | Complete the browser-paste fallback |
+| `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | Add an Enterprise access token |
+| `GET` | `/api/v2/agents/:agent_uid/model-profiles` | List an agent's model profiles |
+| `PUT` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | Create or replace a profile |
+| `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | Remove a profile |
 
 Provider credentials live as encrypted pool members in the control plane, never in the agent's environment. A model profile binds an agent to a provider and model. AIGateway selects a healthy member inside that provider, and the projection returns only safe account facts, health, rate-limit data, and usage.
 
@@ -65,11 +64,11 @@ Each Agent selects one Worker provider at creation. The assignment cannot change
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/site/worker-provider-kinds` | List provider kinds, YAML examples, and credential requirements |
+| `GET` | `/api/v2/site/worker-provider-kinds` | List provider kinds, YAML examples, and credential requirements |
 | `GET` | `/api/v2/site/worker-providers` | List configured Worker providers |
 | `POST` | `/api/v2/site/worker-providers` | Create a Worker provider |
 | `PATCH` | `/api/v2/site/worker-providers/:provider_id` | Update configuration or credentials |
-| `GET` | `/api/v1/site/worker-providers/:provider_id/check` | Check connection and permissions |
+| `GET` | `/api/v2/site/worker-providers/:provider_id/check` | Check connection and permissions |
 | `DELETE` | `/api/v2/site/worker-providers/:provider_id` | Delete an unused provider |
 | `PUT` | `/api/v2/agents/:agent_uid/worker-provider` | Assign a provider to a migrated Agent that has none |
 
@@ -79,13 +78,13 @@ A signal routing rule (`Signal Binding` in the API schema) connects a provider a
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/signal-adapters` | List adapters this deployment instance declared |
-| `GET` | `/api/v1/signal-bindings` | List routing rules; `?agent=` filters to one Agent |
-| `PUT` | `/api/v1/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | Create or replace a routing rule |
-| `PATCH` | `/api/v1/agents/:agent_uid/signal-bindings/:binding_name` | Update a routing rule |
+| `GET` | `/api/v2/signal-adapters` | List adapters this deployment instance declared |
+| `GET` | `/api/v2/signal-bindings` | List routing rules; `?agent=` filters to one Agent |
+| `PUT` | `/api/v2/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | Create or replace a routing rule |
+| `PATCH` | `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` | Update a routing rule |
 | `DELETE` | `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` | Disable a routing rule |
-| `GET` | `/api/v1/conversations/:conversation_id/standing-orders` | Read one Conversation's standing orders |
-| `PUT` | `/api/v1/conversations/:conversation_id/standing-orders` | Replace one Conversation's standing orders |
+| `GET` | `/api/v2/conversations/:conversation_id/standing-orders` | Read one Conversation's standing orders |
+| `PUT` | `/api/v2/conversations/:conversation_id/standing-orders` | Replace one Conversation's standing orders |
 
 Disabling a binding stops new signals from waking its agent without deleting the binding.
 
@@ -95,14 +94,14 @@ Library defaults belong to the selected tenant. Agent overrides apply within tha
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/agent-library/capabilities` | List tenant library capabilities |
-| `PUT` | `/api/v1/agent-library/agent-plugins/:id` | Set a plugin's tenant default state |
-| `PUT` | `/api/v1/agent-library/skills/:id` | Set a skill's tenant default state |
-| `GET` | `/api/v1/agents/:agent_uid/library-capabilities` | List an agent's effective capabilities |
-| `PUT` | `/api/v1/agents/:agent_uid/library-capabilities/agent-plugins/:id` | Override a plugin for one agent |
-| `PUT` | `/api/v1/agents/:agent_uid/library-capabilities/skills/:id` | Override a skill for one agent |
-| `GET` | `/api/v1/agents/:agent_uid/library-documents` | List library documents for an agent |
-| `PUT` | `/api/v1/agents/:agent_uid/library-documents/:document_kind` | Set a library document |
+| `GET` | `/api/v2/agent-library/capabilities` | List tenant library capabilities |
+| `PUT` | `/api/v2/agent-library/agent-plugins/:id` | Set a plugin's tenant default state |
+| `PUT` | `/api/v2/agent-library/skills/:id` | Set a skill's tenant default state |
+| `GET` | `/api/v2/agents/:agent_uid/library-capabilities` | List an agent's effective capabilities |
+| `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/agent-plugins/:id` | Override a plugin for one agent |
+| `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/skills/:id` | Override a skill for one agent |
+| `GET` | `/api/v2/agents/:agent_uid/library-documents` | List library documents for an agent |
+| `PUT` | `/api/v2/agents/:agent_uid/library-documents/:document_kind` | Set a library document |
 | `GET` | `/api/v2/agents/:agent_uid/skill-lessons` | List active and retired Skill lessons |
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons` | Add a human Skill lesson to an enabled Skill |
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Retire a Skill lesson |
@@ -115,18 +114,18 @@ WorkerEnv values have site defaults, tenant overrides, and Agent attachments. Th
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/site/worker-envs` | List site defaults |
-| `PUT` | `/api/v1/site/worker-envs/:name` | Set a site default |
-| `DELETE` | `/api/v1/site/worker-envs/:name` | Remove a site default |
-| `POST` | `/api/v1/site/worker-envs/:name/decryptions` | Decrypt a site value |
-| `GET` | `/api/v1/worker-envs` | List tenant values |
-| `PUT` | `/api/v1/worker-envs/:name` | Set a tenant value |
-| `DELETE` | `/api/v1/worker-envs/:name` | Remove a tenant value |
-| `POST` | `/api/v1/worker-envs/:name/decryptions` | Decrypt a tenant value |
-| `GET` | `/api/v1/agents/:agent_uid/worker-envs` | List Agent attachments |
-| `PUT` | `/api/v1/agents/:agent_uid/worker-envs/:name` | Attach or override a value for an Agent |
-| `DELETE` | `/api/v1/agents/:agent_uid/worker-envs/:name` | Remove an Agent attachment |
-| `POST` | `/api/v1/agents/:agent_uid/worker-envs/:name/decryptions` | Decrypt an Agent value |
+| `GET` | `/api/v2/site/worker-envs` | List site defaults |
+| `PUT` | `/api/v2/site/worker-envs/:name` | Set a site default |
+| `DELETE` | `/api/v2/site/worker-envs/:name` | Remove a site default |
+| `POST` | `/api/v2/site/worker-envs/:name/decryptions` | Decrypt a site value |
+| `GET` | `/api/v2/worker-envs` | List tenant values |
+| `PUT` | `/api/v2/worker-envs/:name` | Set a tenant value |
+| `DELETE` | `/api/v2/worker-envs/:name` | Remove a tenant value |
+| `POST` | `/api/v2/worker-envs/:name/decryptions` | Decrypt a tenant value |
+| `GET` | `/api/v2/agents/:agent_uid/worker-envs` | List Agent attachments |
+| `PUT` | `/api/v2/agents/:agent_uid/worker-envs/:name` | Attach or override a value for an Agent |
+| `DELETE` | `/api/v2/agents/:agent_uid/worker-envs/:name` | Remove an Agent attachment |
+| `POST` | `/api/v2/agents/:agent_uid/worker-envs/:name/decryptions` | Decrypt an Agent value |
 
 An Agent attachment uses its own value or inherits the tenant value, then the site default. Environment values are resolved when Worker work starts. An existing workspace keeps its captured environment.
 
@@ -134,8 +133,8 @@ An Agent attachment uses its own value or inherits the tenant value, then the si
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/site/control-plane-plugins` | List Control Plane Plugins and their state |
-| `PUT` | `/api/v1/site/control-plane-plugins` | Enable or disable plugins |
+| `GET` | `/api/v2/site/control-plane-plugins` | List Control Plane Plugins and their state |
+| `PUT` | `/api/v2/site/control-plane-plugins` | Enable or disable plugins |
 
 Control Plane Plugins are the first-party extensions that change what the control plane itself does, such as a signals adapter.
 
@@ -143,18 +142,18 @@ Control Plane Plugins are the first-party extensions that change what the contro
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/identity-provider-adapters` | List the IdP adapters this deployment instance supports |
-| `GET` | `/api/v1/identity-providers` | List configured identity providers |
-| `PUT` | `/api/v1/identity-providers/:provider_id` | Create or replace an IdP |
-| `POST` | `/api/v1/identity-providers/:provider_id/sync-runs` | Sync directory groups from an IdP |
-| `GET` | `/api/v1/site/app-configurations` | List site configuration keys |
-| `PUT` | `/api/v1/site/app-configurations/:key` | Set a site value |
-| `POST` | `/api/v1/site/app-configurations/:key/decryptions` | Decrypt a site secret |
-| `GET` | `/api/v1/app-configurations` | List operator-managed configuration keys |
-| `PUT` | `/api/v1/app-configurations/:key` | Set a configuration value |
-| `POST` | `/api/v1/app-configurations/:key/decryptions` | Decrypt one secret configuration value |
+| `GET` | `/api/v2/identity-provider-adapters` | List the IdP adapters this deployment instance supports |
+| `GET` | `/api/v2/identity-providers` | List configured identity providers |
+| `PUT` | `/api/v2/identity-providers/:provider_id` | Create or replace an IdP |
+| `POST` | `/api/v2/identity-providers/:provider_id/sync-runs` | Sync directory groups from an IdP |
+| `GET` | `/api/v2/site/app-configurations` | List site configuration keys |
+| `PUT` | `/api/v2/site/app-configurations/:key` | Set a site value |
+| `POST` | `/api/v2/site/app-configurations/:key/decryptions` | Decrypt a site secret |
+| `GET` | `/api/v2/app-configurations` | List operator-managed configuration keys |
+| `PUT` | `/api/v2/app-configurations/:key` | Set a configuration value |
+| `POST` | `/api/v2/app-configurations/:key/decryptions` | Decrypt one secret configuration value |
 
-`AppConfiguration` stores declared operator settings at site or tenant scope. `/api/v1/site/app-configurations` manages site keys; `/api/v1/app-configurations` manages tenant keys. Both support listing, reading one key, setting, deleting an override, and audited decryption. Bootstrap credentials and startup facts remain in environment variables or secret mounts.
+`AppConfiguration` stores declared operator settings at site or tenant scope. `/api/v2/site/app-configurations` manages site keys; `/api/v2/app-configurations` manages tenant keys. Both support listing, reading one key, setting, deleting an override, and audited decryption. Bootstrap credentials and startup facts remain in environment variables or secret mounts.
 
 ### Tenant administration
 
@@ -173,9 +172,9 @@ Control Plane Plugins are the first-party extensions that change what the contro
 
 Alongside configuration, the Console is the observability path for the rest of the system — each subsystem already documented has its read surface here:
 
-- **Agents in flight**: `/api/v1/agents/:agent_uid/sessions`, per-Agent cron schedule and checkback management; the list endpoints are tenant-wide with an `agent` filter.
+- **Agents in flight**: `/api/v2/agents/:agent_uid/sessions`, per-Agent cron schedule and checkback management; the list endpoints are tenant-wide with an `agent` filter.
 - **Workers**: `/api/v2/agent-workers` lists the Worker state for each Agent.
-- **Agent drives**: `/api/v1/agents/:agent_uid/files` lists, uploads, and deletes files; `/api/v1/agents/:agent_uid/files/content` downloads a file; `/api/v1/agents/:agent_uid/file-moves` moves a file. The control plane owns these files.
+- **Agent drives**: `/api/v2/agents/:agent_uid/files` lists and deletes files; `/api/v2/agents/:agent_uid/file-moves` moves a file. `POST /api/v1/agents/:agent_uid/files` uploads multipart data, and `GET /api/v1/agents/:agent_uid/files/content` downloads bytes. These native transfers use the same browser session, CSRF, tenant selection, and file permissions. The control plane owns the files.
 - **Jobs**: `/api/v2/background-agent-jobs` (list, read, cancel).
 - **AI activity**: `/api/v2/ai-gateway/conversations`, with messages per conversation.
 - **Principals and AuthZ**: `/api/v2/principals`, `/api/v2/principal-groups`, `/api/v2/permission-grants` — the permission model from the [Principal and AuthZ](../principal-authz/) page.

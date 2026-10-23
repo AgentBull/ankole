@@ -17,9 +17,9 @@ defmodule AnkoleWeb.PodAttachmentController do
       {"Request", "multipart/form-data", InternalAPI.ConversationAttachmentUpload, required: true},
     responses: %{
       200 => {"Success", "application/json", InternalAPI.ConversationAttachmentReceipt},
-      401 => {"Error", "application/json", AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope},
-      413 => {"Error", "application/json", AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope},
-      422 => {"Error", "application/json", AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope}
+      401 => {"Error", "application/json", AnkoleWeb.Schemas.InternalAPI.ErrorEnvelope},
+      413 => {"Error", "application/json", AnkoleWeb.Schemas.InternalAPI.ErrorEnvelope},
+      422 => {"Error", "application/json", AnkoleWeb.Schemas.InternalAPI.ErrorEnvelope}
     }
   )
 
@@ -57,8 +57,8 @@ defmodule AnkoleWeb.PodAttachmentController do
     ],
     responses: %{
       200 => {"File", "application/octet-stream", %Schema{type: :string, format: :binary}},
-      401 => {"Error", "application/json", AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope},
-      404 => {"Error", "application/json", AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope}
+      401 => {"Error", "application/json", AnkoleWeb.Schemas.InternalAPI.ErrorEnvelope},
+      404 => {"Error", "application/json", AnkoleWeb.Schemas.InternalAPI.ErrorEnvelope}
     }
   )
 

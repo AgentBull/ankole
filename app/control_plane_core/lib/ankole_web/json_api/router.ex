@@ -5,7 +5,7 @@ defmodule AnkoleWeb.JSONAPI.Router do
   A router serves the routes that its domains declare in their `json_api`
   sections, and its OpenAPI document at `/openapi.json`. A domain is in one
   router only, and the router gives the path prefix. `AnkoleWeb.Router`
-  mounts the router behind the same pipelines as the v1 routes of its scope.
+  mounts the router behind the browser session and data-context pipelines of its scope.
 
   Options:
 

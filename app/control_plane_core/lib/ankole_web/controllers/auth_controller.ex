@@ -14,17 +14,19 @@ defmodule AnkoleWeb.AuthController do
   alias Ankole.OIDC.LoginPolicy
   alias Ankole.Setup.Completion, as: SetupCompletion
   alias Ankole.Setup.Config, as: SetupConfig
-  alias AnkoleWeb.Schemas.ConsoleAPI.AuthSessionDeleteResponse
+  alias AnkoleWeb.Schemas.InternalAPI.AuthSessionDeleteResponse
   alias AnkoleWeb.Session, as: WebSession
 
-  plug :put_login_tenant
-       when action not in [
-              :oidc_callback,
-              :session,
-              :activate_account,
-              :delete_session,
-              :delete_authentication
-            ]
+  plug(
+    :put_login_tenant
+    when action not in [
+           :oidc_callback,
+           :session,
+           :activate_account,
+           :delete_session,
+           :delete_authentication
+         ]
+  )
 
   defp put_login_tenant(conn, _opts) do
     case conn.params["flow"] do

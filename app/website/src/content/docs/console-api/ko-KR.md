@@ -1,20 +1,19 @@
 ---
 title: Console API 참조
-description: Console이 사용하는 /api/v1 및 /api/v2 API에 대한 참조. 인증, 리소스 라우트, 권한 부여 동작을 다룹니다.
+description: Console이 사용하는 /api/v2 API에 대한 참조. 인증, 리소스 라우트, 권한 부여 동작을 다룹니다.
 section: Reference
 order: 203
 ---
 
-Console REST API는 browser session cookie를 사용합니다. `RequireSiteAdminSession`은 매 요청에서 Console context, Human 취소 상태, 현재 site administrator membership을 확인합니다. 인증 실패는 `401`을 반환합니다. GET과 HEAD 이외의 요청에는 shell의 `x-csrf-token` header가 필요합니다. CSRF 증명이 없거나 유효하지 않으면 `403`을 반환합니다.
+Console API는 browser session cookie를 사용합니다. `RequireSiteAdminSession`은 매 요청에서 Console context, Human 취소 상태, 현재 site administrator membership을 확인합니다. 인증 실패는 `401`을 반환합니다. GET과 HEAD 이외의 요청에는 shell의 `x-csrf-token` header가 필요합니다. CSRF 증명이 없거나 유효하지 않으면 `403`을 반환합니다.
 
-표에는 각 라우트의 전체 경로를 표시합니다. Console API에는 두 버전이 있습니다.
+Console 구성, 집계 보기, 감사 대상 secret 작업은 `/api/v2`를 사용합니다. 사이트 관리 라우트는 `/api/v2/site`를, 테넌트 라우트는 선택한 데이터 테넌트를 사용합니다. 표에는 각 라우트의 전체 경로를 표시합니다.
 
-- `/api/v2` 라우트는 JSON:API(`application/vnd.api+json`)를 사용합니다. 페이지를 나누는 목록 라우트는 `page[limit]`와 `page[after]`로 keyset 페이지네이션을 사용합니다. 필드 오류는 `400`을 반환합니다. 레코드가 없으면 `404`와 `not_found`를 반환합니다. 현재 상태와 충돌하면 `409`, 그 밖의 도메인 거부는 `422`를 반환합니다. 오류 `code`는 사유의 이름입니다.
-- `/api/v1` 라우트는 `application/json`을 사용합니다. 집계 보기, 비밀 값, 프로토콜 작업, 파일 전송, 스트림을 제공합니다.
+v2 요청은 `application/vnd.api+json`을 사용합니다. 각 작업의 OpenAPI schema가 요청과 응답을 정의합니다. 리소스 생성과 수정은 `data.type`과 `data.attributes`를 사용합니다. generic 작업은 action 인자를 `data` 바로 아래에 두며 JSON:API 리소스 문서 대신 타입이 있는 객체를 반환할 수 있습니다. 예를 들어 `PUT /api/v2/worker-envs/EXAMPLE`은 `{"data":{"value":"example","secret":false}}`를 받고 `worker_env` 객체를 반환합니다. 리소스 목록은 schema가 keyset 페이지네이션을 선언할 때 `page[limit]`와 `page[after]`를 사용합니다.
 
-사이트 관리 라우트는 `/api/v2/site`와 `/api/v1/site` 아래에서 `:session_api` + `:site_admin` 파이프라인을 사용합니다. 테넌트 데이터 라우트는 `/api/v2`와 `/api/v1` 아래에서 `:session_api` + `:site_admin` + `:data_context` 파이프라인과 `PutDataContext`를 사용합니다. 테넌트 라우트에서는 `x-ankole-tenant: <테넌트 UUID>`로 데이터 테넌트를 선택합니다. 헤더가 없으면 호출자의 테넌트를 사용합니다. 유효하지 않거나 사용할 수 없거나 삭제 중인 테넌트는 `404`와 `data_tenant_unavailable`을 반환합니다. 이 헤더는 호출자의 신원이나 사이트 관리 권한을 바꾸지 않으며 사이트 라우트의 범위도 선택하지 않습니다.
+테넌트 라우트에서는 `x-ankole-tenant: <테넌트 UUID>`로 데이터 테넌트를 선택합니다. 헤더가 없으면 호출자의 테넌트를 사용합니다. 유효하지 않거나 사용할 수 없거나 삭제 중인 테넌트는 `404`와 `data_tenant_unavailable`을 반환합니다. 이 헤더는 호출자의 신원이나 사이트 관리 권한을 바꾸지 않으며 사이트 라우트의 범위도 선택하지 않습니다.
 
-공개 `/api/v1/openapi.json`은 v1 라우트를 설명합니다. `/api/v2/openapi.json`과 `/api/v2/site/openapi.json`은 v2 라우트를 설명하며 해당 라우트와 같은 인증이 필요합니다. 런타임 AI 호출과 웹훅은 각각의 인증 규칙을 사용합니다.
+`/api/v2/openapi.json`과 `/api/v2/site/openapi.json`은 Console 작업을 설명하며 해당 라우트와 같은 인증이 필요합니다. 파일 업로드와 다운로드는 아래의 native 라우트를 유지합니다. 런타임 AI 호출, OIDC 프로토콜, 웹훅, private browser API는 각각의 계약을 사용합니다.
 
 ## 구성 표면
 
@@ -26,23 +25,23 @@ Console REST API는 browser session cookie를 사용합니다. `RequireSiteAdmin
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
-| `GET` | `/api/v1/site/ai-gateway/provider-kinds` | 이 배포 인스턴스가 구성할 수 있는 프로바이더 종류 목록 |
-| `GET` | `/api/v1/site/ai-gateway/models` | Console 설정용 capability가 포함된 provider model 목록 |
+| `GET` | `/api/v2/site/ai-gateway/provider-kinds` | 이 배포 인스턴스가 구성할 수 있는 프로바이더 종류 목록 |
+| `GET` | `/api/v2/site/ai-gateway/models` | Console 설정용 capability가 포함된 provider model 목록 |
 | `GET` | `/api/v2/site/ai-gateway/providers` | 구성된 프로바이더 목록 |
 | `GET` | `/api/v2/site/ai-gateway/providers/:provider_id` | 프로바이더 하나와 자격 증명 풀 상태 읽기 |
 | `PATCH` | `/api/v2/site/ai-gateway/providers/:provider_id` | 프로바이더 생성 또는 교체 |
 | `DELETE` | `/api/v2/site/ai-gateway/providers/:provider_id` | 프로바이더 제거 |
-| `POST` | `/api/v1/site/ai-gateway/providers/:provider_id/credentials` | 자격 증명 풀 멤버 추가 |
-| `PUT` | `/api/v1/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | 풀 멤버 갱신 또는 재인증 |
-| `DELETE` | `/api/v1/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | 풀 멤버 제거 |
-| `PUT` | `/api/v1/site/ai-gateway/providers/:provider_id/credential-pool/strategy` | 풀 선택 전략 설정 |
-| `POST` | `/api/v1/site/ai-gateway/providers/:provider_id/chatgpt-login` | ChatGPT device 또는 브라우저 로그인 하나 시작 |
-| `POST` | `/api/v1/site/ai-gateway/providers/:provider_id/chatgpt-login/poll` | device 로그인 하나 폴링 |
-| `POST` | `/api/v1/site/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | 브라우저 붙여넣기 폴백 완료 |
-| `POST` | `/api/v1/site/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | Enterprise 액세스 토큰 추가 |
-| `GET` | `/api/v1/agents/:agent_uid/model-profiles` | 에이전트의 모델 프로파일 목록 |
-| `PUT` | `/api/v1/agents/:agent_uid/model-profiles/:profile` | 프로파일 생성 또는 교체 |
-| `DELETE` | `/api/v1/agents/:agent_uid/model-profiles/:profile` | 프로파일 제거 |
+| `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/credentials` | 자격 증명 풀 멤버 추가 |
+| `PATCH` | `/api/v2/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | 풀 멤버 갱신 또는 재인증 |
+| `DELETE` | `/api/v2/site/ai-gateway/providers/:provider_id/credentials/:credential_id` | 풀 멤버 제거 |
+| `PATCH` | `/api/v2/site/ai-gateway/providers/:provider_id/credential-pool/strategy` | 풀 선택 전략 설정 |
+| `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login` | ChatGPT device 또는 브라우저 로그인 하나 시작 |
+| `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login/poll` | device 로그인 하나 폴링 |
+| `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | 브라우저 붙여넣기 폴백 완료 |
+| `POST` | `/api/v2/site/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | Enterprise 액세스 토큰 추가 |
+| `GET` | `/api/v2/agents/:agent_uid/model-profiles` | 에이전트의 모델 프로파일 목록 |
+| `PUT` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | 프로파일 생성 또는 교체 |
+| `DELETE` | `/api/v2/agents/:agent_uid/model-profiles/:profile` | 프로파일 제거 |
 
 프로바이더 자격 증명은 에이전트 환경이 아니라 컨트롤 플레인 안에 암호화된 풀 멤버로 보관됩니다. 모델 프로파일은 에이전트를 프로바이더와 모델에 바인딩합니다. AIGateway는 해당 프로바이더 안에서 정상 멤버를 선택하며, 프로젝션은 안전한 계정 사실, 상태(health), 속도 제한 데이터, 사용량만 반환합니다.
 
@@ -65,11 +64,11 @@ Console REST API는 browser session cookie를 사용합니다. `RequireSiteAdmin
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
-| `GET` | `/api/v1/site/worker-provider-kinds` | 프로바이더 종류, YAML 예시, 자격 증명 요구 사항 목록 |
+| `GET` | `/api/v2/site/worker-provider-kinds` | 프로바이더 종류, YAML 예시, 자격 증명 요구 사항 목록 |
 | `GET` | `/api/v2/site/worker-providers` | 설정된 Worker 프로바이더 목록 |
 | `POST` | `/api/v2/site/worker-providers` | Worker 프로바이더 생성 |
 | `PATCH` | `/api/v2/site/worker-providers/:provider_id` | 설정 또는 자격 증명 갱신 |
-| `GET` | `/api/v1/site/worker-providers/:provider_id/check` | 연결과 권한 확인 |
+| `GET` | `/api/v2/site/worker-providers/:provider_id/check` | 연결과 권한 확인 |
 | `DELETE` | `/api/v2/site/worker-providers/:provider_id` | Agent가 사용하지 않는 프로바이더 삭제 |
 | `PUT` | `/api/v2/agents/:agent_uid/worker-provider` | 마이그레이션 후 프로바이더가 없는 Agent에 할당 |
 
@@ -79,13 +78,13 @@ Console REST API는 browser session cookie를 사용합니다. `RequireSiteAdmin
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
-| `GET` | `/api/v1/signal-adapters` | 이 배포 인스턴스가 선언한 어댑터 목록 |
-| `GET` | `/api/v1/signal-bindings` | 라우팅 규칙 목록(`?agent=`로 Agent 필터) |
-| `PUT` | `/api/v1/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | 라우팅 규칙 생성 또는 교체 |
-| `PATCH` | `/api/v1/agents/:agent_uid/signal-bindings/:binding_name` | 라우팅 규칙 갱신 |
+| `GET` | `/api/v2/signal-adapters` | 이 배포 인스턴스가 선언한 어댑터 목록 |
+| `GET` | `/api/v2/signal-bindings` | 라우팅 규칙 목록(`?agent=`로 Agent 필터) |
+| `PUT` | `/api/v2/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | 라우팅 규칙 생성 또는 교체 |
+| `PATCH` | `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` | 라우팅 규칙 갱신 |
 | `DELETE` | `/api/v2/agents/:agent_uid/signal-bindings/:binding_name` | 라우팅 규칙 비활성화 |
-| `GET` | `/api/v1/conversations/:conversation_id/standing-orders` | Conversation 하나의 상시 지시 읽기 |
-| `PUT` | `/api/v1/conversations/:conversation_id/standing-orders` | Conversation 하나의 상시 지시 교체 |
+| `GET` | `/api/v2/conversations/:conversation_id/standing-orders` | Conversation 하나의 상시 지시 읽기 |
+| `PUT` | `/api/v2/conversations/:conversation_id/standing-orders` | Conversation 하나의 상시 지시 교체 |
 
 바인딩을 비활성화하면 바인딩을 삭제하지 않고도 새 시그널이 해당 에이전트를 깨우지 않게 됩니다.
 
@@ -95,14 +94,14 @@ Library 기본값은 선택한 테넌트에 속합니다. Agent 재정의도 해
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
-| `GET` | `/api/v1/agent-library/capabilities` | 전역 라이브러리 능력 목록 |
-| `PUT` | `/api/v1/agent-library/agent-plugins/:id` | 플러그인의 전역 기본 상태 설정 |
-| `PUT` | `/api/v1/agent-library/skills/:id` | 스킬의 전역 기본 상태 설정 |
-| `GET` | `/api/v1/agents/:agent_uid/library-capabilities` | 에이전트의 유효 능력 목록 |
-| `PUT` | `/api/v1/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 에이전트 하나의 플러그인 재정의 |
-| `PUT` | `/api/v1/agents/:agent_uid/library-capabilities/skills/:id` | 에이전트 하나의 스킬 재정의 |
-| `GET` | `/api/v1/agents/:agent_uid/library-documents` | 에이전트의 라이브러리 문서 목록 |
-| `PUT` | `/api/v1/agents/:agent_uid/library-documents/:document_kind` | 라이브러리 문서 설정 |
+| `GET` | `/api/v2/agent-library/capabilities` | 전역 라이브러리 능력 목록 |
+| `PUT` | `/api/v2/agent-library/agent-plugins/:id` | 플러그인의 전역 기본 상태 설정 |
+| `PUT` | `/api/v2/agent-library/skills/:id` | 스킬의 전역 기본 상태 설정 |
+| `GET` | `/api/v2/agents/:agent_uid/library-capabilities` | 에이전트의 유효 능력 목록 |
+| `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/agent-plugins/:id` | 에이전트 하나의 플러그인 재정의 |
+| `PUT` | `/api/v2/agents/:agent_uid/library-capabilities/skills/:id` | 에이전트 하나의 스킬 재정의 |
+| `GET` | `/api/v2/agents/:agent_uid/library-documents` | 에이전트의 라이브러리 문서 목록 |
+| `PUT` | `/api/v2/agents/:agent_uid/library-documents/:document_kind` | 라이브러리 문서 설정 |
 | `GET` | `/api/v2/agents/:agent_uid/skill-lessons` | 활성 및 폐기된 Skill 교훈 목록 |
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons` | 활성화된 Skill에 사람의 교훈 추가 |
 | `POST` | `/api/v2/agents/:agent_uid/skill-lessons/:lesson_id/retire` | Skill 교훈 폐기 |
@@ -115,18 +114,18 @@ WorkerEnv는 사이트 기본값, 테넌트 재정의, Agent 연결을 제공합
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
-| `GET` | `/api/v1/site/worker-envs` | 사이트 기본값 목록 |
-| `PUT` | `/api/v1/site/worker-envs/:name` | 사이트 기본값 설정 |
-| `DELETE` | `/api/v1/site/worker-envs/:name` | 사이트 기본값 제거 |
-| `POST` | `/api/v1/site/worker-envs/:name/decryptions` | 사이트 값 복호화 |
-| `GET` | `/api/v1/worker-envs` | 테넌트 값 목록 |
-| `PUT` | `/api/v1/worker-envs/:name` | 테넌트 값 설정 |
-| `DELETE` | `/api/v1/worker-envs/:name` | 테넌트 값 제거 |
-| `POST` | `/api/v1/worker-envs/:name/decryptions` | 테넌트 값 복호화 |
-| `GET` | `/api/v1/agents/:agent_uid/worker-envs` | Agent 연결 목록 |
-| `PUT` | `/api/v1/agents/:agent_uid/worker-envs/:name` | Agent에 값 연결 또는 재정의 |
-| `DELETE` | `/api/v1/agents/:agent_uid/worker-envs/:name` | Agent 연결 제거 |
-| `POST` | `/api/v1/agents/:agent_uid/worker-envs/:name/decryptions` | Agent 값 복호화 |
+| `GET` | `/api/v2/site/worker-envs` | 사이트 기본값 목록 |
+| `PUT` | `/api/v2/site/worker-envs/:name` | 사이트 기본값 설정 |
+| `DELETE` | `/api/v2/site/worker-envs/:name` | 사이트 기본값 제거 |
+| `POST` | `/api/v2/site/worker-envs/:name/decryptions` | 사이트 값 복호화 |
+| `GET` | `/api/v2/worker-envs` | 테넌트 값 목록 |
+| `PUT` | `/api/v2/worker-envs/:name` | 테넌트 값 설정 |
+| `DELETE` | `/api/v2/worker-envs/:name` | 테넌트 값 제거 |
+| `POST` | `/api/v2/worker-envs/:name/decryptions` | 테넌트 값 복호화 |
+| `GET` | `/api/v2/agents/:agent_uid/worker-envs` | Agent 연결 목록 |
+| `PUT` | `/api/v2/agents/:agent_uid/worker-envs/:name` | Agent에 값 연결 또는 재정의 |
+| `DELETE` | `/api/v2/agents/:agent_uid/worker-envs/:name` | Agent 연결 제거 |
+| `POST` | `/api/v2/agents/:agent_uid/worker-envs/:name/decryptions` | Agent 값 복호화 |
 
 Agent 연결은 전용 값을 사용하거나 테넌트 값, 사이트 기본값 순으로 상속합니다. Worker 작업 시작 시 환경 값을 해석합니다. 기존 작업공간은 생성 시 환경을 유지합니다.
 
@@ -134,8 +133,8 @@ Agent 연결은 전용 값을 사용하거나 테넌트 값, 사이트 기본값
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
-| `GET` | `/api/v1/site/control-plane-plugins` | Control Plane Plugins와 그 상태 목록 |
-| `PUT` | `/api/v1/site/control-plane-plugins` | 플러그인 활성화 또는 비활성화 |
+| `GET` | `/api/v2/site/control-plane-plugins` | Control Plane Plugins와 그 상태 목록 |
+| `PUT` | `/api/v2/site/control-plane-plugins` | 플러그인 활성화 또는 비활성화 |
 
 Control Plane Plugins는 컨트롤 플레인 자체가 하는 일을 바꾸는 퍼스트파티 확장입니다. 시그널 어댑터가 그 예입니다.
 
@@ -143,18 +142,18 @@ Control Plane Plugins는 컨트롤 플레인 자체가 하는 일을 바꾸는 �
 
 | 메서드 | 경로 | 용도 |
 |---|---|---|
-| `GET` | `/api/v1/identity-provider-adapters` | 이 배포 인스턴스가 지원하는 IdP 어댑터 목록 |
-| `GET` | `/api/v1/identity-providers` | 구성된 identity provider 목록 |
-| `PUT` | `/api/v1/identity-providers/:provider_id` | IdP 생성 또는 교체 |
-| `POST` | `/api/v1/identity-providers/:provider_id/sync-runs` | IdP에서 디렉터리 그룹 동기화 |
-| `GET` | `/api/v1/site/app-configurations` | 사이트 구성 키 목록 |
-| `PUT` | `/api/v1/site/app-configurations/:key` | 사이트 값 설정 |
-| `POST` | `/api/v1/site/app-configurations/:key/decryptions` | 사이트 비밀 복호화 |
-| `GET` | `/api/v1/app-configurations` | 운영자 관리 구성 키 목록 |
-| `PUT` | `/api/v1/app-configurations/:key` | 구성 값 설정 |
-| `POST` | `/api/v1/app-configurations/:key/decryptions` | 비밀 구성 값 하나 복호화 |
+| `GET` | `/api/v2/identity-provider-adapters` | 이 배포 인스턴스가 지원하는 IdP 어댑터 목록 |
+| `GET` | `/api/v2/identity-providers` | 구성된 identity provider 목록 |
+| `PUT` | `/api/v2/identity-providers/:provider_id` | IdP 생성 또는 교체 |
+| `POST` | `/api/v2/identity-providers/:provider_id/sync-runs` | IdP에서 디렉터리 그룹 동기화 |
+| `GET` | `/api/v2/site/app-configurations` | 사이트 구성 키 목록 |
+| `PUT` | `/api/v2/site/app-configurations/:key` | 사이트 값 설정 |
+| `POST` | `/api/v2/site/app-configurations/:key/decryptions` | 사이트 비밀 복호화 |
+| `GET` | `/api/v2/app-configurations` | 운영자 관리 구성 키 목록 |
+| `PUT` | `/api/v2/app-configurations/:key` | 구성 값 설정 |
+| `POST` | `/api/v2/app-configurations/:key/decryptions` | 비밀 구성 값 하나 복호화 |
 
-`AppConfiguration`은 선언된 운영 설정을 사이트 또는 테넌트 범위에 저장합니다. `/api/v1/site/app-configurations`는 사이트 키를, `/api/v1/app-configurations`는 테넌트 키를 관리합니다. 두 경로 모두 목록, 개별 키 읽기, 설정, 재정의 삭제, 감사 대상 복호화를 지원합니다. 시작 자격 증명과 시작 정보는 환경 변수나 시크릿 마운트에 둡니다.
+`AppConfiguration`은 선언된 운영 설정을 사이트 또는 테넌트 범위에 저장합니다. `/api/v2/site/app-configurations`는 사이트 키를, `/api/v2/app-configurations`는 테넌트 키를 관리합니다. 두 경로 모두 목록, 개별 키 읽기, 설정, 재정의 삭제, 감사 대상 복호화를 지원합니다. 시작 자격 증명과 시작 정보는 환경 변수나 시크릿 마운트에 둡니다.
 
 ### 테넌트 관리
 
@@ -173,9 +172,9 @@ Control Plane Plugins는 컨트롤 플레인 자체가 하는 일을 바꾸는 �
 
 구성과 함께, Console은 나머지 시스템의 관찰 경로이기도 합니다. 이미 문서화된 각 하위 시스템은 여기에 읽기 표면을 가집니다.
 
-- **실행 중인 Agents**: `/api/v1/agents/:agent_uid/sessions`, Agent별 cron 일정과 checkback 관리. 목록 엔드포인트는 테넌트 전체 범위이며 `agent` 필터를 받습니다.
+- **실행 중인 Agents**: `/api/v2/agents/:agent_uid/sessions`, Agent별 cron 일정과 checkback 관리. 목록 엔드포인트는 테넌트 전체 범위이며 `agent` 필터를 받습니다.
 - **Workers**: `/api/v2/agent-workers`에서 각 Agent의 Worker 상태를 확인합니다.
-- **Agent 드라이브**: `/api/v1/agents/:agent_uid/files`에서 파일 목록, 업로드, 삭제를 처리하고, `/api/v1/agents/:agent_uid/files/content`에서 다운로드하며, `/api/v1/agents/:agent_uid/file-moves`에서 이동합니다. 이 파일은 컨트롤 플레인이 관리합니다.
+- **Agent drive**: `/api/v2/agents/:agent_uid/files`는 파일 목록과 삭제에, `/api/v2/agents/:agent_uid/file-moves`는 이동에 사용합니다. `POST /api/v1/agents/:agent_uid/files`는 multipart 업로드를, `GET /api/v1/agents/:agent_uid/files/content`는 바이트 다운로드를 처리합니다. native 전송에도 같은 browser session, CSRF, 테넌트 선택, 파일 권한을 적용합니다. control plane이 파일을 소유합니다.
 - **Jobs**: `/api/v2/background-agent-jobs`(목록, 읽기, 취소).
 - **AI 활동**: `/api/v2/ai-gateway/conversations`, 대화별 메시지.
 - **Principals 및 AuthZ**: `/api/v2/principals`, `/api/v2/principal-groups`, `/api/v2/permission-grants` — [Principal 및 AuthZ](../principal-authz/) 페이지의 권한 모델.

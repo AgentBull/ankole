@@ -2,7 +2,7 @@ defmodule AnkoleWeb.PodController do
   @moduledoc "Browser API for the current Human's native conversations."
   use AnkoleWeb, :controller
   use OpenApiSpex.ControllerSpecs
-  alias AnkoleWeb.Schemas.{ConsoleAPI, InternalAPI}
+  alias AnkoleWeb.Schemas.InternalAPI
 
   operation(:events,
     operation_id: "podConversationEvents",
@@ -10,12 +10,12 @@ defmodule AnkoleWeb.PodController do
     parameters: [id: [in: :path, type: :string, required: true]],
     responses: %{
       200 => {"Events", "text/event-stream", %OpenApiSpex.Schema{type: :string}},
-      401 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      403 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      404 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      409 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      413 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      422 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope}
+      401 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      403 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      404 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      409 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      413 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      422 => {"Error", "application/json", InternalAPI.ErrorEnvelope}
     }
   )
 
@@ -28,11 +28,11 @@ defmodule AnkoleWeb.PodController do
     summary: "podAgents",
     responses: %{
       200 => {"Success", "application/json", InternalAPI.PodAgents},
-      401 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      403 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      404 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      409 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      422 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope}
+      401 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      403 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      404 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      409 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      422 => {"Error", "application/json", InternalAPI.ErrorEnvelope}
     }
   )
 
@@ -46,11 +46,11 @@ defmodule AnkoleWeb.PodController do
     parameters: [pageID: [in: :query, type: :string, required: false]],
     responses: %{
       200 => {"Success", "application/json", InternalAPI.Conversations},
-      401 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      403 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      404 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      409 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      422 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope}
+      401 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      403 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      404 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      409 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      422 => {"Error", "application/json", InternalAPI.ErrorEnvelope}
     }
   )
 
@@ -77,11 +77,11 @@ defmodule AnkoleWeb.PodController do
     request_body: {"Request", "application/json", InternalAPI.ConversationCreateRequest},
     responses: %{
       200 => {"Success", "application/json", InternalAPI.ConversationDetail},
-      401 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      403 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      404 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      409 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      422 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope}
+      401 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      403 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      404 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      409 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      422 => {"Error", "application/json", InternalAPI.ErrorEnvelope}
     }
   )
 
@@ -112,11 +112,11 @@ defmodule AnkoleWeb.PodController do
     ],
     responses: %{
       200 => {"Success", "application/json", InternalAPI.ConversationDetail},
-      401 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      403 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      404 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      409 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      422 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope}
+      401 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      403 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      404 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      409 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      422 => {"Error", "application/json", InternalAPI.ErrorEnvelope}
     }
   )
 
@@ -153,11 +153,11 @@ defmodule AnkoleWeb.PodController do
     request_body: {"Request", "application/json", InternalAPI.ConversationMessageRequest},
     responses: %{
       200 => {"Success", "application/json", InternalAPI.ConversationDetail},
-      401 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      403 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      404 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      409 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      422 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope}
+      401 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      403 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      404 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      409 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      422 => {"Error", "application/json", InternalAPI.ErrorEnvelope}
     }
   )
 
@@ -177,11 +177,11 @@ defmodule AnkoleWeb.PodController do
     request_body: {"Request", "application/json", InternalAPI.ConversationQueueRequest},
     responses: %{
       200 => {"Success", "application/json", InternalAPI.ConversationDetail},
-      401 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      403 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      404 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      409 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      422 => {"Error", "application/json", ConsoleAPI.ErrorEnvelope}
+      401 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      403 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      404 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      409 => {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      422 => {"Error", "application/json", InternalAPI.ErrorEnvelope}
     }
   )
 
@@ -219,9 +219,9 @@ defmodule AnkoleWeb.PodController do
     parameters: [id: [in: :path, type: :string, required: true]],
     responses: [
       no_content: "Deleted",
-      unauthorized: {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      not_found: {"Error", "application/json", ConsoleAPI.ErrorEnvelope},
-      conflict: {"Error", "application/json", ConsoleAPI.ErrorEnvelope}
+      unauthorized: {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      not_found: {"Error", "application/json", InternalAPI.ErrorEnvelope},
+      conflict: {"Error", "application/json", InternalAPI.ErrorEnvelope}
     ]
   )
 

@@ -30,7 +30,6 @@ defmodule Mix.Tasks.Ankole.Openapi.Check do
 
     try do
       for {name, module} <- [
-            {"console", AnkoleWeb.APISpec},
             {"internal", AnkoleWeb.InternalAPISpec},
             {"console-v2", AnkoleWeb.JSONAPI.ConsoleRouter},
             {"site-v2", AnkoleWeb.JSONAPI.SiteRouter}

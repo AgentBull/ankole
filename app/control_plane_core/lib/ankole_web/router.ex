@@ -1,7 +1,4 @@
 defmodule AnkoleWeb.Router do
-  alias OpenApiSpex, as: OpenAPISpex
-  alias OpenAPISpex.Plug.PutApiSpec, as: PutAPISpec
-
   @moduledoc """
   Routes the Phoenix shell, setup API, and admin auth API.
 
@@ -22,11 +19,6 @@ defmodule AnkoleWeb.Router do
     plug :private_response
   end
 
-  pipeline :openapi do
-    plug :accepts, ["json"]
-    plug :put_api_spec
-  end
-
   pipeline :session_api do
     # Setup, authentication, and Console JSON requests share cookie and CSRF protection.
     # The v2 Console API uses the JSON:API media type.
@@ -45,7 +37,6 @@ defmodule AnkoleWeb.Router do
   end
 
   pipeline :site_admin do
-    plug :put_api_spec
     plug :require_site_admin_session
   end
 
@@ -69,7 +60,6 @@ defmodule AnkoleWeb.Router do
   pipeline :ai_gateway_api do
     # Runtime AI calls are stateless HTTP requests authenticated as an Agent,
     # an authorized OIDC Human.
-    plug :put_api_spec
     plug :oidc_cors
     plug :require_ai_gateway_access_token
   end
@@ -189,64 +179,12 @@ defmodule AnkoleWeb.Router do
     get "/conversations/:id/events", PodController, :events
   end
 
-  # The spec document is public (no bearer token) so tooling can read it without
-  # credentials; the API endpoints it describes still require one below.
-  scope "/api/v1" do
-    pipe_through :openapi
-
-    get "/openapi.json", OpenAPISpex.Plug.RenderSpec, []
-  end
-
-  scope "/api/v1/site", AnkoleWeb do
-    pipe_through [:session_api, :site_admin]
-
-    get "/control-plane-plugins", ControlPlanePluginController, :index
-    put "/control-plane-plugins", ControlPlanePluginController, :update
-  end
-
+  # Native file transfers use the same browser and tenant protection as Console operations.
   scope "/api/v1", AnkoleWeb do
-    pipe_through [:session_api, :site_admin, :data_context]
+    pipe_through([:session_api, :site_admin, :data_context])
 
-    get "/brain/health", BrainController, :health
-    post "/brain/dream", BrainController, :dream
-    get "/brain/object-types", BrainController, :object_types
-    post "/brain/search-preview", BrainController, :search_preview
-    get "/brain/principals/:principal_uid/knowledge", BrainController, :principal_knowledge
-    # Object slugs contain `/`, so the object page carries the slug as a query
-    # parameter instead of a wildcard path segment, which the OpenAPI document
-    # could not express.
-    get "/brain/objects/show", BrainController, :show_object
-
-    get "/agent-library/capabilities", AgentLibraryCapabilityController, :global_index
-
-    put "/agent-library/agent-plugins/:id",
-        AgentLibraryCapabilityController,
-        :put_global_agent_plugin
-
-    put "/agent-library/skills/:id",
-        AgentLibraryCapabilityController,
-        :put_global_skill
-
-    get "/agents/:agent_uid/library-capabilities",
-        AgentLibraryCapabilityController,
-        :agent_index
-
-    put "/agents/:agent_uid/library-capabilities/agent-plugins/:id",
-        AgentLibraryCapabilityController,
-        :put_agent_plugin_override
-
-    put "/agents/:agent_uid/library-capabilities/skills/:id",
-        AgentLibraryCapabilityController,
-        :put_agent_skill_override
-
-    get "/agents/:agent_uid/library-documents", AgentLibraryController, :index
-
-    put "/agents/:agent_uid/library-documents/:document_kind",
-        AgentLibraryController,
-        :update
-
-    get "/agents/:agent_uid/files/content", AgentFileController, :download
-    post "/agents/:agent_uid/files", AgentFileController, :upload
+    get("/agents/:agent_uid/files/content", AgentFileController, :download)
+    post("/agents/:agent_uid/files", AgentFileController, :upload)
   end
 
   # The JSON:API routers serve the routes that the Ash domains declare. The site
@@ -343,9 +281,6 @@ defmodule AnkoleWeb.Router do
   # Function plugs preserve runtime dependencies on business code in production too.
   defp browser_csrf(conn, opts),
     do: AnkoleWeb.Plugs.BrowserCSRF.call(conn, AnkoleWeb.Plugs.BrowserCSRF.init(opts))
-
-  defp put_api_spec(conn, _opts),
-    do: PutAPISpec.call(conn, PutAPISpec.init(module: AnkoleWeb.APISpec))
 
   defp oidc_cors(conn, opts),
     do: AnkoleWeb.Plugs.OIDCCORS.call(conn, AnkoleWeb.Plugs.OIDCCORS.init(opts))

@@ -1,8 +1,7 @@
 /**
- * The Console uses one shape for the v1 and the v2 API: a flat record and the
- * `{ error: { code, message, details } }` failure. The v2 API sends JSON:API
- * documents. This module changes them to the Console shape at one point, so a
- * page that moves to a v2 SDK function keeps its logic.
+ * The Console flattens JSON:API resource documents and gives error documents
+ * the shared browser failure shape. Typed generic operation DTOs already
+ * have the shape that their page uses.
  */
 
 export const JSON_API_MEDIA_TYPE = 'application/vnd.api+json'
@@ -53,8 +52,8 @@ interface ConsoleFailure {
 /**
  * Changes a JSON:API error document to the Console failure shape. The first
  * error gives the code and the message. Errors at a request field give the
- * details; when all errors are at a field, the code is `validation_failed` as
- * in v1. A domain rejection gives its details in `meta.details`. An Ash error
+ * details; when all errors are at a field, the code is `validation_failed`.
+ * A domain rejection gives its details in `meta.details`. An Ash error
  * message can name its `meta` values as `%{name}`. Other payloads, for example
  * the session and data context failures of the shared pipeline, stay the same.
  * The v2 clients use this function as their error interceptor.

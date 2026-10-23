@@ -4,8 +4,8 @@ defmodule AnkoleWeb.JSONAPI.Policy do
 
   Ash policies stay disabled: Principal/AuthZ is the only authorization model.
   Each route of a JSON:API router has one rule in `@rules`. A rule gives the
-  AuthZ resource and action that `AnkoleWeb.ConsolePolicy.authorize/3` checks,
-  the same pair that the v1 controller of the route checks. The AuthZ resource
+  AuthZ resource and action that `AnkoleWeb.ConsolePolicy.authorize/3` checks.
+  The AuthZ resource
   can contain `{name}` for the value of a path parameter. A route without a
   rule is refused. `AnkoleWeb.JSONAPI.PolicyTest` asserts that each route has
   a rule and that each rule has a route.
@@ -32,7 +32,7 @@ defmodule AnkoleWeb.JSONAPI.Policy do
   # {resource, route type, action or relationship} => {AuthZ resource, AuthZ action}
   @rules %{
     site: %{
-      # K1 registry settings and operator Worker environment.
+      # registry settings and operator Worker environment.
       {Ankole.AppConfigure.SiteOperations, :route, :console_list} =>
         {"app_configurations", "read"},
       {Ankole.AppConfigure.SiteOperations, :route, :console_show} =>
@@ -58,7 +58,7 @@ defmodule AnkoleWeb.JSONAPI.Policy do
       {Ankole.ControlPlanePlugins.Console, :route, :list} => {"control_plane_plugins", "read"},
       {Ankole.ControlPlanePlugins.Console, :route, :configure} =>
         {"control_plane_plugins", "update"},
-      # K2 provider credentials and model catalog
+      # provider credentials and model catalog
       {Ankole.AIGateway.ProviderConfigs.Console, :route, :models} =>
         {"ai_gateway_providers", "read"},
       {Ankole.AIGateway.ProviderConfigs.Console, :route, :provider_kinds} =>
@@ -79,7 +79,7 @@ defmodule AnkoleWeb.JSONAPI.Policy do
         {"ai_gateway_provider:{provider_id}", "update"},
       {Ankole.AIGateway.ProviderConfigs.Console, :route, :enterprise} =>
         {"ai_gateway_provider:{provider_id}", "update"},
-      # J1 site tenants (v1: tenant_controller.ex)
+      # site tenants
       {Ankole.Tenants.Tenant, :index, :list} => {"site:tenants", "read"},
       {Ankole.Tenants.Tenant, :route, :brain_packs} => {"site:tenants", "read"},
       {Ankole.Tenants.Tenant, :post, :create} => {"site:tenants", "update"},
@@ -90,14 +90,14 @@ defmodule AnkoleWeb.JSONAPI.Policy do
       {Ankole.Tenants.Tenant, :get, :privileged} => {"site:privileged_tenant", "read"},
       {Ankole.Tenants.Tenant, :patch, :transfer_site_administration} =>
         {"site:privileged_tenant", "update"},
-      # J1 site worker providers (v1: worker_provider_controller.ex)
+      # site worker providers
       {Ankole.AgentWorkers.Providers.Provider, :index, :list} => {"worker_providers", "read"},
       {Ankole.AgentWorkers.Providers.Provider, :post, :add} => {"worker_providers", "update"},
       {Ankole.AgentWorkers.Providers.Provider, :patch, :configure_provider} =>
         {"worker_provider:{provider_id}", "update"},
       {Ankole.AgentWorkers.Providers.Provider, :delete, :delete_provider} =>
         {"worker_provider:{provider_id}", "delete"},
-      # J1 site AIGateway providers (v1: ai_gateway_provider_controller.ex)
+      # site AIGateway providers
       {Ankole.AIGateway.ProviderConfigs.Provider, :index, :list} =>
         {"ai_gateway_providers", "read"},
       {Ankole.AIGateway.ProviderConfigs.Provider, :get, :read} =>
@@ -110,7 +110,7 @@ defmodule AnkoleWeb.JSONAPI.Policy do
         {"ai_gateway_provider:{provider_id}", "update"}
     },
     console: %{
-      # K5 runtime views, Signal configuration, and Agent drive operations.
+      # runtime views, Signal configuration, and Agent drive operations.
       {Ankole.Signals.ConsoleOperations, :route, :console_adapters} =>
         {"signals_adapters", "read"},
       {Ankole.Signals.ConsoleOperations, :route, :console_list_bindings} =>
@@ -148,7 +148,7 @@ defmodule AnkoleWeb.JSONAPI.Policy do
       {Ankole.ConsoleReadiness.ConsoleOperations, :route, :console_snapshot} =>
         {"console_readiness", "read"},
 
-      # K3 identity configuration, directory evidence, and reviewed access.
+      # identity configuration, directory evidence, and reviewed access.
       {Ankole.IdentityProviders.Console, :route, :adapters} =>
         {"identity_provider_adapters", "read"},
       {Ankole.IdentityProviders.Console, :route, :providers} => {"identity_providers", "read"},
@@ -172,7 +172,7 @@ defmodule AnkoleWeb.JSONAPI.Policy do
       {Ankole.Principals.Access, :route, :classify_work} => {"principals", "update"},
       {Ankole.OIDC.Client, :route, :login_sources} => {"oidc_clients", "read"},
       {Ankole.OIDC.Client, :route, :console_rotate_secret} => {"oidc_client:{id}", "update"},
-      # K1 registry settings and operator Worker environment.
+      # registry settings and operator Worker environment.
       {Ankole.AppConfigure.ConsoleOperations, :route, :console_list} =>
         {"app_configurations", "read"},
       {Ankole.AppConfigure.ConsoleOperations, :route, :console_show} =>
@@ -218,7 +218,7 @@ defmodule AnkoleWeb.JSONAPI.Policy do
         {"agent:{agent_uid}:library", "read"},
       {Ankole.AIAgent.Library.Console, :route, :replace_document} =>
         {"agent:{agent_uid}:library", "update"},
-      # K2 Agent model configuration and token quotas
+      # Agent model configuration and token quotas
       {Ankole.AIAgent.Console, :route, :model_profiles} =>
         {"agent:{agent_uid}:model_profiles", "read"},
       {Ankole.AIAgent.Console, :route, :put_model_profile} =>
@@ -234,7 +234,7 @@ defmodule AnkoleWeb.JSONAPI.Policy do
         {"agent:{agent_uid}:token_quota", "delete"},
       {Ankole.AIAgent.Console, :route, :reset_token_quota} =>
         {"agent:{agent_uid}:token_quota", "update"},
-      # J4 background agent jobs (v1: background_agent_job_controller.ex)
+      # background agent jobs
       {Ankole.BackgroundAgentJobs.Schemas.Job, :index, :console_list} =>
         {"background_agent_jobs", "read"},
       {Ankole.BackgroundAgentJobs.Schemas.Job, :get, :read} => {"background_agent_jobs", "read"},
@@ -242,38 +242,38 @@ defmodule AnkoleWeb.JSONAPI.Policy do
         {"background_agent_jobs", "delete"},
       {Ankole.BackgroundAgentJobs.Schemas.Job, :route, :console_complete} =>
         {"background_agent_jobs", "update"},
-      # J4 agent skill lessons (v1: agent_skill_lesson_controller.ex)
+      # agent skill lessons
       {Ankole.AIAgent.Library.Schemas.AgentSkillLesson, :index, :console_list} =>
         {"agent:{agent_uid}:library", "read"},
       {Ankole.AIAgent.Library.Schemas.AgentSkillLesson, :route, :console_teach} =>
         {"agent:{agent_uid}:library", "update"},
       {Ankole.AIAgent.Library.Schemas.AgentSkillLesson, :route, :revoke} =>
         {"agent:{agent_uid}:library", "update"},
-      # J4 agents (v1: agent_controller.ex)
+      # agents
       {Ankole.Principals.Agent, :index, :console_list} => {"agents", "read"},
       {Ankole.Principals.Agent, :get, :read} => {"agent:{uid}", "read"},
       {Ankole.Principals.Agent, :route, :console_create} => {"agents", "update"},
       {Ankole.Principals.Agent, :route, :console_update} => {"agent:{uid}", "update"},
       {Ankole.Principals.Agent, :route, :console_delete} => {"agent:{uid}", "delete"},
       {Ankole.Principals.Agent, :route, :console_enable} => {"agent:{uid}", "update"},
-      # J4 agent workers (v1: agent_worker_controller.ex, worker_provider_controller.ex assign)
+      # agent workers
       {Ankole.AgentWorkers.AgentWorker, :index, :console_list} => {"agent_workers", "read"},
       {Ankole.AgentWorkers.AgentWorker, :route, :console_assign_provider} =>
         {"agent:{agent_uid}", "update"},
-      # J4 ai-gateway conversations (v1: ai_gateway_conversation_controller.ex)
+      # ai-gateway conversations
       {Ankole.AIGateway.Schemas.Conversation, :index, :console_list} =>
         {"ai_gateway_conversations", "read"},
       {Ankole.AIGateway.Schemas.Conversation, :get, :read} =>
         {"ai_gateway_conversations", "read"},
       {Ankole.AIGateway.Schemas.Message, :index, :console_list} =>
         {"ai_gateway_conversations", "read"},
-      # J3 automation jobs (v1: automation_job_controller.ex)
+      # automation jobs
       {Ankole.AutomationJobs.Schemas.Job, :index, :console_list} => {"automation_jobs", "read"},
       {Ankole.AutomationJobs.Schemas.Job, :get, :read} =>
         {"agent:{agent_uid}:automation_jobs", "read"},
       {Ankole.AutomationJobs.Schemas.Run, :index, :console_list} =>
         {"agent:{agent_uid}:automation_jobs", "read"},
-      # J3 OIDC clients (v1: oidc_client_controller.ex)
+      # OIDC clients
       {Ankole.OIDC.Client, :index, :console_list} => {"oidc_clients", "read"},
       {Ankole.OIDC.Client, :route, :console_create} => {"oidc_clients", "update"},
       {Ankole.OIDC.Client, :get, :read} => {"oidc_client:{id}", "read"},
@@ -282,13 +282,13 @@ defmodule AnkoleWeb.JSONAPI.Policy do
       {Ankole.OIDC.LogoutDelivery, :index, :console_list} => {"oidc_client:{client_id}", "read"},
       {Ankole.OIDC.LogoutDelivery, :route, :console_retry} =>
         {"oidc_client:{client_id}", "update"},
-      # J3 webhook endpoints (v1: webhook_endpoint_controller.ex)
+      # webhook endpoints
       {Ankole.Signals.WebhookEndpoint, :index, :console_list} => {"webhooks", "read"},
       {Ankole.Signals.WebhookEndpoint, :route, :create_operator_endpoint} =>
         {"webhooks", "update"},
       {Ankole.Signals.WebhookEndpoint, :route, :cancel_operator_endpoint} =>
         {"webhooks", "delete"},
-      # J3 cron schedules and checkbacks (v1: schedule_controller.ex)
+      # cron schedules and checkbacks
       {Ankole.Schedule.Schemas.CronSchedule, :index, :console_list} => {"schedules", "read"},
       {Ankole.Schedule.Schemas.CronSchedule, :route, :console_create} =>
         {"agent:{agent_uid}:schedules", "update"},
@@ -310,10 +310,10 @@ defmodule AnkoleWeb.JSONAPI.Policy do
         {"schedules", "read"},
       {Ankole.Schedule.Schemas.ScheduledEvent, :route, :console_cancel_checkback} =>
         {"agent:{agent_uid}:schedules", "delete"},
-      # J3 signal bindings (v1: signal_binding_controller.ex)
+      # signal bindings
       {Ankole.Signals.Binding, :route, :console_disable} =>
         {"agent:{agent_uid}:signal_bindings", "delete"},
-      # J5 brain (v1: brain_controller.ex)
+      # brain
       {Ankole.Brain.Schemas.Object, :index, :console_list} => {"brain", "read"},
       {Ankole.Brain.Schemas.Object, :route, :console_create} => {"brain", "update"},
       {Ankole.Brain.Schemas.Object, :route, :console_update} => {"brain", "update"},
@@ -339,8 +339,7 @@ defmodule AnkoleWeb.JSONAPI.Policy do
       {Ankole.Brain.Schemas.Source, :route, :update_default_scope} => {"brain", "update"},
       {Ankole.Brain.Schemas.Source, :route, :console_learn} => {"brain", "update"},
       {Ankole.Brain.Schemas.Source, :route, :archive_source} => {"brain", "update"},
-      # J2 identity (v1: principal_controller.ex, authz_group_controller.ex,
-      # permission_grant_controller.ex, identity_mapping_request_controller.ex)
+      # Identity and permission administration.
       {Ankole.Principals.Principal, :index, :console_list} => {"principals", "read"},
       {Ankole.Principals.Principal, :get, :read} => {"principal:{uid}", "read"},
       {Ankole.Principals.Principal, :post, :create_local_user} => {"principals", "update"},

@@ -1,5 +1,4 @@
 import { isRecord } from '@agentbull/active-support'
-import type { JsonValue as JSONValue } from '../api/generated/types.gen'
 
 export const OBSERVABILITY_TRACE_KEYS = {
   enabled: 'observability.traces.enabled',
@@ -73,7 +72,7 @@ export function observabilityTraceValidationError(
   return undefined
 }
 
-export function observabilityHeaderRows(value: JSONValue): ObservabilityHeaderRow[] | undefined {
+export function observabilityHeaderRows(value: unknown): ObservabilityHeaderRow[] | undefined {
   if (!isRecord(value)) return undefined
 
   const entries = Object.entries(value)
