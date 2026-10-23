@@ -102,8 +102,9 @@ defmodule Ankole.BrowserAuthenticationsIntegrationTest do
     second =
       Task.async(
         Repo.bind_tenant(fn ->
-          Repo.transact(fn repo ->
-            %{rows: [[pid]]} = repo.query!("SELECT pg_backend_pid()")
+          # Keep the connection while the domain action owns its transaction.
+          Repo.checkout(fn ->
+            %{rows: [[pid]]} = Repo.query!("SELECT pg_backend_pid()")
             send(owner, {:second_backend, pid})
             second_operation.()
           end)
