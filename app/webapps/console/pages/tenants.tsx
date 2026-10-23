@@ -22,7 +22,6 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
-  ankoleWebPrincipalControllerIndexOptions,
   ankoleWebTenantControllerCreateMutation,
   ankoleWebTenantControllerDeleteMutation,
   ankoleWebTenantControllerIndexOptions,
@@ -32,6 +31,8 @@ import {
   ankoleWebTenantControllerTransferMutation,
   ankoleWebTenantControllerUpdateMutation
 } from '../api/generated/@tanstack/react-query.gen'
+import { listPrincipalsOptions } from '../api/v2/generated/@tanstack/react-query.gen'
+import { fromDocument } from '../api/json-api'
 import type { Tenant } from '../api/generated/types.gen'
 import { clearDataTenant, selectDataTenant } from '../../common/browser-session'
 import {
@@ -271,9 +272,11 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
 function TransferAdministration({ tenant }: { tenant: Tenant }) {
   const { t } = useTranslation()
   const [principalUID, setPrincipalUID] = useState('')
-  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions({ headers: { 'x-ankole-tenant': tenant.id } }))
-  const humans =
-    principals.data?.principals.filter(principal => principal.type === 'human' && principal.status === 'active') ?? []
+  const principals = useQuery({
+    ...listPrincipalsOptions({ headers: { 'x-ankole-tenant': tenant.id } }),
+    select: data => fromDocument(data)
+  })
+  const humans = principals.data?.filter(principal => principal.type === 'human' && principal.status === 'active') ?? []
   const transfer = useMutation({
     meta: { invalidates: false },
     ...ankoleWebTenantControllerTransferMutation(),
@@ -294,7 +297,7 @@ function TransferAdministration({ tenant }: { tenant: Tenant }) {
           </SelectTrigger>
           <SelectContent>
             {humans.map(principal => (
-              <SelectItem key={principal.uid} value={principal.uid}>
+              <SelectItem key={principal.id} value={principal.id}>
                 {principalLabel(principal)}
               </SelectItem>
             ))}

@@ -30,9 +30,10 @@ import {
   ankoleWebAgentControllerUpdateMutation,
   ankoleWebAiGatewayProviderControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
-  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
-  ankoleWebPrincipalControllerIndexOptions
+  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions
 } from '../api/generated/@tanstack/react-query.gen'
+import { listPrincipalsOptions } from '../api/v2/generated/@tanstack/react-query.gen'
+import { fromDocument } from '../api/json-api'
 import type { AgentItem } from '../api/generated/types.gen'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { blankToNull } from '../console-primitives'
@@ -208,8 +209,8 @@ function AgentEditor({ uid }: { uid?: string }) {
   const mode = uid ? 'edit' : 'new'
 
   const agentDetail = useQuery(agentEditorDetailOptions(uid ?? ''))
-  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
-  const owners = (principals.data?.principals ?? []).filter(principal => principal.type === 'human')
+  const principals = useQuery({ ...listPrincipalsOptions(), select: data => fromDocument(data) })
+  const owners = (principals.data ?? []).filter(principal => principal.type === 'human')
   const needsOwner = mode === 'new' && principals.isSuccess && owners.length === 0
   const providers = useQuery(ankoleWebAIGatewayProviderControllerIndexOptions())
   const workerProviders = useQuery(ankoleWebWorkerProviderControllerIndexOptions())
@@ -454,7 +455,7 @@ function AgentEditor({ uid }: { uid?: string }) {
             isLoading={principals.isLoading}
             placeholder={t('console.agents.owner_placeholder')}
             candidates={owners.map(principal => ({
-              id: principal.uid,
+              id: principal.id,
               label: principalLabel(principal),
               description: principal.email ?? principal.handle
             }))}

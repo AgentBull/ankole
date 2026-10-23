@@ -40,9 +40,7 @@ defmodule Ankole.AuthZ.Group do
       :computed_condition,
       :description,
       :member_count,
-      :grant_count,
-      :inserted_at,
-      :updated_at
+      :grant_count
     ])
   end
 
@@ -102,11 +100,7 @@ defmodule Ankole.AuthZ.Group do
   relationships do
     has_many(:memberships, Ankole.AuthZ.Membership, destination_attribute: :group_id)
     has_many(:external_bindings, Ankole.AuthZ.ExternalBinding, destination_attribute: :group_id)
-    has_many :grants, Ankole.AuthZ.Grant do
-      public?(true)
-      destination_attribute(:group_id)
-      sort(resource_pattern: :asc, action: :asc)
-    end
+    has_many(:grants, Ankole.AuthZ.Grant, destination_attribute: :group_id)
   end
 
   aggregates do
@@ -159,6 +153,13 @@ defmodule Ankole.AuthZ.Group do
       prepare(build(sort: [name: :asc]))
     end
 
+    read :of_principal do
+      description("Lists the static groups of one Principal.")
+      argument(:uid, :string, allow_nil?: false)
+      filter(expr(exists(memberships, principal_uid == ^arg(:uid))))
+      prepare(build(sort: [name: :asc]))
+    end
+
     create :create do
       description("Creates an operator group.")
       accept([:name, :display_name, :kind, :computed_condition, :description])
@@ -201,6 +202,7 @@ defmodule Ankole.AuthZ.Group do
 
       run(fn input, _context ->
         Ankole.AuthZ.Store.delete_operator_group(Ankole.Repo, input.arguments.name)
+        |> Ankole.Errors.not_found(__MODULE__)
         |> Ankole.Errors.wrap()
       end)
     end
@@ -211,7 +213,10 @@ defmodule Ankole.AuthZ.Group do
       argument(:name, :string, allow_nil?: false)
 
       run(fn input, _context ->
-        input.arguments.name |> Ankole.AuthZ.effective_group_members() |> Ankole.Errors.wrap()
+        input.arguments.name
+        |> Ankole.AuthZ.effective_group_members()
+        |> Ankole.Errors.not_found(__MODULE__)
+        |> Ankole.Errors.wrap()
       end)
     end
 
@@ -238,6 +243,7 @@ defmodule Ankole.AuthZ.Group do
           input.arguments.name,
           Ankole.AuthZ.Root.admin_group_name()
         )
+        |> Ankole.Errors.not_found(__MODULE__)
         |> Ankole.Errors.wrap()
       end)
     end
@@ -254,6 +260,7 @@ defmodule Ankole.AuthZ.Group do
           input.arguments.name,
           Ankole.AuthZ.Root.admin_group_name()
         )
+        |> Ankole.Errors.not_found(__MODULE__)
         |> Ankole.Errors.wrap()
       end)
     end

@@ -38,8 +38,6 @@ defmodule AnkoleWeb.JSONAPI.Policy do
       {Ankole.Principals.Principal, :get, :read} => {"principal:{uid}", "read"},
       {Ankole.Principals.Principal, :post, :create_local_user} => {"principals", "update"},
       {Ankole.Principals.Principal, :patch, :update_human} => {"principal:{uid}", "update"},
-      {Ankole.Principals.Principal, :related, :groups} => {"principal:{uid}:groups", "read"},
-      {Ankole.Principals.Principal, :related, :grants} => {"principal:{uid}:grants", "read"},
       {Ankole.Principals.MappingRequest, :index, :console_list} =>
         {"identity_mapping_requests", "read"},
       {Ankole.Principals.MappingRequest, :delete, :delete_in_tx} =>
@@ -59,9 +57,11 @@ defmodule AnkoleWeb.JSONAPI.Policy do
       {Ankole.AuthZ.Group, :route, :add_member} => {"principal_group:{name}:members", "update"},
       {Ankole.AuthZ.Group, :route, :remove_member} =>
         {"principal_group:{name}:members", "update"},
-      {Ankole.AuthZ.Group, :related, :grants} => {"principal_group:{name}:grants", "read"},
+      {Ankole.AuthZ.Group, :index, :of_principal} => {"principal:{uid}:groups", "read"},
+      {Ankole.AuthZ.Grant, :index, :of_principal} => {"principal:{uid}:grants", "read"},
+      {Ankole.AuthZ.Grant, :index, :of_group} => {"principal_group:{name}:grants", "read"},
       {Ankole.AuthZ.Grant, :post, :create_operator_grant} => {"permission_grants", "update"},
-      {Ankole.AuthZ.Grant, :get, :read} => {"permission_grant:{id}", "read"},
+      {Ankole.AuthZ.Grant, :get, :by_id} => {"permission_grant:{id}", "read"},
       {Ankole.AuthZ.Grant, :patch, :update_operator_grant} => {"permission_grant:{id}", "update"},
       {Ankole.AuthZ.Grant, :delete, :delete_operator_grant} => {"permission_grant:{id}", "delete"}
     }

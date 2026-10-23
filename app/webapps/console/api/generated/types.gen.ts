@@ -195,37 +195,11 @@ export type ConversationStandingOrdersItem = {
 }
 
 /**
- * PrincipalGroupCreateRequest
- */
-export type PrincipalGroupCreateRequest = {
-  /**
-   * CEL condition required when kind is computed
-   */
-  computed_condition?: string | null
-  description?: string | null
-  display_name: string
-  kind?: 'static' | 'computed'
-  /**
-   * Lowercase stable policy key
-   */
-  name: string
-}
-
-/**
  * CloudEventEndpointCreateRequest
  */
 export type CloudEventEndpointCreateRequest = {
   expires_at: string
   label: string
-}
-
-/**
- * PrincipalGroupUpdateRequest
- */
-export type PrincipalGroupUpdateRequest = {
-  computed_condition?: string | null
-  description?: string | null
-  display_name?: string | null
 }
 
 /**
@@ -713,14 +687,6 @@ export type BrainObjectListResponse = {
 }
 
 /**
- * PrincipalCreateResponse
- */
-export type PrincipalCreateResponse = {
-  initial_password: string
-  principal: PrincipalItem
-}
-
-/**
  * ModelProfileResponse
  */
 export type ModelProfileResponse = {
@@ -853,23 +819,6 @@ export type AiGatewayChatGptEnterpriseCredentialRequest = {
 }
 
 /**
- * PrincipalItem
- */
-export type PrincipalItem = {
-  avatar_url?: string | null
-  display_name?: string | null
-  email?: string | null
-  handle?: string | null
-  has_external_identity: boolean
-  inserted_at: string
-  local_credential?: PrincipalLocalCredential
-  status: 'active' | 'disabled'
-  type: 'human' | 'agent' | 'system'
-  uid: string
-  updated_at: string
-}
-
-/**
  * AgentLibraryDocumentWriteRequest
  */
 export type AgentLibraryDocumentWriteRequest = {
@@ -922,15 +871,6 @@ export type BackgroundActivityWorkflowCall = {
   updated_at: string | null
   wake_at: string | null
   wake_kind: 'sleep' | 'agent_capacity' | null
-}
-
-/**
- * PrincipalCreateRequest
- */
-export type PrincipalCreateRequest = {
-  display_name?: string | null
-  email: string
-  must_change_password?: boolean
 }
 
 /**
@@ -1042,13 +982,6 @@ export type BackgroundAgentJobTurnActiveItem = {
 }
 
 /**
- * PrincipalGroupListResponse
- */
-export type PrincipalGroupListResponse = {
-  principal_groups: Array<PrincipalGroupItem>
-}
-
-/**
  * ConsoleReadinessResponse
  */
 export type ConsoleReadinessResponse = {
@@ -1084,14 +1017,6 @@ export type BrainSourceUpdateRequest = {
  */
 export type AgentResponse = {
   agent: AgentItem
-}
-
-/**
- * PrincipalUpdateRequest
- */
-export type PrincipalUpdateRequest = {
-  display_name?: string | null
-  email?: string
 }
 
 /**
@@ -1143,13 +1068,6 @@ export type AgentLibraryAgentOverrideWriteRequest = {
 }
 
 /**
- * PrincipalGroupResponse
- */
-export type PrincipalGroupResponse = {
-  principal_group: PrincipalGroupItem
-}
-
-/**
  * AIGatewayCredentialPool
  */
 export type AiGatewayCredentialPool = {
@@ -1184,13 +1102,6 @@ export type AgentSkillLessonItem = {
   retired_at: string | null
   review_after: string | null
   skill_name: string
-}
-
-/**
- * PrincipalResponse
- */
-export type PrincipalResponse = {
-  principal: PrincipalItem
 }
 
 /**
@@ -1428,13 +1339,6 @@ export type SignalAdapterListResponse = {
 }
 
 /**
- * IdentityMappingRequestListResponse
- */
-export type IdentityMappingRequestListResponse = {
-  identity_mapping_requests: Array<IdentityMappingRequestItem>
-}
-
-/**
  * BrainPageLinks
  */
 export type BrainPageLinks = {
@@ -1516,24 +1420,6 @@ export type AccessHistoryItem = {
 }
 
 /**
- * PrincipalGroupItem
- */
-export type PrincipalGroupItem = {
-  built_in: boolean
-  computed_condition?: string | null
-  description?: string | null
-  display_name: string
-  domain: 'operator' | 'directory' | 'im_group'
-  grant_count: number
-  id: string
-  inserted_at: string
-  kind: 'static' | 'computed'
-  member_count: number
-  name: string
-  updated_at: string
-}
-
-/**
  * BackgroundAgentJobTurnProgress
  */
 export type BackgroundAgentJobTurnProgress = {
@@ -1553,13 +1439,6 @@ export type AgentFileFolder = {
   name: string
   path: string
 }
-
-/**
- * PrincipalLocalCredential
- */
-export type PrincipalLocalCredential = {
-  status: 'active' | 'must_change'
-} | null
 
 /**
  * BrainContradictionDecisionResponse
@@ -1673,13 +1552,6 @@ export type SignalAdapterField = {
 }
 
 /**
- * IdentityMappingResponse
- */
-export type IdentityMappingResponse = {
-  identity_mapping: IdentityMappingItem
-}
-
-/**
  * BackgroundAgentJobTurnToolUsage
  */
 export type BackgroundAgentJobTurnToolUsage = {
@@ -1787,16 +1659,6 @@ export type BrainSuggestion = {
 }
 
 /**
- * PermissionGrantUpdateRequest
- */
-export type PermissionGrantUpdateRequest = {
-  action?: string | null
-  condition?: string | null
-  description?: string | null
-  resource_pattern?: string | null
-}
-
-/**
  * BrainObjectShowResponse
  */
 export type BrainObjectShowResponse = {
@@ -1898,13 +1760,6 @@ export type SignalBindingListResponse = {
 }
 
 /**
- * IdentityMappingBindRequest
- */
-export type IdentityMappingBindRequest = {
-  principal_uid: string
-}
-
-/**
  * WebhookEndpointItem
  */
 export type WebhookEndpointItem = {
@@ -1945,15 +1800,6 @@ export type SignalBindingWriteRequest = {
  */
 export type OidcClientListResponse = {
   oidc_clients: Array<OidcClientItem>
-}
-
-/**
- * IdentityMappingWriteRequest
- */
-export type IdentityMappingWriteRequest = {
-  external_id: string
-  principal_uid: string
-  provider: string
 }
 
 /**
@@ -2097,15 +1943,6 @@ export type ScheduleCronScheduleListResponse = {
 }
 
 /**
- * IdentityMappingItem
- */
-export type IdentityMappingItem = {
-  external_id: string
-  principal_uid: string
-  provider: string
-}
-
-/**
  * ModelProfileWriteRequest
  */
 export type ModelProfileWriteRequest = {
@@ -2164,21 +2001,6 @@ export type WorkerProviderCheckResponse = {
  */
 export type WorkerEnvResponse = {
   worker_env: WorkerEnvItem
-}
-
-/**
- * IdentityMappingRequestItem
- */
-export type IdentityMappingRequestItem = {
-  display_name?: string | null
-  email?: string | null
-  external_id: string
-  first_seen_at: string
-  id: string
-  last_seen_at: string
-  metadata?: JsonValue
-  mobile?: string | null
-  provider: string
 }
 
 /**
@@ -2270,13 +2092,6 @@ export type BrainObjectVersion = {
  */
 export type BrainObjectVersionsResponse = {
   versions: Array<BrainObjectVersion>
-}
-
-/**
- * PrincipalGroupMemberListResponse
- */
-export type PrincipalGroupMemberListResponse = {
-  principal_group_members: Array<PrincipalGroupMemberItem>
 }
 
 /**
@@ -2637,21 +2452,6 @@ export type WorkerEnvDecryptionValue = {
 }
 
 /**
- * PermissionGrantItem
- */
-export type PermissionGrantItem = {
-  action: string
-  condition: string
-  description?: string | null
-  group_id: string | null
-  id: string
-  inserted_at: string
-  principal_uid: string | null
-  resource_pattern: string
-  updated_at: string
-}
-
-/**
  * AutomationJobListResponse
  */
 export type AutomationJobListResponse = {
@@ -2922,16 +2722,6 @@ export type AiGatewayProviderWriteRequest = {
 }
 
 /**
- * ComputedMemberPreviewRequest
- */
-export type ComputedMemberPreviewRequest = {
-  /**
-   * CEL condition over the principal object
-   */
-  condition: string
-}
-
-/**
  * BrainObjectPage
  */
 export type BrainObjectPage = {
@@ -2995,13 +2785,6 @@ export type TokenQuotaWriteRequest = {
   limit_tokens: number
   period_days: number
   period_start_at?: string
-}
-
-/**
- * PrincipalListResponse
- */
-export type PrincipalListResponse = {
-  principals: Array<PrincipalItem>
 }
 
 /**
@@ -3116,13 +2899,6 @@ export type ControlPlanePluginItem = {
 }
 
 /**
- * PermissionGrantListResponse
- */
-export type PermissionGrantListResponse = {
-  permission_grants: Array<PermissionGrantItem>
-}
-
-/**
  * HumanWorkItem
  */
 export type HumanWorkItem = {
@@ -3161,26 +2937,6 @@ export type SignalDeliveryFailureItem = {
   state: 'blocked' | 'permanent' | 'exhausted'
   status: 'failed' | 'expired' | 'unknown'
   updated_at: string
-}
-
-/**
- * PermissionGrantCreateRequest
- *
- * Exactly one owner: principal_uid or group_name.
- */
-export type PermissionGrantCreateRequest = {
-  /**
-   * Exact action token without colons
-   */
-  action: string
-  condition?: string
-  description?: string | null
-  group_name?: string | null
-  principal_uid?: string | null
-  /**
-   * AuthZ resource glob pattern, for example workspace:**
-   */
-  resource_pattern: string
 }
 
 /**
@@ -3230,13 +2986,6 @@ export type SignalAdapterJsonObjectValidation = {
   stringPrefixes?: {
     [key: string]: string
   }
-}
-
-/**
- * PermissionGrantResponse
- */
-export type PermissionGrantResponse = {
-  permission_grant: PermissionGrantItem
 }
 
 /**
@@ -3309,21 +3058,6 @@ export type OidcClientItem = {
   scopes: Array<string>
   type: 'public' | 'confidential'
   updated_at: string
-}
-
-/**
- * PrincipalGroupMemberItem
- */
-export type PrincipalGroupMemberItem = {
-  avatar_url?: string | null
-  display_name?: string | null
-  /**
-   * Stored membership timestamp; null for evaluated computed members
-   */
-  member_since: string | null
-  status: 'active' | 'disabled'
-  type: 'human' | 'agent' | 'system'
-  uid: string
 }
 
 /**
@@ -3483,35 +3217,6 @@ export type AnkoleWebScheduleControllerCreateCronResponses = {
 
 export type AnkoleWebScheduleControllerCreateCronResponse =
   AnkoleWebScheduleControllerCreateCronResponses[keyof AnkoleWebScheduleControllerCreateCronResponses]
-
-export type AnkoleWebPrincipalControllerGroupsData = {
-  body?: never
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v1/principals/{uid}/groups'
-}
-
-export type AnkoleWebPrincipalControllerGroupsErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPrincipalControllerGroupsError =
-  AnkoleWebPrincipalControllerGroupsErrors[keyof AnkoleWebPrincipalControllerGroupsErrors]
-
-export type AnkoleWebPrincipalControllerGroupsResponses = {
-  /**
-   * Principal groups
-   */
-  200: PrincipalGroupListResponse
-}
-
-export type AnkoleWebPrincipalControllerGroupsResponse =
-  AnkoleWebPrincipalControllerGroupsResponses[keyof AnkoleWebPrincipalControllerGroupsResponses]
 
 export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginData = {
   /**
@@ -3962,63 +3667,6 @@ export type AnkoleWebScheduleControllerCancelCheckbackResponses = {
 export type AnkoleWebScheduleControllerCancelCheckbackResponse =
   AnkoleWebScheduleControllerCancelCheckbackResponses[keyof AnkoleWebScheduleControllerCancelCheckbackResponses]
 
-export type AnkoleWebAuthZGroupControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/principal-groups'
-}
-
-export type AnkoleWebAuthZGroupControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerIndexError =
-  AnkoleWebAuthZGroupControllerIndexErrors[keyof AnkoleWebAuthZGroupControllerIndexErrors]
-
-export type AnkoleWebAuthZGroupControllerIndexResponses = {
-  /**
-   * Principal groups
-   */
-  200: PrincipalGroupListResponse
-}
-
-export type AnkoleWebAuthZGroupControllerIndexResponse =
-  AnkoleWebAuthZGroupControllerIndexResponses[keyof AnkoleWebAuthZGroupControllerIndexResponses]
-
-export type AnkoleWebAuthZGroupControllerCreateData = {
-  /**
-   * Principal group
-   */
-  body: PrincipalGroupCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/principal-groups'
-}
-
-export type AnkoleWebAuthZGroupControllerCreateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerCreateError =
-  AnkoleWebAuthZGroupControllerCreateErrors[keyof AnkoleWebAuthZGroupControllerCreateErrors]
-
-export type AnkoleWebAuthZGroupControllerCreateResponses = {
-  /**
-   * Principal group
-   */
-  200: PrincipalGroupResponse
-}
-
-export type AnkoleWebAuthZGroupControllerCreateResponse =
-  AnkoleWebAuthZGroupControllerCreateResponses[keyof AnkoleWebAuthZGroupControllerCreateResponses]
-
 export type AnkoleWebAgentFileControllerMoveData = {
   /**
    * Move
@@ -4082,36 +3730,6 @@ export type AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses = {
 
 export type AnkoleWebPrincipalControllerCreateLocalPasswordResetResponse =
   AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses[keyof AnkoleWebPrincipalControllerCreateLocalPasswordResetResponses]
-
-export type AnkoleWebAuthZGroupControllerPreviewComputedMembersData = {
-  /**
-   * Computed member preview
-   */
-  body: ComputedMemberPreviewRequest
-  path?: never
-  query?: never
-  url: '/api/v1/principal-groups/computed-member-previews'
-}
-
-export type AnkoleWebAuthZGroupControllerPreviewComputedMembersErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerPreviewComputedMembersError =
-  AnkoleWebAuthZGroupControllerPreviewComputedMembersErrors[keyof AnkoleWebAuthZGroupControllerPreviewComputedMembersErrors]
-
-export type AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses = {
-  /**
-   * Principal group members
-   */
-  200: PrincipalGroupMemberListResponse
-}
-
-export type AnkoleWebAuthZGroupControllerPreviewComputedMembersResponse =
-  AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses[keyof AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses]
 
 export type AnkoleWebScheduleControllerIndexCheckbacksData = {
   body?: never
@@ -4599,66 +4217,6 @@ export type AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses = {
 export type AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponse =
   AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses[keyof AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses]
 
-export type AnkoleWebAuthZGroupControllerRemoveMemberData = {
-  body?: never
-  path: {
-    name: string
-    principal_uid: string
-  }
-  query?: never
-  url: '/api/v1/principal-groups/{name}/members/{principal_uid}'
-}
-
-export type AnkoleWebAuthZGroupControllerRemoveMemberErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerRemoveMemberError =
-  AnkoleWebAuthZGroupControllerRemoveMemberErrors[keyof AnkoleWebAuthZGroupControllerRemoveMemberErrors]
-
-export type AnkoleWebAuthZGroupControllerRemoveMemberResponses = {
-  /**
-   * Principal group members
-   */
-  200: PrincipalGroupMemberListResponse
-}
-
-export type AnkoleWebAuthZGroupControllerRemoveMemberResponse =
-  AnkoleWebAuthZGroupControllerRemoveMemberResponses[keyof AnkoleWebAuthZGroupControllerRemoveMemberResponses]
-
-export type AnkoleWebAuthZGroupControllerAddMemberData = {
-  body?: never
-  path: {
-    name: string
-    principal_uid: string
-  }
-  query?: never
-  url: '/api/v1/principal-groups/{name}/members/{principal_uid}'
-}
-
-export type AnkoleWebAuthZGroupControllerAddMemberErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerAddMemberError =
-  AnkoleWebAuthZGroupControllerAddMemberErrors[keyof AnkoleWebAuthZGroupControllerAddMemberErrors]
-
-export type AnkoleWebAuthZGroupControllerAddMemberResponses = {
-  /**
-   * Principal group members
-   */
-  200: PrincipalGroupMemberListResponse
-}
-
-export type AnkoleWebAuthZGroupControllerAddMemberResponse =
-  AnkoleWebAuthZGroupControllerAddMemberResponses[keyof AnkoleWebAuthZGroupControllerAddMemberResponses]
-
 export type AnkoleWebBrainControllerForgetObjectData = {
   /**
    * Forget
@@ -4942,36 +4500,6 @@ export type AnkoleWebAiGatewayFilesControllerCreateResponses = {
 export type AnkoleWebAiGatewayFilesControllerCreateResponse =
   AnkoleWebAiGatewayFilesControllerCreateResponses[keyof AnkoleWebAiGatewayFilesControllerCreateResponses]
 
-export type AnkoleWebIdentityMappingRequestControllerCreateMappingData = {
-  /**
-   * Identity mapping
-   */
-  body: IdentityMappingWriteRequest
-  path?: never
-  query?: never
-  url: '/api/v1/identity-mappings'
-}
-
-export type AnkoleWebIdentityMappingRequestControllerCreateMappingErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebIdentityMappingRequestControllerCreateMappingError =
-  AnkoleWebIdentityMappingRequestControllerCreateMappingErrors[keyof AnkoleWebIdentityMappingRequestControllerCreateMappingErrors]
-
-export type AnkoleWebIdentityMappingRequestControllerCreateMappingResponses = {
-  /**
-   * Bound identity
-   */
-  200: IdentityMappingResponse
-}
-
-export type AnkoleWebIdentityMappingRequestControllerCreateMappingResponse =
-  AnkoleWebIdentityMappingRequestControllerCreateMappingResponses[keyof AnkoleWebIdentityMappingRequestControllerCreateMappingResponses]
-
 export type AnkoleWebAiGatewayControllerModelsData = {
   body?: never
   path?: never
@@ -5185,38 +4713,6 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponses = {
 export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponse =
   AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponses[keyof AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponses]
 
-export type AnkoleWebIdentityMappingRequestControllerBindData = {
-  /**
-   * Bind target
-   */
-  body: IdentityMappingBindRequest
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v1/identity-mapping-requests/{id}/bind'
-}
-
-export type AnkoleWebIdentityMappingRequestControllerBindErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebIdentityMappingRequestControllerBindError =
-  AnkoleWebIdentityMappingRequestControllerBindErrors[keyof AnkoleWebIdentityMappingRequestControllerBindErrors]
-
-export type AnkoleWebIdentityMappingRequestControllerBindResponses = {
-  /**
-   * Bound identity
-   */
-  200: IdentityMappingResponse
-}
-
-export type AnkoleWebIdentityMappingRequestControllerBindResponse =
-  AnkoleWebIdentityMappingRequestControllerBindResponses[keyof AnkoleWebIdentityMappingRequestControllerBindResponses]
-
 export type AnkoleWebAiGatewayControllerWebFetchData = {
   /**
    * Web fetch request
@@ -5317,123 +4813,6 @@ export type AnkoleWebWorkerProviderControllerKindsResponses = {
 
 export type AnkoleWebWorkerProviderControllerKindsResponse =
   AnkoleWebWorkerProviderControllerKindsResponses[keyof AnkoleWebWorkerProviderControllerKindsResponses]
-
-export type AnkoleWebIdentityMappingRequestControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/identity-mapping-requests'
-}
-
-export type AnkoleWebIdentityMappingRequestControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebIdentityMappingRequestControllerIndexError =
-  AnkoleWebIdentityMappingRequestControllerIndexErrors[keyof AnkoleWebIdentityMappingRequestControllerIndexErrors]
-
-export type AnkoleWebIdentityMappingRequestControllerIndexResponses = {
-  /**
-   * Pending mapping requests
-   */
-  200: IdentityMappingRequestListResponse
-}
-
-export type AnkoleWebIdentityMappingRequestControllerIndexResponse =
-  AnkoleWebIdentityMappingRequestControllerIndexResponses[keyof AnkoleWebIdentityMappingRequestControllerIndexResponses]
-
-export type AnkoleWebAuthZGroupControllerDeleteData = {
-  body?: never
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/principal-groups/{name}'
-}
-
-export type AnkoleWebAuthZGroupControllerDeleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerDeleteError =
-  AnkoleWebAuthZGroupControllerDeleteErrors[keyof AnkoleWebAuthZGroupControllerDeleteErrors]
-
-export type AnkoleWebAuthZGroupControllerDeleteResponses = {
-  /**
-   * Principal group
-   */
-  200: PrincipalGroupResponse
-}
-
-export type AnkoleWebAuthZGroupControllerDeleteResponse =
-  AnkoleWebAuthZGroupControllerDeleteResponses[keyof AnkoleWebAuthZGroupControllerDeleteResponses]
-
-export type AnkoleWebAuthZGroupControllerShowData = {
-  body?: never
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/principal-groups/{name}'
-}
-
-export type AnkoleWebAuthZGroupControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerShowError =
-  AnkoleWebAuthZGroupControllerShowErrors[keyof AnkoleWebAuthZGroupControllerShowErrors]
-
-export type AnkoleWebAuthZGroupControllerShowResponses = {
-  /**
-   * Principal group
-   */
-  200: PrincipalGroupResponse
-}
-
-export type AnkoleWebAuthZGroupControllerShowResponse =
-  AnkoleWebAuthZGroupControllerShowResponses[keyof AnkoleWebAuthZGroupControllerShowResponses]
-
-export type AnkoleWebAuthZGroupControllerUpdateData = {
-  /**
-   * Principal group
-   */
-  body: PrincipalGroupUpdateRequest
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/principal-groups/{name}'
-}
-
-export type AnkoleWebAuthZGroupControllerUpdateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerUpdateError =
-  AnkoleWebAuthZGroupControllerUpdateErrors[keyof AnkoleWebAuthZGroupControllerUpdateErrors]
-
-export type AnkoleWebAuthZGroupControllerUpdateResponses = {
-  /**
-   * Principal group
-   */
-  200: PrincipalGroupResponse
-}
-
-export type AnkoleWebAuthZGroupControllerUpdateResponse =
-  AnkoleWebAuthZGroupControllerUpdateResponses[keyof AnkoleWebAuthZGroupControllerUpdateResponses]
 
 export type AnkoleWebBrainControllerUpdateSourceData = {
   /**
@@ -6170,35 +5549,6 @@ export type AnkoleWebAgentSkillLessonControllerRetireResponses = {
 export type AnkoleWebAgentSkillLessonControllerRetireResponse =
   AnkoleWebAgentSkillLessonControllerRetireResponses[keyof AnkoleWebAgentSkillLessonControllerRetireResponses]
 
-export type AnkoleWebPrincipalControllerGrantsData = {
-  body?: never
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v1/principals/{uid}/grants'
-}
-
-export type AnkoleWebPrincipalControllerGrantsErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPrincipalControllerGrantsError =
-  AnkoleWebPrincipalControllerGrantsErrors[keyof AnkoleWebPrincipalControllerGrantsErrors]
-
-export type AnkoleWebPrincipalControllerGrantsResponses = {
-  /**
-   * Permission grants
-   */
-  200: PermissionGrantListResponse
-}
-
-export type AnkoleWebPrincipalControllerGrantsResponse =
-  AnkoleWebPrincipalControllerGrantsResponses[keyof AnkoleWebPrincipalControllerGrantsResponses]
-
 export type AnkoleWebAiGatewayConversationControllerShowData = {
   body?: never
   path: {
@@ -6664,95 +6014,6 @@ export type AnkoleWebOidcClientControllerLogoutDeliveriesResponses = {
 export type AnkoleWebOidcClientControllerLogoutDeliveriesResponse =
   AnkoleWebOidcClientControllerLogoutDeliveriesResponses[keyof AnkoleWebOidcClientControllerLogoutDeliveriesResponses]
 
-export type AnkoleWebPrincipalControllerIndexData = {
-  body?: never
-  path?: never
-  query?: {
-    include_disabled?: boolean
-  }
-  url: '/api/v1/principals'
-}
-
-export type AnkoleWebPrincipalControllerIndexErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPrincipalControllerIndexError =
-  AnkoleWebPrincipalControllerIndexErrors[keyof AnkoleWebPrincipalControllerIndexErrors]
-
-export type AnkoleWebPrincipalControllerIndexResponses = {
-  /**
-   * Principals
-   */
-  200: PrincipalListResponse
-}
-
-export type AnkoleWebPrincipalControllerIndexResponse =
-  AnkoleWebPrincipalControllerIndexResponses[keyof AnkoleWebPrincipalControllerIndexResponses]
-
-export type AnkoleWebPrincipalControllerCreateData = {
-  /**
-   * User
-   */
-  body: PrincipalCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/principals'
-}
-
-export type AnkoleWebPrincipalControllerCreateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPrincipalControllerCreateError =
-  AnkoleWebPrincipalControllerCreateErrors[keyof AnkoleWebPrincipalControllerCreateErrors]
-
-export type AnkoleWebPrincipalControllerCreateResponses = {
-  /**
-   * Created user
-   */
-  200: PrincipalCreateResponse
-}
-
-export type AnkoleWebPrincipalControllerCreateResponse =
-  AnkoleWebPrincipalControllerCreateResponses[keyof AnkoleWebPrincipalControllerCreateResponses]
-
-export type AnkoleWebPermissionGrantControllerCreateData = {
-  /**
-   * Permission grant
-   */
-  body: PermissionGrantCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/permission-grants'
-}
-
-export type AnkoleWebPermissionGrantControllerCreateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPermissionGrantControllerCreateError =
-  AnkoleWebPermissionGrantControllerCreateErrors[keyof AnkoleWebPermissionGrantControllerCreateErrors]
-
-export type AnkoleWebPermissionGrantControllerCreateResponses = {
-  /**
-   * Permission grant
-   */
-  200: PermissionGrantResponse
-}
-
-export type AnkoleWebPermissionGrantControllerCreateResponse =
-  AnkoleWebPermissionGrantControllerCreateResponses[keyof AnkoleWebPermissionGrantControllerCreateResponses]
-
 export type AnkoleWebSignalBindingControllerDeleteData = {
   body?: never
   path: {
@@ -6878,35 +6139,6 @@ export type AnkoleWebHumanAccessControllerClearRestrictionResponses = {
 
 export type AnkoleWebHumanAccessControllerClearRestrictionResponse =
   AnkoleWebHumanAccessControllerClearRestrictionResponses[keyof AnkoleWebHumanAccessControllerClearRestrictionResponses]
-
-export type AnkoleWebAuthZGroupControllerMembersData = {
-  body?: never
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/principal-groups/{name}/members'
-}
-
-export type AnkoleWebAuthZGroupControllerMembersErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerMembersError =
-  AnkoleWebAuthZGroupControllerMembersErrors[keyof AnkoleWebAuthZGroupControllerMembersErrors]
-
-export type AnkoleWebAuthZGroupControllerMembersResponses = {
-  /**
-   * Principal group members
-   */
-  200: PrincipalGroupMemberListResponse
-}
-
-export type AnkoleWebAuthZGroupControllerMembersResponse =
-  AnkoleWebAuthZGroupControllerMembersResponses[keyof AnkoleWebAuthZGroupControllerMembersResponses]
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideData = {
   /**
@@ -7214,35 +6446,6 @@ export type AnkoleWebScheduleControllerIndexCronResponses = {
 
 export type AnkoleWebScheduleControllerIndexCronResponse =
   AnkoleWebScheduleControllerIndexCronResponses[keyof AnkoleWebScheduleControllerIndexCronResponses]
-
-export type AnkoleWebIdentityMappingRequestControllerDeleteData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v1/identity-mapping-requests/{id}'
-}
-
-export type AnkoleWebIdentityMappingRequestControllerDeleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebIdentityMappingRequestControllerDeleteError =
-  AnkoleWebIdentityMappingRequestControllerDeleteErrors[keyof AnkoleWebIdentityMappingRequestControllerDeleteErrors]
-
-export type AnkoleWebIdentityMappingRequestControllerDeleteResponses = {
-  /**
-   * Dismissed
-   */
-  200: IdentityMappingRequestListResponse
-}
-
-export type AnkoleWebIdentityMappingRequestControllerDeleteResponse =
-  AnkoleWebIdentityMappingRequestControllerDeleteResponses[keyof AnkoleWebIdentityMappingRequestControllerDeleteResponses]
 
 export type AnkoleWebAgentFileControllerDeleteData = {
   body?: never
@@ -7610,67 +6813,6 @@ export type AnkoleWebBrainControllerListClaimsResponses = {
 
 export type AnkoleWebBrainControllerListClaimsResponse =
   AnkoleWebBrainControllerListClaimsResponses[keyof AnkoleWebBrainControllerListClaimsResponses]
-
-export type AnkoleWebPrincipalControllerShowData = {
-  body?: never
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v1/principals/{uid}'
-}
-
-export type AnkoleWebPrincipalControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPrincipalControllerShowError =
-  AnkoleWebPrincipalControllerShowErrors[keyof AnkoleWebPrincipalControllerShowErrors]
-
-export type AnkoleWebPrincipalControllerShowResponses = {
-  /**
-   * Principal
-   */
-  200: PrincipalResponse
-}
-
-export type AnkoleWebPrincipalControllerShowResponse =
-  AnkoleWebPrincipalControllerShowResponses[keyof AnkoleWebPrincipalControllerShowResponses]
-
-export type AnkoleWebPrincipalControllerUpdateData = {
-  /**
-   * User changes
-   */
-  body: PrincipalUpdateRequest
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v1/principals/{uid}'
-}
-
-export type AnkoleWebPrincipalControllerUpdateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPrincipalControllerUpdateError =
-  AnkoleWebPrincipalControllerUpdateErrors[keyof AnkoleWebPrincipalControllerUpdateErrors]
-
-export type AnkoleWebPrincipalControllerUpdateResponses = {
-  /**
-   * Principal
-   */
-  200: PrincipalResponse
-}
-
-export type AnkoleWebPrincipalControllerUpdateResponse =
-  AnkoleWebPrincipalControllerUpdateResponses[keyof AnkoleWebPrincipalControllerUpdateResponses]
 
 export type AnkoleWebAgentSkillLessonControllerIndexData = {
   body?: never
@@ -8791,96 +7933,6 @@ export type AnkoleWebBrainControllerLearnSourceResponses = {
 export type AnkoleWebBrainControllerLearnSourceResponse =
   AnkoleWebBrainControllerLearnSourceResponses[keyof AnkoleWebBrainControllerLearnSourceResponses]
 
-export type AnkoleWebPermissionGrantControllerDeleteData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v1/permission-grants/{id}'
-}
-
-export type AnkoleWebPermissionGrantControllerDeleteErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPermissionGrantControllerDeleteError =
-  AnkoleWebPermissionGrantControllerDeleteErrors[keyof AnkoleWebPermissionGrantControllerDeleteErrors]
-
-export type AnkoleWebPermissionGrantControllerDeleteResponses = {
-  /**
-   * Permission grant
-   */
-  200: PermissionGrantResponse
-}
-
-export type AnkoleWebPermissionGrantControllerDeleteResponse =
-  AnkoleWebPermissionGrantControllerDeleteResponses[keyof AnkoleWebPermissionGrantControllerDeleteResponses]
-
-export type AnkoleWebPermissionGrantControllerShowData = {
-  body?: never
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v1/permission-grants/{id}'
-}
-
-export type AnkoleWebPermissionGrantControllerShowErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPermissionGrantControllerShowError =
-  AnkoleWebPermissionGrantControllerShowErrors[keyof AnkoleWebPermissionGrantControllerShowErrors]
-
-export type AnkoleWebPermissionGrantControllerShowResponses = {
-  /**
-   * Permission grant
-   */
-  200: PermissionGrantResponse
-}
-
-export type AnkoleWebPermissionGrantControllerShowResponse =
-  AnkoleWebPermissionGrantControllerShowResponses[keyof AnkoleWebPermissionGrantControllerShowResponses]
-
-export type AnkoleWebPermissionGrantControllerUpdateData = {
-  /**
-   * Permission grant
-   */
-  body: PermissionGrantUpdateRequest
-  path: {
-    id: string
-  }
-  query?: never
-  url: '/api/v1/permission-grants/{id}'
-}
-
-export type AnkoleWebPermissionGrantControllerUpdateErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebPermissionGrantControllerUpdateError =
-  AnkoleWebPermissionGrantControllerUpdateErrors[keyof AnkoleWebPermissionGrantControllerUpdateErrors]
-
-export type AnkoleWebPermissionGrantControllerUpdateResponses = {
-  /**
-   * Permission grant
-   */
-  200: PermissionGrantResponse
-}
-
-export type AnkoleWebPermissionGrantControllerUpdateResponse =
-  AnkoleWebPermissionGrantControllerUpdateResponses[keyof AnkoleWebPermissionGrantControllerUpdateResponses]
-
 export type AnkoleWebBrainControllerDecideMergeSuggestionData = {
   /**
    * Decide
@@ -9484,35 +8536,6 @@ export type AnkoleWebWorkerEnvControllerUpdateForAgentResponses = {
 
 export type AnkoleWebWorkerEnvControllerUpdateForAgentResponse =
   AnkoleWebWorkerEnvControllerUpdateForAgentResponses[keyof AnkoleWebWorkerEnvControllerUpdateForAgentResponses]
-
-export type AnkoleWebAuthZGroupControllerGrantsData = {
-  body?: never
-  path: {
-    name: string
-  }
-  query?: never
-  url: '/api/v1/principal-groups/{name}/grants'
-}
-
-export type AnkoleWebAuthZGroupControllerGrantsErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAuthZGroupControllerGrantsError =
-  AnkoleWebAuthZGroupControllerGrantsErrors[keyof AnkoleWebAuthZGroupControllerGrantsErrors]
-
-export type AnkoleWebAuthZGroupControllerGrantsResponses = {
-  /**
-   * Permission grants
-   */
-  200: PermissionGrantListResponse
-}
-
-export type AnkoleWebAuthZGroupControllerGrantsResponse =
-  AnkoleWebAuthZGroupControllerGrantsResponses[keyof AnkoleWebAuthZGroupControllerGrantsResponses]
 
 export type AnkoleWebConsoleReadinessControllerShowData = {
   body?: never

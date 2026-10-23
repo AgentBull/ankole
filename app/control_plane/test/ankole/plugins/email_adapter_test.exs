@@ -733,6 +733,8 @@ defmodule Ankole.Plugins.EmailAdapterTest do
     test "standalone email admission never treats the sender address as a local account identity" do
       %{principal: agent} = agent_fixture()
 
+      {:ok, _provider} = Ankole.IdentityProviders.save_provider("local-main", "local", %{}, true)
+
       assert {:ok, %{principal: local}} =
                Principals.create_local_user(%{email: "owner@corp.example"}, false)
 

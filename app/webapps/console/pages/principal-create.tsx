@@ -5,8 +5,9 @@ import { useMutation } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
-import { ankoleWebPrincipalControllerCreateMutation } from '../api/generated/@tanstack/react-query.gen'
-import { requestErrorCode } from '../../common/request-errors'
+import { createLocalUserMutation } from '../api/v2/generated/@tanstack/react-query.gen'
+import { fromDocument } from '../api/json-api'
+import { requestErrorCode, requestErrorDetailList } from '../../common/request-errors'
 import { LabeledField, ResourceEditorPage } from '../console-form'
 import { BackLink, PageStack } from '../console-page'
 import { InitialPasswordReveal } from '../initial-password-reveal'
@@ -26,14 +27,14 @@ export function principalDraftErrorText(error: PrincipalDraftError, t: Translate
   }
 }
 
-/** Localizes the write-endpoint error codes this page can trigger. */
+/** Localizes the write-endpoint failures this page can trigger: a taken email is a field error. */
 export function principalRequestError(error: unknown, t: Translate): unknown {
-  switch (requestErrorCode(error)) {
-    case 'email_taken':
-      return t('console.principals.email_taken')
-    default:
-      return error ?? undefined
-  }
+  const emailTaken =
+    requestErrorCode(error) === 'validation_failed' &&
+    requestErrorDetailList(error).some(
+      detail => detail.path === 'email' && typeof detail.message === 'string' && detail.message.includes('taken')
+    )
+  return emailTaken ? t('console.principals.email_taken') : (error ?? undefined)
 }
 
 /**
@@ -52,18 +53,18 @@ export function PrincipalCreatePage() {
   })
 
   const create = useMutation({
-    ...ankoleWebPrincipalControllerCreateMutation()
+    ...createLocalUserMutation()
   })
 
   if (create.data) {
-    const created = create.data.principal
+    const created = fromDocument(create.data)
     return (
       <PageStack className="mx-auto w-full max-w-3xl">
         <div className="grid gap-3">
           <BackLink to="/access/principals" />
           <h2 className="text-2xl font-semibold tracking-normal">
             {t(
-              created.local_credential?.status === 'must_change'
+              created.local_credential_status === 'must_change'
                 ? 'console.principals.initial_password_title'
                 : 'console.principals.initial_password_title_static'
             )}
@@ -71,11 +72,11 @@ export function PrincipalCreatePage() {
         </div>
         <div className="grid gap-5 border border-border bg-card p-5 md:p-6">
           <InitialPasswordReveal
-            password={create.data.initial_password}
+            password={String(create.data.meta?.initial_password ?? '')}
             actions={
               <Link
                 className={cn(buttonVariants({ size: 'sm' }))}
-                to={`/access/principals/${encodeURIComponent(created.uid)}`}>
+                to={`/access/principals/${encodeURIComponent(created.id)}`}>
                 {t('console.principals.view_user')}
               </Link>
             }
@@ -92,7 +93,7 @@ export function PrincipalCreatePage() {
       model.validationError.value = draftError
       return
     }
-    create.mutate({ body: model.createBody() })
+    create.mutate({ body: { data: { type: 'principal', attributes: model.createBody() } } })
   }
 
   return (

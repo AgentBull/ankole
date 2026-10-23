@@ -13,18 +13,26 @@ interface ResourceObject {
   attributes?: object
 }
 
-type Flat<R> = R extends { id: infer Id; attributes?: infer Attributes } ? { id: Id } & NonNullable<Attributes> : never
+/** The flat Console record of a JSON:API resource object type. */
+export type Flat<R> = R extends { id: infer Id; attributes?: infer Attributes }
+  ? { id: Id } & NonNullable<Attributes>
+  : never
 
 /** Changes a resource object to `{ id, ...attributes }`. */
 function fromResource<R extends ResourceObject>(resource: R): Flat<R> {
   return { ...resource.attributes, id: resource.id } as Flat<R>
 }
 
-/** Changes a JSON:API document to its flat record, or to a list of flat records. */
-export function fromDocument<R extends ResourceObject>(document: { data: R[] }): Flat<R>[]
-export function fromDocument<R extends ResourceObject>(document: { data: R }): Flat<R>
-export function fromDocument<R extends ResourceObject>(document: { data: R | R[] }): Flat<R> | Flat<R>[] {
-  return Array.isArray(document.data) ? document.data.map(fromResource) : fromResource(document.data)
+/**
+ * Changes a JSON:API document to its flat record, or to a list of flat records.
+ * The generated types make `data` optional, but a success document has it.
+ */
+export function fromDocument<R extends ResourceObject>(document: { data?: R[] }): Flat<R>[]
+export function fromDocument<R extends ResourceObject>(document: { data?: R }): Flat<R>
+export function fromDocument<R extends ResourceObject>(document: { data?: R | R[] }): Flat<R> | Flat<R>[] {
+  const { data } = document
+  if (!data) throw new Error('The JSON:API document has no data')
+  return Array.isArray(data) ? data.map(fromResource) : fromResource(data)
 }
 
 interface JSONAPIError {

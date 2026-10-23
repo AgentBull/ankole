@@ -18,9 +18,7 @@ defmodule Ankole.Principals.Principal do
       :email,
       :handle,
       :has_external_identity,
-      :local_credential_status,
-      :inserted_at,
-      :updated_at
+      :local_credential_status
     ])
   end
 
@@ -96,22 +94,6 @@ defmodule Ankole.Principals.Principal do
       source_attribute(:uid)
       destination_attribute(:principal_uid)
     end
-
-    many_to_many :groups, Ankole.AuthZ.Group do
-      public?(true)
-      through(Ankole.AuthZ.Membership)
-      source_attribute(:uid)
-      source_attribute_on_join_resource(:principal_uid)
-      destination_attribute_on_join_resource(:group_id)
-      sort(name: :asc)
-    end
-
-    has_many :grants, Ankole.AuthZ.Grant do
-      public?(true)
-      source_attribute(:uid)
-      destination_attribute(:principal_uid)
-      sort(resource_pattern: :asc, action: :asc)
-    end
   end
 
   aggregates do
@@ -141,8 +123,8 @@ defmodule Ankole.Principals.Principal do
     defaults([:read])
 
     read :console_list do
-      argument(:include_disabled, :boolean, allow_nil?: false, default: false)
-      filter(expr(status == :active or ^arg(:include_disabled)))
+      argument(:include_disabled, :boolean, default: false)
+      filter(expr(status == :active or ^arg(:include_disabled) == true))
       prepare(build(sort: [uid: :asc]))
     end
 
@@ -233,6 +215,7 @@ defmodule Ankole.Principals.Principal do
 
       run(fn input, _context ->
         Ankole.Principals.update_human_in_tx(Ankole.Repo, input.arguments)
+        |> Ankole.Errors.not_found(__MODULE__)
         |> Ankole.Errors.wrap()
       end)
     end
@@ -242,7 +225,12 @@ defmodule Ankole.Principals.Principal do
       constraints(instance_of: __MODULE__)
       argument(:email, :string, allow_nil?: false)
       argument(:display_name, :string)
-      argument(:must_change_password, :boolean, allow_nil?: false, default: true)
+
+      argument(:must_change_password, :boolean,
+        default: true,
+        description: "Omitted or null means true."
+      )
+
       argument(:initial_password, :string, public?: false, sensitive?: true)
       argument(:password_hash, :string, public?: false, sensitive?: true)
       prepare(Ankole.Principals.Changes.InitialPassword)

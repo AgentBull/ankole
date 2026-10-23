@@ -5,6 +5,8 @@ defmodule Ankole.AuthZ.Grant do
     domain: Ankole.AuthZ,
     extensions: [AshJsonApi.Resource]
 
+  require Ash.Query
+
   @fields [
     :principal_uid,
     :group_id,
@@ -26,9 +28,7 @@ defmodule Ankole.AuthZ.Grant do
       :resource_pattern,
       :action,
       :condition,
-      :description,
-      :inserted_at,
-      :updated_at
+      :description
     ])
   end
 
@@ -153,6 +153,33 @@ defmodule Ankole.AuthZ.Grant do
   actions do
     defaults([:read])
 
+    read :by_id do
+      description("Reads one row by ID. An ID that is not a UUID matches no row.")
+      argument(:id, :string, allow_nil?: false)
+      get?(true)
+
+      prepare(fn query, _context ->
+        case Ecto.UUID.cast(Ash.Query.get_argument(query, :id)) do
+          {:ok, id} -> Ash.Query.filter(query, id == ^id)
+          :error -> Ash.Query.filter(query, false)
+        end
+      end)
+    end
+
+    read :of_principal do
+      description("Lists the grants that one Principal owns directly.")
+      argument(:uid, :string, allow_nil?: false)
+      filter(expr(principal_uid == ^arg(:uid)))
+      prepare(build(sort: [resource_pattern: :asc, action: :asc]))
+    end
+
+    read :of_group do
+      description("Lists the grants that one group owns.")
+      argument(:name, :string, allow_nil?: false)
+      filter(expr(group.name == ^arg(:name)))
+      prepare(build(sort: [resource_pattern: :asc, action: :asc]))
+    end
+
     create :create_in_tx do
       accept(@fields)
     end
@@ -211,6 +238,7 @@ defmodule Ankole.AuthZ.Grant do
 
       run(fn input, _context ->
         Ankole.AuthZ.Grants.create_operator_grant(Ankole.Repo, input.arguments)
+        |> Ankole.Errors.not_found(Ankole.AuthZ.Group)
         |> Ankole.Errors.wrap()
       end)
     end

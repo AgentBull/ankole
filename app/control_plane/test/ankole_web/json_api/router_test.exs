@@ -88,7 +88,16 @@ defmodule AnkoleWeb.JSONAPI.RouterTest do
         Spark.Dsl.is?(module, Ash.Resource),
         AshJsonApi.Resource in Spark.extensions(module) do
       refute AshJsonApi.Resource.Info.derive_filter?(module), inspect(module)
-      refute AshJsonApi.Resource.Info.derive_sort?(module), inspect(module)
+      # AshJsonApi 1.7.1 `Info.derive_sort?/1` reads the wrong option name and
+      # always gives true, so each read route also turns the sort off.
+      refute Spark.Dsl.Extension.get_opt(module, [:json_api], :derive_sort?, true),
+             inspect(module)
+    end
+
+    for router <- @routers,
+        {resource, route} <- routes(router),
+        route.type in [:index, :get_related] do
+      refute route.derive_sort?, "#{inspect(resource)} #{route.route}"
     end
   end
 

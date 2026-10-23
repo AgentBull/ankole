@@ -5,10 +5,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from '@tanstack/react-router'
-import {
-  ankoleWebPrincipalControllerShowOptions,
-  ankoleWebPrincipalControllerUpdateMutation
-} from '../api/generated/@tanstack/react-query.gen'
+import { getPrincipalOptions, updateHumanMutation } from '../api/v2/generated/@tanstack/react-query.gen'
+import { fromDocument } from '../api/json-api'
 import { requestErrorCode } from '../../common/request-errors'
 import { EditorNotFound, LabeledField, ResourceEditorPage } from '../console-form'
 import { PrincipalEditorModel } from '../state/principal-editor-model'
@@ -23,9 +21,9 @@ export function PrincipalEditPage() {
   const params = useParams({ strict: false })
   const uid = params.uid ?? ''
   const detailPath = `/access/principals/${encodeURIComponent(uid)}`
-  const principal = useQuery(ankoleWebPrincipalControllerShowOptions({ path: { uid } }))
-  const loadedPrincipal = principal.data?.principal
-  const emailRequired = Boolean(loadedPrincipal?.email || loadedPrincipal?.local_credential)
+  const principal = useQuery({ ...getPrincipalOptions({ path: { uid } }), select: data => fromDocument(data) })
+  const loadedPrincipal = principal.data
+  const emailRequired = Boolean(loadedPrincipal?.email || loadedPrincipal?.local_credential_status)
   const principalDraft = useMemo(
     () =>
       loadedPrincipal
@@ -40,7 +38,7 @@ export function PrincipalEditPage() {
   })
 
   const update = useMutation({
-    ...ankoleWebPrincipalControllerUpdateMutation(),
+    ...updateHumanMutation(),
     mutationKey: ['principal-update', uid]
   })
 
@@ -54,7 +52,11 @@ export function PrincipalEditPage() {
     if (!loadedPrincipal) return
     void model
       .save(
-        () => update.mutateAsync({ body: model.updateBody(), path: { uid: loadedPrincipal.uid } }),
+        () =>
+          update.mutateAsync({
+            body: { data: { type: 'principal', id: loadedPrincipal.id, attributes: model.updateBody() } },
+            path: { uid: loadedPrincipal.id }
+          }),
         clean => {
           toast.success(t('console.principals.profile_saved'))
           if (clean) void navigate({ to: detailPath })

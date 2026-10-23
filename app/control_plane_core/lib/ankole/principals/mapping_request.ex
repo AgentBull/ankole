@@ -5,6 +5,8 @@ defmodule Ankole.Principals.MappingRequest do
     domain: Ankole.Principals,
     extensions: [AshJsonApi.Resource]
 
+  require Ash.Query
+
   json_api do
     type("identity_mapping_request")
     derive_filter?(false)
@@ -49,7 +51,8 @@ defmodule Ankole.Principals.MappingRequest do
     attribute(:email, :string, public?: true)
     attribute(:mobile, :string, public?: true)
     attribute(:metadata, Ankole.Ash.Types.JSONMap, public?: true, allow_nil?: false, default: %{})
-    timestamps(type: :utc_datetime_usec)
+    create_timestamp(:inserted_at, type: :utc_datetime_usec, public?: true)
+    update_timestamp(:updated_at, type: :utc_datetime_usec, public?: true)
   end
 
   identities do
@@ -62,6 +65,19 @@ defmodule Ankole.Principals.MappingRequest do
 
   actions do
     defaults([:read])
+
+    read :by_id do
+      description("Reads one row by ID. An ID that is not a UUID matches no row.")
+      argument(:id, :string, allow_nil?: false)
+      get?(true)
+
+      prepare(fn query, _context ->
+        case Ecto.UUID.cast(Ash.Query.get_argument(query, :id)) do
+          {:ok, id} -> Ash.Query.filter(query, id == ^id)
+          :error -> Ash.Query.filter(query, false)
+        end
+      end)
+    end
 
     read :console_list do
       prepare(build(sort: [updated_at: :desc]))
@@ -98,6 +114,7 @@ defmodule Ankole.Principals.MappingRequest do
           input.arguments.id,
           input.arguments.principal_uid
         )
+        |> Ankole.Errors.not_found(__MODULE__)
         |> Ankole.Errors.wrap()
       end)
     end
@@ -115,6 +132,7 @@ defmodule Ankole.Principals.MappingRequest do
           input.arguments.principal_uid,
           Map.take(input.arguments, [:provider, :external_id])
         )
+        |> Ankole.Errors.not_found(__MODULE__)
         |> Ankole.Errors.wrap()
       end)
     end

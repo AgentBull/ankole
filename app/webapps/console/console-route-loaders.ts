@@ -6,15 +6,12 @@ import {
   ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions,
   ankoleWebAgentSkillLessonControllerIndexOptions,
   ankoleWebAppConfigurationControllerIndexOptions,
-  ankoleWebAuthZGroupControllerIndexOptions,
   ankoleWebAutomationJobControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerIndexOptions,
   ankoleWebBackgroundAgentJobControllerShowOptions,
   ankoleWebControlPlanePluginControllerIndexOptions,
-  ankoleWebIdentityMappingRequestControllerIndexOptions,
   ankoleWebIdentityProviderControllerIndexOptions,
   ankoleWebOidcClientControllerIndexOptions,
-  ankoleWebPrincipalControllerIndexOptions,
   ankoleWebScheduleControllerIndexCheckbacksOptions,
   ankoleWebScheduleControllerIndexCronOptions,
   ankoleWebSignalBindingControllerIndexOptions,
@@ -23,6 +20,11 @@ import {
   ankoleWebWebhookEndpointControllerIndexOptions,
   ankoleWebWorkerEnvControllerIndexOptions
 } from './api/generated/@tanstack/react-query.gen'
+import {
+  listIdentityMappingRequestsOptions,
+  listPrincipalGroupsOptions,
+  listPrincipalsOptions
+} from './api/v2/generated/@tanstack/react-query.gen'
 import { backgroundAgentJobListOptions } from './pages/background-agent-jobs'
 import { conversationListOptions } from './pages/conversations'
 import { resourceID } from './console-primitives'
@@ -73,15 +75,10 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
     },
     providers: () => ensure(ankoleWebAIGatewayProviderControllerIndexOptions()).then(() => null),
     identity: () => ensure(ankoleWebIdentityProviderControllerIndexOptions()).then(() => null),
-    oidcClients: () =>
-      all(ensure(ankoleWebOidcClientControllerIndexOptions()), ensure(ankoleWebAuthZGroupControllerIndexOptions())),
-    identityMappings: () =>
-      all(
-        ensure(ankoleWebIdentityMappingRequestControllerIndexOptions()),
-        ensure(ankoleWebPrincipalControllerIndexOptions())
-      ),
-    principalGroups: () => ensure(ankoleWebAuthZGroupControllerIndexOptions()).then(() => null),
-    principals: () => ensure(ankoleWebPrincipalControllerIndexOptions()).then(() => null),
+    oidcClients: () => all(ensure(ankoleWebOidcClientControllerIndexOptions()), ensure(listPrincipalGroupsOptions())),
+    identityMappings: () => all(ensure(listIdentityMappingRequestsOptions()), ensure(listPrincipalsOptions())),
+    principalGroups: () => ensure(listPrincipalGroupsOptions()).then(() => null),
+    principals: () => ensure(listPrincipalsOptions()).then(() => null),
     signals: ({ location }: ConsoleRouteLoaderContext) =>
       all(
         ensure(ankoleWebAgentControllerIndexOptions()),

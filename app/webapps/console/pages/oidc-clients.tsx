@@ -51,7 +51,6 @@ import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
-  ankoleWebAuthZGroupControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
@@ -62,11 +61,13 @@ import {
   ankoleWebOidcClientControllerShowOptions,
   ankoleWebOidcClientControllerUpdateMutation
 } from '../api/generated/@tanstack/react-query.gen'
+import { listPrincipalGroupsOptions } from '../api/v2/generated/@tanstack/react-query.gen'
+import { fromDocument } from '../api/json-api'
+import type { PrincipalGroupRecord } from './principal-groups'
 import type {
   AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem,
-  ModelProfileWriteRequest,
-  PrincipalGroupItem
+  ModelProfileWriteRequest
 } from '../api/generated/types.gen'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import { ConfirmDeleteButton, EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
@@ -198,7 +199,7 @@ export function OIDCClientEditorPage() {
     enabled: Boolean(clientID) && !writing,
     staleTime: 0
   })
-  const groups = useQuery(ankoleWebAuthZGroupControllerIndexOptions())
+  const groups = useQuery({ ...listPrincipalGroupsOptions(), select: data => fromDocument(data) })
   const providers = useQuery({
     ...ankoleWebAIGatewayProviderControllerIndexOptions(),
     enabled: aiGatewayEnabled
@@ -517,7 +518,7 @@ export function OIDCClientEditorPage() {
               <AllowedGroupsPicker
                 ariaLabel={t('console.oidc_clients.allowed_groups')}
                 disabled={fieldsDisabled}
-                groups={groups.data?.principal_groups ?? []}
+                groups={groups.data ?? []}
                 isLoading={groups.isLoading}
                 error={groups.error}
                 placeholder={t('console.oidc_clients.allowed_groups_placeholder')}
@@ -651,7 +652,7 @@ function AllowedGroupsPicker({
   ariaLabel: string
   disabled: boolean
   error: unknown
-  groups: PrincipalGroupItem[]
+  groups: PrincipalGroupRecord[]
   id?: string
   isLoading: boolean
   onChange: (ids: string[]) => void

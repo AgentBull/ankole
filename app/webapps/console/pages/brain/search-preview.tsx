@@ -19,10 +19,9 @@ import { RiCloseLine, RiLoaderLine, RiSearchEyeLine } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  ankoleWebBrainControllerSearchPreviewMutation,
-  ankoleWebPrincipalControllerIndexOptions
-} from '../../api/generated/@tanstack/react-query.gen'
+import { ankoleWebBrainControllerSearchPreviewMutation } from '../../api/generated/@tanstack/react-query.gen'
+import { listPrincipalsOptions } from '../../api/v2/generated/@tanstack/react-query.gen'
+import { fromDocument } from '../../api/json-api'
 import { ErrorBlock } from '../../../common/error-block'
 import { AddMembershipPicker } from '../../add-membership-picker'
 import { LabeledField } from '../../console-form'
@@ -39,9 +38,9 @@ export function BrainSearchPreviewPage() {
   const [askerUID, setAskerUID] = useState('')
   const [presentUIDs, setPresentUIDs] = useState<string[]>([])
 
-  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
-  const candidates = (principals.data?.principals ?? []).map(principal => ({
-    id: principal.uid,
+  const principals = useQuery({ ...listPrincipalsOptions(), select: data => fromDocument(data) })
+  const candidates = (principals.data ?? []).map(principal => ({
+    id: principal.id,
     label: principalLabel(principal),
     description: principal.email ?? principal.handle
   }))

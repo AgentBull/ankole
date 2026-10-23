@@ -5,10 +5,9 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from '@tanstack/react-router'
-import {
-  ankoleWebBrainControllerPrincipalKnowledgeOptions,
-  ankoleWebPrincipalControllerIndexOptions
-} from '../../api/generated/@tanstack/react-query.gen'
+import { ankoleWebBrainControllerPrincipalKnowledgeOptions } from '../../api/generated/@tanstack/react-query.gen'
+import { listPrincipalsOptions } from '../../api/v2/generated/@tanstack/react-query.gen'
+import { fromDocument } from '../../api/json-api'
 import { ErrorBlock } from '../../../common/error-block'
 import { LabeledField } from '../../console-form'
 import { PageHeader, PageStack } from '../../console-page'
@@ -22,7 +21,10 @@ export function BrainPrincipalAuditPage() {
   const { t } = useTranslation()
   const [principalUID, setPrincipalUID] = useState('')
 
-  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions({ query: { include_disabled: true } }))
+  const principals = useQuery({
+    ...listPrincipalsOptions({ query: { include_disabled: true } }),
+    select: data => fromDocument(data)
+  })
   const knowledge = useQuery({
     ...ankoleWebBrainControllerPrincipalKnowledgeOptions({ path: { principal_uid: principalUID } }),
     enabled: Boolean(principalUID)
@@ -41,8 +43,8 @@ export function BrainPrincipalAuditPage() {
         <LabeledField label={t('console.brain.audit_principal')}>
           <SinglePrincipalPicker
             ariaLabel={t('console.brain.audit_principal')}
-            candidates={(principals.data?.principals ?? []).map(principal => ({
-              id: principal.uid,
+            candidates={(principals.data ?? []).map(principal => ({
+              id: principal.id,
               label:
                 principal.status === 'disabled'
                   ? `${principal.display_name} · ${t('console.status.disabled')}`

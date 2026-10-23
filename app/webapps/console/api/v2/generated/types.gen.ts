@@ -41,6 +41,112 @@ export type Error = {
 export type Errors = Array<Error>
 
 /**
+ * A "Resource object" representing a external_identity
+ */
+export type ExternalIdentity = {
+  /**
+   * An attributes object for a external_identity
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    external_id: string
+    metadata: unknown
+    /**
+     * Field included by default.
+     */
+    principal_uid: unknown
+    /**
+     * Field included by default.
+     */
+    provider: string
+  }
+  id: string
+  /**
+   * A relationships object for a external_identity
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type ExternalIdentityType = {
+  /**
+   * Field included by default.
+   */
+  external_id: string
+  /**
+   * Field included by default.
+   */
+  id?: string | null
+  /**
+   * Field included by default.
+   */
+  metadata: unknown
+  /**
+   * Field included by default.
+   */
+  principal_uid: unknown
+  /**
+   * Field included by default.
+   */
+  provider: string
+}
+
+/**
+ * A "Resource object" representing a identity_mapping_request
+ */
+export type IdentityMappingRequest = {
+  /**
+   * An attributes object for a identity_mapping_request
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    display_name?: string | null
+    /**
+     * Field included by default.
+     */
+    email?: string | null
+    /**
+     * Field included by default.
+     */
+    external_id: string
+    /**
+     * Field included by default.
+     */
+    inserted_at: string
+    /**
+     * Field included by default.
+     */
+    metadata: unknown
+    /**
+     * Field included by default.
+     */
+    mobile?: string | null
+    /**
+     * Field included by default.
+     */
+    provider: string
+    /**
+     * Field included by default.
+     */
+    updated_at: string
+  }
+  id: string
+  /**
+   * A relationships object for a identity_mapping_request
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A link MUST be represented as either: a string containing the link's URL or a link object.
  */
 export type Link = string
@@ -48,3 +154,1357 @@ export type Link = string
 export type Links = {
   [key: string]: Link
 }
+
+/**
+ * A "Resource object" representing a permission_grant
+ */
+export type PermissionGrant = {
+  /**
+   * An attributes object for a permission_grant
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    action: string
+    /**
+     * Field included by default.
+     */
+    condition: string
+    /**
+     * Field included by default.
+     */
+    description?: string | null
+    /**
+     * Field included by default.
+     */
+    group_id?: string | null
+    metadata: unknown
+    /**
+     * Field included by default.
+     */
+    principal_uid?: unknown | null
+    /**
+     * Field included by default.
+     */
+    resource_pattern: string
+  }
+  id: string
+  /**
+   * A relationships object for a permission_grant
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a principal
+ */
+export type Principal = {
+  /**
+   * An attributes object for a principal
+   */
+  attributes?: {
+    access_revoked_at?: string | null
+    access_version: number
+    /**
+     * Field included by default.
+     */
+    avatar_url?: string | null
+    /**
+     * Field included by default.
+     */
+    display_name?: string | null
+    /**
+     * Field included by default.
+     */
+    email?: string | null
+    /**
+     * Field included by default.
+     */
+    handle?: string | null
+    /**
+     * Field included by default.
+     */
+    has_external_identity?: boolean | null
+    /**
+     * Field included by default.
+     */
+    local_credential_status?: 'must_change' | 'active' | null
+    /**
+     * Field included by default.
+     */
+    status: 'active' | 'disabled'
+    /**
+     * Field included by default.
+     */
+    type: 'human' | 'agent' | 'system'
+  }
+  id: string
+  /**
+   * A relationships object for a principal
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a principal_group
+ */
+export type PrincipalGroup = {
+  /**
+   * An attributes object for a principal_group
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    built_in: boolean
+    /**
+     * Field included by default.
+     */
+    computed_condition?: string | null
+    /**
+     * Field included by default.
+     */
+    description?: string | null
+    /**
+     * Field included by default.
+     */
+    display_name: string
+    /**
+     * Field included by default.
+     */
+    domain: 'operator' | 'directory' | 'im_group' | 'signal_source'
+    /**
+     * Field included by default.
+     */
+    grant_count?: number | null
+    /**
+     * Field included by default.
+     */
+    kind: 'static' | 'computed'
+    /**
+     * Field included by default.
+     */
+    member_count?: number | null
+    metadata: unknown
+    /**
+     * Field included by default.
+     */
+    name: string
+  }
+  id: string
+  /**
+   * A relationships object for a principal_group
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a principal_group_membership
+ */
+export type PrincipalGroupMembership = {
+  /**
+   * An attributes object for a principal_group_membership
+   */
+  attributes?: {
+    /**
+     * Field included by default.
+     */
+    group_id: string
+    /**
+     * Field included by default.
+     */
+    principal_uid: unknown
+  }
+  id: string
+  /**
+   * A relationships object for a principal_group_membership
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+export type PrincipalGroupMembershipType = {
+  /**
+   * Field included by default.
+   */
+  group_id: string
+  /**
+   * Field included by default.
+   */
+  principal_uid: unknown
+}
+
+export type ListIdentityMappingRequestsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for identity_mapping_request
+       */
+      identity_mapping_request?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/identity-mapping-requests'
+}
+
+export type ListIdentityMappingRequestsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListIdentityMappingRequestsError =
+  ListIdentityMappingRequestsErrors[keyof ListIdentityMappingRequestsErrors]
+
+export type ListIdentityMappingRequestsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a identity_mapping_request
+     */
+    data?: Array<IdentityMappingRequest>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListIdentityMappingRequestsResponse =
+  ListIdentityMappingRequestsResponses[keyof ListIdentityMappingRequestsResponses]
+
+export type DeleteIdentityMappingRequestData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for identity_mapping_request
+       */
+      identity_mapping_request?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/identity-mapping-requests/{id}'
+}
+
+export type DeleteIdentityMappingRequestErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeleteIdentityMappingRequestError =
+  DeleteIdentityMappingRequestErrors[keyof DeleteIdentityMappingRequestErrors]
+
+export type DeleteIdentityMappingRequestResponses = {
+  /**
+   * Deleted successfully
+   */
+  200: unknown
+}
+
+export type BindIdentityMappingRequestData = {
+  /**
+   * Request body for the bind_identity_mapping_request operation on identity_mapping_request resource
+   */
+  body: {
+    data: {
+      principal_uid: string
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/identity-mapping-requests/{id}/bind'
+}
+
+export type BindIdentityMappingRequestErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type BindIdentityMappingRequestError = BindIdentityMappingRequestErrors[keyof BindIdentityMappingRequestErrors]
+
+export type BindIdentityMappingRequestResponses = {
+  /**
+   * Success
+   */
+  201: ExternalIdentityType
+}
+
+export type BindIdentityMappingRequestResponse =
+  BindIdentityMappingRequestResponses[keyof BindIdentityMappingRequestResponses]
+
+export type CreateIdentityMappingData = {
+  /**
+   * Request body for the create_identity_mapping operation on identity_mapping_request resource
+   */
+  body: {
+    data: {
+      external_id: string
+      principal_uid: string
+      provider: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/identity-mappings'
+}
+
+export type CreateIdentityMappingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateIdentityMappingError = CreateIdentityMappingErrors[keyof CreateIdentityMappingErrors]
+
+export type CreateIdentityMappingResponses = {
+  /**
+   * Success
+   */
+  201: ExternalIdentityType
+}
+
+export type CreateIdentityMappingResponse = CreateIdentityMappingResponses[keyof CreateIdentityMappingResponses]
+
+export type CreatePermissionGrantData = {
+  /**
+   * Request body for the create_permission_grant operation on permission_grant resource
+   */
+  body: {
+    data: {
+      attributes?: {
+        action: string
+        condition?: string | null
+        description?: string | null
+        group_name?: string | null
+        principal_uid?: string | null
+        resource_pattern: string
+      }
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'permission_grant'
+    }
+  }
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for permission_grant
+       */
+      permission_grant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/permission-grants'
+}
+
+export type CreatePermissionGrantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreatePermissionGrantError = CreatePermissionGrantErrors[keyof CreatePermissionGrantErrors]
+
+export type CreatePermissionGrantResponses = {
+  /**
+   * Success
+   */
+  201: {
+    data?: PermissionGrant
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type CreatePermissionGrantResponse = CreatePermissionGrantResponses[keyof CreatePermissionGrantResponses]
+
+export type DeletePermissionGrantData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for permission_grant
+       */
+      permission_grant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/permission-grants/{id}'
+}
+
+export type DeletePermissionGrantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeletePermissionGrantError = DeletePermissionGrantErrors[keyof DeletePermissionGrantErrors]
+
+export type DeletePermissionGrantResponses = {
+  /**
+   * Deleted successfully
+   */
+  200: unknown
+}
+
+export type GetPermissionGrantData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for permission_grant
+       */
+      permission_grant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/permission-grants/{id}'
+}
+
+export type GetPermissionGrantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetPermissionGrantError = GetPermissionGrantErrors[keyof GetPermissionGrantErrors]
+
+export type GetPermissionGrantResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: PermissionGrant
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetPermissionGrantResponse = GetPermissionGrantResponses[keyof GetPermissionGrantResponses]
+
+export type UpdatePermissionGrantData = {
+  /**
+   * Request body for the update_permission_grant operation on permission_grant resource
+   */
+  body?: {
+    data: {
+      attributes?: {
+        action?: string | null
+        condition?: string | null
+        description?: string | null
+        resource_pattern?: string | null
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'permission_grant'
+    }
+  }
+  path: {
+    id: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for permission_grant
+       */
+      permission_grant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/permission-grants/{id}'
+}
+
+export type UpdatePermissionGrantErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdatePermissionGrantError = UpdatePermissionGrantErrors[keyof UpdatePermissionGrantErrors]
+
+export type UpdatePermissionGrantResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: PermissionGrant
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type UpdatePermissionGrantResponse = UpdatePermissionGrantResponses[keyof UpdatePermissionGrantResponses]
+
+export type ListPrincipalGroupsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal_group
+       */
+      principal_group?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principal-groups'
+}
+
+export type ListPrincipalGroupsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListPrincipalGroupsError = ListPrincipalGroupsErrors[keyof ListPrincipalGroupsErrors]
+
+export type ListPrincipalGroupsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a principal_group
+     */
+    data?: Array<PrincipalGroup>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListPrincipalGroupsResponse = ListPrincipalGroupsResponses[keyof ListPrincipalGroupsResponses]
+
+export type CreatePrincipalGroupData = {
+  /**
+   * Request body for the create_principal_group operation on principal_group resource
+   */
+  body: {
+    data: {
+      attributes?: {
+        computed_condition?: string | null
+        description?: string | null
+        display_name: string
+        kind?: 'static' | 'computed' | null
+        name: string
+      }
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'principal_group'
+    }
+  }
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal_group
+       */
+      principal_group?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principal-groups'
+}
+
+export type CreatePrincipalGroupErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreatePrincipalGroupError = CreatePrincipalGroupErrors[keyof CreatePrincipalGroupErrors]
+
+export type CreatePrincipalGroupResponses = {
+  /**
+   * Success
+   */
+  201: {
+    data?: PrincipalGroup
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type CreatePrincipalGroupResponse = CreatePrincipalGroupResponses[keyof CreatePrincipalGroupResponses]
+
+export type PreviewComputedPrincipalGroupMembersData = {
+  /**
+   * Request body for the preview_computed_principal_group_members operation on principal_group resource
+   */
+  body: {
+    data: {
+      condition: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/principal-groups/computed-member-previews'
+}
+
+export type PreviewComputedPrincipalGroupMembersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PreviewComputedPrincipalGroupMembersError =
+  PreviewComputedPrincipalGroupMembersErrors[keyof PreviewComputedPrincipalGroupMembersErrors]
+
+export type PreviewComputedPrincipalGroupMembersResponses = {
+  /**
+   * Success
+   */
+  201: Array<{
+    avatar_url?: string | null
+    display_name?: string | null
+    member_since?: string | null
+    status: 'active' | 'disabled'
+    type: 'human' | 'agent' | 'system'
+    uid: string
+  }>
+}
+
+export type PreviewComputedPrincipalGroupMembersResponse =
+  PreviewComputedPrincipalGroupMembersResponses[keyof PreviewComputedPrincipalGroupMembersResponses]
+
+export type DeletePrincipalGroupData = {
+  body?: never
+  path: {
+    /**
+     * The group name or ID.
+     */
+    name: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal_group
+       */
+      principal_group?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principal-groups/{name}'
+}
+
+export type DeletePrincipalGroupErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DeletePrincipalGroupError = DeletePrincipalGroupErrors[keyof DeletePrincipalGroupErrors]
+
+export type DeletePrincipalGroupResponses = {
+  /**
+   * Deleted successfully
+   */
+  200: unknown
+}
+
+export type GetPrincipalGroupData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal_group
+       */
+      principal_group?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principal-groups/{name}'
+}
+
+export type GetPrincipalGroupErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetPrincipalGroupError = GetPrincipalGroupErrors[keyof GetPrincipalGroupErrors]
+
+export type GetPrincipalGroupResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: PrincipalGroup
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetPrincipalGroupResponse = GetPrincipalGroupResponses[keyof GetPrincipalGroupResponses]
+
+export type UpdatePrincipalGroupData = {
+  /**
+   * Request body for the update_principal_group operation on principal_group resource
+   */
+  body?: {
+    data: {
+      attributes?: {
+        computed_condition?: string | null
+        description?: string | null
+        display_name?: string | null
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'principal_group'
+    }
+  }
+  path: {
+    name: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal_group
+       */
+      principal_group?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principal-groups/{name}'
+}
+
+export type UpdatePrincipalGroupErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdatePrincipalGroupError = UpdatePrincipalGroupErrors[keyof UpdatePrincipalGroupErrors]
+
+export type UpdatePrincipalGroupResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: PrincipalGroup
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type UpdatePrincipalGroupResponse = UpdatePrincipalGroupResponses[keyof UpdatePrincipalGroupResponses]
+
+export type ListPrincipalGroupGrantsData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for permission_grant
+       */
+      permission_grant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principal-groups/{name}/grants'
+}
+
+export type ListPrincipalGroupGrantsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListPrincipalGroupGrantsError = ListPrincipalGroupGrantsErrors[keyof ListPrincipalGroupGrantsErrors]
+
+export type ListPrincipalGroupGrantsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a permission_grant
+     */
+    data?: Array<PermissionGrant>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListPrincipalGroupGrantsResponse =
+  ListPrincipalGroupGrantsResponses[keyof ListPrincipalGroupGrantsResponses]
+
+export type ListPrincipalGroupMembersData = {
+  body?: never
+  path: {
+    name: string
+  }
+  query?: never
+  url: '/api/v2/principal-groups/{name}/members'
+}
+
+export type ListPrincipalGroupMembersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListPrincipalGroupMembersError = ListPrincipalGroupMembersErrors[keyof ListPrincipalGroupMembersErrors]
+
+export type ListPrincipalGroupMembersResponses = {
+  /**
+   * Success
+   */
+  200: Array<{
+    avatar_url?: string | null
+    display_name?: string | null
+    member_since?: string | null
+    status: 'active' | 'disabled'
+    type: 'human' | 'agent' | 'system'
+    uid: string
+  }>
+}
+
+export type ListPrincipalGroupMembersResponse =
+  ListPrincipalGroupMembersResponses[keyof ListPrincipalGroupMembersResponses]
+
+export type RemovePrincipalGroupMemberData = {
+  body?: never
+  path: {
+    principal_uid: string
+    /**
+     * The group name or ID.
+     */
+    name: string
+  }
+  query?: never
+  url: '/api/v2/principal-groups/{name}/members/{principal_uid}'
+}
+
+export type RemovePrincipalGroupMemberErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RemovePrincipalGroupMemberError = RemovePrincipalGroupMemberErrors[keyof RemovePrincipalGroupMemberErrors]
+
+export type RemovePrincipalGroupMemberResponses = {
+  /**
+   * Success
+   */
+  200: string
+}
+
+export type RemovePrincipalGroupMemberResponse =
+  RemovePrincipalGroupMemberResponses[keyof RemovePrincipalGroupMemberResponses]
+
+export type AddPrincipalGroupMemberData = {
+  body?: never
+  path: {
+    principal_uid: string
+    /**
+     * The group name or ID.
+     */
+    name: string
+  }
+  query?: never
+  url: '/api/v2/principal-groups/{name}/members/{principal_uid}'
+}
+
+export type AddPrincipalGroupMemberErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type AddPrincipalGroupMemberError = AddPrincipalGroupMemberErrors[keyof AddPrincipalGroupMemberErrors]
+
+export type AddPrincipalGroupMemberResponses = {
+  /**
+   * Success
+   */
+  200: PrincipalGroupMembershipType
+}
+
+export type AddPrincipalGroupMemberResponse = AddPrincipalGroupMemberResponses[keyof AddPrincipalGroupMemberResponses]
+
+export type ListPrincipalsData = {
+  body?: never
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal
+       */
+      principal?: string
+      [key: string]: unknown
+    }
+    include_disabled?: boolean
+  }
+  url: '/api/v2/principals'
+}
+
+export type ListPrincipalsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListPrincipalsError = ListPrincipalsErrors[keyof ListPrincipalsErrors]
+
+export type ListPrincipalsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a principal
+     */
+    data?: Array<Principal>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListPrincipalsResponse = ListPrincipalsResponses[keyof ListPrincipalsResponses]
+
+export type CreateLocalUserData = {
+  /**
+   * Request body for the create_local_user operation on principal resource
+   */
+  body: {
+    data: {
+      attributes?: {
+        display_name?: string | null
+        email: string
+        /**
+         * Omitted or null means true.
+         */
+        must_change_password?: boolean | null
+      }
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'principal'
+    }
+  }
+  path?: never
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal
+       */
+      principal?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principals'
+}
+
+export type CreateLocalUserErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreateLocalUserError = CreateLocalUserErrors[keyof CreateLocalUserErrors]
+
+export type CreateLocalUserResponses = {
+  /**
+   * Success
+   */
+  201: {
+    data?: Principal
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type CreateLocalUserResponse = CreateLocalUserResponses[keyof CreateLocalUserResponses]
+
+export type GetPrincipalData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal
+       */
+      principal?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principals/{uid}'
+}
+
+export type GetPrincipalErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type GetPrincipalError = GetPrincipalErrors[keyof GetPrincipalErrors]
+
+export type GetPrincipalResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: Principal
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type GetPrincipalResponse = GetPrincipalResponses[keyof GetPrincipalResponses]
+
+export type UpdateHumanData = {
+  /**
+   * Request body for the update_human operation on principal resource
+   */
+  body?: {
+    data: {
+      attributes?: {
+        display_name?: string | null
+        email?: string | null
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'principal'
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal
+       */
+      principal?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principals/{uid}'
+}
+
+export type UpdateHumanErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdateHumanError = UpdateHumanErrors[keyof UpdateHumanErrors]
+
+export type UpdateHumanResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: Principal
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type UpdateHumanResponse = UpdateHumanResponses[keyof UpdateHumanResponses]
+
+export type ListGrantsOfPrincipalData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for permission_grant
+       */
+      permission_grant?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principals/{uid}/grants'
+}
+
+export type ListGrantsOfPrincipalErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListGrantsOfPrincipalError = ListGrantsOfPrincipalErrors[keyof ListGrantsOfPrincipalErrors]
+
+export type ListGrantsOfPrincipalResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a permission_grant
+     */
+    data?: Array<PermissionGrant>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListGrantsOfPrincipalResponse = ListGrantsOfPrincipalResponses[keyof ListGrantsOfPrincipalResponses]
+
+export type ListGroupsOfPrincipalData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal_group
+       */
+      principal_group?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principals/{uid}/groups'
+}
+
+export type ListGroupsOfPrincipalErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ListGroupsOfPrincipalError = ListGroupsOfPrincipalErrors[keyof ListGroupsOfPrincipalErrors]
+
+export type ListGroupsOfPrincipalResponses = {
+  /**
+   * Success
+   */
+  200: {
+    /**
+     * An array of resource objects representing a principal_group
+     */
+    data?: Array<PrincipalGroup>
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ListGroupsOfPrincipalResponse = ListGroupsOfPrincipalResponses[keyof ListGroupsOfPrincipalResponses]

@@ -156,4 +156,14 @@ defmodule Ankole.Errors do
     do: {:ok, {:invalid_status_transition, from, to}}
 
   defp known_reason(_error), do: nil
+
+  @doc """
+  Gives a missing target of a domain operation as `Invalid.NotFound`, so that
+  a v2 route answers 404 and not 422. Other results stay the same.
+  """
+  @spec not_found(term(), module()) :: term()
+  def not_found({:error, reason}, resource) when reason in [:not_found, :principal_not_found],
+    do: {:error, NotFound.exception(resource: resource)}
+
+  def not_found(result, _resource), do: result
 end

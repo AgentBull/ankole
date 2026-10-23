@@ -34,7 +34,7 @@ defmodule Ankole.Principals do
 
     routes do
       base_route "/principals", Principal do
-        index(:console_list, name: "list_principals")
+        index(:console_list, name: "list_principals", derive_sort?: false)
         get(:read, route: "/:uid", name: "get_principal")
 
         post(:create_local_user,
@@ -43,13 +43,11 @@ defmodule Ankole.Principals do
         )
 
         patch(:update_human, route: "/:uid", name: "update_human")
-        related(:groups, :read, route: "/:uid/groups", name: "list_groups_of_principal")
-        related(:grants, :read, route: "/:uid/grants", name: "list_grants_of_principal")
       end
 
       base_route "/identity-mapping-requests", MappingRequest do
-        index(:console_list, name: "list_identity_mapping_requests")
-        delete(:delete_in_tx, name: "delete_identity_mapping_request")
+        index(:console_list, name: "list_identity_mapping_requests", derive_sort?: false)
+        delete(:delete_in_tx, name: "delete_identity_mapping_request", read_action: :by_id)
         route(:post, "/:id/bind", :bind_request, name: "bind_identity_mapping_request")
       end
 
@@ -234,6 +232,7 @@ defmodule Ankole.Principals do
       :update_human,
       attrs |> Map.take([:display_name, :email]) |> Map.put(:uid, uid)
     )
+    |> Ankole.Errors.reason()
   end
 
   @doc false
@@ -480,7 +479,7 @@ defmodule Ankole.Principals do
              repo,
              principal.uid,
              args.password_hash,
-             args.must_change_password
+             Map.get(args, :must_change_password) != false
            ) do
       {:ok,
        principal

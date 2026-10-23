@@ -67,6 +67,7 @@ defmodule Ankole.Principals.MappingRequests do
   @spec bind_request(String.t(), String.t()) :: {:ok, ExternalIdentity.t()} | {:error, term()}
   def bind_request(id, principal_uid) when is_binary(id) and is_binary(principal_uid) do
     Ankole.Ash.run_action(MappingRequest, :bind_request, %{id: id, principal_uid: principal_uid})
+    |> Ankole.Errors.reason()
   end
 
   @doc false
@@ -110,6 +111,7 @@ defmodule Ankole.Principals.MappingRequests do
       provider: provider,
       external_id: external_id
     })
+    |> Ankole.Errors.reason()
   end
 
   @doc false

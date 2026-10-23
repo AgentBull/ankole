@@ -35,7 +35,7 @@ defmodule Ankole.AuthZ do
 
     routes do
       base_route "/principal-groups", Group do
-        index(:console_list, name: "list_principal_groups")
+        index(:console_list, name: "list_principal_groups", derive_sort?: false)
         post(:create, name: "create_principal_group")
 
         route(:post, "/computed-member-previews", :preview_computed_members,
@@ -54,13 +54,23 @@ defmodule Ankole.AuthZ do
         route(:delete, "/:name/members/:principal_uid", :remove_member,
           name: "remove_principal_group_member"
         )
+      end
 
-        related(:grants, :read, route: "/:name/grants", name: "list_principal_group_grants")
+      base_route "/principal-groups/:name/grants", Grant do
+        index(:of_group, name: "list_principal_group_grants", derive_sort?: false)
+      end
+
+      base_route "/principals/:uid/groups", Group do
+        index(:of_principal, name: "list_groups_of_principal", derive_sort?: false)
+      end
+
+      base_route "/principals/:uid/grants", Grant do
+        index(:of_principal, name: "list_grants_of_principal", derive_sort?: false)
       end
 
       base_route "/permission-grants", Grant do
         post(:create_operator_grant, name: "create_permission_grant")
-        get(:read, name: "get_permission_grant")
+        get(:by_id, name: "get_permission_grant")
         patch(:update_operator_grant, name: "update_permission_grant")
         delete(:delete_operator_grant, name: "delete_permission_grant")
       end
@@ -230,16 +240,6 @@ defmodule Ankole.AuthZ do
   end
 
   @doc """
-  Deletes an operator-defined group when no grants still refer to it.
-  """
-  @spec delete_principal_group(String.t() | Group.t()) :: {:ok, Group.t()} | {:error, term()}
-  def delete_principal_group(%Group{} = group), do: delete_principal_group(group.id)
-
-  def delete_principal_group(id_or_name) do
-    Ankole.Ash.run_action(Group, :delete_operator_group, %{name: id_or_name})
-  end
-
-  @doc """
   Lists static members of a Principal group with their Principal display fields.
 
   Members are ordered by Principal display name. Computed groups derive
@@ -320,16 +320,6 @@ defmodule Ankole.AuthZ do
   def list_group_grants(id_or_name) do
     with {:ok, group} <- Store.fetch_group(Repo, id_or_name) do
       {:ok, list_ordered_grants(group_id: group.id)}
-    end
-  end
-
-  @doc """
-  Lists permission grants owned directly by one Principal ordered by pattern and action.
-  """
-  @spec list_principal_grants(String.t()) :: {:ok, [Grant.t()]} | {:error, term()}
-  def list_principal_grants(principal_uid) do
-    with {:ok, principal} <- Principals.get_principal(principal_uid) do
-      {:ok, list_ordered_grants(principal_uid: principal.uid)}
     end
   end
 
@@ -447,22 +437,6 @@ defmodule Ankole.AuthZ do
   end
 
   @doc """
-  Counts stored members and owned grants per Principal group, defaulting to zero.
-  """
-  @spec summarize_principal_groups() :: %{
-          String.t() => %{member_count: non_neg_integer(), grant_count: non_neg_integer()}
-        }
-  def summarize_principal_groups do
-    Group
-    |> Ash.Query.filter(member_count > 0 or grant_count > 0)
-    |> Ash.Query.load([:member_count, :grant_count])
-    |> Ankole.Ash.read!()
-    |> Map.new(fn group ->
-      {group.id, %{member_count: group.member_count, grant_count: group.grant_count}}
-    end)
-  end
-
-  @doc """
   Looks up one permission grant by id.
   """
   @spec get_permission_grant(String.t()) :: {:ok, Grant.t()} | {:error, :not_found}
@@ -507,6 +481,7 @@ defmodule Ankole.AuthZ do
       principal_uid: principal_uid,
       name: group_id_or_name
     })
+    |> Ankole.Errors.reason()
   end
 
   @doc """
@@ -547,6 +522,7 @@ defmodule Ankole.AuthZ do
       principal_uid: principal_uid,
       name: group_id_or_name
     })
+    |> Ankole.Errors.reason()
   end
 
   @doc """
