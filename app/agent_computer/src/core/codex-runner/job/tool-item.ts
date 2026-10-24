@@ -99,7 +99,11 @@ export function projectCodexToolItem(item: JsonObject, modelIdentity?: ToolIdent
     case 'sleep':
       return { ...common, identity: { name: 'sleep' }, input: { duration_ms: item.durationMs } }
     case 'imageGeneration': {
-      const output = { result: item.result, failure: item.failure, saved_path: item.savedPath }
+      const output = {
+        ...('result' in item ? { result: item.result } : { file_id: item.fileId }),
+        failure: item.failure,
+        saved_path: item.savedPath
+      }
       return {
         ...common,
         identity: { name: 'image_generation' },

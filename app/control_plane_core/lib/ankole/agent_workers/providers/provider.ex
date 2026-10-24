@@ -2,9 +2,27 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
   @moduledoc "A durable Worker pool: one immutable kind and location, YAML and encrypted credentials."
 
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :site,
     domain: Ankole.AgentWorkers.Providers,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:provider_id, :string)
+    allow(:list, resource: "site_console:worker_providers", action: "read")
+    allow(:add, resource: "site_console:worker_providers", action: "update")
+
+    allow(:configure_provider,
+      resource: "site_console:worker_provider:{provider_id}",
+      action: "update"
+    )
+
+    allow(:delete_provider,
+      resource: "site_console:worker_provider:{provider_id}",
+      action: "delete"
+    )
+  end
 
   alias Ankole.AgentWorkers.Providers
   alias Ankole.AgentWorkers.Providers.Projection

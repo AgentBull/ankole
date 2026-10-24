@@ -187,6 +187,7 @@ defmodule AnkoleWeb.Router do
 
     get "/", SpaController, :home
     get "/sessions/new", SpaController, :sessions_new
+    get "/join/:token", SpaController, :join
     get "/oauth/logout/confirm", SpaController, :logout_confirmation
     post "/oauth/logout/confirm", OIDCLogoutController, :confirm
     get "/sessions/logged-out", SpaController, :logged_out
@@ -196,6 +197,8 @@ defmodule AnkoleWeb.Router do
     get "/sessions/oidc/:provider_id/callback", AuthController, :oidc_callback
     get "/site-admin-console", SpaController, :console
     get "/site-admin-console/*path", SpaController, :console
+    get "/settings", SpaController, :pod
+    get "/me", SpaController, :pod
     get "/pod", SpaController, :pod
     get "/pod/*path", SpaController, :pod
     get "/pages/:id", SpaController, :pod

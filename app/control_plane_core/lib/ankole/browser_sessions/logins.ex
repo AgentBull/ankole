@@ -99,21 +99,6 @@ defmodule Ankole.BrowserSessions.Logins do
     end)
   end
 
-  def put_password_ticket(ref, id, ticket) do
-    Repo.transact_top_level(fn -> put_password_ticket_in_tx(ref, id, ticket) end)
-  end
-
-  @doc false
-  def put_password_ticket_in_tx(ref, id, ticket) do
-    update_login_in_tx(:put_password_ticket_in_tx, ref, id, fn
-      %LoginTransaction{status: :pending} = transaction ->
-        Ankole.Ash.update(transaction, :password_ticket_in_tx, %{password_ticket: ticket})
-
-      _ ->
-        {:error, :login_expired}
-    end)
-  end
-
   @doc """
   Completes a pending login.
 
@@ -143,7 +128,8 @@ defmodule Ankole.BrowserSessions.Logins do
         principal.uid,
         auth["auth_time"],
         auth["external_id"],
-        [principal]
+        [principal],
+        %{challenge_started_at: transaction.inserted_at, amr: auth["amr"] || ["oidc"]}
       )
     else
       true -> {:error, :invalid_authentication}
@@ -166,10 +152,10 @@ defmodule Ankole.BrowserSessions.Logins do
            fetch_login(browser, id),
          true <-
            purpose in [:site, :oauth, :pod, :console] and transaction.provider_id == provider_id,
-         {:ok, %{subject_id: subject_id, auth_time: auth_time}} <-
-           Ankole.IdentityProviders.SiteSources.authenticate(provider_id, proof) do
-      principals = site_principals(transaction, provider_id, subject_id)
-
+         {:ok, %{subject_id: subject_id, auth_time: auth_time} = verified} <-
+           Ankole.IdentityProviders.SiteSources.authenticate(provider_id, proof),
+         :ok <- site_flow_policy(transaction, provider_id, verified),
+         {:ok, principals} <- site_principals(transaction, provider_id, verified) do
       if transaction.purpose != :console or
            Repo.with_tenant(transaction.tenant_id, fn ->
              Enum.any?(
@@ -184,7 +170,8 @@ defmodule Ankole.BrowserSessions.Logins do
           subject_id,
           auth_time,
           subject_id,
-          principals
+          principals,
+          verified
         )
       else
         {:error, :not_an_admin}
@@ -194,6 +181,19 @@ defmodule Ankole.BrowserSessions.Logins do
       {:ok, _} -> {:error, :login_expired}
       error -> error
     end
+  end
+
+  defp site_flow_policy(%{purpose: :site}, _provider_id, _proof), do: :ok
+
+  defp site_flow_policy(transaction, provider_id, proof) do
+    Repo.with_tenant(transaction.tenant_id, fn ->
+      with :ok <- Ankole.OIDC.LoginPolicy.authorize_login(transaction, provider_id),
+           do:
+             Ankole.OIDC.LoginPolicy.completed_authentication_allowed?(
+               %{"auth_time" => proof.auth_time},
+               transaction.request
+             )
+    end)
   end
 
   def select_authorization(ref, id, authentication_ref) do
@@ -350,26 +350,83 @@ defmodule Ankole.BrowserSessions.Logins do
     })
   end
 
-  defp site_principals(transaction, provider_id, subject_id) do
+  defp site_principal(tenant_id, uid, candidate, provider_id, proof) do
+    Repo.with_tenant(tenant_id, fn ->
+      case Identity.lock_principal(uid) do
+        %{type: :human, status: :active} = principal ->
+          cond do
+            not fresh_for_human_at?(proof.challenge_started_at, principal) ->
+              {:error, :human_access_revoked}
+
+            not Ankole.Tenants.accepting_work?(tenant_id) ->
+              {:error, :tenant_suspended}
+
+            not Ankole.Principals.PodLoginPolicy.authentication_allowed?(
+              principal,
+              provider_id,
+              proof
+            ) ->
+              {:error, :login_policy_rejected}
+
+            candidate && candidate.uid == uid ->
+              bind_claimed_principal(principal, proof)
+
+            true ->
+              {:ok, principal}
+          end
+
+        _ ->
+          {:error, :human_access_revoked}
+      end
+    end)
+  end
+
+  defp bind_claimed_principal(principal, proof) do
+    with true <- Ankole.Principals.site_credential_claim_current?(proof),
+         {:ok, _} <- Ankole.Principals.bind_site_credential_in_tx(principal.uid, proof),
+         do: {:ok, principal},
+         else: (
+           false -> {:error, :reauthentication_required}
+           error -> error
+         )
+  end
+
+  defp site_principals(transaction, provider_id, proof) do
     bindings =
       provider_id
-      |> Ankole.Principals.list_platform_subject_bindings(subject_id)
+      |> Ankole.Principals.list_site_credentials(proof.subject_id)
       |> Enum.map(&{&1.tenant_id, &1.principal_uid})
 
-    Enum.flat_map(bindings, fn {tenant_id, uid} ->
-      Repo.with_tenant(tenant_id, fn ->
-        case Identity.lock_principal(uid) do
-          %{type: :human, status: :active} = principal ->
-            if fresh_for_human?(transaction, principal) and
-                 Ankole.Tenants.accepting_work?(tenant_id),
-               do: [principal],
-               else: []
+    candidate =
+      if transaction.tenant_id && not List.keymember?(bindings, transaction.tenant_id, 0) do
+        proof
+        |> Ankole.Principals.pending_site_memberships()
+        |> Enum.find(&(&1.tenant_id == transaction.tenant_id))
+      end
 
-          _ ->
-            []
-        end
-      end)
+    targets = if candidate, do: [{candidate.tenant_id, candidate.uid} | bindings], else: bindings
+
+    targets
+    |> Enum.sort_by(&elem(&1, 1))
+    |> Enum.reduce_while({:ok, []}, fn {tenant_id, uid}, {:ok, principals} ->
+      result = site_principal(tenant_id, uid, candidate, provider_id, proof)
+
+      case result do
+        {:ok, principal} -> {:cont, {:ok, [principal | principals]}}
+        {:error, _} = error when tenant_id == transaction.tenant_id -> {:halt, error}
+        {:error, _} -> {:cont, {:ok, principals}}
+      end
     end)
+    |> case do
+      {:ok, principals} ->
+        if transaction.tenant_id &&
+             not Enum.any?(principals, &(&1.tenant_id == transaction.tenant_id)),
+           do: {:error, :not_a_member},
+           else: {:ok, principals}
+
+      error ->
+        error
+    end
   end
 
   defp persist_login(
@@ -379,7 +436,8 @@ defmodule Ankole.BrowserSessions.Logins do
          subject_id,
          auth_time,
          external_id,
-         principals
+         principals,
+         proof
        ) do
     site? = Ankole.IdentityProviders.SiteSources.registered?(provider_id)
 
@@ -392,24 +450,31 @@ defmodule Ankole.BrowserSessions.Logins do
     ]
 
     old = find_subject(attributes)
+    renew_site? = site? and live?(old)
 
     with :ok <- unchanged_target(transaction, old),
-         :ok <- expected_subject(transaction, provider_id, subject_id),
+         :ok <- expected_subject(transaction, provider_id, subject_id, principals),
          :ok <- replace_context(browser, transaction, old, subject_id),
-         :ok <- Revocation.end_authentication(old),
+         :ok <- if(renew_site?, do: :ok, else: Revocation.end_authentication(old)),
          {:ok, authentication} <-
            persist_authentication(old, attributes, %{
-             revision: browser.revision + 1,
+             revision: if(renew_site?, do: old.revision, else: browser.revision + 1),
              auth_time: auth_time,
+             authenticated_at: DateTime.utc_now(),
+             challenge_started_at: Map.fetch!(proof, :challenge_started_at),
+             amr: Map.get(proof, :amr, []),
+             verified_email: Map.get(proof, :verified_email),
+             verified_phone: Map.get(proof, :verified_phone),
              external_id: external_id,
-             console_authenticated: transaction.purpose == :console,
-             csrf_token: Identity.csrf_state(),
+             console_authenticated:
+               transaction.purpose == :console or (renew_site? and old.console_authenticated),
+             csrf_token: if(renew_site?, do: old.csrf_token, else: Identity.csrf_state()),
              expires_at: DateTime.add(DateTime.utc_now(), Identity.session_ttl())
            }),
          :ok <- PodAccess.save_pod_authentications(authentication, principals),
          {:ok, browser} <-
            Ankole.Ash.update(browser, :record_login_in_tx, %{
-             revision: authentication.revision,
+             revision: max(browser.revision, authentication.revision),
              active_authentication_id: authentication.id,
              active_tenant_id: transaction.tenant_id,
              expires_at:
@@ -428,6 +493,34 @@ defmodule Ankole.BrowserSessions.Logins do
              }
            ) do
       {:ok, %{browser: browser, transaction: transaction, authentication: authentication}}
+    end
+  end
+
+  defp live?(%Authentication{revoked_at: nil, expires_at: expires_at}),
+    do: DateTime.compare(expires_at, DateTime.utc_now()) == :gt
+
+  defp live?(_), do: false
+
+  def replace_site_credential_in_tx(ref, %Ankole.AuthZ.Actor{} = actor, proof) do
+    Identity.in_transaction!(:replace_site_credential_in_tx)
+
+    with true <- Ankole.AuthZ.Actor.tenant_id(actor) == Repo.tenant_id!(),
+         {:ok, browser} <- Identity.fetch_browser(ref, true),
+         {:ok, transaction} <- begin_login_in_tx(ref, :pod, %{}, mode: :add),
+         {:ok, principals} <- site_principals(transaction, proof.provider_id, proof) do
+      persist_login(
+        browser,
+        transaction,
+        proof.provider_id,
+        proof.subject_id,
+        proof.auth_time,
+        proof.subject_id,
+        principals,
+        proof
+      )
+    else
+      false -> {:error, :invalid_authentication}
+      error -> error
     end
   end
 
@@ -463,9 +556,24 @@ defmodule Ankole.BrowserSessions.Logins do
     Ankole.Ash.read_one!(query)
   end
 
-  defp expected_subject(%{expected_authentication_id: nil}, _, _), do: :ok
+  defp expected_subject(
+         %{purpose: :pod, request: %{"reauthentication_principal_uid" => uid}} = transaction,
+         _provider_id,
+         _subject_id,
+         principals
+       ) do
+    with %Authentication{revoked_at: nil, revision: revision} <-
+           Identity.read_authentication(transaction.expected_authentication_id),
+         true <- revision <= transaction.started_revision,
+         true <-
+           Enum.any?(principals, &(&1.uid == uid and &1.tenant_id == transaction.tenant_id)),
+         do: :ok,
+         else: (_ -> {:error, :login_subject_mismatch})
+  end
 
-  defp expected_subject(transaction, provider_id, subject_id) do
+  defp expected_subject(%{expected_authentication_id: nil}, _, _, _), do: :ok
+
+  defp expected_subject(transaction, provider_id, subject_id, _principals) do
     case Identity.read_authentication(transaction.expected_authentication_id) do
       %Authentication{
         provider_id: ^provider_id,
@@ -510,8 +618,19 @@ defmodule Ankole.BrowserSessions.Logins do
     end
   end
 
-  defp select_request(%LoginTransaction{purpose: :pod} = transaction, _auth),
-    do: {:ok, transaction.request, :reuse}
+  defp select_request(
+         %LoginTransaction{purpose: :pod, request: %{"reauthentication_principal_uid" => _}},
+         _auth
+       ),
+       do: {:error, :reauthentication_required}
+
+  defp select_request(%LoginTransaction{purpose: :pod} = transaction, auth),
+    do:
+      {:ok, transaction.request,
+       if(Ankole.OIDC.LoginPolicy.can_reuse?(auth, transaction.request),
+         do: :reuse,
+         else: :reauthenticate
+       )}
 
   defp select_request(transaction, auth),
     do: Ankole.OIDC.LoginPolicy.select_authentication(transaction, auth)
@@ -550,6 +669,13 @@ defmodule Ankole.BrowserSessions.Logins do
       not fresh_for_human?(transaction, principal) ->
         {:error, :human_access_revoked}
 
+      not Ankole.Principals.PodLoginPolicy.authentication_allowed?(
+        principal,
+        auth["provider_id"],
+        auth
+      ) ->
+        {:error, :login_policy_rejected}
+
       transaction.purpose == :console and not Ankole.AuthZ.site_admin?(principal.uid) ->
         {:error, :not_an_admin}
 
@@ -559,7 +685,10 @@ defmodule Ankole.BrowserSessions.Logins do
   end
 
   defp fresh_for_human?(transaction, principal),
+    do: fresh_for_human_at?(transaction.inserted_at, principal)
+
+  defp fresh_for_human_at?(started_at, principal),
     do:
       is_nil(principal.access_revoked_at) or
-        DateTime.compare(transaction.inserted_at, principal.access_revoked_at) == :gt
+        DateTime.compare(started_at, principal.access_revoked_at) == :gt
 end

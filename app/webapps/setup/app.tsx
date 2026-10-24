@@ -48,9 +48,9 @@ import { ErrorBlock } from '../common/error-block'
 import i18n, { loadLocale, nativeLocaleLabel } from '../common/i18n'
 import { BrainPacksStep } from './brain-packs-step'
 import { SetupLayout, SetupPanel } from './layout'
-import { LocalAdminForm } from './local-admin-form'
+import { EmailAdminForm } from './email-admin-form'
 import { IdentitySetupModel, type IdentitySetupDraft } from './state/identity-setup-model'
-import { PluginsStepModel, visibleIdentityAdapters } from './state/plugins-step-model'
+import { PluginsStepModel, filterSelectedPluginItems } from './state/plugins-step-model'
 import { setupStepState, type SetupStepID } from './state/setup-progress'
 
 const bootstrapSchema = z.object({
@@ -399,17 +399,15 @@ function IdentityStep({
     queryKey: ['setup-identity-provider-adapters'],
     queryFn: () => setupIdentityProviderAdapters()
   })
-  const adapters = visibleIdentityAdapters(query.data?.adapters ?? [], pluginsModel.selectedPluginIDs.value)
+  const adapters = filterSelectedPluginItems(query.data?.adapters ?? [], pluginsModel.selectedPluginIDs.value)
 
   if (query.isLoading) return <SetupPanel title={t('setup.identity_provider')}>{t('common.loading')}</SetupPanel>
-  if (adapters.length === 0) return <NoAdapters error={query.error} />
 
   return <IdentityMethodStep adapters={adapters} model={model} publicBaseURL={publicBaseURL} />
 }
 
 /**
- * Sign-in method chooser: the built-in local adapter first, then one card per
- * plugin-provided SSO adapter. The chosen adapter's form renders below.
+ * Sign-in method chooser for SMTP verification and enterprise SSO. The chosen adapter's form renders below.
  */
 function IdentityMethodStep({
   adapters,
@@ -425,8 +423,10 @@ function IdentityMethodStep({
   useSignals()
   const { i18n: i18next, t } = useTranslation()
   const firstAdapter = adapters[0]
+  const emailMethod = model.adapterID.value === 'email_otp' || !firstAdapter
 
   useEffect(() => {
+    if (!firstAdapter) return
     const initialDraft = {
       adapterID: firstAdapter.adapterID,
       providerID: firstAdapter.defaultProviderID,
@@ -434,7 +434,10 @@ function IdentityMethodStep({
     }
     model.initialize('setup-identity', initialDraft)
 
-    if (!adapters.some(adapter => adapter.adapterID === model.adapterID.value)) {
+    if (
+      model.adapterID.value !== 'email_otp' &&
+      !adapters.some(adapter => adapter.adapterID === model.adapterID.value)
+    ) {
       model.changeAdapter(initialDraft)
     }
   }, [adapters, firstAdapter, model])
@@ -442,7 +445,11 @@ function IdentityMethodStep({
   const activeAdapter = adapters.find(adapter => adapter.adapterID === model.adapterID.value) ?? firstAdapter
 
   function changeAdapter(nextAdapterID: string) {
-    if (nextAdapterID === activeAdapter.adapterID) return
+    if (nextAdapterID === 'email_otp') {
+      model.changeAdapter({ adapterID: 'email_otp', providerID: '', config: {} })
+      return
+    }
+    if (nextAdapterID === activeAdapter?.adapterID) return
     const nextAdapter = adapters.find(adapter => adapter.adapterID === nextAdapterID) ?? firstAdapter
     // Switching adapters resets generated config because field paths and default
     // values are adapter-owned. Preserving old config would mix provider contracts.
@@ -463,12 +470,19 @@ function IdentityMethodStep({
         <RadioGroup
           aria-label={t('setup.sign_in_method')}
           className="grid grid-cols-1 gap-3 xl:grid-cols-2"
-          value={activeAdapter.adapterID}
+          value={emailMethod ? 'email_otp' : activeAdapter.adapterID}
           onValueChange={value => {
             if (typeof value === 'string') changeAdapter(value)
           }}>
+          <label className="flex cursor-pointer items-start gap-3 border border-border p-4">
+            <RadioGroupItem value="email_otp" />
+            <span>
+              <strong>{t('setup.email_method')}</strong>
+              <p>{t('setup.email_method_hint')}</p>
+            </span>
+          </label>
           {adapters.map(adapter => {
-            const selected = adapter.adapterID === activeAdapter.adapterID
+            const selected = !emailMethod && adapter.adapterID === activeAdapter?.adapterID
             const label = identityAdapterLabel(adapter, i18next.language)
             return (
               <label
@@ -480,9 +494,7 @@ function IdentityMethodStep({
                 <span className="grid min-w-0 flex-1 gap-1">
                   <span className="break-words text-sm font-semibold leading-5">{label}</span>
                   <span className="break-words text-xs leading-5 text-muted-foreground">
-                    {adapter.adapterID === 'local'
-                      ? t('setup.method_local_hint')
-                      : t('setup.method_sso_hint', { provider: label })}
+                    {t('setup.method_sso_hint', { provider: label })}
                   </span>
                 </span>
               </label>
@@ -490,8 +502,8 @@ function IdentityMethodStep({
           })}
         </RadioGroup>
       </section>
-      {activeAdapter.adapterID === 'local' ? (
-        <LocalAdminForm key="local" adapter={activeAdapter} />
+      {emailMethod ? (
+        <EmailAdminForm />
       ) : (
         // The key remounts the form per adapter so request state from one
         // provider never lingers under another.
@@ -655,18 +667,6 @@ function SSOIdentityForm({
         </div>
       </form>
     </>
-  )
-}
-
-/** Shows the identity step when no enabled plugin contributes an adapter. */
-function NoAdapters({ error }: { error: unknown }) {
-  const { t } = useTranslation()
-
-  return (
-    <SetupPanel title={t('setup.identity_provider')}>
-      <p className="text-sm leading-6 text-muted-foreground">{t('setup.no_adapters')}</p>
-      <ErrorBlock error={error} />
-    </SetupPanel>
   )
 }
 

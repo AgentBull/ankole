@@ -1,9 +1,39 @@
 defmodule Ankole.Signals.ConsoleOperations do
   @moduledoc "Typed Console operations that call the Ankole.Signals owner."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: Ankole.Signals,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:agent_uid, :principal_key)
+    resolve_param(:target_agent_uid, :principal_key)
+    allow(:console_adapters, resource: "site_console:signals_adapters", action: "read")
+    allow(:console_list_bindings, resource: "site_console:signal_bindings", action: "read")
+
+    allow(:console_get_binding,
+      resource: "site_console:agent:{agent_uid}:signal_bindings",
+      action: "update"
+    )
+
+    allow(:console_put_binding,
+      resource: "site_console:agent:{agent_uid}:signal_bindings",
+      action: "update"
+    )
+
+    allow(:console_update_binding,
+      resource: "site_console:agent:{agent_uid}:signal_bindings",
+      action: "update",
+      permissions: &Ankole.Signals.ConsoleActions.update_binding_permissions/4
+    )
+
+    allow(:console_requeue,
+      resource: "site_console:agent:{agent_uid}:signal_bindings",
+      action: "update"
+    )
+  end
 
   resource do
     require_primary_key?(false)

@@ -130,7 +130,9 @@ defmodule AnkoleWeb.JSONAPI.WebhookEndpointsTest do
 
     Repo.delete_all(
       from grant in Grant,
-        where: grant.resource_pattern == "**" or grant.principal_uid == ^admin_uid
+        where:
+          grant.resource_pattern in ["site_console:**", "tenant_console:**"] or
+            grant.principal_uid == ^admin_uid
     )
 
     assert %{"errors" => [%{"code" => "forbidden"}]} =

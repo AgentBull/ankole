@@ -18,6 +18,10 @@ defmodule Ankole.AuthZ.Input do
   @grant_fields [
     :principal_uid,
     :group_id,
+    :source_page_id,
+    :source_action,
+    :target_page_id,
+    :target_scope,
     :resource_pattern,
     :action,
     :condition,
@@ -150,6 +154,18 @@ defmodule Ankole.AuthZ.Input do
   end
 
   def validate_condition_syntax(_condition), do: {:error, "must be a string"}
+
+  def validate_pod_condition_source(condition) when is_binary(condition) do
+    case Ankole.Kernel.authz_validate_pod_condition(condition) do
+      true -> :ok
+      {:error, reason} -> {:error, to_string(reason)}
+      _ -> {:error, "is not a valid Pod condition"}
+    end
+  end
+
+  def validate_pod_condition_source(_condition), do: {:error, "must be a string"}
+
+  def validate_resource_pattern_syntax("**"), do: {:error, "requires an explicit namespace"}
 
   def validate_resource_pattern_syntax(pattern) when is_binary(pattern) do
     try do

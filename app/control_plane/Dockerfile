@@ -77,6 +77,7 @@ COPY --parents \
   ./app/control_plane/mix.exs \
   ./app/control_plane/mix.lock \
   ./app/control_plane_core/mix.exs \
+  ./app/control_plane_core/patches/* \
   ./app/control_plane_core/config/config.exs \
   ./plugins/*/mix.exs \
   ./app/kernel/mix.exs \
@@ -115,7 +116,7 @@ RUN --mount=type=cache,target=/root/.cache/hex \
 RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/root/.cargo/registry \
   --mount=type=cache,target=/repo/app/kernel/target \
-  mix compile
+  TORQUE_BUILD=true mix compile
 
 RUN ANKOLE_SECRET_BASE=build-smoke \
   DATABASE_URL=ecto://ankole:ankole@127.0.0.1/ankole_build_smoke \

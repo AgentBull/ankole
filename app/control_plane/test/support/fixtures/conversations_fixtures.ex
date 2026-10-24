@@ -25,17 +25,47 @@ defmodule Ankole.ConversationsFixtures do
     end
   end
 
+  def grant_chat(human_uid, agent_uid) do
+    {:ok, grant} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: human_uid,
+        resource_pattern: "agent:#{agent_uid}",
+        action: "chat"
+      })
+
+    grant
+  end
+
   def create(human, attrs) do
     Ankole.Repo.transact(fn ->
-      with {:ok, %{id: id}} <- Ankole.Conversations.create_in_tx(human, attrs),
-           do: Ankole.Conversations.detail_in_tx(human, id, [])
+      with {:ok, %{id: id}} <-
+             Ankole.Conversations.create_in_tx(
+               Ankole.PrincipalsFixtures.actor_fixture(human),
+               attrs
+             ),
+           do:
+             Ankole.Conversations.detail_in_tx(
+               Ankole.PrincipalsFixtures.actor_fixture(human),
+               id,
+               []
+             )
     end)
   end
 
   def post(human, id, attrs) do
     Ankole.Repo.transact(fn ->
-      with {:ok, _} <- Ankole.Conversations.post_in_tx(human, id, attrs),
-           do: Ankole.Conversations.detail_in_tx(human, id, [])
+      with {:ok, _} <-
+             Ankole.Conversations.post_in_tx(
+               Ankole.PrincipalsFixtures.actor_fixture(human),
+               id,
+               attrs
+             ),
+           do:
+             Ankole.Conversations.detail_in_tx(
+               Ankole.PrincipalsFixtures.actor_fixture(human),
+               id,
+               []
+             )
     end)
   end
 end

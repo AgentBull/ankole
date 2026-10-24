@@ -1,5 +1,6 @@
 import type { Page } from '../content-api'
 
+/** Filters the loaded tree. Remote move searches exclude the full subtree on the server. */
 export function moveDestinations(pages: Page[], sourceID: string): Page[] {
   const byID = new Map(pages.map(page => [page.id, page]))
   return pages.filter(page => {

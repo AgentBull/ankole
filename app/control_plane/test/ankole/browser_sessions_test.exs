@@ -2,7 +2,7 @@ defmodule Ankole.BrowserSessionsTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
   alias Ankole.{AuthZ, BrowserSessions}
-  alias Ankole.Principals.{ExternalIdentity, HumanAccess}
+  alias Ankole.Principals.{SiteCredential, HumanAccess}
 
   defmodule SiteSource do
     @behaviour Ankole.IdentityProviders.SiteSources
@@ -28,7 +28,7 @@ defmodule Ankole.BrowserSessionsTest do
 
     assert {:error, error} =
              Repo.transact(fn _repo ->
-               Ankole.Ash.update(transaction, :password_ticket_in_tx, %{status: :consumed})
+               Ankole.Ash.update(transaction, :bind_provider_in_tx, %{status: :consumed})
              end)
 
     assert [%Ash.Error.Invalid.NoSuchInput{input: :status}] = error.errors
@@ -76,7 +76,13 @@ defmodule Ankole.BrowserSessionsTest do
             {BrowserSessions.LoginTransaction, :begin_in_tx,
              Map.merge(proof, %{started_revision: 0})},
             {BrowserSessions.Authentication, :create_in_tx,
-             Map.merge(proof, %{provider_id: "test-site", subject_id: "scope-matrix", revision: 1})}
+             Map.merge(proof, %{
+               provider_id: "test-site",
+               subject_id: "scope-matrix",
+               revision: 1,
+               challenge_started_at: now,
+               amr: ["test"]
+             })}
           ] do
         result =
           Repo.transact(fn -> Ankole.Ash.create(resource, action, Map.merge(attrs, scope)) end)
@@ -302,14 +308,13 @@ defmodule Ankole.BrowserSessionsTest do
       BrowserSessions.complete_login(browser, flow(browser, :pod).id, auth(human))
 
     transaction = flow(browser, :oauth, %{}, mode: :add)
-    {:ok, _} = BrowserSessions.put_password_ticket(browser, transaction.id, auth(human))
     assert is_binary(BrowserSessions.transaction_csrf(browser, transaction.id))
     {:ok, _} = BrowserSessions.logout(browser)
     refute BrowserSessions.transaction_csrf(browser, transaction.id)
 
     assert {:error, :login_expired} =
              BrowserSessions.complete_login(browser, transaction.id, auth(human), fn ->
-               flunk("a callback after global exit must not change the password")
+               flunk("a callback after global exit must not change durable state")
              end)
 
     refute BrowserSessions.authentication(ref(signed_in), :pod)
@@ -386,7 +391,8 @@ defmodule Ankole.BrowserSessionsTest do
     assert BrowserSessions.identity(ref(fresh), tenant.id)["access_version"] ==
              restored.access_version
 
-    refute BrowserSessions.identity(ref(initial), second.id)
+    assert ref(initial) == ref(fresh)
+    assert BrowserSessions.identity(ref(initial), second.id)["principal_uid"] == b.uid
     assert BrowserSessions.identity(ref(fresh), second.id)["principal_uid"] == b.uid
   end
 
@@ -483,40 +489,16 @@ defmodule Ankole.BrowserSessionsTest do
     refute Repo.exists?(from(t in Ankole.Tenants.Tenant, where: t.display_name == "Roll back"))
   end
 
-  test "connecting an existing Pod requires its live proof and does not refresh old evidence", %{
+  test "creating Pod access cannot reuse a restored Human's old evidence", %{
     browser: browser,
     tenant: tenant
   } do
     %{principal: human} = human_fixture()
-    {:ok, site} = site_login(browser, "connect")
-
-    {:ok, native} =
-      BrowserSessions.complete_login(
-        browser,
-        flow(browser, :pod, %{}, mode: :add).id,
-        auth(human)
-      )
-
-    assert {:ok, uid} =
-             BrowserSessions.connect_pod_access(
-               ref(site),
-               ref(native),
-               tenant.id,
-               fn authentication, principal ->
-                 bind(principal, authentication.subject_id)
-                 {:ok, principal.uid}
-               end
-             )
-
-    assert uid == human.uid
-    assert BrowserSessions.identity(ref(site), tenant.id)["principal_uid"] == uid
+    bind(human, "creator")
+    {:ok, site} = site_login(browser, "creator")
+    assert BrowserSessions.identity(ref(site), tenant.id)["principal_uid"] == human.uid
     restored = disable_and_restore(human)
     refute BrowserSessions.identity(ref(site), tenant.id)
-
-    assert {:error, :invalid_authentication} =
-             BrowserSessions.connect_pod_access(ref(site), ref(native), tenant.id, fn _, _ ->
-               flunk("an old Pod proof cannot connect a restored Human")
-             end)
 
     assert {:error, :invalid_authentication} =
              BrowserSessions.create_pod_access(ref(site), fn _ ->
@@ -554,7 +536,7 @@ defmodule Ankole.BrowserSessionsTest do
     %{principal: human} = human_fixture()
     bind(human, "operator")
     transaction = flow(browser, :console, %{}, provider: "test-site")
-    proof = %{subject_id: "operator", auth_time: System.system_time(:second)}
+    proof = site_proof("operator")
 
     assert {:error, :not_an_admin} =
              BrowserSessions.complete_site_login(browser, transaction.id, "test-site", proof)
@@ -594,7 +576,7 @@ defmodule Ankole.BrowserSessionsTest do
 
     {:ok, session} = Ankole.OIDC.Sessions.ensure(client.id, auth, "openid offline_access")
     assert {:ok, _} = Ankole.OIDC.Sessions.validate(session.id, client.id, human.uid, "openid")
-    Repo.delete_all(from(e in ExternalIdentity, where: e.principal_uid == ^human.uid))
+    Repo.delete_all(from(e in SiteCredential, where: e.principal_uid == ^human.uid))
     refute BrowserSessions.identity(ref(login), tenant.id)
 
     assert {:error, :authorization_revoked} =
@@ -635,22 +617,28 @@ defmodule Ankole.BrowserSessionsTest do
   defp site_login(browser, subject) do
     transaction = flow(browser, :site, %{}, mode: :add, provider: "test-site")
 
-    BrowserSessions.complete_site_login(browser, transaction.id, "test-site", %{
-      subject_id: subject,
-      auth_time: System.system_time(:second)
-    })
+    BrowserSessions.complete_site_login(browser, transaction.id, "test-site", site_proof(subject))
   end
 
   defp bind(principal, subject) do
     {:ok, identity} =
-      Ankole.PrincipalsFixtures.create_external_identity(%{
-        principal_uid: principal.uid,
-        provider: "test-site",
-        external_id: subject
-      })
+      Repo.transact(fn ->
+        Ankole.Principals.bind_site_credential_in_tx(
+          principal.uid,
+          site_proof(subject) |> Map.put(:provider_id, "test-site")
+        )
+      end)
 
     identity
   end
+
+  defp site_proof(subject),
+    do: %{
+      subject_id: subject,
+      auth_time: System.system_time(:second),
+      challenge_started_at: DateTime.utc_now(),
+      amr: ["test"]
+    }
 
   defp disable_and_restore(human) do
     {:ok, _} = HumanAccess.disable(human.uid, "review", nil, "disable")

@@ -6,8 +6,16 @@ defmodule Ankole.Pod.ResourceActionsTest do
 
   test "stored predicates protect copy initialization and nonempty personal state" do
     owner = human_fixture().principal
-    {:ok, page} = Pages.create(owner.uid, %{type: :database})
-    {:ok, table} = Ankole.Pod.Database.create_table(owner.uid, page.id, %{})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :database})
+
+    {:ok, table} =
+      Ankole.Pod.Database.create_table(
+        Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+        page.id,
+        %{}
+      )
 
     assert {:ok, initialized} =
              Repo.transact(fn _ ->
@@ -46,7 +54,10 @@ defmodule Ankole.Pod.ResourceActionsTest do
 
   test "page revision increments use stored state even when a caller holds an old snapshot" do
     owner = human_fixture().principal
-    {:ok, page} = Pages.create(owner.uid, %{type: :applet})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :applet})
+
     now = DateTime.utc_now(:microsecond)
 
     assert {:ok, second} =
@@ -65,7 +76,7 @@ defmodule Ankole.Pod.ResourceActionsTest do
 
   test "editing a page cannot replace its identity, type, attribution, or revision" do
     owner = human_fixture().principal
-    {:ok, page} = Pages.create(owner.uid, %{})
+    {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{})
 
     assert {:error, error} =
              Repo.transact(fn _ ->
@@ -89,8 +100,17 @@ defmodule Ankole.Pod.ResourceActionsTest do
 
   test "Database counters and schema versions advance from stored state" do
     owner = human_fixture().principal
-    {:ok, page} = Pages.create(owner.uid, %{type: :database})
-    {:ok, table} = Ankole.Pod.Database.create_table(owner.uid, page.id, %{})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :database})
+
+    {:ok, table} =
+      Ankole.Pod.Database.create_table(
+        Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+        page.id,
+        %{}
+      )
+
     [field] = Ankole.Pod.Database.fields(table.id)
     view = Repo.get_by!(Ankole.Pod.DbView, table_id: table.id)
 
@@ -121,13 +141,26 @@ defmodule Ankole.Pod.ResourceActionsTest do
 
   test "Database actions reject changes to identity and creation facts" do
     owner = human_fixture().principal
-    {:ok, page} = Pages.create(owner.uid, %{type: :database})
-    {:ok, table} = Ankole.Pod.Database.create_table(owner.uid, page.id, %{})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :database})
+
+    {:ok, table} =
+      Ankole.Pod.Database.create_table(
+        Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+        page.id,
+        %{}
+      )
+
     [field] = Ankole.Pod.Database.fields(table.id)
     view = Repo.get_by!(Ankole.Pod.DbView, table_id: table.id)
 
     {:ok, %{records: [created]}} =
-      Ankole.Pod.Database.write_records(owner.uid, table.id, %{creates: [%{}]})
+      Ankole.Pod.Database.write_records(
+        Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+        table.id,
+        %{creates: [%{}]}
+      )
 
     record = Repo.get_by!(Ankole.Pod.DbRecord, table_id: table.id, id: created.id)
 
@@ -164,11 +197,23 @@ defmodule Ankole.Pod.ResourceActionsTest do
 
   test "PostgreSQL rejects invalid Database counters, versions, and JSON shapes" do
     owner = human_fixture().principal
-    {:ok, page} = Pages.create(owner.uid, %{type: :database})
-    {:ok, table} = Ankole.Pod.Database.create_table(owner.uid, page.id, %{})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :database})
+
+    {:ok, table} =
+      Ankole.Pod.Database.create_table(
+        Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+        page.id,
+        %{}
+      )
 
     {:ok, %{records: [_]}} =
-      Ankole.Pod.Database.write_records(owner.uid, table.id, %{creates: [%{}]})
+      Ankole.Pod.Database.write_records(
+        Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+        table.id,
+        %{creates: [%{}]}
+      )
 
     for {sql, constraint} <- [
           {"UPDATE db_tables SET record_count = -1", "db_tables_counters"},
@@ -194,14 +239,27 @@ defmodule Ankole.Pod.ResourceActionsTest do
 
   test "a failed Database copy preserves its domain rejection and rolls back its new page" do
     owner = human_fixture().principal
-    {:ok, page} = Pages.create(owner.uid, %{type: :database})
-    {:ok, table} = Ankole.Pod.Database.create_table(owner.uid, page.id, %{})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{type: :database})
+
+    {:ok, table} =
+      Ankole.Pod.Database.create_table(
+        Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+        page.id,
+        %{}
+      )
+
     before = Repo.aggregate(Page, :count)
 
     assert {:error, :invalid_query} =
-             Ankole.Pod.Database.copy_table(owner.uid, table.id, %{
-               filter: %{conjunction: "invalid"}
-             })
+             Ankole.Pod.Database.copy_table(
+               Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+               table.id,
+               %{
+                 filter: %{conjunction: "invalid"}
+               }
+             )
 
     assert Repo.aggregate(Page, :count) == before
     assert Repo.aggregate(Ankole.Pod.DbTable, :count) == 1

@@ -431,6 +431,13 @@ defmodule Ankole.Sessions.SessionResetTest do
 
       assert cron_input.session_id == execution_actor.session_id
 
+      assert {:ok, _} =
+               Ankole.AuthZ.create_permission_grant(%{
+                 principal_uid: cron_input.human_uid,
+                 resource_pattern: "agent:#{agent.uid}:tool:finish_scheduled",
+                 action: "invoke"
+               })
+
       assert {:ok, %{signal: later_input}} =
                emit_entry(
                  agent.uid,

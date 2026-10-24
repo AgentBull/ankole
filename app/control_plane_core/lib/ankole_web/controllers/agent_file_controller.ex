@@ -2,9 +2,9 @@ defmodule AnkoleWeb.AgentFileController do
   @moduledoc "Multipart uploads and byte downloads for an Agent drive."
   use AnkoleWeb, :controller
   action_fallback :fallback
-  alias Ankole.{Attrs, Files, Principals, WorkerFiles}
+  alias Ankole.{Attrs, Files, WorkerFiles}
   alias Ankole.Files.Schemas.DriveFile
-  alias AnkoleWeb.{ConsoleErrors, ConsolePolicy}
+  alias AnkoleWeb.ConsoleErrors
 
   def download(conn, params) do
     local_path = Files.temp_path()
@@ -12,9 +12,13 @@ defmodule AnkoleWeb.AgentFileController do
     try do
       with {:ok, agent_uid} <-
              Attrs.required_text(Map.get(params, "agent_uid"), {:missing, :agent_uid}),
-           {:ok, path} <- Files.Path.normalize(Map.get(params, "path")),
-           {:ok, agent_uid} <- authorize(conn, agent_uid, "read"),
-           {:ok, %DriveFile{} = file} <- Files.read_to_file(agent_uid, path, local_path) do
+           {:ok, %DriveFile{} = file} <-
+             Files.console_download(
+               conn.assigns.authz_actor,
+               agent_uid,
+               Map.get(params, "path"),
+               local_path
+             ) do
         conn
         |> put_resp_content_type(file.content_type)
         |> put_resp_header(
@@ -34,35 +38,17 @@ defmodule AnkoleWeb.AgentFileController do
 
     with {:ok, agent_uid} <-
            Attrs.required_text(Map.get(params, "agent_uid"), {:missing, :agent_uid}),
-         {:ok, agent_uid} <- authorize(conn, agent_uid, "update"),
-         {:ok, path} <- Files.Path.normalize(Map.get(body, "path")),
          {:ok, upload} <- upload_param(body),
          :ok <- assert_upload_size(upload),
-         {:ok, %{sha256: sha256}} <- Files.store({:file, upload.path}),
-         {:ok, %{files: [file]}} <-
-           Files.commit(agent_uid, [
-             %{
-               path: path,
-               sha256: sha256,
-               source: "console",
-               content_type: upload.content_type
-             }
-           ]) do
+         {:ok, file} <-
+           Files.console_upload(
+             conn.assigns.authz_actor,
+             agent_uid,
+             Map.get(body, "path"),
+             upload.path,
+             upload.content_type
+           ) do
       json(conn, %{uploaded_file: Files.ConsoleActions.file_json(file)})
-    end
-  end
-
-  # Returns the canonical Agent UID. A permitted caller learns that an Agent
-  # does not exist, instead of seeing an empty drive or a failed write.
-  defp authorize(conn, agent_uid, action) do
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:files", action),
-         {:ok, _agent} <- Principals.get_agent(agent_uid) do
-      {:ok, agent_uid}
-    else
-      {:error, :invalid_uid} -> {:error, {:missing, "agent_uid"}}
-      {:error, :not_found} -> {:error, :agent_not_found}
-      {:error, _reason} = error -> error
     end
   end
 

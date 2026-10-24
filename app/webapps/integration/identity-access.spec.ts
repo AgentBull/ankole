@@ -17,8 +17,7 @@ const principal = {
     type: 'human',
     status: 'active',
     display_name: 'Ada',
-    email: 'ada@example.test',
-    local_credential_status: 'active'
+    email: 'ada@example.test'
   }
 }
 
@@ -127,21 +126,21 @@ test('the identity editor saves v2 settings, keeps typed field errors, and revie
   await expect(page.getByText('missing-person', { exact: true })).toHaveCount(0)
 })
 
-test('Human access requires confirmation and current review, while a one-time password clears on reopen', async ({
+test('Human access requires an explicit disposition, identity confirmation, and current permission review', async ({
   page
 }) => {
   let state = access()
-  let resets = 0
   await page.route(
     url => url.pathname.startsWith('/api/v2/'),
     async route => {
       const path = new URL(route.request().url()).pathname
       const data = route.request().postDataJSON()?.data
       if (path.endsWith('/identity-providers')) {
-        return route.fulfill({ json: { identity_providers: [{ adapter_id: 'local', enabled: true }] } })
+        return route.fulfill({ json: { identity_providers: [] } })
       }
       if (path.endsWith('/human-one/access-disables')) {
         expect(data.reason).toBe('Reviewed departure')
+        expect(data.disposition).toBe('offboarded')
         expect(data.operation_id).toBeTruthy()
         state = {
           ...state,
@@ -171,17 +170,12 @@ test('Human access requires confirmation and current review, while a one-time pa
         return route.fulfill({ status: 201, json: state })
       }
       if (path.endsWith('/human-one/access')) return route.fulfill({ json: state })
-      if (path.endsWith('/local-password-resets')) {
-        resets++
-        expect(data.must_change_password).toBe(true)
-        return route.fulfill({ status: 201, json: { initial_password: 'one-time-password' } })
-      }
       if (path.endsWith('/principals/human-one')) return route.fulfill({ json: { data: principal } })
       return route.fulfill({ json: { data: [] } })
     }
   )
   await page.goto('/access/principals/human-one')
-  const disable = page.getByRole('button', { name: 'Disable account', exact: true })
+  const disable = page.getByRole('button', { name: 'Offboard member', exact: true })
   await expect(disable).toBeDisabled()
   await page.getByRole('textbox', { name: 'Reason for this change (required)', exact: true }).fill('Reviewed departure')
   await page
@@ -199,15 +193,6 @@ test('Human access requires confirmation and current review, while a one-time pa
   await page.getByRole('checkbox', { name: 'I approve the permission rules shown above.' }).check()
   await restore.click()
   await expect(disable).toBeVisible()
-  await page.getByRole('button', { name: 'Reset password', exact: true }).click()
-  const dialog = page.getByRole('dialog')
-  await dialog.getByRole('button', { name: 'Reset password', exact: true }).click()
-  await expect(dialog.getByText('one-time-password', { exact: true })).toBeVisible()
-  await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
-  await expect(dialog).toBeHidden()
-  await page.getByRole('button', { name: 'Reset password', exact: true }).click()
-  await expect(dialog.getByText('one-time-password', { exact: true })).toHaveCount(0)
-  expect(resets).toBe(1)
 })
 
 test('the OIDC editor lists login sources and shows a rotated secret only in its result dialog', async ({ page }) => {
@@ -219,7 +204,7 @@ test('the OIDC editor lists login sources and shows a rotated secret only in its
         return route.fulfill({
           json: {
             sources: [
-              { provider_id: 'local-main', enabled: true },
+              { provider_id: 'email_otp', enabled: true },
               { provider_id: 'directory', enabled: false }
             ]
           }
@@ -256,7 +241,7 @@ test('the OIDC editor lists login sources and shows a rotated secret only in its
     }
   )
   await page.goto('/oidc-clients/client-one')
-  await expect(page.getByText('local-main', { exact: true })).toBeVisible()
+  await expect(page.getByText('email_otp', { exact: true })).toBeVisible()
   await expect(page.getByText('directory', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Rotate secret', exact: true }).click()
   const dialog = page.getByRole('dialog')

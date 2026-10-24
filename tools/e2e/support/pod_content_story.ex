@@ -8,6 +8,7 @@ defmodule Ankole.E2E.PodContentStory do
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2, wait_for_signal_completed: 3]
 
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AuthZ.Actor
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Conversations
@@ -29,6 +30,8 @@ defmodule Ankole.E2E.PodContentStory do
 
     configure_browser_origin!(ctx.server_port, tenant)
     owner = Repo.get!(Agent, ctx.agent.uid).owner_principal_uid
+    {:ok, owner_principal} = Ankole.Principals.get_principal(owner)
+    ctx = Map.put(ctx, :owner_actor, Actor.new(owner_principal))
 
     assert {:ok, _} =
              ModelProfiles.put_model_profile(ctx.agent.uid, "coding", %{
@@ -39,25 +42,32 @@ defmodule Ankole.E2E.PodContentStory do
     assert {:ok, _} =
              Ankole.AuthZ.upsert_permission_grant(%{
                principal_uid: owner,
-               resource_pattern: "pod:space",
+               resource_pattern: "tenant_console:pod_space",
                action: "update",
                condition: "true"
              })
 
-    assert {:ok, _} = Pages.space_agent(owner, ctx.agent.uid, "edit")
+    assert {:ok, _} =
+             Ankole.AuthZ.upsert_permission_grant(%{
+               principal_uid: owner,
+               resource_pattern: "agent:#{ctx.agent.uid}",
+               action: "chat"
+             })
+
+    assert {:ok, _} = Pages.space_agent(ctx.owner_actor, ctx.agent.uid, "edit")
     {ctx, owner}
   end
 
-  def await_delivery(owner, conversation_id, message_id, agent_uid, page_id) do
+  def await_delivery(%Actor{} = actor, conversation_id, message_id, agent_uid, page_id) do
     case wait_until(deadline(180_000), fn ->
-           {:ok, detail} = Conversations.get(owner, conversation_id)
+           {:ok, detail} = Conversations.get(actor, conversation_id)
            if delivered_after?(detail, message_id, agent_uid, page_id), do: detail
          end) do
       {:ok, detail} ->
         detail
 
       :timeout ->
-        {:ok, detail} = Conversations.get(owner, conversation_id)
+        {:ok, detail} = Conversations.get(actor, conversation_id)
         detail
     end
   end

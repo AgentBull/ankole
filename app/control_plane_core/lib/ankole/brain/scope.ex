@@ -93,15 +93,15 @@ defmodule Ankole.Brain.Scope do
   @doc """
   Returns whether one Principal currently satisfies a scope.
 
-  The rule is shared by reads and writes: `world` accepts every Principal, a
-  principal scope only its own Principal, and a group scope the current group
-  members resolved at check time.
+  Reads and writes use the same rule. `world` accepts active Human members,
+  Agents, and System Principals. A principal scope accepts its own Principal.
+  A group scope accepts current group members at check time.
   """
   @spec satisfied_by?(t(), String.t()) :: boolean()
   def satisfied_by?(scope, principal_uid) when is_binary(principal_uid) do
     case parse(scope) do
       {:ok, :world} ->
-        true
+        world_member?(principal_uid)
 
       {:ok, {:principal, uid}} ->
         uid == principal_uid
@@ -120,17 +120,17 @@ defmodule Ankole.Brain.Scope do
   @doc """
   Validates write eligibility for one scope and writer.
 
-  `world` accepts every writer. A principal scope requires the target
-  Principal to exist; the writer does not have to match it. A group scope
-  requires the writer to currently satisfy it: a Principal can file knowledge
-  into its own organizational ranges but cannot claim a range it does not
-  belong to. Owner read exemptions never extend writes.
+  `world` accepts active Human members, Agents, and System Principals. A
+  principal scope requires the target Principal to exist; the writer does not
+  have to match it. A group scope requires the writer to currently satisfy it.
+  A Principal can file knowledge into its own organizational ranges but cannot
+  claim a range it does not belong to. Owner read exemptions never extend writes.
   """
   @spec validate_writable(term(), String.t()) :: :ok | {:error, term()}
   def validate_writable(scope, writer_uid) when is_binary(writer_uid) do
     case parse(scope) do
       {:ok, :world} ->
-        :ok
+        if world_member?(writer_uid), do: :ok, else: {:error, :forbidden}
 
       {:ok, {:principal, uid}} ->
         case Principals.get_principal(uid) do
@@ -157,17 +157,18 @@ defmodule Ankole.Brain.Scope do
   @doc """
   Returns the enumerable scope values one querier can reach.
 
-  The set is `world`, `principal:<own uid>`, and one `group:<name>` for every
-  group the querier currently belongs to, including computed groups. The
-  values feed SQL predicates directly, so knowledge-boundary filtering is a
-  prefilter instead of a post-hit filter. Author accessibility is a separate
+  The set contains `principal:<own uid>` and one `group:<name>` for every
+  current group, including computed groups. Eligible Principals also get
+  `world`. The values feed SQL predicates directly, so knowledge-boundary
+  filtering is a prefilter instead of a post-hit filter. Author accessibility is a separate
   predicate owned by the query layer.
   """
   @spec accessible_scopes(String.t()) :: {:ok, [t()]} | {:error, term()}
   def accessible_scopes(principal_uid) when is_binary(principal_uid) do
     with {:ok, uid} <- Principals.normalize_uid(principal_uid),
          {:ok, groups} <- AuthZ.list_current_groups_for_principal(uid) do
-      {:ok, [world(), principal(uid) | Enum.map(groups, &group(&1.name))]}
+      scopes = [principal(uid) | Enum.map(groups, &group(&1.name))]
+      {:ok, if(world_member?(uid), do: [world() | scopes], else: scopes)}
     end
   end
 
@@ -180,7 +181,7 @@ defmodule Ankole.Brain.Scope do
   def satisfied_by_all?(scope, principal_uids) when is_list(principal_uids) do
     case parse(scope) do
       {:ok, :world} ->
-        true
+        Enum.all?(principal_uids, &world_member?/1)
 
       {:ok, {:principal, uid}} ->
         Enum.all?(principal_uids, &(&1 == uid))
@@ -193,6 +194,14 @@ defmodule Ankole.Brain.Scope do
 
       {:error, _reason} ->
         false
+    end
+  end
+
+  defp world_member?(uid) do
+    case Principals.get_principal(uid) do
+      {:ok, %{status: :active, type: :human, membership: :member}} -> true
+      {:ok, %{status: :active, type: type}} when type in [:agent, :system] -> true
+      _ -> false
     end
   end
 

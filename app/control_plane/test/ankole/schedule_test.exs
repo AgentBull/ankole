@@ -1868,6 +1868,13 @@ defmodule Ankole.ScheduleTest do
       {:ok, %{signal: source}} =
         emit_entry(agent.uid, "mock", group_entry(%{explicit: true}), now: @base_time)
 
+      {:ok, _} =
+        Ankole.AuthZ.create_permission_grant(%{
+          principal_uid: source.human_uid,
+          resource_pattern: "agent:#{agent.uid}:tool:check_back_later",
+          action: "invoke"
+        })
+
       run = admit_input(source, @base_time)
 
       args = %{
@@ -1928,6 +1935,21 @@ defmodule Ankole.ScheduleTest do
       received = maybe_finalize_test_inbound_batch(received)
 
       source = received.signal
+
+      {:ok, _} =
+        Ankole.AuthZ.create_permission_grant(%{
+          principal_uid: source.human_uid,
+          resource_pattern: "agent:#{agent.uid}:tool:cron",
+          action: "invoke"
+        })
+
+      {:ok, _} =
+        Ankole.AuthZ.create_permission_grant(%{
+          principal_uid: source.human_uid,
+          resource_pattern: "agent:#{agent.uid}:tool:finish_scheduled",
+          action: "invoke"
+        })
+
       run = admit_input(source, @base_time)
 
       {run, result} =

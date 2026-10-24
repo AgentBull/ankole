@@ -54,3 +54,14 @@ describe('requestErrorMessage', () => {
     expect(requestErrorMessage('upstream connect error')).toBe('upstream connect error')
   })
 })
+
+test('reads the real SDK error payload before rendering authentication failures', () => {
+  const error = Object.assign(new Error('administrator_lockout'), {
+    status: 400,
+    payload: {
+      errors: [{ code: 'administrator_lockout', detail: 'administrator_lockout' }]
+    }
+  })
+  expect(requestErrorCode(error)).toBe('administrator_lockout')
+  expect(requestErrorMessage(error)).not.toBe('administrator_lockout')
+})

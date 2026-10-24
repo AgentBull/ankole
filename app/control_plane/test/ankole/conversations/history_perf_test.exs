@@ -7,6 +7,7 @@ defmodule Ankole.Conversations.HistoryPerfTest do
   test "history and unread reads remain bounded across 25000 retained statements" do
     %{principal: human} = human_fixture()
     %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
     id = Ecto.UUID.generate()
     now = DateTime.utc_now(:microsecond)
 

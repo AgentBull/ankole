@@ -177,6 +177,7 @@ fi
 
 preflight_compose_upgrade() {
   if [[ -n "$only_filter" && "$only_filter" != "compose_upgrade" &&
+        "$only_filter" != "authn_compose" &&
         "$only_filter" != "real_llm_compose_chaos" ]]; then
     return
   fi

@@ -1,14 +1,11 @@
 defmodule Ankole.Setup.Completion do
   @moduledoc """
-  The one irreversible transition from an authenticated first-setup Principal
-  to a completed installation.
+  Completes installation for a verified first administrator.
 
-  Every setup-completing path (OIDC, Local Password) authenticates its
-  Principal its own way, then hands the resulting `principal_uid` here for the
-  shared tail: claim root admin, mark setup complete, and delete the
-  activation code. The caller must have already confirmed setup was not
-  already complete before calling — this module does not re-check that, so
-  that the single completion check stays at each caller's own gate.
+  Email OTP and enterprise OIDC verify the Principal before they call this
+  module. The caller checks that setup is incomplete. Completion grants the
+  administrator roles, installs the selected Brain packs, and marks setup
+  complete in one transaction.
   """
 
   alias Ankole.AppConfigure

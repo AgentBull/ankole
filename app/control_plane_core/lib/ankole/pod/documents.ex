@@ -11,13 +11,14 @@ defmodule Ankole.Pod.Documents do
 
   def write(uid, id, base_revision, xml, authority \\ nil)
 
-  def write(uid, id, base_revision, xml, authority)
+  def write(%Ankole.AuthZ.Actor{} = actor, id, base_revision, xml, authority)
       when is_integer(base_revision) and is_binary(xml) do
+    authority = authority || actor.turn_authority
     # Validate before the transaction; the page lock decides which error applies.
     validation = Ankole.Kernel.page_validate(xml)
 
     authority
-    |> Access.write(fn -> write_in_tx(uid, id, base_revision, validation) end,
+    |> Access.write(fn -> write_in_tx(actor, id, base_revision, validation) end,
       after_commit: &committed/1
     )
     |> result()
@@ -26,8 +27,10 @@ defmodule Ankole.Pod.Documents do
   def write(_uid, _id, _revision, _xml, _authority), do: {:error, :invalid_request}
 
   @doc false
-  def write_in_tx(uid, id, base_revision, validation) do
-    commit_in_tx(uid, id, fn page ->
+  def write_in_tx(%Ankole.AuthZ.Actor{} = actor, id, base_revision, validation) do
+    uid = Ankole.AuthZ.Actor.uid(actor)
+
+    commit_in_tx(actor, id, fn page ->
       with :ok <- current_revision(page, base_revision),
            {:ok, parsed} <- validation,
            do: save(page, content!(page), uid, parsed, %{kind: :reset})
@@ -36,7 +39,9 @@ defmodule Ankole.Pod.Documents do
 
   def apply(uid, id, attrs, authority \\ nil)
 
-  def apply(uid, id, attrs, authority) when is_map(attrs) do
+  def apply(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority) when is_map(attrs) do
+    authority = authority || actor.turn_authority
+
     batch = %{
       base: Ankole.Attrs.get(attrs, :base_revision),
       client: Ankole.Attrs.get(attrs, :client_id),
@@ -48,7 +53,7 @@ defmodule Ankole.Pod.Documents do
          byte_size(batch.client) in 1..255 and is_integer(batch.seq) and batch.seq > 0 and
          is_list(batch.changes) do
       authority
-      |> Access.write(fn -> apply_in_tx(uid, id, batch) end, after_commit: &committed/1)
+      |> Access.write(fn -> apply_in_tx(actor, id, batch) end, after_commit: &committed/1)
       |> result()
     else
       {:error, :invalid_request}
@@ -58,8 +63,15 @@ defmodule Ankole.Pod.Documents do
   def apply(_uid, _id, _attrs, _authority), do: {:error, :invalid_request}
 
   @doc false
-  def apply_in_tx(uid, id, %{base: base, client: client, seq: seq, changes: changes}) do
-    commit_in_tx(uid, id, fn page ->
+  def apply_in_tx(%Ankole.AuthZ.Actor{} = actor, id, %{
+        base: base,
+        client: client,
+        seq: seq,
+        changes: changes
+      }) do
+    uid = Ankole.AuthZ.Actor.uid(actor)
+
+    commit_in_tx(actor, id, fn page ->
       previous =
         PageChange
         |> Ash.Query.filter(page_id == ^page.id and client_id == ^client and client_seq == ^seq)
@@ -94,15 +106,17 @@ defmodule Ankole.Pod.Documents do
     end)
   end
 
-  def since(uid, id, revision) when is_integer(revision) and revision >= 0,
-    do: Repo.transact_top_level(fn -> since_in_tx(uid, id, revision) end)
+  def since(%Ankole.AuthZ.Actor{} = actor, id, revision)
+      when is_integer(revision) and revision >= 0 do
+    Repo.transact_top_level(fn -> since_in_tx(actor, id, revision) end)
+  end
 
   def since(_uid, _id, _revision), do: {:error, :invalid_request}
 
   @doc false
-  def since_in_tx(uid, id, revision) do
+  def since_in_tx(%Ankole.AuthZ.Actor{} = actor, id, revision) do
     with {:ok, page} <- Pages.lock(id, :share),
-         {:ok, _} <- Access.authorize(uid, page, "page_view"),
+         {:ok, _} <- Access.authorize(actor, page, "page_view"),
          true <- page.type == :doc,
          do: {:ok, replay(page, revision)},
          else: (
@@ -149,9 +163,9 @@ defmodule Ankole.Pod.Documents do
     end
   end
 
-  defp commit_in_tx(uid, id, fun) do
+  defp commit_in_tx(%Ankole.AuthZ.Actor{} = actor, id, fun) do
     with {:ok, page} <- Pages.lock(id),
-         {:ok, _} <- Access.authorize(uid, page, "page_edit"),
+         {:ok, _} <- Access.authorize(actor, page, "page_edit"),
          true <- page.type == :doc,
          {:ok, result} <- fun.(page) do
       {:ok, %{page_id: page.id, result: result}}

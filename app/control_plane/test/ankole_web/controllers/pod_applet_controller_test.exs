@@ -92,7 +92,10 @@ defmodule AnkoleWeb.PodAppletControllerTest do
          conn: conn
        } do
     {conn, uid} = console_conn_with_principal(conn)
-    {:ok, page} = Pages.create(uid, %{private_owner_uid: uid})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{private_owner_uid: uid})
+
     response = conn |> recycle_api() |> api_put("/api/v2/pod/pages/#{page.id}/sharing", %{})
     assert %{"errors" => [%{"code" => "required"}]} = json_response(response, 400)
   end
@@ -133,7 +136,12 @@ defmodule AnkoleWeb.PodAppletControllerTest do
       assert %{"error" => %{"code" => "applet_busy"}} =
                json_response(route_response, 503)
 
-      {:ok, draft_page} = Pages.create(uid, %{type: "applet", private_owner_uid: uid})
+      {:ok, draft_page} =
+        Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{
+          type: "applet",
+          private_owner_uid: uid
+        })
+
       manifest = stage_manifest(uid, draft_page.id)
 
       publish_response =
@@ -155,9 +163,14 @@ defmodule AnkoleWeb.PodAppletControllerTest do
   end
 
   defp publish(uid) do
-    {:ok, page} = Pages.create(uid, %{type: "applet", private_owner_uid: uid})
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{
+        type: "applet",
+        private_owner_uid: uid
+      })
+
     manifest = stage_manifest(uid, page.id)
-    {:ok, _} = Files.publish(uid, page.id, 0, manifest)
+    {:ok, _} = Files.publish(Ankole.PrincipalsFixtures.actor_fixture(uid), page.id, 0, manifest)
     page
   end
 

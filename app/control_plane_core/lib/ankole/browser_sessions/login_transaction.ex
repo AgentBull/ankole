@@ -78,7 +78,6 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
     )
 
     attribute(:redirect_uri, :string, public?: true, constraints: [trim?: false])
-    attribute(:password_ticket, Ankole.Ash.Types.JSONMap, public?: true, sensitive?: true)
     attribute(:expires_at, :utc_datetime_usec, public?: true, allow_nil?: false)
     timestamps(type: :utc_datetime_usec)
   end
@@ -130,11 +129,6 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
       validate(attribute_equals(:status, :pending))
     end
 
-    update :password_ticket_in_tx do
-      accept([:password_ticket])
-      validate(attribute_equals(:status, :pending))
-    end
-
     update :bind_proof_in_tx do
       accept([:authentication_id, :authentication_revision, :upstream_state])
       validate(attribute_equals(:status, :pending))
@@ -145,13 +139,11 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
       accept([:authentication_id, :authentication_revision, :request, :started_revision])
       validate(present([:authentication_id, :authentication_revision]))
       change(transition_state(:authenticated))
-      change(set_attribute(:password_ticket, nil))
     end
 
     update :consume_in_tx do
       accept([:authentication_id, :authentication_revision, :request, :started_revision])
       change(transition_state(:consumed))
-      change(set_attribute(:password_ticket, nil))
     end
 
     update :reauthenticate_in_tx do
@@ -165,7 +157,6 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
       require_atomic?(true)
       accept([])
       change(transition_state(:cancelled))
-      change(set_attribute(:password_ticket, nil))
     end
 
     destroy :expire_in_tx do

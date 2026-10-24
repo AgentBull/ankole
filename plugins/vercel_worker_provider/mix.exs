@@ -1,3 +1,5 @@
+Code.require_file("../../app/control_plane_core/patches/dependency_patches.exs", __DIR__)
+
 defmodule AnkoleVercelWorkerProvider.MixProject do
   use Mix.Project
 
@@ -12,6 +14,7 @@ defmodule AnkoleVercelWorkerProvider.MixProject do
       lockfile: "../../app/control_plane/mix.lock",
       config_path: "../../app/control_plane_core/config/config.exs",
       elixirc_paths: if(Mix.env() == :test, do: ["lib", "test/support"], else: ["lib"]),
+      aliases: Ankole.Mix.DependencyPatches.aliases(),
       deps: deps()
     ]
   end

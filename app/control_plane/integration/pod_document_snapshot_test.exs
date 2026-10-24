@@ -6,14 +6,24 @@ defmodule Ankole.Pod.DocumentSnapshotTest do
   setup do
     Ankole.E2E.Harness.cleanup_committed_fixtures_on_exit!()
     owner = Ankole.PrincipalsFixtures.human_fixture().principal
-    {:ok, page} = Pages.create(owner.uid, %{})
-    {:ok, %{page: page}} = Documents.write(owner.uid, page.id, 0, "<page><p>Before</p></page>")
+    {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{})
+
+    {:ok, %{page: page}} =
+      Documents.write(
+        Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+        page.id,
+        0,
+        "<page><p>Before</p></page>"
+      )
+
     %{owner: owner.uid, page: page}
   end
 
   test "a document snapshot holds its revision stable until the body has been read", ctx do
     {:ok, detail} =
-      read_while_writer_attempts(ctx, "pages", fn -> Pages.get(ctx.owner, ctx.page.id) end)
+      read_while_writer_attempts(ctx, "pages", fn ->
+        Pages.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.page.id)
+      end)
 
     assert detail.page.revision == 1
     assert detail.content.content == "<page><p>Before</p></page>"
@@ -22,7 +32,7 @@ defmodule Ankole.Pod.DocumentSnapshotTest do
   test "replay holds its revision and byte budget stable until all batches have been read", ctx do
     {:ok, replay} =
       read_while_writer_attempts(ctx, "page_changes", fn ->
-        Documents.since(ctx.owner, ctx.page.id, 0)
+        Documents.since(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.page.id, 0)
       end)
 
     assert replay.revision == 1
@@ -72,7 +82,7 @@ defmodule Ankole.Pod.DocumentSnapshotTest do
                  xml = "<page><p>After</p></page>"
 
                  Documents.write_in_tx(
-                   ctx.owner,
+                   Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
                    ctx.page.id,
                    1,
                    Ankole.Kernel.page_validate(xml)
@@ -84,7 +94,12 @@ defmodule Ankole.Pod.DocumentSnapshotTest do
       snapshot = Task.await(reader, 5_000)
 
       assert {:ok, %{page: %{revision: 2}}} =
-               Documents.write(ctx.owner, ctx.page.id, 1, "<page><p>After</p></page>")
+               Documents.write(
+                 Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+                 ctx.page.id,
+                 1,
+                 "<page><p>After</p></page>"
+               )
 
       snapshot
     after

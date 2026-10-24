@@ -5,7 +5,14 @@ defmodule Ankole.OIDC.LoginPolicyTest do
   setup do
     Ankole.AppConfigure.Registry.clear_for_test()
     Ankole.AppConfigure.Cache.clear_for_test()
-    {:ok, _} = Ankole.IdentityProviders.save_provider("local", "local", %{}, true)
+
+    {:ok, _} =
+      Ankole.IdentityProviders.save_provider(
+        "lark-main",
+        "lark",
+        %{"appID" => "cli_policy", "appSecret" => "secret"},
+        true
+      )
 
     {:ok, _} =
       Ankole.IdentityProviders.save_provider(
@@ -22,13 +29,13 @@ defmodule Ankole.OIDC.LoginPolicyTest do
         enabled: true,
         redirect_uris: ["https://client.example.test/callback"],
         scopes: ["openid"],
-        allowed_identity_provider_ids: ["local"]
+        allowed_identity_provider_ids: ["lark-main"]
       })
 
     auth = %{
       "authentication_id" => Ecto.UUID.generate(),
       "authentication_revision" => 1,
-      "provider_id" => "local",
+      "provider_id" => "lark-main",
       "auth_time" => System.system_time(:second) - 60
     }
 

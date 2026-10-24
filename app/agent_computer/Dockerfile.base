@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG MYSQL_VERSION=9.7.2
+ARG MYSQL_VERSION=9.7.4
 # Oracle does not publish arm64 MySQL client packages for Debian 13. Use the
 # versioned official image as the source, and copy only the client executable.
 FROM mysql:${MYSQL_VERSION} AS mysql-client-source
@@ -9,15 +9,15 @@ FROM oven/bun:1.4.4
 
 WORKDIR /repo
 
-ARG CLICKHOUSE_VERSION=26.7.1.1315
+ARG CLICKHOUSE_VERSION=26.9.25.15
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
 ARG MYSQL_VERSION
 ARG POSTGRESQL_CLIENT_COMMON_VERSION=293.pgdg13+1
-ARG POSTGRESQL_CLIENT_VERSION=18.4
+ARG POSTGRESQL_CLIENT_VERSION=18.6
 ARG POSTGRESQL_MAJOR=18
-ARG POSTGRESQL_PACKAGE_VERSION=18.4-1.pgdg13+1
+ARG POSTGRESQL_PACKAGE_VERSION=18.6-1.pgdg13+2
 ARG RUST_TOOLCHAIN=1.97.1
 ARG PDF_INSPECTOR_VERSION=1.25.2
 ARG TARGETARCH

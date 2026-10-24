@@ -55,6 +55,7 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
     assert worker_provider_id == provider.provider_id
     assert tenant_id == Repo.tenant_id()
     assert {:ok, _} = Ecto.UUID.cast(agent_uid)
+    Ankole.ConversationsFixtures.grant_chat(owner.uid, agent_uid)
 
     conversation_ids =
       for _ <- 1..2 do
@@ -121,7 +122,9 @@ defmodule AnkoleWeb.JSONAPI.AgentsTest do
 
     for id <- conversation_ids do
       assert_receive {:conversation_event, ^id, :status}
-      assert {:error, :conversation_not_found} = Conversations.get(owner.uid, id)
+
+      assert {:error, :conversation_not_found} =
+               Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), id)
     end
 
     assert %{"data" => agents} = conn |> send_v2(:get, "/api/v2/agents") |> json_response(200)

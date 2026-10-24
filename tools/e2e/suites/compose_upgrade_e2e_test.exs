@@ -239,6 +239,24 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     assert %{"data" => %{"id" => ^uid, "attributes" => %{"worker_provider_id" => "docker"}}} =
              Compose.api!(deployment, :get, "/api/v2/agents/#{uid}")
 
+    for {resource, action} <- [
+          {"agent:#{uid}", "chat"},
+          {"agent:#{uid}:tool:command", "invoke"}
+        ] do
+      Compose.api!(
+        deployment,
+        :post,
+        "/api/v2/permission-grants",
+        %{
+          data: %{
+            type: "permission_grant",
+            attributes: %{principal_uid: owner, resource_pattern: resource, action: action}
+          }
+        },
+        201
+      )
+    end
+
     assert {:ok, _state} = FakeOpenAIState.start_link(self())
 
     server =
@@ -273,12 +291,20 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     target_conversation_id = Ecto.UUID.generate()
 
     assert %{"conversation" => %{"id" => ^target_conversation_id}} =
-             Compose.api!(deployment, :post, "/api/v2/pod/conversations", %{
-               conversationID: target_conversation_id,
-               agentUID: uid,
-               messageID: Ecto.UUID.generate(),
-               text: "CHAOS_DIRECT_OK"
-             })
+             Compose.api!(
+               deployment,
+               :post,
+               "/api/v2/pod/conversations",
+               %{
+                 data: %{
+                   conversationID: target_conversation_id,
+                   agentUID: uid,
+                   messageID: Ecto.UUID.generate(),
+                   text: "CHAOS_DIRECT_OK"
+                 }
+               },
+               201
+             )
 
     # The fake model answers this ordinary native message without a command.
     # Finish that real first turn before the scheduled command story begins.

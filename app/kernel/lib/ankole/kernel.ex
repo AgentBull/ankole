@@ -114,25 +114,6 @@ defmodule Ankole.Kernel do
   defp markdown_code_ranges_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Hashes a password with Argon2id and returns a PHC-format string.
-
-  Each call generates a new random salt, so equal passwords produce different
-  strings. The string embeds the algorithm, version, parameters, salt, and
-  digest, so `argon2id_verify/2` needs no other stored state.
-  """
-  @spec argon2id_hash(String.t()) :: result(String.t())
-  def argon2id_hash(_password), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Verifies a password against a PHC-format hash from `argon2id_hash/1`.
-
-  Returns `false` for a password that does not match. Returns an error for a
-  hash string that is not a valid PHC string.
-  """
-  @spec argon2id_verify(String.t(), String.t()) :: result(boolean())
-  def argon2id_verify(_password, _phc_hash), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
   Authorizes one exact action on one concrete resource.
 
   The snapshot must contain every Principal, group, grant, resource, action, and
@@ -167,6 +148,15 @@ defmodule Ankole.Kernel do
     |> decode_json_result()
   end
 
+  @doc "Evaluates Pod groups and conditional grants for one Principal and request context."
+  @spec authz_evaluate_pod_context(map()) :: result(map())
+  def authz_evaluate_pod_context(snapshot) when is_map(snapshot) do
+    snapshot
+    |> Torque.encode!()
+    |> authz_evaluate_pod_context_nif()
+    |> decode_json_result()
+  end
+
   @spec authz_authorize_nif(String.t()) :: result(String.t())
   defp authz_authorize_nif(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
 
@@ -174,6 +164,8 @@ defmodule Ankole.Kernel do
   defp authz_authorize_all_nif(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
 
   defp authz_authorize_checks_nif(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
+
+  defp authz_evaluate_pod_context_nif(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
   @spec universal_ai_client_open_nif(String.t(), pid(), reference()) ::
@@ -242,10 +234,18 @@ defmodule Ankole.Kernel do
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Returns `true` when a CEL authorization condition compiles.
+  Returns `true` when a CEL authorization condition compiles and uses supported variables.
   """
   @spec authz_validate_condition(String.t()) :: result(boolean())
   def authz_validate_condition(_condition), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Returns `true` when a CEL Pod condition uses only Principal and request-context variables."
+  @spec authz_validate_pod_condition(String.t()) :: result(boolean())
+  def authz_validate_pod_condition(_condition), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Returns the sorted free variables of a CEL condition."
+  @spec authz_condition_free_variables(String.t()) :: result([String.t()])
+  def authz_condition_free_variables(_condition), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Returns `true` when a Signals CEL admission filter compiles.

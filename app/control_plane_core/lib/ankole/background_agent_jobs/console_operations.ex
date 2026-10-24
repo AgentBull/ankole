@@ -1,9 +1,16 @@
 defmodule Ankole.BackgroundAgentJobs.ConsoleOperations do
   @moduledoc "Typed Console operations that call the Ankole.BackgroundAgentJobs owner."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: Ankole.BackgroundAgentJobs,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    allow(:console_health, resource: "site_console:background_agent_jobs", action: "read")
+    allow(:console_turns, resource: "site_console:background_agent_jobs", action: "read")
+  end
 
   resource do
     require_primary_key?(false)

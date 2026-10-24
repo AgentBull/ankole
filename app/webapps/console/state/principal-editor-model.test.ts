@@ -6,24 +6,22 @@ describe('PrincipalEditorModel', () => {
     const model = new PrincipalEditorModel()
 
     model.initialize('new', { displayName: '', email: '' })
-    expect(model.draftError(true)).toBe('display_name_required')
+    expect(model.draftError()).toBe('display_name_required')
 
     model.displayName.value = 'Ada Lovelace'
-    expect(model.draftError(true)).toBe('email_required')
+    expect(model.draftError()).toBeUndefined()
 
     model.email.value = 'not-an-email'
-    expect(model.draftError(true)).toBe('email_invalid')
+    expect(model.draftError()).toBe('email_invalid')
 
     model.email.value = ' ada@example.com '
-    expect(model.draftError(true)).toBeUndefined()
+    expect(model.draftError()).toBeUndefined()
     expect(model.createBody()).toEqual({
       display_name: 'Ada Lovelace',
       email: 'ada@example.com',
-      must_change_password: true
+      membership: 'member'
     })
 
-    model.mustChangePassword.value = false
-    expect(model.createBody().must_change_password).toBe(false)
     model[Symbol.dispose]()
   })
 
@@ -49,11 +47,11 @@ describe('PrincipalEditorModel', () => {
     model.initialize('principal:lark-main:alice', { displayName: 'Alice', email: '' })
     model.displayName.value = 'Alice Chen'
 
-    expect(model.draftError(false)).toBeUndefined()
+    expect(model.draftError()).toBeUndefined()
     expect(model.updateBody()).toEqual({ display_name: 'Alice Chen' })
 
     model.email.value = 'invalid'
-    expect(model.draftError(false)).toBe('email_invalid')
+    expect(model.draftError()).toBe('email_invalid')
     model[Symbol.dispose]()
   })
 
@@ -70,4 +68,14 @@ describe('PrincipalEditorModel', () => {
     expect(model.dirty.value).toBe(false)
     model[Symbol.dispose]()
   })
+})
+
+test('creating a guest captures the selected membership without changing the profile update contract', () => {
+  const model = new PrincipalEditorModel()
+  model.initialize('new', { displayName: 'Guest', email: 'guest@example.com' })
+  model.membership.value = 'guest'
+  expect(model.dirty.value).toBe(true)
+  expect(model.createBody().membership).toBe('guest')
+  expect(model.updateBody()).toEqual({})
+  model[Symbol.dispose]()
 })

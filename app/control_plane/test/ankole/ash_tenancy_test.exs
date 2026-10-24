@@ -174,7 +174,7 @@ defmodule Ankole.AshTenancyTest do
         |> Ash.run_action()
       end
 
-      assert_raise Ankole.TenantContextMissing, fn ->
+      assert_raise Ash.Error.Unknown, ~r/no tenant context/, fn ->
         Ankole.Ash.run_action(Probe, :count_rows, %{})
       end
     end)
@@ -583,7 +583,7 @@ defmodule Ankole.AshTenancyTest do
         ] do
       name = "Ankole.AshContractProbe#{System.unique_integer([:positive])}"
 
-      assert_raise Spark.Error.DslError, ~r/#{expected}/, fn ->
+      assert_dsl_error(~r/#{expected}/, fn ->
         Code.compile_string("""
         defmodule #{name} do
           use Ankole.Ash.Resource, tenancy: :tenant
@@ -592,7 +592,7 @@ defmodule Ankole.AshTenancyTest do
           #{definition}
         end
         """)
-      end
+      end)
     end
   end
 
@@ -604,7 +604,7 @@ defmodule Ankole.AshTenancyTest do
         ] do
       name = "Ankole.AshContractProbe#{System.unique_integer([:positive])}"
 
-      assert_raise Spark.Error.DslError, ~r/#{Regex.escape(expected)}/, fn ->
+      assert_dsl_error(~r/#{Regex.escape(expected)}/, fn ->
         Code.compile_string("""
         defmodule #{name} do
           use Ash.Resource, domain: nil, data_layer: AshPostgres.DataLayer,
@@ -619,7 +619,14 @@ defmodule Ankole.AshTenancyTest do
           #{extra}
         end
         """)
-      end
+      end)
     end
+  end
+
+  defp assert_dsl_error(pattern, fun) do
+    {_result, diagnostics} = Code.with_diagnostics(fun)
+
+    assert Enum.any?(diagnostics, &Regex.match?(pattern, &1.message)),
+           "Expected DSL diagnostic #{inspect(pattern)}, got #{inspect(diagnostics)}"
   end
 end

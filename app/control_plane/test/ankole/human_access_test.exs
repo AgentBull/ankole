@@ -4,6 +4,7 @@ defmodule Ankole.HumanAccessTest do
   import Ankole.PrincipalsFixtures
   alias Ankole.{AuthZ, Principals}
   alias Ankole.Principals.HumanAccess
+  alias Ankole.Pod.Pages
 
   test "independent restrictions require review and restoration cannot revive old access" do
     %{principal: human} = human_fixture()
@@ -64,7 +65,7 @@ defmodule Ankole.HumanAccessTest do
     assert {:ok, _} =
              AuthZ.create_permission_grant(%{
                principal_uid: human.uid,
-               resource_pattern: "**",
+               resource_pattern: "tenant_console:**",
                action: "read"
              })
 
@@ -72,6 +73,79 @@ defmodule Ankole.HumanAccessTest do
              HumanAccess.restore(human.uid, review.fingerprint, nil, "approved", "restore")
 
     assert {:ok, %{status: :disabled}} = Principals.get_principal(human.uid)
+  end
+
+  test "creating, updating, and deleting Userset rules invalidate restoration approval" do
+    owner = human_fixture().principal
+    human = human_fixture().principal
+    actor = actor_fixture(owner.uid)
+    assert {:ok, source} = Pages.create(actor, %{private_owner_uid: owner.uid})
+    assert {:ok, target} = Pages.create(actor, %{private_owner_uid: owner.uid})
+
+    assert {:ok, _} =
+             AuthZ.create_permission_grant(%{
+               principal_uid: human.uid,
+               resource_pattern: "pod:**:#{source.id}:**",
+               action: "page_view"
+             })
+
+    assert {:ok, _} = HumanAccess.disable(human.uid, "review", nil, "disable")
+    [restriction] = HumanAccess.restrictions(human.uid)
+
+    assert {:ok, _} =
+             HumanAccess.clear_restriction(human.uid, restriction.id, nil, "verified", "clear")
+
+    assert {:ok, before_create} = AuthZ.restoration_review(human.uid)
+    assert before_create.permissions["userset_grants"] == []
+
+    attrs = %{
+      source_page_id: source.id,
+      source_action: "page_view",
+      resource_pattern: "pod:**:#{target.id}:**",
+      action: "page_view"
+    }
+
+    assert {:ok, grant} = AuthZ.create_permission_grant(attrs)
+
+    assert {:error, :permission_review_changed} =
+             HumanAccess.restore(human.uid, before_create.fingerprint, nil, "approved", "restore")
+
+    assert {:ok, before_update} = AuthZ.restoration_review(human.uid)
+
+    assert before_update.permissions["userset_grants"] == [
+             Map.merge(attrs, %{
+               id: grant.id,
+               target_page_id: target.id,
+               target_scope: "container",
+               condition: "true"
+             })
+           ]
+
+    assert {:ok, _} = AuthZ.update_permission_grant(grant.id, %{condition: "false"})
+
+    assert {:error, :permission_review_changed} =
+             HumanAccess.restore(human.uid, before_update.fingerprint, nil, "approved", "restore")
+
+    assert {:ok, before_delete} = AuthZ.restoration_review(human.uid)
+    assert [%{condition: "false"}] = before_delete.permissions["userset_grants"]
+    assert {:ok, _} = AuthZ.delete_permission_grant(grant.id)
+
+    assert {:error, :permission_review_changed} =
+             HumanAccess.restore(human.uid, before_delete.fingerprint, nil, "approved", "restore")
+
+    assert {:ok, %{status: :disabled}} = Principals.get_principal(human.uid)
+    assert {:ok, _} = AuthZ.create_permission_grant(attrs)
+    assert {:ok, approved} = AuthZ.restoration_review(human.uid)
+
+    assert {:ok, %{status: :active}} =
+             HumanAccess.restore(human.uid, approved.fingerprint, nil, "approved", "restore")
+
+    restoration = Enum.find(HumanAccess.history(human.uid), &(&1.action == "restore"))
+
+    assert restoration.details["approved_permissions"]["userset_grants"] ==
+             Ankole.JSON.plain(approved.permissions["userset_grants"])
+
+    assert {:ok, _} = Pages.authorize(actor_fixture(human.uid), target.id, "page_view")
   end
 
   test "confirmed departure disables the last administrator without reopening setup", %{
@@ -101,6 +175,7 @@ defmodule Ankole.HumanAccessTest do
 
     assert {:ok, _} = HumanAccess.recover_admin(other.uid, "test operator", "identity verified")
     assert Ankole.AuthZ.site_admin?(other.uid)
+    assert Ankole.AuthZ.pod_admin?(other.uid)
 
     assert {:error, :active_admin_exists} =
              HumanAccess.recover_admin(human.uid, "test operator", "review")

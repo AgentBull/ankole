@@ -2,9 +2,45 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
   @moduledoc "Operator-configured endpoint settings and an encrypted credential pool."
 
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :site,
     domain: Ankole.AIGateway.ProviderConfigs,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:provider_id, :provider_id)
+
+    allow(:console_add_credential,
+      resource: "site_console:ai_gateway_provider:{provider_id}",
+      action: "update"
+    )
+
+    allow(:console_put_credential,
+      resource: "site_console:ai_gateway_provider:{provider_id}",
+      action: "update"
+    )
+
+    allow(:console_delete_credential,
+      resource: "site_console:ai_gateway_provider:{provider_id}",
+      action: "update"
+    )
+
+    allow(:console_credential_strategy,
+      resource: "site_console:ai_gateway_provider:{provider_id}",
+      action: "update"
+    )
+
+    allow(:list, resource: "site_console:ai_gateway_providers", action: "read")
+    allow(:read, resource: "site_console:ai_gateway_provider:{provider_id}", action: "read")
+    allow(:put, resource: "site_console:ai_gateway_provider:{provider_id}", action: "update")
+    allow(:retire, resource: "site_console:ai_gateway_provider:{provider_id}", action: "delete")
+
+    allow(:enable_provider,
+      resource: "site_console:ai_gateway_provider:{provider_id}",
+      action: "update"
+    )
+  end
 
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Projection

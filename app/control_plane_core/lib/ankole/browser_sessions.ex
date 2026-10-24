@@ -28,10 +28,15 @@ defmodule Ankole.BrowserSessions do
   defdelegate encode_reference(ref), to: Identity
   defdelegate decode_reference(value), to: Identity
   defdelegate get(ref), to: Identity
+  defdelegate lock_browser_in_tx(ref), to: Identity
   defdelegate get_authentication(ref), to: Identity
+  defdelegate authentication_evidence(id), to: Identity
   defdelegate current_reference(ref), to: Identity
   defdelegate authentication(ref, purpose), to: Identity
   defdelegate identity(ref, tenant_id), to: Identity
+  defdelegate identities(ref), to: Identity
+  defdelegate claim_membership(ref, tenant_id), to: PodAccess
+  defdelegate accept_invitation(ref, tenant_id, id), to: PodAccess
   defdelegate activate(browser_ref, authentication_ref, tenant_id \\ nil), to: Identity
   defdelegate activate_in_tx(browser_ref, authentication_ref, tenant_id \\ nil), to: Identity
   defdelegate authorize_in_tx(authentication_ref, auth), to: Identity
@@ -46,10 +51,9 @@ defmodule Ankole.BrowserSessions do
   defdelegate bind_provider_in_tx(ref, id, provider_id, state \\ nil, redirect_uri \\ nil),
     to: Logins
 
-  defdelegate put_password_ticket(ref, id, ticket), to: Logins
-  defdelegate put_password_ticket_in_tx(ref, id, ticket), to: Logins
   defdelegate complete_login(ref, id, auth, before_commit \\ fn -> :ok end), to: Logins
   defdelegate complete_login_in_tx(ref, id, auth, before_commit), to: Logins
+  defdelegate replace_site_credential_in_tx(ref, actor, proof), to: Logins
   defdelegate complete_site_login(ref, id, provider_id, proof), to: Logins
   defdelegate complete_site_login_in_tx(ref, id, provider_id, proof), to: Logins
   defdelegate select_authorization(ref, id, authentication_ref), to: Logins
@@ -61,12 +65,6 @@ defmodule Ankole.BrowserSessions do
 
   defdelegate create_pod_access(authentication_ref, create), to: PodAccess
   defdelegate create_pod_access_in_tx(authentication_ref, create), to: PodAccess
-
-  defdelegate connect_pod_access(authentication_ref, verified_ref, tenant_id, connect),
-    to: PodAccess
-
-  defdelegate connect_pod_access_in_tx(authentication_ref, verified_ref, tenant_id, connect),
-    to: PodAccess
 
   defdelegate revoke(browser_ref, authentication_ref), to: Revocation
   defdelegate revoke_in_tx(browser_ref, authentication_ref), to: Revocation

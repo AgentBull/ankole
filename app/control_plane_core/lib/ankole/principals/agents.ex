@@ -5,6 +5,7 @@ defmodule Ankole.Principals.Agents do
 
   alias Ankole.AgentWorkers
   alias Ankole.AIAgent.Library
+  alias Ankole.Pod.Access
   alias Ankole.Principals
   alias Ankole.Principals.{Agent, Humans, Principal}
   alias Ankole.Repo
@@ -141,6 +142,9 @@ defmodule Ankole.Principals.Agents do
         Ankole.Ash.update(principal, :disable_in_tx, %{})
 
       :disabled ->
+        Access.grants(principal_uid: principal.uid, action: [in: Access.page_actions()])
+        |> Access.remove_grants()
+
         :ok = Ankole.Conversations.delete_for_agent_in_tx(principal.uid)
         :ok = AgentWorkers.mark_deleting_in_tx(principal.uid)
         :ok = Ankole.Signals.Bindings.delete_agent_config_rows_in_tx(principal.uid)

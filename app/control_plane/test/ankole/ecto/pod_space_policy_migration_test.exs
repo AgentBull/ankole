@@ -19,11 +19,16 @@ defmodule Ankole.Ecto.PodSpacePolicyMigrationTest do
     empty = create_tenant()
     policy = create_tenant()
     owner = Ankole.PrincipalsFixtures.human_fixture().principal
-    {:ok, _} = Pages.create(owner.uid, %{})
+    {:ok, _} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{})
 
     for tenant <- [content, empty, policy] do
       Repo.with_tenant(tenant.id, fn ->
         Repo.delete_all(from g in Grant, where: g.action in ^Access.page_actions())
+
+        Repo.update_all(
+          from(g in Ankole.AuthZ.Group, where: g.name == "all_humans"),
+          set: [computed_condition: ~s(principal.type == "human" && principal.status == "active")]
+        )
       end)
     end
 

@@ -16,6 +16,14 @@ defmodule Ankole.Pod.Config do
   def definitions do
     [
       Definition.new!(
+        key: "pod.allow_external_guests",
+        scope: :tenant,
+        encrypted: false,
+        schema: Schema.new(&boolean/1),
+        default_value: true,
+        description: "Allows invited external guests to access shared Pod pages."
+      ),
+      Definition.new!(
         key: "pod.applet.limits",
         scope: :tenant,
         encrypted: false,
@@ -61,6 +69,12 @@ defmodule Ankole.Pod.Config do
     ]
   end
 
+  def allow_external_guests?,
+    do: AppConfigure.get_by_key("pod.allow_external_guests") == {:ok, true}
+
+  defp boolean(value) when is_boolean(value), do: {:ok, value}
+  defp boolean(_), do: {:error, :invalid_boolean}
+
   def trash_retention_days,
     do: AppConfigure.get_tenant_by_key_in_tx("pod.trash_retention_days")
 
@@ -84,7 +98,7 @@ defmodule Ankole.Pod.Config do
   defp optional_uid(nil), do: {:ok, nil}
 
   defp optional_uid(uid) when is_binary(uid) and byte_size(uid) > 0,
-    do: Ankole.Principals.normalize_uid(uid)
+    do: Ankole.PrincipalKey.normalize(uid)
 
   defp optional_uid(_), do: {:error, :invalid_principal_uid}
 

@@ -24,6 +24,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useParams } from '@tanstack/react-router'
 import {
   addPrincipalGroupMemberMutation,
+  changeHumanMembershipMutation,
   getPrincipalOptions,
   listGrantsOfPrincipalOptions,
   listGroupsOfPrincipalOptions,
@@ -40,9 +41,7 @@ import { ConfirmDeleteButton, StatusIndicator } from '../console-form'
 import { ResourceListPage, ResourceSearch, RowViewAction, SubNav } from '../console-list-page'
 import { principalGroupDisplayName, principalGroupErrorMessage } from '../state/principal-group-text'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
-import { useLocalIdentityProvider } from '../use-local-identity-provider'
 import { PermissionGrantsSection } from './permission-grant-editor'
-import { LocalPasswordSection } from './principal-local-password'
 
 /** The flat Console record of a Principal; `id` is its UID. */
 export type PrincipalRecord = Flat<Principal>
@@ -78,7 +77,6 @@ export function PrincipalsListPage() {
     ...principalListOptions(),
     select: data => fromDocument(data)
   })
-  const localIdentity = useLocalIdentityProvider()
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
   const searchQuery = effectiveResourceSearchQuery(query, deferredQuery)
@@ -90,7 +88,8 @@ export function PrincipalsListPage() {
       principal.handle,
       principal.display_name,
       principal.type,
-      principal.status
+      principal.status,
+      principal.membership
     )
   )
 
@@ -98,12 +97,13 @@ export function PrincipalsListPage() {
     <ResourceListPage
       title={t('console.principals.title')}
       description={t('console.principals.description')}
-      createTo={localIdentity.enabled ? 'new' : undefined}
-      createLabel={localIdentity.enabled ? t('console.principals.new_user') : undefined}
+      createTo="new"
+      createLabel={t('console.principals.new_user')}
       columns={[
         t('console.principals.principal'),
         t('console.principals.identity'),
         t('console.principals.type'),
+        t('console.principals.membership'),
         t('console.principals.status')
       ]}
       isLoading={principals.isLoading}
@@ -145,6 +145,9 @@ export function PrincipalsListPage() {
             <Badge variant="secondary">{t(`console.principals.type_${principal.type}`)}</Badge>
           </TableCell>
           <TableCell>
+            {principal.membership ? t(`console.principals.membership_${principal.membership}`) : '—'}
+          </TableCell>
+          <TableCell>
             <StatusIndicator tone={principal.status === 'active' ? 'positive' : 'neutral'}>
               {t(`console.status.${principal.status}`)}
             </StatusIndicator>
@@ -166,7 +169,6 @@ export function PrincipalDetailPage() {
   const params = useParams({ strict: false })
   const uid = params.uid ?? ''
   const principal = useQuery({ ...getPrincipalOptions({ path: { uid } }), select: data => fromDocument(data) })
-  const localIdentity = useLocalIdentityProvider()
   const loadedPrincipal = principal.data
 
   return (
@@ -193,7 +195,7 @@ export function PrincipalDetailPage() {
               </StatusIndicator>
             </div>
           ) : null}
-          {loadedPrincipal && localIdentity.enabled && loadedPrincipal.type === 'human' ? (
+          {loadedPrincipal && loadedPrincipal.type === 'human' ? (
             <Link className={cn(buttonVariants({ size: 'sm', variant: 'outline' }), 'ml-auto')} to="edit">
               {t('console.principals.edit_profile')}
             </Link>
@@ -203,10 +205,8 @@ export function PrincipalDetailPage() {
       <ErrorBlock error={principal.error} />
       {loadedPrincipal ? (
         <div className="grid gap-10">
+          {loadedPrincipal.type === 'human' ? <HumanMembershipSection principal={loadedPrincipal} /> : null}
           {loadedPrincipal.type === 'human' ? <HumanAccessSection key={uid} uid={uid} /> : null}
-          {localIdentity.enabled && loadedPrincipal.type === 'human' ? (
-            <LocalPasswordSection principal={loadedPrincipal} />
-          ) : null}
           <PrincipalGroupsSection principal={loadedPrincipal} />
           <PrincipalGrantsSection principal={loadedPrincipal} />
         </div>
@@ -218,6 +218,42 @@ export function PrincipalDetailPage() {
         </div>
       ) : null}
     </PageStack>
+  )
+}
+
+function HumanMembershipSection({ principal }: { principal: PrincipalRecord }) {
+  const { t } = useTranslation()
+  const next = principal.membership === 'guest' ? 'member' : 'guest'
+  const change = useMutation({
+    ...changeHumanMembershipMutation(),
+    onSuccess: () => toast.success(t('console.principals.membership_saved')),
+    onError: error => toast.error(principalGroupErrorMessage(t, error))
+  })
+  return (
+    <section className="grid gap-3 border-b border-border pb-6">
+      <h3 className="text-lg font-semibold">{t('console.principals.membership')}</h3>
+      <p className="text-sm text-muted-foreground">{t('console.principals.membership_hint')}</p>
+      <div className="flex items-center gap-3">
+        <Badge variant="secondary">{t(`console.principals.membership_${principal.membership}`)}</Badge>
+        <ConfirmDeleteButton
+          label={t(`console.principals.convert_to_${next}`)}
+          variant="outline"
+          pending={change.isPending}
+          confirm={{
+            title: t(`console.principals.convert_to_${next}`),
+            description: t('console.principals.membership_change_hint'),
+            confirmLabel: t(`console.principals.convert_to_${next}`)
+          }}
+          onConfirm={() =>
+            change.mutate({
+              path: { uid: principal.id },
+              body: { data: { type: 'principal', id: principal.id, attributes: { membership: next } } }
+            })
+          }
+        />
+      </div>
+      <ErrorBlock error={change.error} />
+    </section>
   )
 }
 

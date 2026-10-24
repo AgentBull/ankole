@@ -43,7 +43,7 @@ defmodule Ankole.Files do
   alias Ankole.Repo
 
   json_api do
-    authorize?(false)
+    authorize?(true)
     log_errors?(true)
     show_raised_errors?(false)
 
@@ -72,6 +72,14 @@ defmodule Ankole.Files do
       define(:list_drive_files, action: :read)
     end
   end
+
+  defdelegate console_download(actor, agent_uid, path, local_path),
+    to: Ankole.Files.ConsoleActions,
+    as: :download
+
+  defdelegate console_upload(actor, agent_uid, path, local_path, content_type),
+    to: Ankole.Files.ConsoleActions,
+    as: :upload
 
   defguardp is_drive(drive) when is_binary(drive) or drive == :pod
 

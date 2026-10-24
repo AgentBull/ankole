@@ -25,6 +25,26 @@ export type BrowserAuthentication = {
 }
 
 /**
+ * A "Resource object" representing a browser_invitation
+ */
+export type BrowserInvitation = {
+  /**
+   * An attributes object for a browser_invitation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a browser_invitation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
  * A "Resource object" representing a browser_setup
  */
 export type BrowserSetup = {
@@ -118,6 +138,41 @@ export type DeleteBrowserAuthenticationResponses = {
 export type DeleteBrowserAuthenticationResponse =
   DeleteBrowserAuthenticationResponses[keyof DeleteBrowserAuthenticationResponses]
 
+export type ActivateBrowserAccountData = {
+  /**
+   * Request body for the activateBrowserAccount operation on browser_authentication resource
+   */
+  body: {
+    data: {
+      authenticationRef: string
+      tenantID: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/browser/authentications/current'
+}
+
+export type ActivateBrowserAccountErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ActivateBrowserAccountError = ActivateBrowserAccountErrors[keyof ActivateBrowserAccountErrors]
+
+export type ActivateBrowserAccountResponses = {
+  /**
+   * Success
+   */
+  201: {
+    podURL: string
+  }
+}
+
+export type ActivateBrowserAccountResponse = ActivateBrowserAccountResponses[keyof ActivateBrowserAccountResponses]
+
 export type LoginProvidersData = {
   body?: never
   path?: never
@@ -162,11 +217,117 @@ export type LoginProvidersResponses = {
       pluginID?: string | null
       providerID: string
     }>
+    purpose?: string | null
+    requireSSOForMembers: boolean
     selectAccount: boolean
   }
 }
 
 export type LoginProvidersResponse = LoginProvidersResponses[keyof LoginProvidersResponses]
+
+export type PreviewInvitationData = {
+  body?: never
+  path: {
+    token: string
+  }
+  query?: never
+  url: '/api/v2/browser/invitations/{token}'
+}
+
+export type PreviewInvitationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PreviewInvitationError = PreviewInvitationErrors[keyof PreviewInvitationErrors]
+
+export type PreviewInvitationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    displayName: string
+    emailOTPAvailable: boolean
+    membership: 'member' | 'guest'
+    oidcProviders: Array<{
+      displayName: {
+        [key: string]: string
+      }
+      providerID: string
+    }>
+    podURL: string
+    tenantID: string
+  }
+}
+
+export type PreviewInvitationResponse = PreviewInvitationResponses[keyof PreviewInvitationResponses]
+
+export type AcceptInvitationData = {
+  /**
+   * Request body for the acceptInvitation operation on browser_invitation resource
+   */
+  body: {
+    data: {
+      authenticationRef: string
+    }
+  }
+  path: {
+    token: string
+  }
+  query?: never
+  url: '/api/v2/browser/invitations/{token}/acceptances'
+}
+
+export type AcceptInvitationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type AcceptInvitationError = AcceptInvitationErrors[keyof AcceptInvitationErrors]
+
+export type AcceptInvitationResponses = {
+  /**
+   * Success
+   */
+  201: {
+    podURL: string
+  }
+}
+
+export type AcceptInvitationResponse = AcceptInvitationResponses[keyof AcceptInvitationResponses]
+
+export type BeginInvitationLoginData = {
+  body?: never
+  path: {
+    token: string
+  }
+  query?: never
+  url: '/api/v2/browser/invitations/{token}/sessions'
+}
+
+export type BeginInvitationLoginErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type BeginInvitationLoginError = BeginInvitationLoginErrors[keyof BeginInvitationLoginErrors]
+
+export type BeginInvitationLoginResponses = {
+  /**
+   * Success
+   */
+  201: {
+    flow: string
+  }
+}
+
+export type BeginInvitationLoginResponse = BeginInvitationLoginResponses[keyof BeginInvitationLoginResponses]
 
 export type LogoutConfirmationData = {
   body?: never
@@ -201,6 +362,40 @@ export type LogoutConfirmationResponses = {
 }
 
 export type LogoutConfirmationResponse = LogoutConfirmationResponses[keyof LogoutConfirmationResponses]
+
+export type ResolvePodLoginData = {
+  /**
+   * Request body for the resolvePodLogin operation on browser_authentication resource
+   */
+  body: {
+    data: {
+      slug: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/browser/pod-logins'
+}
+
+export type ResolvePodLoginErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ResolvePodLoginError = ResolvePodLoginErrors[keyof ResolvePodLoginErrors]
+
+export type ResolvePodLoginResponses = {
+  /**
+   * Success
+   */
+  201: {
+    loginURL: string
+  }
+}
+
+export type ResolvePodLoginResponse = ResolvePodLoginResponses[keyof ResolvePodLoginResponses]
 
 export type DeleteAuthSessionData = {
   body?: never
@@ -263,53 +458,112 @@ export type BrowserSessionResponses = {
       }
     }>
     authenticated: boolean
+    canManagePod: boolean
     consoleURL?: string | null
-    displayName: string
-    principalUID: string
-    providerID: string
-    tenant: {
+    displayName?: string | null
+    pendingAccounts: Array<{
+      authenticationRef: string
+      displayName: string
+      invitationID?: string | null
+      podURL: string
+      principalUID?: string | null
+      providerID: string
+      requiresSSO: boolean
+      tenant: {
+        displayName: string
+        id: string
+        slug: string
+      }
+    }>
+    principalUID?: string | null
+    providerID?: string | null
+    siteAuthentications: Array<{
+      authenticationRef: string
+      identifier: string
+      providerID: string
+    }>
+    tenant?: {
       displayName: string
       id: string
       slug: string
-    }
+    } | null
   }
 }
 
 export type BrowserSessionResponse = BrowserSessionResponses[keyof BrowserSessionResponses]
 
-export type ActivateBrowserAccountData = {
+export type RequestEmailOtpData = {
   /**
-   * Request body for the activateBrowserAccount operation on browser_authentication resource
+   * Request body for the requestEmailOTP operation on browser_authentication resource
    */
   body: {
     data: {
-      authenticationRef: string
+      email: string
+      flow: string
     }
   }
   path?: never
   query?: never
-  url: '/api/v2/browser/sessions/active'
+  url: '/api/v2/browser/sessions/email-otp/challenges'
 }
 
-export type ActivateBrowserAccountErrors = {
+export type RequestEmailOtpErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type ActivateBrowserAccountError = ActivateBrowserAccountErrors[keyof ActivateBrowserAccountErrors]
+export type RequestEmailOtpError = RequestEmailOtpErrors[keyof RequestEmailOtpErrors]
 
-export type ActivateBrowserAccountResponses = {
+export type RequestEmailOtpResponses = {
   /**
    * Success
    */
-  200: {
-    podURL: string
+  201: {
+    challengeID: string
+    expiresAt: string
   }
 }
 
-export type ActivateBrowserAccountResponse = ActivateBrowserAccountResponses[keyof ActivateBrowserAccountResponses]
+export type RequestEmailOtpResponse = RequestEmailOtpResponses[keyof RequestEmailOtpResponses]
+
+export type VerifyEmailOtpData = {
+  /**
+   * Request body for the verifyEmailOTP operation on browser_authentication resource
+   */
+  body: {
+    data: {
+      challengeID: string
+      code: string
+      flow: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/browser/sessions/email-otp/verifications'
+}
+
+export type VerifyEmailOtpErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type VerifyEmailOtpError = VerifyEmailOtpErrors[keyof VerifyEmailOtpErrors]
+
+export type VerifyEmailOtpResponses = {
+  /**
+   * Success
+   */
+  201: {
+    returnTo: string
+    status: 'ok'
+  }
+}
+
+export type VerifyEmailOtpResponse = VerifyEmailOtpResponses[keyof VerifyEmailOtpResponses]
 
 export type SelectLoginIdentityData = {
   /**
@@ -346,83 +600,6 @@ export type SelectLoginIdentityResponses = {
 }
 
 export type SelectLoginIdentityResponse = SelectLoginIdentityResponses[keyof SelectLoginIdentityResponses]
-
-export type LocalPasswordLoginData = {
-  /**
-   * Request body for the localPasswordLogin operation on browser_authentication resource
-   */
-  body: {
-    data: {
-      email: string
-      flow: string
-      password: string
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/browser/sessions/local-password'
-}
-
-export type LocalPasswordLoginErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type LocalPasswordLoginError = LocalPasswordLoginErrors[keyof LocalPasswordLoginErrors]
-
-export type LocalPasswordLoginResponses = {
-  /**
-   * Success
-   */
-  201:
-    | {
-        status: 'password_change_required'
-      }
-    | {
-        returnTo: string
-        status: 'ok'
-      }
-}
-
-export type LocalPasswordLoginResponse = LocalPasswordLoginResponses[keyof LocalPasswordLoginResponses]
-
-export type LocalPasswordChangeData = {
-  /**
-   * Request body for the localPasswordChange operation on browser_authentication resource
-   */
-  body: {
-    data: {
-      flow: string
-      newPassword: string
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/browser/sessions/local-password/change'
-}
-
-export type LocalPasswordChangeErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type LocalPasswordChangeError = LocalPasswordChangeErrors[keyof LocalPasswordChangeErrors]
-
-export type LocalPasswordChangeResponses = {
-  /**
-   * Success
-   */
-  201: {
-    returnTo: string
-    status: 'ok'
-  }
-}
-
-export type LocalPasswordChangeResponse = LocalPasswordChangeResponses[keyof LocalPasswordChangeResponses]
 
 export type LogSetupActivationCodeData = {
   body?: never
@@ -517,6 +694,81 @@ export type UpdateSetupBrainPacksResponses = {
 }
 
 export type UpdateSetupBrainPacksResponse = UpdateSetupBrainPacksResponses[keyof UpdateSetupBrainPacksResponses]
+
+export type RequestSetupEmailOtpData = {
+  /**
+   * Request body for the requestSetupEmailOTP operation on browser_setup resource
+   */
+  body: {
+    data: {
+      display_name?: string | null
+      email: string
+      mail: {
+        [key: string]: unknown
+      }
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/browser/setup/email-otp/challenges'
+}
+
+export type RequestSetupEmailOtpErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RequestSetupEmailOtpError = RequestSetupEmailOtpErrors[keyof RequestSetupEmailOtpErrors]
+
+export type RequestSetupEmailOtpResponses = {
+  /**
+   * Success
+   */
+  201: {
+    challengeID: string
+    flow: string
+  }
+}
+
+export type RequestSetupEmailOtpResponse = RequestSetupEmailOtpResponses[keyof RequestSetupEmailOtpResponses]
+
+export type VerifySetupEmailOtpData = {
+  /**
+   * Request body for the verifySetupEmailOTP operation on browser_setup resource
+   */
+  body: {
+    data: {
+      challengeID: string
+      code: string
+      flow: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/browser/setup/email-otp/verifications'
+}
+
+export type VerifySetupEmailOtpErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type VerifySetupEmailOtpError = VerifySetupEmailOtpErrors[keyof VerifySetupEmailOtpErrors]
+
+export type VerifySetupEmailOtpResponses = {
+  /**
+   * Success
+   */
+  201: {
+    returnTo: string
+  }
+}
+
+export type VerifySetupEmailOtpResponse = VerifySetupEmailOtpResponses[keyof VerifySetupEmailOtpResponses]
 
 export type SetupIdentityProviderAdaptersData = {
   body?: never
@@ -679,42 +931,6 @@ export type SetupOidcAuthorizationResponses = {
 }
 
 export type SetupOidcAuthorizationResponse = SetupOidcAuthorizationResponses[keyof SetupOidcAuthorizationResponses]
-
-export type CreateSetupLocalAdminData = {
-  /**
-   * Request body for the createSetupLocalAdmin operation on browser_setup resource
-   */
-  body: {
-    data: {
-      display_name?: string | null
-      email: string
-      password: string
-    }
-  }
-  path?: never
-  query?: never
-  url: '/api/v2/browser/setup/local-admin'
-}
-
-export type CreateSetupLocalAdminErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type CreateSetupLocalAdminError = CreateSetupLocalAdminErrors[keyof CreateSetupLocalAdminErrors]
-
-export type CreateSetupLocalAdminResponses = {
-  /**
-   * Success
-   */
-  201: {
-    returnTo: string
-  }
-}
-
-export type CreateSetupLocalAdminResponse = CreateSetupLocalAdminResponses[keyof CreateSetupLocalAdminResponses]
 
 export type SetupPluginsData = {
   body?: never

@@ -125,6 +125,7 @@ defmodule Ankole.WorkflowTest do
   test "a native conversation dispatches Workflow tasks and receives the inherited result" do
     %{principal: human} = human_fixture()
     %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
     id = Ecto.UUID.generate()
 
     assert {:ok, detail} =

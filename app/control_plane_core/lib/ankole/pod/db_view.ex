@@ -24,7 +24,8 @@ defmodule Ankole.Pod.DbView do
 
   attributes do
     attribute(:id, Ankole.Ash.Types.UUIDv7,
-      public?: true, primary_key?: true,
+      public?: true,
+      primary_key?: true,
       allow_nil?: false,
       default: &Ankole.Ecto.UUIDv7.autogenerate/0
     )
@@ -32,9 +33,21 @@ defmodule Ankole.Pod.DbView do
     attribute(:table_id, Ankole.Ash.Types.UUIDv7, public?: true, allow_nil?: false)
     attribute(:name, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
     attribute(:position, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
-    attribute(:type, :atom, public?: true, allow_nil?: false, constraints: [one_of: [:grid, :kanban, :gallery]])
+
+    attribute(:type, :atom,
+      public?: true,
+      allow_nil?: false,
+      constraints: [one_of: [:grid, :kanban, :gallery]]
+    )
+
     attribute(:config, Ankole.Ash.Types.JSONMap, public?: true, allow_nil?: false, default: %{})
-    attribute(:version, :integer, public?: true, allow_nil?: false, default: 1, constraints: [min: 1])
+
+    attribute(:version, :integer,
+      public?: true,
+      allow_nil?: false,
+      default: 1,
+      constraints: [min: 1]
+    )
   end
 
   relationships do

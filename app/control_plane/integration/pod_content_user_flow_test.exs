@@ -32,8 +32,8 @@ defmodule Ankole.Pod.ContentUserFlowTest do
   end
 
   test "two opposite moves commit one legal tree through independent database connections", ctx do
-    {:ok, a} = Pages.create(ctx.owner.uid, %{})
-    {:ok, b} = Pages.create(ctx.owner.uid, %{})
+    {:ok, a} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
+    {:ok, b} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
     parent = self()
 
     tasks =
@@ -43,7 +43,10 @@ defmodule Ankole.Pod.ContentUserFlowTest do
             send(parent, {:ready, self()})
 
             receive do
-              :go -> Pages.move(ctx.owner.uid, id, %{parent_id: destination})
+              :go ->
+                Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), id, %{
+                  parent_id: destination
+                })
             end
           end)
         end)
@@ -70,7 +73,7 @@ defmodule Ankole.Pod.ContentUserFlowTest do
     pages =
       for index <- 1..1000 do
         {:ok, page} =
-          Pages.create(ctx.owner.uid, %{
+          Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
             title: "Shared #{index}",
             private_owner_uid: ctx.owner.uid
           })
@@ -93,11 +96,16 @@ defmodule Ankole.Pod.ContentUserFlowTest do
     page = List.last(pages)
 
     {authorize_us, authorized} =
-      :timer.tc(fn -> Pages.authorize(reader.uid, page.id, "page_view") end)
+      :timer.tc(fn ->
+        Pages.authorize(Ankole.PrincipalsFixtures.actor_fixture(reader.uid), page.id, "page_view")
+      end)
 
     assert {:ok, %{id: id}} = authorized
     assert id == page.id
-    {list_us, result} = :timer.tc(fn -> Pages.list(reader.uid) end)
+
+    {list_us, result} =
+      :timer.tc(fn -> Pages.list(Ankole.PrincipalsFixtures.actor_fixture(reader.uid)) end)
+
     assert {:ok, visible} = result
     assert MapSet.new(visible, & &1.id) == MapSet.new(pages, & &1.id)
 
@@ -107,8 +115,13 @@ defmodule Ankole.Pod.ContentUserFlowTest do
   end
 
   test "a failed purge resumes after committed record batches and blocks restoration", ctx do
-    {:ok, root} = Pages.create(ctx.owner.uid, %{})
-    {:ok, database} = Pages.create(ctx.owner.uid, %{parent_id: root.id, type: "database"})
+    {:ok, root} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
+
+    {:ok, database} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
+        parent_id: root.id,
+        type: "database"
+      })
 
     table =
       Ankole.Pod.PagesFixtures.create_record!(DbTable, :create_in_tx, %{
@@ -144,7 +157,7 @@ defmodule Ankole.Pod.ContentUserFlowTest do
 
     Repo.insert_all(DbRecord, rows)
     Ankole.Pod.PagesFixtures.update_record!(table, :commit_write, %{delta: 1005, inserted: 1005})
-    {:ok, _} = Pages.delete(ctx.owner.uid, root.id)
+    {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), root.id)
     root = Repo.get!(Page, root.id)
     Ankole.Pod.PagesFixtures.update_record!(root, :begin_purge)
 
@@ -171,7 +184,9 @@ defmodule Ankole.Pod.ContentUserFlowTest do
 
       assert Repo.aggregate(DbRecord, :count) == 0
       assert Repo.get(Page, root.id)
-      assert {:error, :cannot_restore} = Pages.restore(ctx.owner.uid, root.id)
+
+      assert {:error, :cannot_restore} =
+               Pages.restore(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), root.id)
     after
       Repo.query!("DROP TRIGGER IF EXISTS test_pod_purge_interrupt ON db_fields")
       Repo.query!("DROP FUNCTION IF EXISTS test_pod_purge_interrupt()")

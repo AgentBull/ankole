@@ -7,7 +7,7 @@ adapter.
 
 Read [Signals](../Signals.md), [Conversations](../Conversations.md),
 [Sessions](../Sessions.md), [Principal](../Principal.md), and
-[Local Password Identity Provider](../LocalPasswordIdentityProvider.md) for the
+[Authentication](../Authentication.md) for the
 common message and identity rules.
 
 ## Provider and Public Identity

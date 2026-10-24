@@ -24,16 +24,16 @@ const catalogs = [
 for (const { locale, full, pod } of catalogs) {
   test(`${edition} ${locale} keeps complete Pod/shared namespaces and leaves the ordinary catalog intact`, async () => {
     expect(full).toEqual(await Bun.file(path.join(localeDirectory, `${locale}.json`)).json())
-    for (const namespace of ['common', 'pod', 'conversations']) {
+    for (const namespace of ['common', 'pod', 'conversations', 'auth', 'setup']) {
       expect(pod[namespace]).toEqual(full[namespace])
       expect(pod[namespace]).toBeDefined()
     }
-    for (const namespace of ['console', 'auth', 'setup', 'app_configure', 'plugins']) {
+    for (const namespace of ['console', 'app_configure', 'plugins']) {
       expect(full[namespace]).toBeDefined()
       expect(pod[namespace]).toBeUndefined()
     }
     expect(pod.saas).toEqual(full.saas)
-    const expected = ['__meta__', 'common', 'conversations', 'pod', ...(full.saas ? ['saas'] : [])]
+    const expected = ['__meta__', 'auth', 'setup', 'common', 'conversations', 'pod', ...(full.saas ? ['saas'] : [])]
     expect(Object.keys(pod).sort()).toEqual(expected.sort())
   })
 }

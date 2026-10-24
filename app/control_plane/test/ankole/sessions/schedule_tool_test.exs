@@ -17,6 +17,15 @@ defmodule Ankole.Sessions.ScheduleToolTest do
         now: @base_time
       )
 
+    for name <- ["check_back_later", "cron"] do
+      {:ok, _} =
+        Ankole.AuthZ.create_permission_grant(%{
+          principal_uid: event.human_uid,
+          resource_pattern: "agent:#{agent.uid}:tool:#{name}",
+          action: "invoke"
+        })
+    end
+
     {:ok, run} = Admission.admit(event, event)
     {:ok, context} = Context.resolve(run.agent_uid, run.session_id)
     {tools, _} = ToolCatalog.for_run(%{run | context: context})

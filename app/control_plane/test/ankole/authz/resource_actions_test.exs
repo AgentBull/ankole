@@ -31,14 +31,19 @@ defmodule Ankole.AuthZ.ResourceActionsTest do
     count = Repo.aggregate(Grant, :count)
 
     for {attrs, field, message} <- [
-          {%{principal_uid: human.uid, group_id: group.id, action: "read"}, :group_id,
-           "must be blank"},
-          {%{action: "read"}, :principal_uid, "or group_id is required"},
+          {%{principal_uid: human.uid, group_id: group.id, action: "read"}, :principal_uid,
+           "exactly one Principal, group, or source Page is required"},
+          {%{action: "read"}, :principal_uid,
+           "exactly one Principal, group, or source Page is required"},
           {%{principal_uid: human.uid, action: "page:view"}, :action, "must not contain colon"}
         ] do
       assert {:error, error} =
                Repo.transact(fn _repo ->
-                 Ankole.Ash.create(Grant, :create_in_tx, Map.put(attrs, :resource_pattern, "**"))
+                 Ankole.Ash.create(
+                   Grant,
+                   :create_in_tx,
+                   Map.put(attrs, :resource_pattern, "tenant_console:**")
+                 )
                end)
 
       assert Map.fetch!(errors_on(error), field) == [message]

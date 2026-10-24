@@ -35,6 +35,7 @@ Application.put_env(
 Logger.configure(level: :warning)
 
 alias Ankole.{AuthZ, BrowserSessions, Repo}
+require Ash.Query
 
 # This dedicated test database defaults to Chinese labels for its browser selectors.
 {:ok, original_site_locale} =
@@ -56,9 +57,11 @@ alias AnkoleWeb.Session, as: WebSession
 tenant = Ankole.DataCase.create_tenant()
 Repo.put_tenant_id(tenant.id)
 origin = AnkoleWeb.PodURL.origin(%{scheme: :http, port: port}, tenant)
+console_origin = AnkoleWeb.PodURL.site_origin(%{scheme: :http, port: port})
 
 configured =
-  Application.fetch_env!(:ankole, AnkoleWeb.Endpoint) |> Keyword.put(:check_origin, [origin])
+  Application.fetch_env!(:ankole, AnkoleWeb.Endpoint)
+  |> Keyword.put(:check_origin, [origin, console_origin])
 
 Application.put_env(:ankole, AnkoleWeb.Endpoint, configured)
 :ok = AnkoleWeb.Endpoint.config_change([{AnkoleWeb.Endpoint, configured}], [])
@@ -82,32 +85,94 @@ owner = owner_account.principal
 member = member_account.principal
 viewer = viewer_account.principal
 
-# These credentials belong only to this isolated test database. Browser tests
-# can use the real password form instead of injecting authentication cookies.
-{:ok, _} = Ankole.IdentityProviders.save_provider("pod-browser-local", "local", %{}, true)
-test_password = "Browser-" <> AnkoleWeb.Session.opaque_token()
+# Login forms use the production mailer with a real local TLS SMTP peer.
+mailbox_path = System.fetch_env!("POD_BROWSER_STATE_PATH") <> ".mail.json"
+File.write!(mailbox_path, "{}")
+File.chmod!(mailbox_path, 0o600)
 
-for human <- [owner, member, viewer] do
-  {:ok, _} =
-    Ankole.IdentityProviders.LocalPassword.set_local_password(human.uid, test_password, false)
-end
+fixture_owner = self()
+
+collector =
+  spawn_link(fn ->
+    loop = fn loop, codes ->
+      receive do
+        {:smtp_message, _, [target | _], message} ->
+          text = Ankole.Authn.SMTPFixture.text(message)
+
+          case Regex.run(~r/code is (\d{6})/, text) do
+            [_, code] ->
+              target = to_string(target)
+              revision = get_in(codes, [target, :revision]) || 0
+              codes = Map.put(codes, target, %{code: code, revision: revision + 1})
+              send(fixture_owner, {:fixture_mail_code, target, code})
+              File.write!(mailbox_path <> ".tmp", Jason.encode!(codes))
+              File.chmod!(mailbox_path <> ".tmp", 0o600)
+              File.rename!(mailbox_path <> ".tmp", mailbox_path)
+              loop.(loop, codes)
+
+            _ ->
+              loop.(loop, codes)
+          end
+      end
+    end
+
+    loop.(loop, %{})
+  end)
+
+smtp = Ankole.Authn.SMTPFixture.start(collector)
+
+{:ok, _} =
+  Ankole.AppConfigure.put_global_by_key("authn.email.mail", %{
+    "server" => "127.0.0.1",
+    "port" => smtp.port,
+    "ssl" => true,
+    "from" => "login@ankole.test",
+    "cacertfile" => smtp.ca_path
+  })
+
+for key <- ["send_email_limit", "send_source_limit", "send_channel_limit"],
+    do: Ankole.AppConfigure.put_global_by_key("authn.email." <> key, 1000)
+
+System.at_exit(fn _ ->
+  Ankole.Authn.SMTPFixture.stop(smtp)
+  File.rm(mailbox_path)
+end)
+
+{:ok, privileged_tenant_id} = Ankole.Tenants.privileged_id()
+
+site_admin_account =
+  Repo.with_tenant(privileged_tenant_id, fn ->
+    email = "pod-browser-site-admin@example.com"
+
+    account =
+      case Ankole.Principals.HumanUser
+           |> Ash.Query.filter(email == ^email)
+           |> Ankole.Ash.read_one!() do
+        %Ankole.Principals.HumanUser{} = profile ->
+          %{
+            principal: Ankole.Principals.get_principal_record!(profile.principal_uid),
+            human_user: profile
+          }
+
+        nil ->
+          Ankole.PrincipalsFixtures.human_fixture(%{
+            display_name: "Browser site administrator",
+            email: email
+          })
+      end
+
+    {:ok, _} = Ankole.PrincipalsFixtures.first_site_admin_fixture(account.principal.uid)
+    account
+  end)
 
 other_tenant = Ankole.DataCase.create_tenant()
 
 other_pod =
   Repo.with_tenant(other_tenant.id, fn ->
-    {:ok, _} = Ankole.IdentityProviders.save_provider("pod-browser-local", "local", %{}, true)
     account = Ankole.PrincipalsFixtures.human_fixture(%{display_name: "Other workspace owner"})
 
-    {:ok, _} =
-      Ankole.IdentityProviders.LocalPassword.set_local_password(
-        account.principal.uid,
-        test_password,
-        false
-      )
-
     {:ok, page} =
-      Pages.create(account.principal.uid, %{
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(account.principal.uid), %{
         title: "Other workspace login",
         private_owner_uid: account.principal.uid
       })
@@ -116,8 +181,7 @@ other_pod =
       base_url: AnkoleWeb.PodURL.origin(%{scheme: :http, port: port}, other_tenant),
       page_id: page.id,
       uid: account.principal.uid,
-      email: account.human_user.email,
-      password: test_password
+      email: account.human_user.email
     }
   end)
 
@@ -147,22 +211,45 @@ model_provider_id = "pod-browser-model-" <> tenant.id
   })
 
 {:ok, _} =
-  AuthZ.create_permission_grant(%{
-    principal_uid: owner.uid,
-    resource_pattern: "**",
-    action: "update"
-  })
+  Repo.transact_top_level(fn ->
+    with {:ok, group} <- Ankole.AuthZ.Root.ensure_pod_admin_group(),
+         {:ok, _} <- Ankole.AuthZ.Grants.upsert_pod_admin_grants(group) do
+      Ankole.AuthZ.Root.add_pod_admin_in_tx(owner.uid)
+    end
+  end)
 
-{:ok, report} = Pages.create(owner.uid, %{title: "Browser report"})
+for human <- [owner, member, viewer] do
+  {:ok, _} =
+    AuthZ.create_permission_grant(%{
+      principal_uid: human.uid,
+      resource_pattern: "agent:#{agent.uid}",
+      action: "chat"
+    })
+end
+
+{:ok, report} =
+  Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{title: "Browser report"})
 
 {:ok, data_page} =
-  Pages.create(owner.uid, %{type: "database", title: "Browser sales", parent_id: report.id})
+  Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+    type: "database",
+    title: "Browser sales",
+    parent_id: report.id
+  })
 
-{:ok, table} = Database.create_table(owner.uid, data_page.id, %{name: "Sales"})
-{:ok, amount} = Database.create_field(owner.uid, table.id, %{name: "Amount", type: "number"})
+{:ok, table} =
+  Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), data_page.id, %{
+    name: "Sales"
+  })
+
+{:ok, amount} =
+  Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), table.id, %{
+    name: "Amount",
+    type: "number"
+  })
 
 {:ok, status} =
-  Database.create_field(owner.uid, table.id, %{
+  Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), table.id, %{
     name: "Status",
     type: "select",
     config: %{
@@ -171,12 +258,16 @@ model_provider_id = "pod-browser-model-" <> tenant.id
   })
 
 {:ok, _} =
-  Database.write_records(owner.uid, table.id, %{
+  Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), table.id, %{
     creates: [%{data: %{amount.id => 10, status.id => "new"}}]
   })
 
 {:ok, applet} =
-  Pages.create(owner.uid, %{type: "applet", title: "Browser tracker", parent_id: report.id})
+  Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+    type: "applet",
+    title: "Browser tracker",
+    parent_id: report.id
+  })
 
 {:ok, _} =
   Ankole.Pod.PagesFixtures.set_sharing(owner.uid, report.id, %{
@@ -189,7 +280,7 @@ model_provider_id = "pod-browser-model-" <> tenant.id
     ]
   })
 
-cookies = fn principal ->
+cookies = fn principal, surface ->
   session_opts =
     Plug.Session.init(AnkoleWeb.SessionCookies.session_options())
 
@@ -199,22 +290,29 @@ cookies = fn principal ->
     |> Plug.Session.call(session_opts)
     |> Plug.Conn.fetch_session()
 
-  {:ok, conn, transaction} = WebSession.begin_login(conn, :pod, %{})
+  {:ok, conn, transaction} = WebSession.begin_login(conn, surface, %{})
 
-  {:ok, _} =
-    BrowserSessions.bind_provider(
-      WebSession.browser_reference(conn),
+  email = Ankole.Principals.get_principal_record!(principal.uid, load: [:email]).email
+  browser = WebSession.browser_reference(conn)
+  {:ok, sent} = Ankole.Authn.Domain.request_otp(browser, transaction.id, email, "fixture-seed")
+
+  code =
+    receive do
+      {:fixture_mail_code, ^email, code} -> code
+    after
+      5000 -> raise "SMTP fixture did not receive the verification code"
+    end
+
+  {:ok, completed} =
+    Ankole.Authn.Domain.verify_otp(
+      browser,
       transaction.id,
-      "pod-browser-test"
+      sent.challenge_id,
+      code,
+      "fixture-seed"
     )
 
-  {:ok, conn, _} =
-    WebSession.complete_login(conn, transaction.id, %{
-      "principal_uid" => principal.uid,
-      "access_version" => principal.access_version,
-      "provider_id" => "pod-browser-test",
-      "external_id" => principal.uid
-    })
+  conn = WebSession.put_authentication(conn, completed.browser, completed.authentication)
 
   conn = Plug.Conn.send_resp(conn, 200, "fixture")
 
@@ -279,10 +377,17 @@ publish_files =
   end)
 
 candidates = Enum.map(publish_files["v2"], &%{&1 | path: "src/candidate-v2/" <> &1.path})
-{:ok, _} = Ankole.Pod.Files.publish(agent.uid, applet.id, 0, publish_files["v1"] ++ candidates)
+
+{:ok, _} =
+  Ankole.Pod.Files.publish(
+    Ankole.PrincipalsFixtures.actor_fixture(agent.uid),
+    applet.id,
+    0,
+    publish_files["v1"] ++ candidates
+  )
 
 {:ok, runtime_test_applet} =
-  Ankole.Pod.Pages.create(agent.uid, %{
+  Ankole.Pod.Pages.create(Ankole.PrincipalsFixtures.actor_fixture(agent.uid), %{
     type: "applet",
     title: "Runtime recovery applet",
     parent_id: report.id
@@ -290,7 +395,7 @@ candidates = Enum.map(publish_files["v2"], &%{&1 | path: "src/candidate-v2/" <> 
 
 {:ok, _} =
   Ankole.Pod.Files.publish(
-    agent.uid,
+    Ankole.PrincipalsFixtures.actor_fixture(agent.uid),
     runtime_test_applet.id,
     0,
     publish_files["v1"] ++ candidates
@@ -298,7 +403,8 @@ candidates = Enum.map(publish_files["v2"], &%{&1 | path: "src/candidate-v2/" <> 
 
 # This independent workspace uses the production backend runtime. It does not
 # depend on the other stories' table edits, access revocation, or publication.
-{:ok, backend_report} = Pages.create(owner.uid, %{title: "Sample operations"})
+{:ok, backend_report} =
+  Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{title: "Sample operations"})
 
 {:ok, _} =
   Ankole.Pod.PagesFixtures.set_sharing(owner.uid, backend_report.id, %{
@@ -312,25 +418,34 @@ candidates = Enum.map(publish_files["v2"], &%{&1 | path: "src/candidate-v2/" <> 
   })
 
 {:ok, backend_database} =
-  Pages.create(owner.uid, %{
+  Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
     type: "database",
     title: "Sample inventory",
     parent_id: backend_report.id
   })
 
-{:ok, inventory} = Database.create_table(owner.uid, backend_database.id, %{name: "Inventory"})
+{:ok, inventory} =
+  Database.create_table(
+    Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+    backend_database.id,
+    %{name: "Inventory"}
+  )
+
 inventory_name = Enum.find(Database.fields(inventory.id), & &1.is_primary)
 
 {:ok, stock} =
-  Database.create_field(owner.uid, inventory.id, %{name: "Available", type: "number"})
+  Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), inventory.id, %{
+    name: "Available",
+    type: "number"
+  })
 
 {:ok, %{records: [sample]}} =
-  Database.write_records(owner.uid, inventory.id, %{
+  Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), inventory.id, %{
     creates: [%{data: %{inventory_name.id => "Cedar sample kit", stock.id => 5}}]
   })
 
 {:ok, backend_applet} =
-  Pages.create(owner.uid, %{
+  Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
     type: "applet",
     title: "Sample reservations",
     parent_id: backend_report.id
@@ -380,11 +495,17 @@ backend_files =
     {version, files}
   end)
 
-{:ok, _} = Ankole.Pod.Files.publish(agent.uid, backend_applet.id, 0, backend_files["v1"])
+{:ok, _} =
+  Ankole.Pod.Files.publish(
+    Ankole.PrincipalsFixtures.actor_fixture(agent.uid),
+    backend_applet.id,
+    0,
+    backend_files["v1"]
+  )
 
 {:ok, _} =
   Ankole.Pod.Documents.write(
-    owner.uid,
+    Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
     backend_report.id,
     0,
     "<page><p>Reserve samples before your supplier review. Everyone works from the same inventory.</p><embed ref=\"#{backend_applet.id}\"/></page>"
@@ -396,7 +517,7 @@ conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
 input_id = Ankole.Ecto.UUIDv7.autogenerate()
 
 {:ok, _conversation} =
-  Ankole.Conversations.create(owner.uid, %{
+  Ankole.Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
     conversation_id: conversation_id,
     agent_uid: agent.uid,
     message_id: input_id,
@@ -443,12 +564,15 @@ control_material = fn text ->
   {:ok, reply} =
     Repo.transact(fn ->
       with {:ok, %{event: event}} <-
-             Ankole.Conversations.create_in_tx(owner.uid, %{
-               conversation_id: id,
-               agent_uid: agent.uid,
-               message_id: Ankole.Ecto.UUIDv7.autogenerate(),
-               text: text
-             }),
+             Ankole.Conversations.create_in_tx(
+               Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+               %{
+                 conversation_id: id,
+                 agent_uid: agent.uid,
+                 message_id: Ankole.Ecto.UUIDv7.autogenerate(),
+                 text: text
+               }
+             ),
            {:ok, %{messages: [reply]}} <-
              Ankole.ConversationsFixtures.post_statement_in_tx(
                event,
@@ -476,7 +600,7 @@ end
 chat_failed_conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
 
 {:ok, failed_detail} =
-  Ankole.Conversations.create(owner.uid, %{
+  Ankole.Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
     conversation_id: chat_failed_conversation_id,
     agent_uid: agent.uid,
     message_id: Ankole.Ecto.UUIDv7.autogenerate(),
@@ -501,7 +625,7 @@ history_conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
   Repo.transact(
     fn ->
       {:ok, %{event: first}} =
-        Ankole.Conversations.create_in_tx(owner.uid, %{
+        Ankole.Conversations.create_in_tx(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
           conversation_id: history_conversation_id,
           agent_uid: agent.uid,
           message_id: Ankole.Ecto.UUIDv7.autogenerate(),
@@ -516,10 +640,14 @@ history_conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
 
       for sequence <- 2..1006 do
         {:ok, %{event: event}} =
-          Ankole.Conversations.post_in_tx(owner.uid, history_conversation_id, %{
-            message_id: Ankole.Ecto.UUIDv7.autogenerate(),
-            text: "History item " <> String.pad_leading(Integer.to_string(sequence), 4, "0")
-          })
+          Ankole.Conversations.post_in_tx(
+            Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+            history_conversation_id,
+            %{
+              message_id: Ankole.Ecto.UUIDv7.autogenerate(),
+              text: "History item " <> String.pad_leading(Integer.to_string(sequence), 4, "0")
+            }
+          )
 
         {:ok, _} =
           Ankole.Sessions.Queue.mark_event_completed_in_tx(
@@ -530,14 +658,14 @@ history_conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
 
       {:ok, :history_material_ready}
     end,
-    timeout: 60_000
+    timeout: 180_000
   )
 
 recovery_conversation_id = Ankole.Ecto.UUIDv7.autogenerate()
 recovery_message_id = Ankole.Ecto.UUIDv7.autogenerate()
 
 {:ok, _} =
-  Ankole.Conversations.create(owner.uid, %{
+  Ankole.Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
     conversation_id: recovery_conversation_id,
     agent_uid: agent.uid,
     message_id: recovery_message_id,
@@ -560,6 +688,8 @@ recovery_input = Repo.get_by!(Ankole.Signals.Signal, message_id: recovery_messag
 
 state = %{
   base_url: origin,
+  mailbox_path: mailbox_path,
+  console_url: console_origin <> AnkoleWeb.SiteAdminConsole.path(),
   tenant_id: tenant.id,
   tenant_slug: tenant.slug,
   original_site_locale: original_site_locale,
@@ -592,22 +722,28 @@ state = %{
   publish_v2_files: publish_files["v2"],
   owner: %{
     uid: owner.uid,
-    cookies: cookies.(owner),
-    email: owner_account.human_user.email,
-    password: test_password
+    cookies: cookies.(owner, :pod),
+    email: owner_account.human_user.email
   },
   member: %{
     uid: member.uid,
-    cookies: cookies.(member),
-    email: member_account.human_user.email,
-    password: test_password
+    cookies: cookies.(member, :pod),
+    email: member_account.human_user.email
   },
   viewer: %{
     uid: viewer.uid,
-    cookies: cookies.(viewer),
-    email: viewer_account.human_user.email,
-    password: test_password
+    cookies: cookies.(viewer, :pod),
+    email: viewer_account.human_user.email
   },
+  site_admin:
+    Repo.with_tenant(privileged_tenant_id, fn ->
+      %{
+        uid: site_admin_account.principal.uid,
+        tenant_id: privileged_tenant_id,
+        cookies: cookies.(site_admin_account.principal, :console),
+        email: site_admin_account.human_user.email
+      }
+    end),
   other_pod: other_pod,
   agent_uid: agent.uid
 }

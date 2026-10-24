@@ -44,7 +44,12 @@ defmodule AnkoleWeb.JSONAPI.OIDCClientOperationsTest do
              )
 
     assert {:error, :reserved_identity_provider_id} =
-             Ankole.IdentityProviders.save_provider("test-site", "local", %{}, true)
+             Ankole.IdentityProviders.save_provider(
+               "test-site",
+               "lark",
+               %{"appID" => "cli_allowed", "appSecret" => "secret"},
+               true
+             )
   end
 
   test "admin rotates a confidential Client secret, and a public Client has none", %{
@@ -115,7 +120,11 @@ defmodule AnkoleWeb.JSONAPI.OIDCClientOperationsTest do
 
     {:ok, still_other} = Repo.with_tenant(other.id, fn -> OIDC.get_client(other_client.id) end)
     assert {:ok, ^other_before} = OIDC.client_secret(still_other)
-    Repo.delete_all(from grant in Ankole.AuthZ.Grant, where: grant.resource_pattern == "**")
+
+    Repo.delete_all(
+      from grant in Ankole.AuthZ.Grant,
+        where: grant.resource_pattern in ["site_console:**", "tenant_console:**"]
+    )
 
     assert conn
            |> recycle_api()

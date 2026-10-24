@@ -1,9 +1,19 @@
 defmodule Ankole.Principals.MappingRequest do
   @moduledoc false
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.Principals,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    allow(:console_list, resource: "site_console:identity_mapping_requests", action: "read")
+    allow(:by_id, resource: "site_console:identity_mapping_requests", action: "read")
+    allow(:delete_in_tx, resource: "site_console:identity_mapping_requests", action: "update")
+    allow(:bind_request, resource: "site_console:identity_mapping_requests", action: "update")
+    allow(:bind_subject, resource: "site_console:identity_mapping_requests", action: "update")
+  end
 
   require Ash.Query
 

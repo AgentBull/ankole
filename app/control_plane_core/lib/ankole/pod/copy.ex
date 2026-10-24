@@ -21,8 +21,13 @@ defmodule Ankole.Pod.Copy do
     Query
   }
 
-  def table(uid, id, attrs, authority \\ nil),
-    do: Access.write(authority, fn -> table_in_tx(uid, id, attrs) end, after_commit: &committed/1)
+  def table(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority \\ nil) do
+    authority = authority || actor.turn_authority
+
+    Access.write_tree(authority, fn -> table_in_tx(actor, id, attrs) end,
+      after_commit: &committed/1
+    )
+  end
 
   @doc "Publishes a committed copy: the tree changed and the new page exists."
   def committed(%{page: page}) do
@@ -31,21 +36,23 @@ defmodule Ankole.Pod.Copy do
   end
 
   @doc false
-  def table_in_tx(uid, id, attrs) do
+  def table_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
     Pages.lock_tree()
 
-    with {:ok, source} <- Database.table_access(uid, id, "page_view"),
-         _locked <-
+    with {:ok, candidate} <- Database.fetch_table(id),
+         locked <-
            DbTable
-           |> Ash.Query.filter(page_id == ^source.page_id)
+           |> Ash.Query.filter(page_id == ^candidate.page_id)
            |> Ash.Query.sort(id: :asc)
            |> Ash.Query.lock(:for_update)
            |> Ankole.Ash.read!(),
+         {:ok, source} <-
+           Database.table_access(actor, Enum.find(locked, &(&1.id == candidate.id)), :read),
          {:ok, limits} <- Config.limits(),
          {:ok, timezone} <- Ankole.SystemConfig.timezone(),
          {:ok, _} <- Repo.query("SELECT set_config('TimeZone',$1,true)", [timezone]),
          {:ok, page} <-
-           Pages.create_in_tx(uid, %{
+           Pages.create_in_tx(actor, %{
              type: "database",
              title: Ankole.Attrs.get(attrs, :title, source.name),
              parent_id: Ankole.Attrs.get(attrs, :parent_id),
@@ -62,7 +69,7 @@ defmodule Ankole.Pod.Copy do
          :ok <- copy_views(source.id, target.id, mapping),
          {:ok, count} <-
            copy_records(
-             uid,
+             actor,
              source,
              target,
              definitions,
@@ -157,7 +164,9 @@ defmodule Ankole.Pod.Copy do
     )
   end
 
-  defp copy_records(uid, source, target, fields, copied, filter, limits) do
+  defp copy_records(%Ankole.AuthZ.Actor{} = actor, source, target, fields, copied, filter, limits) do
+    uid = Ankole.AuthZ.Actor.uid(actor)
+
     with {:ok, where, params} <- Query.filter(fields, filter, [Repo.tenant_id!(), source.id]),
          {:ok, %{rows: [[count]]}} <-
            Repo.query(

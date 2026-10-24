@@ -15,12 +15,25 @@ defmodule AnkoleWeb.Plugs.RequirePodSession do
          {:ok, tenant_id} <- target_tenant(conn),
          :ok <- Repo.put_tenant_id(tenant_id),
          %{"principal_uid" => uid} = authentication <- WebSession.pod_session(conn),
-         {:ok, principal} <- Ankole.Principals.get_principal(uid) do
+         {:ok, %{type: :human} = principal} <- Ankole.Principals.get_principal(uid),
+         :ok <- Ankole.AuthZ.Checks.ActorGuardrail.check(Ankole.AuthZ.Actor.new(principal), :pod) do
       conn
       |> assign(:current_principal_uid, uid)
       |> assign(:current_principal, principal)
       |> assign(:pod_authentication, authentication)
+      |> assign(
+        :authz_actor,
+        Ankole.AuthZ.Actor.from_browser(
+          principal,
+          authentication,
+          "pod_browser",
+          to_string(:inet.ntoa(conn.remote_ip))
+        )
+      )
     else
+      {:error, :forbidden} ->
+        conn |> ConsoleErrors.render(403, "forbidden", "Pod access denied") |> halt()
+
       _ ->
         conn |> ConsoleErrors.render(401, "unauthorized", "active Pod session required") |> halt()
     end

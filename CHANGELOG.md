@@ -2,6 +2,61 @@
 
 ## Version 2.0.0-alpha.23 (2026-10-23)
 
+- Include Userset grants in Human restoration review and reject approval when
+  those grants change. Refresh Page ACL anchors when site administration moves.
+- Restore the original Page position on Undo across paginated directories.
+  Exclude the full source subtree from move destination search before its limit.
+- Keep loaded Console rows visible when the next page fails, with a retry action.
+- Apply pinned dependency patches and invalidate each build tree in the control
+  plane, core, and standalone plugins, including warm builds.
+- Use the shared passwordless authentication core in FOSS and SaaS. Verify real
+  email codes through site SMTP, discover active and pending Pods, and bind each
+  login method to its tenant Human. Remove local password and SaaS account stores.
+- Add Pod administrator settings, invitations, personal login-method changes,
+  and self-service exit from unmanaged Pods. Check live Pod login policy and
+  protect administrators from policy lockout and last-administrator removal.
+- Complete pending Pod invitations through the required verification or SSO.
+  Keep the tab's identity when users open account or Pod settings.
+- Use recent completed browser verification for personal credential changes
+  and permitted Pod exit. Reverification fixes the current tab's member and
+  accepts another permitted login source only for that same member.
+- Apply login and Guest policy changes to open collaboration channels. Let Pod
+  administrators restore suspended members after verified directory recovery
+  and permission review.
+- Distinguish suspension from offboarding. Offboarding releases personal
+  credentials and contacts and prevents old browser proofs from claiming a
+  reassigned address. Keep immutable enterprise subjects and work history.
+- Carry authentication evidence and interactive Human authority in explicit
+  AuthZ Actors. Declare protected Ash actions beside resources and filter Page
+  reads through the native anchor authorizer.
+- Check retained login credential conflicts before schema or configuration
+  migration. Operators must resolve a reported conflict before retrying.
+- Match an active member by a verified or directory contact email when a new
+  enterprise provider binds that person. Keep their roles, files, and conversations.
+- Keep the current Pod signed in after a verified email change. Protect the last
+  permitted login method and preserve other open tabs during reauthentication.
+- Validate FOSS and SaaS migration addresses before writes. Preserve offline OIDC
+  evidence and reject sessions whose original proof cannot be recovered.
+- Build the control-plane Torque NIF from source in the release image.
+
+- Add Page-only and container sharing, Page audience rules, lazy directory
+  loading, and restricted guest collaboration. Guest access follows the tenant
+  setting `pod.allow_external_guests`.
+- Use the `site_console:` namespace for Web Console grants and keep Agent
+  runtime grants separate. Existing Console grants migrate to explicit
+  namespaces. Grant `chat` on `agent:<uid>` and `invoke` on
+  `agent:<uid>:tool:<name>` explicitly. An upgrade stops if a rewritten
+  condition references `resource`; review those reported grants before retrying.
+- Check Page and table access under the operation's database snapshot or row
+  lock so concurrent revocation cannot expose newly committed content.
+- Keep Human tool grants and Human intersection with Agent Pod permissions
+  for Human-derived Workflow, scheduled, and Background Agent Job work.
+  Service autonomous work uses Agent permissions.
+- Check Guest admission for Pod chat, attachments, Agent catalogs, and live
+  event streams. List Trash entries by deletion time after permission checks.
+- Keep title filters inside the selected Page list scope. Apply visibility
+  before the result limit for favorites and recent Pages.
+
 - Move Pod content and chat, setup, and browser account JSON operations to
   `/api/v2/pod`, `/api/v2/browser/setup`, and `/api/v2/browser`. Update direct callers
   from the generated OpenAPI documents. JSON requests use
@@ -15,6 +70,12 @@
   target.
 - Keep the caret position and active formatting when typing immediately
   after a keyboard move in the document editor.
+- Upgrade bundled Codex to 0.164.0 and match its app-server protocol
+  declarations. Upgrade MCPorter to 0.16.0, OfficeCLI to 1.0.158, Lark CLI
+  to 1.0.98, kubectl to 1.37.1, and the AWS CLI to 2.38.5. OfficeCLI reports
+  a failed save instead of exiting successfully after it drops the edits.
+  The Agent OS base database clients are MySQL 9.7.4, PostgreSQL 18.6, and
+  ClickHouse 26.9.25.15.
 
 ## Version 2.0.0-alpha.22 (2026-10-23)
 

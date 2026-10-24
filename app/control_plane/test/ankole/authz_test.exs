@@ -294,6 +294,8 @@ defmodule Ankole.AuthZTest do
       assert {:ok, _membership} =
                AuthZ.add_principal_to_group(second_admin.principal.uid, "siteadmin")
 
+      assert {:ok, _} = AuthZ.add_principal_to_group(second_admin.principal.uid, "pod_admin")
+
       assert {:ok, _principal} =
                Ankole.PrincipalsFixtures.disable_principal_fixture(first_admin.principal.uid)
     end

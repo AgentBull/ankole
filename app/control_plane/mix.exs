@@ -1,3 +1,5 @@
+Code.require_file("../control_plane_core/patches/dependency_patches.exs", __DIR__)
+
 defmodule Ankole.MixProject do
   use Mix.Project
 
@@ -92,71 +94,6 @@ defmodule Ankole.MixProject do
   end
 
   defp test_paths, do: ["test"] ++ internal_paths(["control_plane/test"])
-
-  @ash_patches [
-    {"ash", "ash-3.36.1.patch"},
-    {"ash_postgres", "ash_postgres-2.15.1.patch"},
-    {"ash_json_api", "ash_json_api-1.7.1.patch"},
-    {"attesto", "attesto-2.6.1.patch"}
-  ]
-
-  # Patch before deps.compile takes its dependency snapshot. Gives the
-  # dependencies that this call patched.
-  defp patch_ash_dependencies(_args) do
-    for {dependency_name, filename} <- @ash_patches,
-        dependency = Path.join(Mix.Project.deps_path(), dependency_name),
-        File.dir?(dependency),
-        apply_patch(dependency_name, dependency, filename) == :patched,
-        do: dependency_name
-  end
-
-  defp apply_patch(dependency_name, dependency, filename) do
-    patch = Path.expand("../control_plane_core/patches/#{filename}", __DIR__)
-    arguments = ["-F", "0", "--force", "-p1", "-i", patch]
-    options = [cd: dependency, stderr_to_stdout: true]
-
-    case System.cmd("patch", ["--dry-run", "--reverse" | arguments], options) do
-      {_output, 0} ->
-        :applied
-
-      {_output, _status} ->
-        case System.cmd("patch", ["--forward" | arguments], options) do
-          {_output, 0} ->
-            :patched
-
-          {output, _status} ->
-            Mix.raise("Cannot apply the pinned #{dependency_name} fix:\n" <> output)
-        end
-    end
-  end
-
-  # A warm build can hold a dependency that was compiled before its patch or in
-  # another Mix environment. Build the patched dependencies again before
-  # deps.loadpaths snapshots them when the build stamp does not match.
-  defp compile_ash_dependencies(args) do
-    unless "--no-compile" in args or "--no-deps-check" in args do
-      patched = patch_ash_dependencies(args)
-      stamp_path = Path.join(Mix.Project.build_path(), ".ash_patches")
-      stamp = ash_patches_stamp()
-
-      if patched != [] or File.read(stamp_path) != {:ok, stamp} do
-        names = Enum.map(@ash_patches, &elem(&1, 0))
-        Mix.Task.rerun("deps.compile", names ++ ["--include-children", "--force"])
-        File.mkdir_p!(Path.dirname(stamp_path))
-        File.write!(stamp_path, stamp)
-      end
-    end
-  end
-
-  defp ash_patches_stamp do
-    @ash_patches
-    |> Enum.map(fn {_dep, filename} ->
-      {filename, File.read!(Path.expand("../control_plane_core/patches/#{filename}", __DIR__))}
-    end)
-    |> :erlang.term_to_binary()
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.encode16(case: :lower)
-  end
 
   defp prepare_webapps(_args) do
     if edition() == :saas do
@@ -284,80 +221,80 @@ defmodule Ankole.MixProject do
   end
 
   defp aliases do
-    [
-      setup: ["deps.get", "ecto.setup"],
-      "deps.compile": [&patch_ash_dependencies/1, "deps.compile"],
-      "deps.loadpaths": [&compile_ash_dependencies/1, "deps.loadpaths"],
-      compile: [&prepare_webapps/1, "compile", &validate_build/1],
-      "ecto.migrate": [
-        fn args ->
-          Mix.Task.run("loadpaths", args)
-          Mix.Tasks.Ecto.Migrate.run(args, &Ankole.Migrations.migrate/4)
-        end
-      ],
-      "ecto.rollback": [
-        fn args ->
-          Mix.Task.run("loadpaths", args)
-          Mix.Tasks.Ecto.Rollback.run(args, &Ankole.Migrations.migrate/4)
-        end
-      ],
-      "ecto.migrations": [
-        fn args ->
-          Mix.Task.run("loadpaths", args)
-          Mix.Tasks.Ecto.Migrations.run(args, &Ankole.Migrations.status/3)
-        end
-      ],
-      "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
-      "ecto.reset": ["ecto.drop", "ecto.setup"],
-      "e2e.gate": [
-        "ecto.create --quiet",
-        "ecto.migrate --quiet",
-        "test ../../tools/e2e/suites/lark_transport_e2e_test.exs " <>
-          "../../tools/e2e/suites/lark_main_flow_e2e_test.exs " <>
-          "../../tools/e2e/suites/lark_lifecycle_e2e_test.exs " <>
-          "../../tools/e2e/suites/slack_transport_e2e_test.exs " <>
-          "../../tools/e2e/suites/slack_main_flow_e2e_test.exs " <>
-          "../../tools/e2e/suites/slack_lifecycle_e2e_test.exs " <>
-          "../../tools/e2e/suites/dingtalk_transport_e2e_test.exs " <>
-          "../../tools/e2e/suites/wecom_transport_e2e_test.exs " <>
-          "../../tools/e2e/suites/worker_computer_e2e_test.exs " <>
-          "../../tools/e2e/suites/runtime_fabric_e2e_test.exs " <>
-          "../../tools/e2e/suites/compose_upgrade_e2e_test.exs " <>
-          "../../tools/e2e/suites/schedule_e2e_test.exs --trace"
-      ],
-      "e2e.perf": [
-        "ecto.create --quiet",
-        "ecto.migrate --quiet",
-        "test ../../tools/e2e/suites/concurrency_perf_e2e_test.exs --trace"
-      ],
-      "e2e.chaos": [
-        "ecto.create --quiet",
-        "ecto.migrate --quiet",
-        "test ../../tools/e2e/suites/chaos_e2e_test.exs --trace"
-      ],
-      "e2e.real_llm": [
-        "ecto.create --quiet",
-        "ecto.migrate --quiet",
-        "test ../../tools/e2e/suites/lark_real_llm_e2e_test.exs " <>
-          "../../tools/e2e/suites/lark_workflow_real_llm_e2e_test.exs " <>
-          "../../tools/e2e/suites/conversations_cli_real_llm_e2e_test.exs " <>
-          "../../tools/e2e/suites/pod_content_real_llm_e2e_test.exs --trace"
-      ],
-      "e2e.ai_gateway_real_provider": [
-        "ecto.create --quiet",
-        "ecto.migrate --quiet",
-        "run ../../tools/e2e/ai_gateway_real_provider_e2e.exs"
-      ],
-      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
-      "assets.build": ["cmd --cd ../webapps bun run build"],
-      "assets.deploy": ["assets.build", "phx.digest"],
-      precommit: [
-        "compile --warnings-as-errors --no-all-warnings",
-        "deps.unlock --unused",
-        "format",
-        "credo --strict",
-        "test"
+    Ankole.Mix.DependencyPatches.aliases() ++
+      [
+        setup: ["deps.get", "ecto.setup"],
+        compile: [&prepare_webapps/1, "compile", &validate_build/1],
+        "ecto.migrate": [
+          fn args ->
+            Mix.Task.run("loadpaths", args)
+            Mix.Tasks.Ecto.Migrate.run(args, &Ankole.Migrations.migrate/4)
+          end
+        ],
+        "ecto.rollback": [
+          fn args ->
+            Mix.Task.run("loadpaths", args)
+            Mix.Tasks.Ecto.Rollback.run(args, &Ankole.Migrations.migrate/4)
+          end
+        ],
+        "ecto.migrations": [
+          fn args ->
+            Mix.Task.run("loadpaths", args)
+            Mix.Tasks.Ecto.Migrations.run(args, &Ankole.Migrations.status/3)
+          end
+        ],
+        "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
+        "ecto.reset": ["ecto.drop", "ecto.setup"],
+        "e2e.gate": [
+          "ecto.create --quiet",
+          "ecto.migrate --quiet",
+          "test ../../tools/e2e/suites/lark_transport_e2e_test.exs " <>
+            "../../tools/e2e/suites/lark_main_flow_e2e_test.exs " <>
+            "../../tools/e2e/suites/lark_lifecycle_e2e_test.exs " <>
+            "../../tools/e2e/suites/slack_transport_e2e_test.exs " <>
+            "../../tools/e2e/suites/slack_main_flow_e2e_test.exs " <>
+            "../../tools/e2e/suites/slack_lifecycle_e2e_test.exs " <>
+            "../../tools/e2e/suites/dingtalk_transport_e2e_test.exs " <>
+            "../../tools/e2e/suites/wecom_transport_e2e_test.exs " <>
+            "../../tools/e2e/suites/worker_computer_e2e_test.exs " <>
+            "../../tools/e2e/suites/runtime_fabric_e2e_test.exs " <>
+            "../../tools/e2e/suites/compose_upgrade_e2e_test.exs " <>
+            "../../tools/e2e/suites/authn_compose_e2e_test.exs " <>
+            "../../tools/e2e/suites/schedule_e2e_test.exs --trace"
+        ],
+        "e2e.perf": [
+          "ecto.create --quiet",
+          "ecto.migrate --quiet",
+          "test ../../tools/e2e/suites/concurrency_perf_e2e_test.exs --trace"
+        ],
+        "e2e.chaos": [
+          "ecto.create --quiet",
+          "ecto.migrate --quiet",
+          "test ../../tools/e2e/suites/chaos_e2e_test.exs --trace"
+        ],
+        "e2e.real_llm": [
+          "ecto.create --quiet",
+          "ecto.migrate --quiet",
+          "test ../../tools/e2e/suites/lark_real_llm_e2e_test.exs " <>
+            "../../tools/e2e/suites/lark_workflow_real_llm_e2e_test.exs " <>
+            "../../tools/e2e/suites/conversations_cli_real_llm_e2e_test.exs " <>
+            "../../tools/e2e/suites/pod_content_real_llm_e2e_test.exs --trace"
+        ],
+        "e2e.ai_gateway_real_provider": [
+          "ecto.create --quiet",
+          "ecto.migrate --quiet",
+          "run ../../tools/e2e/ai_gateway_real_provider_e2e.exs"
+        ],
+        test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+        "assets.build": ["cmd --cd ../webapps bun run build"],
+        "assets.deploy": ["assets.build", "phx.digest"],
+        precommit: [
+          "compile --warnings-as-errors --no-all-warnings",
+          "deps.unlock --unused",
+          "format",
+          "credo --strict",
+          "test"
+        ]
       ]
-    ]
   end
 end

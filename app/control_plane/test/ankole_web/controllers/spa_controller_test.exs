@@ -61,10 +61,8 @@ defmodule AnkoleWeb.SpaControllerTest do
     conn = conn |> pod_conn(tenant) |> get(~p"/sessions/new")
     assert_pod_login(conn, tenant, "/")
 
-    unless @host_policy do
-      conn = conn |> recycle() |> get(redirected_to(conn))
-      assert html_response(conn, 200) =~ ~s(http://assets.test/entrypoints/auth.tsx)
-    end
+    conn = conn |> recycle() |> get(redirected_to(conn))
+    assert html_response(conn, 200) =~ ~s(http://assets.test/entrypoints/auth.tsx)
   end
 
   test "GET /site-admin-console redirects anonymous users to auth after completion", %{conn: conn} do
@@ -122,36 +120,18 @@ defmodule AnkoleWeb.SpaControllerTest do
       |> active_admin_conn()
       |> get(~p"/sessions/new")
 
-    if @host_policy do
-      assert_pod_login(conn, tenant, "/")
-    else
-      assert redirected_to(conn) == ~p"/"
-    end
+    assert redirected_to(conn) == ~p"/"
   end
 
-  if @host_policy do
-    defp assert_pod_login(conn, tenant, return_to) do
-      uri = URI.parse(redirected_to(conn))
-      origin = URI.to_string(%{uri | path: nil, query: nil})
-      assert origin == AnkoleWeb.PodURL.site_origin(conn)
-      assert uri.path == "/account/enter"
-      query = URI.decode_query(uri.query)
-      assert query["tenant_id"] == tenant.id
-      assert query["return_to"] == return_to
+  defp assert_pod_login(conn, tenant, return_to) do
+    uri = URI.parse(redirected_to(conn))
+    assert uri.host in [nil, conn.host]
+    assert uri.path == "/sessions/new"
+    flow = URI.decode_query(uri.query) |> Map.fetch!("flow")
 
-      assert %{"tenant_id" => tenant_id, "return_to" => ^return_to} =
-               AnkoleWeb.Session.handoff_state(recycle(conn), query["state"])
+    assert {:ok, %{purpose: :pod, tenant_id: id, request: %{"return_to" => ^return_to}}} =
+             AnkoleWeb.Session.login_transaction(conn, flow)
 
-      assert tenant_id == tenant.id
-    end
-  else
-    defp assert_pod_login(conn, _tenant, return_to) do
-      uri = URI.parse(redirected_to(conn))
-      assert uri.path == "/sessions/new"
-      flow = URI.decode_query(uri.query) |> Map.fetch!("flow")
-
-      assert {:ok, %{purpose: :pod, request: %{"return_to" => ^return_to}}} =
-               AnkoleWeb.Session.login_transaction(conn, flow)
-    end
+    assert id == tenant.id
   end
 end

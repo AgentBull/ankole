@@ -17,11 +17,17 @@ defmodule Ankole.Pod.PageContent do
   end
 
   attributes do
-    attribute(:page_id, Ankole.Ash.Types.UUIDv7, public?: true, primary_key?: true, allow_nil?: false)
+    attribute(:page_id, Ankole.Ash.Types.UUIDv7,
+      public?: true,
+      primary_key?: true,
+      allow_nil?: false
+    )
+
     attribute(:content, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
 
     attribute(:plain_text, :string,
-      public?: true, allow_nil?: false,
+      public?: true,
+      allow_nil?: false,
       default: "",
       constraints: [trim?: false, allow_empty?: true]
     )

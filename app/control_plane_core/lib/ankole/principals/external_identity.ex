@@ -3,7 +3,13 @@ defmodule Ankole.Principals.ExternalIdentity do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     domain: Ankole.Principals,
-    extensions: [AshJsonApi.Resource]
+    extensions: [AshJsonApi.Resource, Ankole.Authn, Ankole.Authn.SubjectIdentity]
+
+  authn do
+    strategies do
+      oidc(:enterprise)
+    end
+  end
 
   # The Console API gives a bound identity without its provider metadata.
   json_api do
@@ -75,6 +81,8 @@ defmodule Ankole.Principals.ExternalIdentity do
     update :observe_in_tx do
       accept([:metadata])
     end
+
+    destroy(:unbind_in_tx)
   end
 
   @type t :: %__MODULE__{}

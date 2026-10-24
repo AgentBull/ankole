@@ -12,7 +12,7 @@ defmodule Ankole.Pod.PagesTest do
     {:ok, _} =
       AuthZ.create_permission_grant(%{
         principal_uid: owner.uid,
-        resource_pattern: "**",
+        resource_pattern: "tenant_console:**",
         action: "update"
       })
 
@@ -20,9 +20,15 @@ defmodule Ankole.Pod.PagesTest do
   end
 
   test "an ancestor path uses one query and still rejects a cycle", ctx do
-    {:ok, root} = Pages.create(ctx.owner.uid, %{title: "Root"})
-    {:ok, middle} = Pages.create(ctx.owner.uid, %{parent_id: root.id})
-    {:ok, leaf} = Pages.create(ctx.owner.uid, %{parent_id: middle.id})
+    {:ok, root} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{title: "Root"})
+
+    {:ok, middle} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{parent_id: root.id})
+
+    {:ok, leaf} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{parent_id: middle.id})
+
     handler = "page-path-#{leaf.id}"
     owner = self()
 
@@ -43,66 +49,183 @@ defmodule Ankole.Pod.PagesTest do
     refute_receive :path_query
     :telemetry.detach(handler)
 
-    Repo.update!(Ecto.Changeset.change(root, parent_id: leaf.id))
+    Repo.update!(
+      Ecto.Changeset.change(root,
+        parent_id: leaf.id,
+        inherit_permissions: false,
+        parent_anchor_id: middle.id
+      )
+    )
+
     assert {:error, :invalid_tree} = Access.path(leaf)
   end
 
   test "space default roles, Private, explicit Agent admission, and restricted roots use AuthZ",
        ctx do
-    {:ok, shared} = Pages.create(ctx.reader.uid, %{title: "Shared"})
+    {:ok, shared} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid), %{title: "Shared"})
 
     {:ok, private} =
-      Pages.create(ctx.reader.uid, %{private_owner_uid: ctx.reader.uid, title: "Private"})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid), %{
+        private_owner_uid: ctx.reader.uid,
+        title: "Private"
+      })
 
-    assert {:ok, _} = Pages.authorize(ctx.owner.uid, shared.id, "page_manage")
-    assert {:error, :forbidden} = Pages.authorize(ctx.owner.uid, private.id, "page_view")
-    assert {:error, :forbidden} = Pages.authorize(ctx.agent.uid, shared.id, "page_view")
-    assert {:ok, _} = Pages.set_space(ctx.owner.uid, "edit")
-    assert {:error, :forbidden} = Pages.authorize(ctx.reader.uid, shared.id, "page_manage")
-    assert {:ok, _} = Pages.authorize(ctx.owner.uid, shared.id, "page_manage")
-    assert {:ok, _} = Pages.space_agent(ctx.owner.uid, ctx.agent.uid, "view")
-    assert {:ok, _} = Pages.authorize(ctx.agent.uid, shared.id, "page_view")
-    assert {:error, :forbidden} = Pages.authorize(ctx.agent.uid, shared.id, "page_edit")
+    assert {:ok, _} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               shared.id,
+               "page_manage"
+             )
+
+    assert {:error, :forbidden} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               private.id,
+               "page_view"
+             )
+
+    assert {:error, :forbidden} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
+               shared.id,
+               "page_view"
+             )
+
+    assert {:ok, _} =
+             Pages.set_space(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), "edit")
+
+    assert {:error, :forbidden} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid),
+               shared.id,
+               "page_manage"
+             )
+
+    assert {:ok, _} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               shared.id,
+               "page_manage"
+             )
+
+    assert {:ok, _} =
+             Pages.space_agent(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               ctx.agent.uid,
+               "view"
+             )
+
+    assert {:ok, _} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
+               shared.id,
+               "page_view"
+             )
+
+    assert {:error, :forbidden} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
+               shared.id,
+               "page_edit"
+             )
 
     assert {:ok, restricted} =
              Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, shared.id, %{
                inherit_permissions: false
              })
 
-    assert {:error, :forbidden} = Pages.authorize(ctx.reader.uid, restricted.id, "page_view")
-    assert {:ok, []} = Pages.list(ctx.reader.uid, %{scope: "space"})
-    assert {:ok, _} = Pages.authorize(ctx.owner.uid, restricted.id, "page_manage")
+    assert {:error, :forbidden} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid),
+               restricted.id,
+               "page_view"
+             )
+
+    assert {:ok, []} =
+             Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid), %{scope: "space"})
+
+    assert {:ok, _} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               restricted.id,
+               "page_manage"
+             )
+
     assert Enum.all?(Access.page_grants(restricted.id), &(&1.condition == "true"))
   end
 
   test "move changes inherited permissions, rejects cycles and leaf parents, and preserves direct shares",
        ctx do
-    {:ok, root} = Pages.create(ctx.owner.uid, %{title: "Space"})
-    {:ok, child} = Pages.create(ctx.owner.uid, %{title: "Child", parent_id: root.id})
+    {:ok, root} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{title: "Space"})
+
+    {:ok, child} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
+        title: "Child",
+        parent_id: root.id
+      })
 
     {:ok, private} =
-      Pages.create(ctx.owner.uid, %{title: "Private", private_owner_uid: ctx.owner.uid})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
+        title: "Private",
+        private_owner_uid: ctx.owner.uid
+      })
 
-    {:ok, leaf} = Pages.create(ctx.owner.uid, %{type: "file", parent_id: root.id})
-    assert {:error, :cycle} = Pages.move(ctx.owner.uid, root.id, %{parent_id: child.id})
-    assert {:error, :invalid_parent} = Pages.move(ctx.owner.uid, child.id, %{parent_id: leaf.id})
+    {:ok, leaf} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
+        type: "file",
+        parent_id: root.id
+      })
+
+    assert {:error, :cycle} =
+             Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), root.id, %{
+               parent_id: child.id
+             })
+
+    assert {:error, :invalid_parent} =
+             Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), child.id, %{
+               parent_id: leaf.id
+             })
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, child.id, %{
         grants: [%{principal_uid: ctx.agent.uid, role: "view"}]
       })
 
-    {:ok, _} = Pages.move(ctx.owner.uid, child.id, %{parent_id: private.id})
-    assert {:error, :forbidden} = Pages.authorize(ctx.reader.uid, child.id, "page_view")
-    assert {:ok, _} = Pages.authorize(ctx.agent.uid, child.id, "page_view")
-    {:ok, shared} = Pages.list(ctx.agent.uid, %{scope: "shared"})
+    {:ok, _} =
+      Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), child.id, %{
+        parent_id: private.id
+      })
+
+    assert {:error, :forbidden} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid),
+               child.id,
+               "page_view"
+             )
+
+    assert {:ok, _} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
+               child.id,
+               "page_view"
+             )
+
+    {:ok, shared} =
+      Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid), %{scope: "shared"})
+
     assert Enum.map(shared, & &1.id) == [child.id]
   end
 
   test "a move places the page next to one sibling and rejects a stale anchor", ctx do
-    {:ok, root} = Pages.create(ctx.owner.uid, %{title: "Root"})
+    {:ok, root} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{title: "Root"})
+
     [a, b, c] = for title <- ~w(A B C), do: create_child(ctx.owner.uid, root.id, title)
-    {:ok, other} = Pages.create(ctx.owner.uid, %{title: "Other"})
+
+    {:ok, other} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{title: "Other"})
 
     order = fn ->
       from(p in Page,
@@ -113,62 +236,107 @@ defmodule Ankole.Pod.PagesTest do
       |> Repo.all()
     end
 
-    assert {:ok, _} = Pages.move(ctx.owner.uid, c.id, %{parent_id: root.id, before_id: a.id})
+    assert {:ok, _} =
+             Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), c.id, %{
+               parent_id: root.id,
+               before_id: a.id
+             })
+
     assert order.() == ~w(C A B)
-    assert {:ok, _} = Pages.move(ctx.owner.uid, c.id, %{parent_id: root.id, after_id: a.id})
+
+    assert {:ok, _} =
+             Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), c.id, %{
+               parent_id: root.id,
+               after_id: a.id
+             })
+
     assert order.() == ~w(A C B)
-    assert {:ok, _} = Pages.move(ctx.owner.uid, a.id, %{parent_id: root.id, after_id: b.id})
+
+    assert {:ok, _} =
+             Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), a.id, %{
+               parent_id: root.id,
+               after_id: b.id
+             })
+
     assert order.() == ~w(C B A)
 
     assert {:error, :position_conflict} =
-             Pages.move(ctx.owner.uid, b.id, %{parent_id: root.id, after_id: other.id})
+             Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), b.id, %{
+               parent_id: root.id,
+               after_id: other.id
+             })
 
     assert {:error, :position_conflict} =
-             Pages.move(ctx.owner.uid, b.id, %{parent_id: root.id, after_id: b.id})
+             Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), b.id, %{
+               parent_id: root.id,
+               after_id: b.id
+             })
 
     assert {:error, :invalid_position} =
-             Pages.move(ctx.owner.uid, b.id, %{
+             Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), b.id, %{
                parent_id: root.id,
                after_id: a.id,
                before_id: c.id
              })
 
-    assert {:ok, moved} =
-             Pages.move(ctx.owner.uid, other.id, %{parent_id: root.id, after_id: c.id})
+    assert {:ok, %{page: moved}} =
+             Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), other.id, %{
+               parent_id: root.id,
+               after_id: c.id
+             })
 
     assert moved.parent_id == root.id
     assert order.() == ~w(C Other B A)
   end
 
   test "creating and moving without an anchor appends within the destination", ctx do
-    {:ok, root} = Pages.create(ctx.owner.uid, %{title: "Root"})
+    {:ok, root} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{title: "Root"})
+
     first = create_child(ctx.owner.uid, root.id, "First")
     second = create_child(ctx.owner.uid, root.id, "Second")
     assert first.position < second.position
 
     {:ok, private} =
-      Pages.create(ctx.owner.uid, %{title: "Private", private_owner_uid: ctx.owner.uid})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
+        title: "Private",
+        private_owner_uid: ctx.owner.uid
+      })
 
     assert private.position == root.position
-    {:ok, other} = Pages.create(ctx.owner.uid, %{title: "Other"})
+
+    {:ok, other} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{title: "Other"})
+
     only_child = create_child(ctx.owner.uid, other.id, "Only child")
     assert only_child.position == first.position
 
-    assert {:ok, moved} = Pages.move(ctx.owner.uid, only_child.id, %{parent_id: root.id})
+    assert {:ok, %{page: moved}} =
+             Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), only_child.id, %{
+               parent_id: root.id
+             })
+
     assert moved.position > second.position
 
-    assert {:ok, pages} = Pages.list(ctx.owner.uid)
-    children = Enum.filter(pages, &(&1.parent_id == root.id))
+    assert {:ok, %{pages: children}} =
+             Pages.list_children(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), root.id)
+
     assert Enum.map(children, & &1.title) == ["First", "Second", "Only child"]
   end
 
   test "a move renumbers siblings whose keys cannot be ordered", ctx do
-    {:ok, root} = Pages.create(ctx.owner.uid, %{title: "Root"})
+    {:ok, root} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{title: "Root"})
+
     [a, b, c] = for title <- ~w(A B C), do: create_child(ctx.owner.uid, root.id, title)
     from(p in Page, where: p.id in ^[a.id, b.id]) |> Repo.update_all(set: [position: "V"])
     [first, second] = Enum.sort([a.id, b.id])
 
-    assert {:ok, _} = Pages.move(ctx.owner.uid, c.id, %{parent_id: root.id, after_id: first})
+    assert {:ok, _} =
+             Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), c.id, %{
+               parent_id: root.id,
+               after_id: first
+             })
 
     positions =
       from(p in Page, where: p.parent_id == ^root.id, order_by: [p.position, p.id], select: p.id)
@@ -183,142 +351,315 @@ defmodule Ankole.Pod.PagesTest do
   end
 
   defp create_child(uid, parent_id, title) do
-    {:ok, page} = Pages.create(uid, %{parent_id: parent_id, title: title})
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{
+        parent_id: parent_id,
+        title: title
+      })
+
     page
   end
 
   test "trash hides shared descendants, restores the subtree, and refuses a started purge", ctx do
-    {:ok, root} = Pages.create(ctx.owner.uid, %{})
-    {:ok, child} = Pages.create(ctx.owner.uid, %{parent_id: root.id})
+    {:ok, root} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
+
+    {:ok, child} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{parent_id: root.id})
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, child.id, %{
         grants: [%{principal_uid: ctx.agent.uid, role: "view"}]
       })
 
-    {:ok, _} = Pages.delete(ctx.owner.uid, root.id)
-    assert {:error, :not_found} = Pages.authorize(ctx.agent.uid, child.id, "page_view")
-    assert {:ok, []} = Pages.list(ctx.agent.uid)
-    assert {:ok, [trashed]} = Pages.list(ctx.owner.uid, %{scope: "trash"})
+    {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), root.id)
+
+    assert {:error, :not_found} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
+               child.id,
+               "page_view"
+             )
+
+    assert {:ok, []} = Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid))
+
+    assert {:ok, [trashed]} =
+             Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{scope: "trash"})
+
     assert trashed.id == root.id
-    {:ok, _} = Pages.restore(ctx.owner.uid, root.id)
-    assert {:ok, _} = Pages.authorize(ctx.agent.uid, child.id, "page_view")
-    {:ok, root} = Pages.delete(ctx.owner.uid, root.id)
+    {:ok, _} = Pages.restore(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), root.id)
+
+    assert {:ok, _} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
+               child.id,
+               "page_view"
+             )
+
+    {:ok, root} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), root.id)
     Ankole.Pod.PagesFixtures.update_record!(root, :begin_purge)
-    assert {:error, :cannot_restore} = Pages.restore(ctx.owner.uid, root.id)
+
+    assert {:error, :cannot_restore} =
+             Pages.restore(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), root.id)
   end
 
   test "deleting an embed trashes its direct child and can unlink hidden or missing references",
        ctx do
-    {:ok, parent} = Pages.create(ctx.owner.uid, %{})
-    {:ok, child} = Pages.create(ctx.owner.uid, %{type: "database", parent_id: parent.id})
+    {:ok, parent} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
+
+    {:ok, child} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
+        type: "database",
+        parent_id: parent.id
+      })
 
     {:ok, referenced} =
-      Pages.create(ctx.reader.uid, %{type: "database", private_owner_uid: ctx.reader.uid})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid), %{
+        type: "database",
+        private_owner_uid: ctx.reader.uid
+      })
 
-    assert {:ok, nil} = Pages.delete_embed(ctx.owner.uid, parent.id, referenced.id)
-    assert {:ok, nil} = Pages.delete_embed(ctx.owner.uid, parent.id, Ecto.UUID.generate())
+    assert {:ok, nil} =
+             Pages.delete_embed(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               parent.id,
+               referenced.id
+             )
+
+    assert {:ok, nil} =
+             Pages.delete_embed(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               parent.id,
+               Ecto.UUID.generate()
+             )
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.reader.uid, referenced.id, %{
         grants: [%{principal_uid: ctx.owner.uid, role: "view"}]
       })
 
-    assert {:error, :forbidden} = Pages.authorize(ctx.owner.uid, referenced.id, "page_manage")
-    assert {:ok, nil} = Pages.delete_embed(ctx.owner.uid, parent.id, referenced.id)
+    assert {:error, :forbidden} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               referenced.id,
+               "page_manage"
+             )
+
+    assert {:ok, nil} =
+             Pages.delete_embed(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               parent.id,
+               referenced.id
+             )
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, parent.id, %{
         grants: [%{principal_uid: ctx.agent.uid, role: "edit"}]
       })
 
-    assert {:error, :forbidden} = Pages.delete_embed(ctx.agent.uid, parent.id, child.id)
-    assert {:error, :forbidden} = Pages.delete_embed(ctx.agent.uid, referenced.id, child.id)
-    assert {:ok, nil} = Pages.delete_embed(ctx.owner.uid, parent.id, child.id)
+    assert {:error, :forbidden} =
+             Pages.delete_embed(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
+               parent.id,
+               child.id
+             )
+
+    assert {:error, :forbidden} =
+             Pages.delete_embed(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
+               referenced.id,
+               child.id
+             )
+
+    assert {:ok, nil} =
+             Pages.delete_embed(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               parent.id,
+               child.id
+             )
+
     assert %DateTime{} = Repo.get!(Page, child.id).deleted_at
 
     assert is_nil(Repo.get!(Page, referenced.id).deleted_at)
   end
 
   test "whole document CAS validates XML before commit and logs resets", ctx do
-    {:ok, page} = Pages.create(ctx.owner.uid, %{})
+    {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
 
     assert {:ok, %{page: %{revision: 1}}} =
              Documents.write(
-               ctx.owner.uid,
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
                page.id,
                0,
                "<page><paragraph>Hello</paragraph></page>"
              )
 
     assert {:error, {:revision_conflict, 1}} =
-             Documents.write(ctx.owner.uid, page.id, 0, "<page />")
+             Documents.write(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               page.id,
+               0,
+               "<page />"
+             )
 
     assert {:error, {:revision_conflict, 1}} =
-             Documents.write(ctx.owner.uid, page.id, 0, "<html />")
+             Documents.write(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               page.id,
+               0,
+               "<html />"
+             )
 
-    {:ok, private} = Pages.create(ctx.owner.uid, %{private_owner_uid: ctx.owner.uid})
-    assert {:error, :forbidden} = Documents.write(ctx.reader.uid, private.id, 0, "<html />")
+    {:ok, private} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
+        private_owner_uid: ctx.owner.uid
+      })
+
+    assert {:error, :forbidden} =
+             Documents.write(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid),
+               private.id,
+               0,
+               "<html />"
+             )
 
     assert {:error, :not_found} =
-             Documents.write(ctx.owner.uid, Ecto.UUID.generate(), 0, "<html />")
+             Documents.write(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               Ecto.UUID.generate(),
+               0,
+               "<html />"
+             )
 
-    {:ok, file} = Pages.create(ctx.owner.uid, %{type: "file"})
-    assert {:error, :invalid_page_type} = Documents.write(ctx.owner.uid, file.id, 0, "<html />")
+    {:ok, file} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{type: "file"})
 
-    assert {:error, _} = Documents.write(ctx.owner.uid, page.id, 1, "<html />")
+    assert {:error, :invalid_page_type} =
+             Documents.write(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               file.id,
+               0,
+               "<html />"
+             )
+
+    assert {:error, _} =
+             Documents.write(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               page.id,
+               1,
+               "<html />"
+             )
+
     assert Repo.get!(Page, page.id).revision == 1
     assert Repo.get!(PageContent, page.id).plain_text =~ "Hello"
     assert [%{kind: :reset, revision: 1}] = Repo.all(PageChange)
 
     assert {:ok, %{changes: [%{kind: :reset}], revision: 1}} =
-             Documents.since(ctx.owner.uid, page.id, 0)
+             Documents.since(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, 0)
   end
 
   test "favorites, recents, and text search never reveal inaccessible pages", ctx do
     {:ok, page} =
-      Pages.create(ctx.owner.uid, %{title: "Needle", private_owner_uid: ctx.owner.uid})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
+        title: "Needle",
+        private_owner_uid: ctx.owner.uid
+      })
 
-    {:ok, _} = Pages.state(ctx.owner.uid, page.id, %{favorite: true, visited: true})
-    assert {:ok, [found]} = Pages.list(ctx.owner.uid, %{scope: "favorites"})
+    {:ok, _} =
+      Pages.state(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, %{
+        favorite: true,
+        visited: true
+      })
+
+    assert {:ok, [found]} =
+             Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
+               scope: "favorites"
+             })
+
     assert found.id == page.id
-    assert {:ok, [_]} = Pages.list(ctx.owner.uid, %{scope: "recent"})
-    assert {:ok, [_]} = Pages.list(ctx.owner.uid, %{query: "needle"})
-    assert {:ok, []} = Pages.list(ctx.reader.uid, %{query: "needle"})
-    {:ok, _} = Pages.state(ctx.owner.uid, page.id, %{favorite: false})
-    assert {:ok, []} = Pages.list(ctx.owner.uid, %{scope: "favorites"})
+
+    assert {:ok, [_]} =
+             Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{scope: "recent"})
+
+    assert {:ok, [_]} =
+             Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{query: "needle"})
+
+    assert {:ok, []} =
+             Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader.uid), %{
+               query: "needle"
+             })
+
+    {:ok, _} =
+      Pages.state(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, %{
+        favorite: false
+      })
+
+    assert {:ok, []} =
+             Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
+               scope: "favorites"
+             })
   end
 
   test "page state preserves the other flag and removes a row with neither flag", ctx do
-    {:ok, page} = Pages.create(ctx.owner.uid, %{})
+    {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
     key = [principal_uid: ctx.owner.uid, page_id: page.id]
 
-    assert {:ok, _} = Pages.state(ctx.owner.uid, page.id, %{})
+    assert {:ok, _} =
+             Pages.state(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, %{})
+
     refute Repo.get_by(PageUserState, key)
 
-    assert {:ok, favorite} = Pages.state(ctx.owner.uid, page.id, %{favorite: true})
+    assert {:ok, favorite} =
+             Pages.state(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, %{
+               favorite: true
+             })
+
     assert favorite.favorited_at
-    assert {:ok, visited} = Pages.state(ctx.owner.uid, page.id, %{visited: true})
+
+    assert {:ok, visited} =
+             Pages.state(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, %{
+               visited: true
+             })
+
     assert visited.favorited_at == favorite.favorited_at
     assert visited.visited_at
 
-    assert {:ok, _} = Pages.state(ctx.owner.uid, page.id, %{favorite: false})
+    assert {:ok, _} =
+             Pages.state(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, %{
+               favorite: false
+             })
+
     assert %{favorited_at: nil, visited_at: at} = Repo.get_by(PageUserState, key)
     assert at == visited.visited_at
 
-    assert {:ok, _} = Pages.state(ctx.owner.uid, page.id, %{visited: false})
+    assert {:ok, _} =
+             Pages.state(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, %{
+               visited: false
+             })
+
     refute Repo.get_by(PageUserState, key)
   end
 
   test "other-tenant actors and page ids cannot cross the tenant boundary", ctx do
-    {:ok, page} = Pages.create(ctx.owner.uid, %{})
+    {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
     other = create_tenant()
     foreign = Repo.with_tenant(other.id, fn -> human_fixture().principal end)
-    assert {:error, :forbidden} = Pages.authorize(foreign.uid, page.id, "page_view")
+
+    assert {:error, :forbidden} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(foreign),
+               page.id,
+               "page_view"
+             )
 
     Repo.with_tenant(other.id, fn ->
-      assert {:error, :not_found} = Pages.authorize(foreign.uid, page.id, "page_view")
-      assert {:ok, []} = Pages.list(foreign.uid)
+      assert {:error, :not_found} =
+               Pages.authorize(
+                 Ankole.PrincipalsFixtures.actor_fixture(foreign),
+                 page.id,
+                 "page_view"
+               )
+
+      assert {:ok, []} = Pages.list(Ankole.PrincipalsFixtures.actor_fixture(foreign))
     end)
   end
 end

@@ -45,6 +45,7 @@ defmodule Ankole.Principals.AccessEvent do
     attribute(:access_version, :integer, public?: true, allow_nil?: false, constraints: [min: 1])
     attribute(:provider_time, :utc_datetime_usec, public?: true)
     attribute(:details, Ankole.Ash.Types.JSONMap, public?: true, allow_nil?: false, default: %{})
+    attribute(:released_identifiers, {:array, :string}, allow_nil?: false, default: [])
     create_timestamp(:inserted_at, type: :utc_datetime_usec)
   end
 
@@ -67,7 +68,8 @@ defmodule Ankole.Principals.AccessEvent do
         :status,
         :access_version,
         :provider_time,
-        :details
+        :details,
+        :released_identifiers
       ])
     end
 
@@ -83,7 +85,8 @@ defmodule Ankole.Principals.AccessEvent do
         :status,
         :access_version,
         :provider_time,
-        :details
+        :details,
+        :released_identifiers
       ])
 
       upsert?(true)

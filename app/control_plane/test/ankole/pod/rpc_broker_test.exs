@@ -13,6 +13,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
   setup do
     owner = human_fixture().principal
     agent = Ankole.SessionsCase.agent_fixture().principal
+    Ankole.ConversationsFixtures.grant_chat(owner.uid, agent.uid)
     route = "pod-broker-#{System.unique_integer([:positive])}"
     {:ok, _worker} = Ankole.SessionsCase.admit_worker(route, %{worker_id: agent.uid})
 
@@ -39,7 +40,12 @@ defmodule Ankole.Pod.RPCBrokerTest do
     test "#{operation} reports the final relay error without changing the page", ctx do
       operation = unquote(operation)
       type = if operation == "files.upload", do: "file", else: "doc"
-      {:ok, page} = Pages.create(ctx.owner, %{type: type, title: "Unchanged"})
+
+      {:ok, page} =
+        Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
+          type: type,
+          title: "Unchanged"
+        })
 
       {:ok, _} =
         Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, page.id, %{
@@ -61,14 +67,17 @@ defmodule Ankole.Pod.RPCBrokerTest do
       assert {:error, %{"code" => "validation_failed"}} =
                RPCBroker.handle_write(ctx.ref, request(operation, params), ctx.ctx)
 
-      assert {:ok, detail} = Pages.get(ctx.owner, page.id)
+      assert {:ok, detail} =
+               Pages.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
+
       assert detail.page.revision == 0
     end
   end
 
   test "document RPC transfers canonical XML over the signed relay and keeps CAS at its owner",
        ctx do
-    {:ok, page} = Pages.create(ctx.owner, %{title: "Agent report"})
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{title: "Agent report"})
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, page.id, %{
@@ -90,7 +99,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
              )
 
     refute Map.has_key?(written, "content")
-    assert {:ok, detail} = Pages.get(ctx.owner, page.id)
+    assert {:ok, detail} = Pages.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
     assert detail.content.plain_text == "Agent report"
 
     assert {:error, %{"code" => "revision_conflict", "details_json" => %{"revision" => 1}}} =
@@ -106,7 +115,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
 
     assert {:ok, %{"result" => %{"content" => %{"xml_file" => true}}}} =
              RPCBroker.handle_read(
-               nil,
+               ctx.ref,
                request("pages.read", %{
                  id: page.id,
                  xml_home_relative_path: "received.xml"
@@ -115,7 +124,14 @@ defmodule Ankole.Pod.RPCBrokerTest do
              )
 
     assert WorkerFilesFake.files(fake)["received.xml"] == detail.content.content
-    assert {:ok, _} = Documents.write(ctx.owner, page.id, 1, "<page><p>Human edit</p></page>")
+
+    assert {:ok, _} =
+             Documents.write(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               1,
+               "<page><p>Human edit</p></page>"
+             )
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, page.id, %{
@@ -137,12 +153,28 @@ defmodule Ankole.Pod.RPCBrokerTest do
              )
 
     assert WorkerFilesFake.pushes(fake) == before
-    assert {:ok, %{content: %{plain_text: "Human edit"}}} = Pages.get(ctx.owner, page.id)
+
+    assert {:ok, %{content: %{plain_text: "Human edit"}}} =
+             Pages.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
   end
 
   test "Pod drive relay requires current access to the page", ctx do
-    {:ok, page} = Pages.create(ctx.owner, %{type: "file", title: "Report"})
-    {:ok, _} = Files.upload(ctx.owner, page.id, "file", 0, "report.txt", "saved bytes")
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
+        type: "file",
+        title: "Report"
+      })
+
+    {:ok, _} =
+      Files.upload(
+        Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+        page.id,
+        "file",
+        0,
+        "report.txt",
+        "saved bytes"
+      )
+
     fake = WorkerFilesFake.start!(ctx.route)
 
     request = %FabricProto.FilesGetRequest{
@@ -537,7 +569,10 @@ defmodule Ankole.Pod.RPCBrokerTest do
                text: text
              })
 
-    {:ok, parent} = Pages.create(ctx.owner, %{title: "Agent deliverables"})
+    {:ok, parent} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
+        title: "Agent deliverables"
+      })
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, parent.id, %{
@@ -614,13 +649,25 @@ defmodule Ankole.Pod.RPCBrokerTest do
 
   test "Applet RPC retains Agent identity, logs and the current RunRef on each capability write",
        ctx do
-    {:ok, database} = Pages.create(ctx.owner, %{type: "database"})
-    {:ok, table} = Ankole.Pod.Database.create_table(ctx.owner, database.id, %{name: "Orders"})
+    {:ok, database} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{type: "database"})
+
+    {:ok, table} =
+      Ankole.Pod.Database.create_table(
+        Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+        database.id,
+        %{name: "Orders"}
+      )
 
     {:ok, field} =
-      Ankole.Pod.Database.create_field(ctx.owner, table.id, %{type: "text", name: "Label"})
+      Ankole.Pod.Database.create_field(
+        Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+        table.id,
+        %{type: "text", name: "Label"}
+      )
 
-    {:ok, applet} = Pages.create(ctx.owner, %{type: "applet"})
+    {:ok, applet} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{type: "applet"})
 
     for page <- [database, applet] do
       {:ok, _} =
@@ -651,7 +698,14 @@ defmodule Ankole.Pod.RPCBrokerTest do
         end
       )
 
-    {:ok, _} = Files.publish(ctx.agent, applet.id, 0, manifest, {ctx.ref, ctx.agent})
+    {:ok, _} =
+      Files.publish(
+        Ankole.PrincipalsFixtures.actor_fixture(ctx.agent),
+        applet.id,
+        0,
+        manifest,
+        {ctx.ref, ctx.agent}
+      )
 
     attrs = %{
       id: applet.id,
@@ -678,7 +732,13 @@ defmodule Ankole.Pod.RPCBrokerTest do
             %{"result" => %{"status" => 422, "body" => %{"error" => %{"code" => "run_closed"}}}}} =
              RPCBroker.handle_write(ctx.ref, request("applets.call", attrs), ctx.ctx)
 
-    assert {:ok, %{records: [record]}} = Ankole.Pod.Database.query(ctx.owner, table.id, %{})
+    assert {:ok, %{records: [record]}} =
+             Ankole.Pod.Database.query(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               table.id,
+               %{}
+             )
+
     assert record["data"][field.id] == "Committed"
 
     assert {:ok,

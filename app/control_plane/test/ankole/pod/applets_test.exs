@@ -26,15 +26,20 @@ defmodule Ankole.Pod.AppletsTest do
         [format: "$metadata $message\n", metadata: [:event, :page_id, :exception, :stacktrace]],
         fn ->
           assert {:error, %{code: "handler_error", status: 500}} =
-                   Ankole.Pod.Applets.Capabilities.call(context, [], "file.write", [
-                     page.id,
-                     %{
-                       "name" => "x",
-                       "bytes" => %{
-                         "__ankole_bytes" => %{"secret" => "raw-argument-must-not-appear"}
+                   Ankole.Pod.Applets.Capabilities.call(
+                     context,
+                     Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+                     "file.write",
+                     [
+                       page.id,
+                       %{
+                         "name" => "x",
+                         "bytes" => %{
+                           "__ankole_bytes" => %{"secret" => "raw-argument-must-not-appear"}
+                         }
                        }
-                     }
-                   ])
+                     ]
+                   )
         end
       )
 
@@ -47,7 +52,12 @@ defmodule Ankole.Pod.AppletsTest do
     log =
       ExUnit.CaptureLog.capture_log(fn ->
         assert {:error, %{code: "invalid_request"}} =
-                 Ankole.Pod.Applets.Capabilities.call(context, [], "unknown-operation", [])
+                 Ankole.Pod.Applets.Capabilities.call(
+                   context,
+                   Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+                   "unknown-operation",
+                   []
+                 )
       end)
 
     refute log =~ "capability_failed"
@@ -58,7 +68,7 @@ defmodule Ankole.Pod.AppletsTest do
     page = create(ctx.owner)
     good = "export default {'GET /hello': () => ({version: 1})}"
     assert {:ok, %{revision: 1, routes: ["GET /hello"]}} = publish(ctx.owner, page, 0, good)
-    {:ok, before} = Files.manifest(ctx.owner, page.id)
+    {:ok, before} = Files.manifest(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
 
     for bad <- [
           "export default {",
@@ -71,7 +81,9 @@ defmodule Ankole.Pod.AppletsTest do
                publish(ctx.owner, page, 1, bad)
 
       assert is_binary(reason)
-      assert {:ok, ^before} = Files.manifest(ctx.owner, page.id)
+
+      assert {:ok, ^before} =
+               Files.manifest(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
 
       assert {:ok, %{"body" => %{"version" => 1}}} =
                call(ctx.owner, page.id, "GET", "/hello", revision: 1)
@@ -79,7 +91,13 @@ defmodule Ankole.Pod.AppletsTest do
 
     assert {:ok, %{revision: 2, routes: []}} = publish(ctx.owner, page, 1, nil)
     assert {:error, :route_not_found} = call(ctx.owner, page.id, "GET", "/hello", revision: 2)
-    assert {:error, :not_found} = Files.read(ctx.owner, page.id, "server/main.js")
+
+    assert {:error, :not_found} =
+             Files.read(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               "server/main.js"
+             )
   end
 
   test "route matching, caller context, JSON values, errors and per-call state use the published package",
@@ -111,7 +129,9 @@ defmodule Ankole.Pod.AppletsTest do
     }
 
     for _ <- 1..2 do
-      assert {:ok, %{"body" => body}} = Applets.call(ctx.owner, page.id, request)
+      assert {:ok, %{"body" => body}} =
+               Applets.call(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id, request)
+
       assert body["id"] == "a/b"
       assert body["count"] == 1
       assert body["query"] == request["query"]
@@ -147,7 +167,7 @@ defmodule Ankole.Pod.AppletsTest do
              call(ctx.owner, page.id, "GET", "/cycle")
 
     assert {:ok, %{"body" => [1, true]}} =
-             Applets.call(ctx.owner, page.id, %{
+             Applets.call(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id, %{
                "method" => "POST",
                "path" => "/body",
                "query" => %{},
@@ -157,7 +177,11 @@ defmodule Ankole.Pod.AppletsTest do
     raw = %{"error" => %{"message" => "ordinary JSON payload"}}
 
     assert {:ok, %{"status" => 200, "body" => ^raw}} =
-             Applets.call(ctx.owner, page.id, request("POST", "/body", raw))
+             Applets.call(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               request("POST", "/body", raw)
+             )
   end
 
   test "revision and current access are checked before executing any handler", ctx do
@@ -168,15 +192,29 @@ defmodule Ankole.Pod.AppletsTest do
     assert {:error, {:applet_revision_changed, %{revision: 1}}} =
              call(ctx.owner, page.id, "GET", "/", revision: 0)
 
-    {:ok, _} = Pages.delete(ctx.owner, page.id)
+    {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
     assert {:error, :not_found} = call(ctx.owner, page.id, "GET", "/")
   end
 
   test "Database capabilities use caller permissions, preserve field conflicts, and prevent GET writes",
        ctx do
-    {:ok, db} = Pages.create(ctx.owner, %{type: "database", private_owner_uid: ctx.owner})
-    {:ok, table} = Database.create_table(ctx.owner, db.id, %{name: "Orders"})
-    {:ok, field} = Database.create_field(ctx.owner, table.id, %{name: "Label", type: "text"})
+    {:ok, db} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
+        type: "database",
+        private_owner_uid: ctx.owner
+      })
+
+    {:ok, table} =
+      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), db.id, %{
+        name: "Orders"
+      })
+
+    {:ok, field} =
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), table.id, %{
+        name: "Label",
+        type: "text"
+      })
+
     page = create(ctx.owner)
 
     source = """
@@ -196,15 +234,24 @@ defmodule Ankole.Pod.AppletsTest do
     body = %{"creates" => [%{"data" => %{field.id => "First"}}]}
 
     assert {:ok, %{"status" => 403}} =
-             Applets.call(ctx.reader, page.id, request("POST", "/write", body))
+             Applets.call(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
+               page.id,
+               request("POST", "/write", body)
+             )
 
     assert {:ok, %{"status" => 500, "body" => %{"error" => %{"code" => "read_only_route"}}}} =
              call(ctx.owner, page.id, "GET", "/write")
 
-    assert {:ok, %{records: []}} = Database.query(ctx.owner, table.id, %{})
+    assert {:ok, %{records: []}} =
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), table.id, %{})
 
     assert {:ok, %{"body" => %{"records" => [record]}}} =
-             Applets.call(ctx.owner, page.id, request("POST", "/write", body))
+             Applets.call(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               request("POST", "/write", body)
+             )
 
     assert record["data"][field.id] == "First"
 
@@ -222,18 +269,37 @@ defmodule Ankole.Pod.AppletsTest do
             %{
               "status" => 409,
               "body" => %{"error" => %{"code" => "field_conflict", "details" => details}}
-            }} = Applets.call(ctx.owner, page.id, request("POST", "/write", conflict))
+            }} =
+             Applets.call(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               request("POST", "/write", conflict)
+             )
 
     assert details != nil
 
     assert {:ok, %{"status" => 422}} =
-             Applets.call(ctx.owner, page.id, request("POST", "/query", %{"local" => true}))
+             Applets.call(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               request("POST", "/query", %{"local" => true})
+             )
   end
 
   test "file capabilities preserve bytes, full paths, document URLs and revision conflicts",
        ctx do
-    {:ok, file} = Pages.create(ctx.owner, %{type: "file", private_owner_uid: ctx.owner})
-    {:ok, doc} = Pages.create(ctx.owner, %{type: "doc", private_owner_uid: ctx.owner})
+    {:ok, file} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
+        type: "file",
+        private_owner_uid: ctx.owner
+      })
+
+    {:ok, doc} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
+        type: "doc",
+        private_owner_uid: ctx.owner
+      })
+
     page = create(ctx.owner)
 
     source = """
@@ -251,14 +317,22 @@ defmodule Ankole.Pod.AppletsTest do
     {:ok, _} = publish(ctx.owner, page, 0, source)
 
     assert {:ok, %{"status" => 200, "body" => result}} =
-             Applets.call(ctx.owner, page.id, request("POST", "/file", %{"revision" => 0}))
+             Applets.call(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               request("POST", "/file", %{"revision" => 0})
+             )
 
     assert result["bytes"] == [0, 255, 42]
     assert result["path"] == "pages/#{file.id}/data.bin"
     assert hd(result["list"]["files"])["path"] == result["path"]
 
     assert {:ok, %{"status" => 409}} =
-             Applets.call(ctx.owner, page.id, request("POST", "/file", %{"revision" => 0}))
+             Applets.call(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               request("POST", "/file", %{"revision" => 0})
+             )
 
     assert {:ok, %{"body" => %{"url" => "ankole:asset/" <> _}}} =
              call(ctx.owner, page.id, "POST", "/image")
@@ -266,16 +340,28 @@ defmodule Ankole.Pod.AppletsTest do
     assert {:ok, %{"status" => 500, "body" => %{"error" => %{"code" => "read_only_route"}}}} =
              call(ctx.owner, page.id, "GET", "/write")
 
-    assert {:ok, _, <<0, 255, 42>>} = Files.read(ctx.owner, file.id, "data.bin")
+    assert {:ok, _, <<0, 255, 42>>} =
+             Files.read(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), file.id, "data.bin")
   end
 
   test "uploaded backend attachments can be saved in a Database record and read with the same bytes",
        ctx do
-    {:ok, database} = Pages.create(ctx.owner, %{type: "database", private_owner_uid: ctx.owner})
-    {:ok, table} = Database.create_table(ctx.owner, database.id, %{name: "Reports"})
+    {:ok, database} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
+        type: "database",
+        private_owner_uid: ctx.owner
+      })
+
+    {:ok, table} =
+      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), database.id, %{
+        name: "Reports"
+      })
 
     {:ok, field} =
-      Database.create_field(ctx.owner, table.id, %{name: "Files", type: "attachment"})
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), table.id, %{
+        name: "Files",
+        type: "attachment"
+      })
 
     page = create(ctx.owner)
 
@@ -292,12 +378,16 @@ defmodule Ankole.Pod.AppletsTest do
     assert {:ok, %{"status" => 200, "body" => %{"file" => file}}} =
              call(ctx.owner, page.id, "POST", "/attach")
 
-    assert {:ok, %{records: [record]}} = Database.query(ctx.owner, table.id, %{})
+    assert {:ok, %{records: [record]}} =
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), table.id, %{})
+
     assert [%{"path" => path, "size" => 2, "mime" => "text/plain"}] = record["data"][field.id]
     assert file["path"] == path
     {:ok, id, relative} = Files.parse_path(path)
     assert id == database.id
-    assert {:ok, _, "AB"} = Files.read(ctx.owner, database.id, relative)
+
+    assert {:ok, _, "AB"} =
+             Files.read(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), database.id, relative)
   end
 
   test "invocations enforce tenant limits and a failed call does not poison later calls", ctx do
@@ -375,10 +465,24 @@ defmodule Ankole.Pod.AppletsTest do
   end
 
   defp create(uid),
-    do: elem(Pages.create(uid, %{type: "applet", title: "Backend", private_owner_uid: uid}), 1)
+    do:
+      elem(
+        Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{
+          type: "applet",
+          title: "Backend",
+          private_owner_uid: uid
+        }),
+        1
+      )
 
   defp call(uid, id, method, path, opts \\ []),
-    do: Applets.call(uid, id, %{"method" => method, "path" => path, "query" => %{}}, opts)
+    do:
+      Applets.call(
+        Ankole.PrincipalsFixtures.actor_fixture(uid),
+        id,
+        %{"method" => method, "path" => path, "query" => %{}},
+        opts
+      )
 
   defp request(method, path, body),
     do: %{"method" => method, "path" => path, "query" => %{}, "body" => body}
@@ -405,6 +509,6 @@ defmodule Ankole.Pod.AppletsTest do
         %{path: path, sha256: blob.sha256}
       end)
 
-    Files.publish(uid, page.id, revision, manifest)
+    Files.publish(Ankole.PrincipalsFixtures.actor_fixture(uid), page.id, revision, manifest)
   end
 end

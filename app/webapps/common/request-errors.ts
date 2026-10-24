@@ -45,6 +45,9 @@ export function requestErrorDetailList(error: unknown): Record<string, unknown>[
 }
 
 export function requestErrorMessage(error: unknown): string {
+  const code = requestErrorCode(error)
+  const localized = code && authnErrors[code === 'last_admin_member' ? 'last_active_human_admin' : code]
+  if (localized) return i18n.t(localized)
   const [first] = jsonApiErrors(error)
   if (typeof first?.detail === 'string') return conciseMessage(first.detail)
   if (typeof first?.title === 'string') return conciseMessage(first.title)
@@ -86,7 +89,26 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+const authnErrors: Record<string, string> = Object.fromEntries(
+  [
+    'administrator_lockout',
+    'last_login_method',
+    'no_login_method',
+    'last_active_human_admin',
+    'directory_managed_member',
+    'site_credential_already_bound',
+    'credential_change_disabled',
+    'login_policy_rejected',
+    'invitation_unavailable',
+    'invitation_identity_mismatch',
+    'reauthentication_required',
+    'mail_unavailable',
+    'external_guests_disabled'
+  ].map(code => [code, `common.authn.${code}`])
+)
+
 function jsonApiErrors(value: unknown): Record<string, unknown>[] {
+  if (isObject(value) && 'payload' in value) value = value.payload
   return isObject(value) && Array.isArray(value.errors) ? value.errors.filter(isObject) : []
 }
 

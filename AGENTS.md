@@ -20,6 +20,8 @@ Produce the result that the user asked for. A passing test, a smaller diff, a ne
 
 Before you add a concept, path, dependency, or document, find the existing owner and reuse, replace, or delete it. One contract has one owner. Ankole has no public compatibility contract: keep an old form only for an evidenced caller, a persisted value, an external contract, or a staged migration.
 
+Before adding complexity for a speculative or vanishingly unlikely race or security edge case, explain the concrete failure mode, likelihood, and complexity cost to the user and get their buy-in. Do not silently expand scope for theoretical robustness."
+
 ## Tests
 
 Production code must reach the real domain contract and adapter. Only a unit test may fake that boundary; an integration test uses the real adapter or protocol, and an end-to-end test follows the real user flow. Do not weaken an assertion, bypass a production path, or move ownership to make a test pass.

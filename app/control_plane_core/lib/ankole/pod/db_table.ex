@@ -22,7 +22,8 @@ defmodule Ankole.Pod.DbTable do
 
   attributes do
     attribute(:id, Ankole.Ash.Types.UUIDv7,
-      public?: true, primary_key?: true,
+      public?: true,
+      primary_key?: true,
       allow_nil?: false,
       default: &Ankole.Ecto.UUIDv7.autogenerate/0
     )
@@ -30,9 +31,27 @@ defmodule Ankole.Pod.DbTable do
     attribute(:page_id, Ankole.Ash.Types.UUIDv7, public?: true, allow_nil?: false)
     attribute(:name, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
     attribute(:position, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
-    attribute(:data_version, :integer, public?: true, allow_nil?: false, default: 0, constraints: [min: 0])
-    attribute(:record_count, :integer, public?: true, allow_nil?: false, default: 0, constraints: [min: 0])
-    attribute(:next_auto_number, :integer, public?: true, allow_nil?: false, default: 1, constraints: [min: 1])
+
+    attribute(:data_version, :integer,
+      public?: true,
+      allow_nil?: false,
+      default: 0,
+      constraints: [min: 0]
+    )
+
+    attribute(:record_count, :integer,
+      public?: true,
+      allow_nil?: false,
+      default: 0,
+      constraints: [min: 0]
+    )
+
+    attribute(:next_auto_number, :integer,
+      public?: true,
+      allow_nil?: false,
+      default: 1,
+      constraints: [min: 1]
+    )
   end
 
   def record_limit, do: 100_000

@@ -1,9 +1,17 @@
 defmodule Ankole.OIDC.LogoutDelivery do
   @moduledoc false
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.OIDC,
-    extensions: [AshStateMachine, AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshStateMachine, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:client_id, :uuid)
+    allow(:console_list, resource: "site_console:oidc_client:{client_id}", action: "read")
+    allow(:console_retry, resource: "site_console:oidc_client:{client_id}", action: "update")
+  end
 
   @undelivered_states [:pending, :delivering, :failed]
   postgres do

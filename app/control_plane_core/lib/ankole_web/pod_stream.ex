@@ -221,9 +221,20 @@ defmodule AnkoleWeb.PodStream do
 
   defp authorized?(conn) do
     case AnkoleWeb.Session.pod_session(conn) do
-      %{"principal_uid" => uid} -> uid == conn.assigns.current_principal_uid
-      _ -> false
+      %{"principal_uid" => uid} ->
+        uid == conn.assigns.current_principal_uid and
+          active_human?(uid)
+
+      _ ->
+        false
     end
+  end
+
+  defp active_human?(uid) do
+    with {:ok, principal} <- Ankole.Principals.get_principal(uid),
+         do:
+           match?({:ok, %{type: :human}}, Ankole.Pod.principal(Ankole.AuthZ.Actor.new(principal))),
+         else: (_ -> false)
   end
 
   defp frame(event, data),

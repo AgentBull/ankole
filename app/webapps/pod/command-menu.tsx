@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, type RefObject } from 'react'
+import { createContext, useContext, useDeferredValue, useEffect, useRef, useState, type RefObject } from 'react'
 import {
   Command,
   CommandEmpty,
@@ -17,7 +17,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from '@tanstack/react-router'
 import { podLocation } from '../common/browser-context'
 import { conversationsQuery } from './api'
-import { pagesQuery } from './content-api'
+import { pageSearchQuery } from './content-api'
 import { ContentError, typeLabels } from './content-primitives'
 import { scopeIcons, scopeLabels } from './page-navigation'
 import { PageIcon } from './page-icon'
@@ -43,7 +43,10 @@ export function PodCommandMenu({
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { setOpenMobile } = useSidebar()
-  const pages = useQuery({ ...pagesQuery('all'), enabled: open })
+  const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
+  const pages = useQuery({ ...pageSearchQuery(deferredQuery), enabled: open })
+  const pageResults = query === deferredQuery ? (pages.data?.pages ?? []) : []
   const conversations = useQuery({ ...conversationsQuery, enabled: open })
   const selected = useRef(false)
   useEffect(() => {
@@ -51,6 +54,7 @@ export function PodCommandMenu({
   }, [open])
   const choose = (path: string, newChat = false) => {
     selected.current = true
+    setQuery('')
     onOpenChange(false)
     setOpenMobile(false)
     return navigate({
@@ -60,7 +64,12 @@ export function PodCommandMenu({
   }
   const label = t('pod.command.open')
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={next => {
+        if (!next) setQuery('')
+        onOpenChange(next)
+      }}>
       <DialogContent
         className="pod-dialog-wide pod-command-dialog transition-none duration-0 data-starting-style:scale-100 data-starting-style:opacity-100 data-ending-style:scale-100 data-ending-style:opacity-100"
         showCloseButton={false}
@@ -84,7 +93,13 @@ export function PodCommandMenu({
               event.stopPropagation()
             }
           }}>
-          <CommandInput aria-label={label} placeholder={t('pod.command.placeholder')} autoFocus />
+          <CommandInput
+            aria-label={label}
+            placeholder={t('pod.command.placeholder')}
+            value={query}
+            onValueChange={setQuery}
+            autoFocus
+          />
           <CommandList label={label}>
             <CommandEmpty>{t('pod.content.no_matches')}</CommandEmpty>
             <CommandGroup heading={t('pod.content.page_navigation')}>
@@ -102,22 +117,24 @@ export function PodCommandMenu({
                 <RiSearchLine aria-hidden />
                 {t('pod.content.search_pages')}
               </CommandItem>
-              {(['all', 'space', 'private', 'shared', 'recent', 'favorites', 'trash'] as const).map(scope => {
-                const Icon = scopeIcons[scope]
-                return (
-                  <CommandItem
-                    key={scope}
-                    value={`scope:${scope}`}
-                    keywords={[scopeLabels[scope]]}
-                    onSelect={() => void choose(`/content/${scope}`)}>
-                    <Icon aria-hidden />
-                    {scopeLabels[scope]}
-                  </CommandItem>
-                )
-              })}
+              {(['all', 'space', 'private', 'shared', 'recent', 'favorites', 'trash'] as const)
+                .filter(scope => scope !== 'private' || pages.data?.can_create_private !== false)
+                .map(scope => {
+                  const Icon = scopeIcons[scope]
+                  return (
+                    <CommandItem
+                      key={scope}
+                      value={`scope:${scope}`}
+                      keywords={[scopeLabels[scope]]}
+                      onSelect={() => void choose(`/content/${scope}`)}>
+                      <Icon aria-hidden />
+                      {scopeLabels[scope]}
+                    </CommandItem>
+                  )
+                })}
             </CommandGroup>
             <CommandGroup heading={t('pod.content.all_pages')}>
-              {pages.data?.pages.map(page => {
+              {pageResults.map(page => {
                 const title = page.title || t('pod.content.untitled')
                 return (
                   <CommandItem

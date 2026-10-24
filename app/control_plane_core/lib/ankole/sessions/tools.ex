@@ -1,6 +1,7 @@
 defmodule Ankole.Sessions.Tools do
   @moduledoc "Dispatches declared calls. Durable effects and receipts share one transaction."
 
+  alias Ankole.Sessions.JobTurnRef
   alias Ankole.Sessions.PendingCall
   alias Ankole.Sessions.Receipt
   alias Ankole.Sessions.Receipts
@@ -14,11 +15,16 @@ defmodule Ankole.Sessions.Tools do
   def prepare(run, call) do
     with %{} = tool <- ToolCatalog.find(run, call),
          {:ok, args, _repair} <- arguments(call, tool),
-         {:ok, args} <- validate(tool, args) do
+         {:ok, args} <- validate(tool, args),
+         :ok <- authorize_call(run, tool.name, args) do
       {:ok, tool, args}
     else
       nil ->
         {:error, error("Unknown tool #{call["name"]}", "unknown_tool")}
+
+      {:error, reason}
+      when reason == :forbidden or (is_tuple(reason) and elem(reason, 0) == :forbidden) ->
+        {:error, error("Tool invocation is not authorized.", "forbidden")}
 
       {:error, reason} ->
         {:error,
@@ -38,6 +44,53 @@ defmodule Ankole.Sessions.Tools do
   end
 
   def execute(run, call, tool, args) do
+    case authorize_call(run, tool.name, args) do
+      :ok -> execute_authorized(run, call, tool, args)
+      {:error, _reason} -> error("Tool invocation is not authorized.", "forbidden")
+    end
+  end
+
+  def authorize_call(%JobTurnRef{agent_uid: uid, session_id: session} = turn, name, args) do
+    with {:ok, event} <- Ankole.Signals.get_signal(turn.signal_id) do
+      case event do
+        %{agent_uid: ^uid, session_id: ^session, authorization_kind: kind}
+        when kind in ["human", "service"] ->
+          authorize_call(%{agent_uid: uid, event: event}, name, args)
+
+        %{agent_uid: ^uid, session_id: ^session} ->
+          {:error, :work_authorization_review_required}
+
+        nil ->
+          {:error, :signal_not_found}
+
+        _ ->
+          {:error, :signal_not_owned}
+      end
+    end
+  end
+
+  def authorize_call(
+        %{
+          agent_uid: agent_uid,
+          event: %{authorization_kind: "human", human_uid: uid} = event
+        },
+        name,
+        args
+      ) do
+    context =
+      event
+      |> Ankole.Conversations.request_context()
+      |> Map.merge(%{"args" => args, "surface" => "agent_tool"})
+
+    with {:ok, principal} <- Ankole.Principals.get_principal(uid),
+         actor = Ankole.AuthZ.Actor.new(principal, authn: context["authn"] || %{}),
+         :ok <- Ankole.AuthZ.Checks.ActorGuardrail.check(actor, :agent),
+         do: Ankole.AuthZ.authorize(actor, "agent:#{agent_uid}:tool:#{name}", "invoke", context)
+  end
+
+  def authorize_call(_run, _name, _args), do: :ok
+
+  defp execute_authorized(run, call, tool, args) do
     owner = tool.executor
 
     if Tool.receipt?(tool, args) do

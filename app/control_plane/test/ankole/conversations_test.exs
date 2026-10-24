@@ -15,6 +15,7 @@ defmodule Ankole.ConversationsTest do
   setup do
     %{principal: human} = human_fixture()
     %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
     %{human: human, agent: agent}
   end
 
@@ -24,7 +25,13 @@ defmodule Ankole.ConversationsTest do
          agent: agent
        } do
     attrs = attrs(agent)
-    assert {:ok, detail} = in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, attrs) end)
+
+    assert {:ok, detail} =
+             in_tx(fn ->
+               actor = Ankole.AuthZ.Actor.new(human, authn: %{"ip" => "10.20.1.10"})
+               Ankole.ConversationsFixtures.create(actor, attrs)
+             end)
+
     assert detail.conversation.id == attrs.conversation_id
     assert detail.conversation.kind == :native
     assert detail.conversation.created_by == human.uid
@@ -48,6 +55,7 @@ defmodule Ankole.ConversationsTest do
     assert respondent == agent.uid
 
     event = Repo.one!(Signal)
+    assert Conversations.request_context(event) == event.data["request_context"]
     assert event.type == "conversation.message.addressed"
     assert event.session_id == "conversation:#{attrs.conversation_id}"
     assert event.source == event.session_id
@@ -65,6 +73,7 @@ defmodule Ankole.ConversationsTest do
              "message_id" => attrs.message_id,
              "message_ids" => [attrs.message_id],
              "author_uid" => human.uid,
+             "request_context" => %{"ip" => "10.20.1.10", "authn" => %{"ip" => "10.20.1.10"}},
              "model_profile" => "primary",
              "text" => attrs.text
            }
@@ -105,6 +114,7 @@ defmodule Ankole.ConversationsTest do
              end)
 
     %{principal: other_agent} = agent_fixture(%{owner_principal_uid: human.uid})
+    Ankole.ConversationsFixtures.grant_chat(human.uid, other_agent.uid)
 
     assert {:error, :conversation_conflict} =
              in_tx(fn ->
@@ -157,10 +167,13 @@ defmodule Ankole.ConversationsTest do
     attrs = attrs(agent)
     assert {:ok, _} = in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, attrs) end)
     %{principal: stranger} = human_fixture()
-    assert Conversations.list(stranger.uid) == []
+    assert Conversations.list(Ankole.PrincipalsFixtures.actor_fixture(stranger.uid)) == []
 
     assert {:error, :conversation_not_found} =
-             Conversations.get(stranger.uid, attrs.conversation_id)
+             Conversations.get(
+               Ankole.PrincipalsFixtures.actor_fixture(stranger.uid),
+               attrs.conversation_id
+             )
 
     assert {:error, :conversation_not_found} =
              Ankole.ConversationsFixtures.post(stranger.uid, attrs.conversation_id, %{
@@ -168,24 +181,27 @@ defmodule Ankole.ConversationsTest do
                text: "Read someone else's data"
              })
 
+    human_actor = Ankole.AuthZ.Actor.new(human)
     other_tenant = create_tenant()
 
     Repo.with_tenant(other_tenant.id, fn ->
-      assert Conversations.list(human.uid) == []
+      assert Conversations.list(human_actor) == []
 
       assert {:error, :conversation_not_found} =
-               Conversations.get(human.uid, attrs.conversation_id)
+               Conversations.get(human_actor, attrs.conversation_id)
 
       assert {:error, :conversation_not_found} =
-               Ankole.ConversationsFixtures.post(human.uid, attrs.conversation_id, %{
+               Conversations.post(human_actor, attrs.conversation_id, %{
                  message_id: Ecto.UUID.generate(),
                  text: "Cross tenant write"
                })
 
-      assert Conversations.agents() == []
+      assert Conversations.agents(human_actor) == []
     end)
 
-    assert [%{conversation: %{id: id}, agent: %{uid: uid}}] = Conversations.list(human.uid)
+    assert [%{conversation: %{id: id}, agent: %{uid: uid}}] =
+             Conversations.list(Ankole.PrincipalsFixtures.actor_fixture(human.uid))
+
     assert id == attrs.conversation_id
     assert uid == agent.uid
   end
@@ -238,7 +254,10 @@ defmodule Ankole.ConversationsTest do
              end)
 
     assert {:ok, %{messages: [_, _, _, _]} = detail} =
-             Conversations.get(human.uid, attrs.conversation_id)
+             Conversations.get(
+               Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+               attrs.conversation_id
+             )
 
     assert Ankole.Sessions.status(%{agent_uid: agent.uid, session_id: detail.session_id}).state ==
              :idle
@@ -247,10 +266,13 @@ defmodule Ankole.ConversationsTest do
     assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
     assert_receive {:conversation_event, id, :status}
     assert id == attrs.conversation_id
-    assert Conversations.agents() == []
+    assert Conversations.agents(Ankole.PrincipalsFixtures.actor_fixture(human.uid)) == []
 
     assert {:ok, %{agent: %{status: :disabled}, messages: [_, _, _, _]}} =
-             Conversations.get(human.uid, attrs.conversation_id)
+             Conversations.get(
+               Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+               attrs.conversation_id
+             )
 
     assert {:error, :agent_unavailable} =
              in_tx(fn ->
@@ -265,12 +287,21 @@ defmodule Ankole.ConversationsTest do
 
     assert {:ok, %{status: :active}} = Ankole.Principals.enable_agent(agent.uid)
     assert_receive {:conversation_event, ^id, :status}
-    assert {:ok, %{agent: %{status: :active}}} = Conversations.get(human.uid, id)
+
+    assert {:ok, %{agent: %{status: :active}}} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id)
+
     assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
     assert_receive {:conversation_event, ^id, :status}
     assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
     assert_receive {:conversation_event, ^id, :status}
-    assert {:error, :conversation_not_found} = Conversations.get(human.uid, attrs.conversation_id)
+
+    assert {:error, :conversation_not_found} =
+             Conversations.get(
+               Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+               attrs.conversation_id
+             )
+
     assert Repo.aggregate(Conversation, :count) == 0
     assert Repo.aggregate(Participant, :count) == 0
     assert Repo.aggregate(Message, :count) == 0
@@ -301,7 +332,10 @@ defmodule Ankole.ConversationsTest do
     refute_receive {:conversation_event, _, :status}
 
     assert {:ok, %{agent: %{status: :active}}} =
-             Conversations.get(human.uid, first.conversation_id)
+             Conversations.get(
+               Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+               first.conversation_id
+             )
 
     assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
     first_id = first.conversation_id
@@ -328,13 +362,17 @@ defmodule Ankole.ConversationsTest do
              end)
 
     refute_receive {:conversation_event, _, :status}
-    assert {:ok, %{agent: %{status: :disabled}}} = Conversations.get(human.uid, first_id)
-    assert {:ok, %{agent: %{status: :disabled}}} = Conversations.get(human.uid, second_id)
+
+    assert {:ok, %{agent: %{status: :disabled}}} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), first_id)
+
+    assert {:ok, %{agent: %{status: :disabled}}} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), second_id)
 
     assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
     assert_receive {:conversation_event, ^first_id, :status}
     assert_receive {:conversation_event, ^second_id, :status}
-    assert Conversations.list(human.uid) == []
+    assert Conversations.list(Ankole.PrincipalsFixtures.actor_fixture(human.uid)) == []
   end
 
   test "bad identifiers and blank or malformed text leave no accepted facts", %{
@@ -383,7 +421,13 @@ defmodule Ankole.ConversationsTest do
     end
 
     refute_receive {:conversation_event, _, _}
-    assert {:ok, unchanged} = Conversations.get(human.uid, attrs.conversation_id)
+
+    assert {:ok, unchanged} =
+             Conversations.get(
+               Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+               attrs.conversation_id
+             )
+
     assert unchanged == original
     assert Repo.aggregate(Message, :count) == 1
     assert Repo.aggregate(Signal, :count) == 1
@@ -419,7 +463,12 @@ defmodule Ankole.ConversationsTest do
 
     Enum.each(tasks, fn task -> assert {:ok, _} = Task.await(task, 15_000) end)
 
-    assert {:ok, detail} = Conversations.get(human.uid, attrs.conversation_id)
+    assert {:ok, detail} =
+             Conversations.get(
+               Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+               attrs.conversation_id
+             )
+
     assert Enum.map(detail.messages, & &1.seq) == Enum.to_list(1..13)
     assert Enum.map(detail.messages, & &1.id) |> Enum.uniq() |> length() == 13
     assert Repo.aggregate(Signal, :count) == 13
@@ -436,7 +485,10 @@ defmodule Ankole.ConversationsTest do
     assert {:error, :rollback} =
              Repo.transact(fn ->
                assert {:ok, %{publications: [_]}} =
-                        Conversations.create_in_tx(human.uid, attrs)
+                        Conversations.create_in_tx(
+                          Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+                          attrs
+                        )
 
                refute_received {:conversation_event, _, _}
                {:error, :rollback}
@@ -583,12 +635,21 @@ defmodule Ankole.ConversationsTest do
     request = attrs(agent)
 
     for operation <- [
-          fn -> Ankole.Conversations.create(human.uid, request) end,
           fn ->
-            Ankole.Conversations.post(human.uid, request.conversation_id, %{
-              message_id: request.message_id,
-              text: "hello"
-            })
+            Ankole.Conversations.create(
+              Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+              request
+            )
+          end,
+          fn ->
+            Ankole.Conversations.post(
+              Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+              request.conversation_id,
+              %{
+                message_id: request.message_id,
+                text: "hello"
+              }
+            )
           end
         ] do
       assert_raise Ankole.Errors.Framework.NestedOperation, ~r/must run at the top level/, fn ->
@@ -615,7 +676,10 @@ defmodule Ankole.ConversationsTest do
     assert {:error, :aborted} =
              Repo.transact(fn repo ->
                assert {:ok, %{publications: [_]}} =
-                        Conversations.create_in_tx(human.uid, request)
+                        Conversations.create_in_tx(
+                          Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+                          request
+                        )
 
                refute_received {:conversation_event, _, _}
                refute_received {:session_event, _, _, _}
@@ -628,7 +692,10 @@ defmodule Ankole.ConversationsTest do
 
     assert {:ok, %{publications: publications, session_key: key}} =
              Repo.transact(fn ->
-               Conversations.create_in_tx(human.uid, request)
+               Conversations.create_in_tx(
+                 Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+                 request
+               )
              end)
 
     refute_received {:conversation_event, _, _}
@@ -639,7 +706,13 @@ defmodule Ankole.ConversationsTest do
     assert_receive {:conversation_event, ^id, :message}
     assert_receive {:session_event, ^uid, ^session, :status}
     refute_received {:conversation_event, ^id, :status}
-    assert {:ok, _} = Ankole.Conversations.create(human.uid, request)
+
+    assert {:ok, _} =
+             Ankole.Conversations.create(
+               Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+               request
+             )
+
     refute_received {:conversation_event, _, _}
     refute_received {:session_event, _, _, _}
   end
@@ -650,13 +723,28 @@ defmodule Ankole.ConversationsTest do
     agent =
       Ankole.AIGatewayCase.background_agent_fixture(%{owner_principal_uid: human.uid}).principal
 
-    {:ok, page} = Ankole.Pod.Pages.create(human.uid, %{title: "Team report"})
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
+
+    {:ok, page} =
+      Ankole.Pod.Pages.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{
+        title: "Team report"
+      })
+
     request = Map.put(attrs(agent), :page_id, page.id)
     assert {:ok, first} = in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, request) end)
     assert first.conversation.page_id == page.id
-    assert {:ok, [%{conversation: %{id: id}}]} = Conversations.list_for_page(human.uid, page.id)
+
+    assert {:ok, [%{conversation: %{id: id}}]} =
+             Conversations.list_for_page(
+               Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+               page.id
+             )
+
     assert id == first.conversation.id
-    assert {:ok, reopened} = Conversations.get(human.uid, id)
+
+    assert {:ok, reopened} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id)
+
     assert reopened.messages == first.messages
 
     assert {:ok, context} = Ankole.Sessions.Context.resolve(agent.uid, first.session_id)
@@ -700,8 +788,16 @@ defmodule Ankole.ConversationsTest do
                Ankole.ConversationsFixtures.create(human.uid, Map.delete(request, :page_id))
              end)
 
-    {:ok, other_page} = Ankole.Pod.Pages.create(human.uid, %{title: "Other report"})
-    assert {:ok, []} = Conversations.list_for_page(human.uid, other_page.id)
+    {:ok, other_page} =
+      Ankole.Pod.Pages.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{
+        title: "Other report"
+      })
+
+    assert {:ok, []} =
+             Conversations.list_for_page(
+               Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+               other_page.id
+             )
 
     assert {:error, :conversation_conflict} =
              in_tx(fn ->
@@ -709,8 +805,15 @@ defmodule Ankole.ConversationsTest do
              end)
 
     {:ok, _} = Repo.delete(page)
-    assert {:ok, %{conversation: %{page_id: nil}}} = Conversations.get(human.uid, id)
-    assert {:error, :page_unavailable} = Conversations.list_for_page(human.uid, page.id)
+
+    assert {:ok, %{conversation: %{page_id: nil}}} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id)
+
+    assert {:error, :page_unavailable} =
+             Conversations.list_for_page(
+               Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+               page.id
+             )
   end
 
   test "page chat creation and later input require the Human's current page access", %{
@@ -720,14 +823,22 @@ defmodule Ankole.ConversationsTest do
     %{principal: owner} = human_fixture()
 
     {:ok, private} =
-      Ankole.Pod.Pages.create(owner.uid, %{title: "Private report", private_owner_uid: owner.uid})
+      Ankole.Pod.Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+        title: "Private report",
+        private_owner_uid: owner.uid
+      })
 
     request = Map.put(attrs(agent), :page_id, private.id)
 
     assert {:error, :page_unavailable} =
              in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, request) end)
 
-    assert {:error, :page_unavailable} = Conversations.list_for_page(human.uid, private.id)
+    assert {:error, :page_unavailable} =
+             Conversations.list_for_page(
+               Ankole.PrincipalsFixtures.actor_fixture(human.uid),
+               private.id
+             )
+
     assert Repo.aggregate(Conversation, :count) == 0
 
     {:ok, _} =

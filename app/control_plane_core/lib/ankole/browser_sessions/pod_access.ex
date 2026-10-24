@@ -7,6 +7,96 @@ defmodule Ankole.BrowserSessions.PodAccess do
   alias Ankole.BrowserSessions.{Authentication, Identity, PodAuthentication}
   alias Ankole.Repo
 
+  def accept_invitation(reference, tenant_id, invitation_id) do
+    Repo.transact_top_level(fn ->
+      with_site_authentication(reference, fn authentication ->
+        Repo.with_tenant(tenant_id, fn ->
+          proof = Map.from_struct(authentication)
+
+          with {:ok, principal} <-
+                 Ankole.Principals.accept_site_invitation_in_tx(invitation_id, proof),
+               {:ok, _} <- record_pod_access(authentication, principal),
+               {:ok, _} <-
+                 Identity.activate_in_tx(
+                   %{"id" => authentication.browser_id},
+                   reference,
+                   tenant_id
+                 ),
+               do: {:ok, principal}
+        end)
+      end)
+    end)
+  end
+
+  def claim_membership(ref, tenant_id) do
+    Repo.transact_top_level(fn ->
+      with_site_authentication(ref, fn authentication ->
+        proof =
+          authentication |> Map.from_struct() |> Map.put(:provider_id, authentication.provider_id)
+
+        case Enum.find(
+               Ankole.Principals.pending_site_memberships(proof),
+               &(&1.tenant_id == tenant_id)
+             ) do
+          nil ->
+            claim_invitation(authentication, tenant_id, proof)
+
+          candidate ->
+            Repo.with_tenant(tenant_id, fn ->
+              claim_pending(authentication, candidate, proof)
+            end)
+        end
+      end)
+    end)
+  end
+
+  defp claim_pending(authentication, candidate, proof) do
+    with :ok <- claim_current(proof),
+         {:ok, %{status: :active} = principal} <-
+           Ankole.Principals.lock_principal_in_tx(candidate.uid, :share),
+         true <-
+           Ankole.Principals.PodLoginPolicy.authentication_allowed?(
+             principal,
+             authentication.provider_id,
+             proof
+           ),
+         {:ok, _} <-
+           Ankole.Principals.bind_site_credential_in_tx(
+             principal.uid,
+             Map.put(proof, :subject_id, authentication.subject_id)
+           ),
+         {:ok, _} <- record_pod_access(authentication, principal),
+         do: {:ok, principal},
+         else: (
+           false -> {:error, :login_policy_rejected}
+           error -> error
+         )
+  end
+
+  defp claim_current(proof) do
+    if Ankole.Principals.site_credential_claim_current?(proof),
+      do: :ok,
+      else: {:error, :reauthentication_required}
+  end
+
+  defp claim_invitation(authentication, tenant_id, proof) do
+    case Enum.find(
+           Ankole.Principals.pending_invitations(proof.verified_email),
+           &(&1.tenant_id == tenant_id)
+         ) do
+      nil ->
+        {:error, :not_a_member}
+
+      invitation ->
+        Repo.with_tenant(tenant_id, fn ->
+          with {:ok, principal} <-
+                 Ankole.Principals.accept_site_invitation_in_tx(invitation.id, proof),
+               {:ok, _} <- record_pod_access(authentication, principal),
+               do: {:ok, principal}
+        end)
+    end
+  end
+
   @doc """
   Records initial access in the same transaction that creates a Pod and its Human.
 
@@ -27,39 +117,6 @@ defmodule Ankole.BrowserSessions.PodAccess do
         false -> {:error, :invalid_authentication}
         error -> error
       end
-    end)
-  end
-
-  @doc """
-  Connects a verified Pod identity without refreshing the parent authentication.
-
-  `connect` runs in the transaction of the connection, so it calls only
-  `_in_tx` functions.
-  """
-  def connect_pod_access(authentication_ref, verified_ref, tenant_id, connect)
-      when is_function(connect, 2) do
-    Repo.transact_top_level(fn ->
-      connect_pod_access_in_tx(authentication_ref, verified_ref, tenant_id, connect)
-    end)
-  end
-
-  @doc false
-  def connect_pod_access_in_tx(authentication_ref, verified_ref, tenant_id, connect) do
-    with_site_authentication(authentication_ref, fn authentication ->
-      Repo.with_tenant(tenant_id, fn ->
-        with {:ok, verified} <- Identity.fetch_authentication(verified_ref),
-             true <- verified.browser_id == authentication.browser_id,
-             %{} = proof <- Identity.identity(verified_ref, tenant_id),
-             {:ok, principal} <- Identity.lock_human(proof),
-             {:ok, result} <- connect.(authentication, principal),
-             {:ok, _} <- record_pod_access(authentication, principal) do
-          {:ok, result}
-        else
-          false -> {:error, :invalid_authentication}
-          nil -> {:error, :invalid_authentication}
-          error -> error
-        end
-      end)
     end)
   end
 
@@ -116,7 +173,13 @@ defmodule Ankole.BrowserSessions.PodAccess do
                "access_version" => principal.access_version
              }),
            true <- Ankole.Tenants.accepting_work?(principal.tenant_id),
-           true <- Identity.current_binding?(authentication, %{principal_uid: principal.uid}) do
+           true <- Identity.current_binding?(authentication, %{principal_uid: principal.uid}),
+           true <-
+             Ankole.Principals.PodLoginPolicy.authentication_allowed?(
+               principal,
+               authentication.provider_id,
+               Map.from_struct(authentication)
+             ) do
         Ankole.Ash.create(PodAuthentication, :record_in_tx, %{
           authentication_id: authentication.id,
           principal_uid: principal.uid,

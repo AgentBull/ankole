@@ -11,7 +11,7 @@ defmodule Ankole.Principals.AccessRestriction do
     foreign_key_names([{:principal_uid, "human_access_restrictions_principal_uid_fkey"}])
 
     unique_index_names([
-      {[:principal_uid, :source, :reason], "human_access_restrictions_active_index"}
+      {[:principal_uid, :source, :disposition, :reason], "human_access_restrictions_active_index"}
     ])
   end
 
@@ -25,6 +25,13 @@ defmodule Ankole.Principals.AccessRestriction do
 
     attribute(:principal_uid, Ankole.Ash.Types.PrincipalKey, public?: true, allow_nil?: false)
     attribute(:source, :string, public?: true, allow_nil?: false, constraints: [max_length: 200])
+
+    attribute(:disposition, :atom,
+      public?: true,
+      allow_nil?: false,
+      constraints: [one_of: [:suspended, :offboarded]]
+    )
+
     attribute(:reason, :string, public?: true, allow_nil?: false, constraints: [max_length: 2000])
 
     attribute(:operation_id, :string,
@@ -40,8 +47,8 @@ defmodule Ankole.Principals.AccessRestriction do
   end
 
   identities do
-    identity(:active_restriction, [:principal_uid, :source, :reason],
-      all_tenants?: true,
+    identity(:active_restriction, [:principal_uid, :source, :disposition, :reason],
+      all_tenants?: false,
       where: expr(is_nil(cleared_at))
     )
   end
@@ -50,12 +57,12 @@ defmodule Ankole.Principals.AccessRestriction do
     defaults([:read])
 
     create :restrict_in_tx do
-      accept([:principal_uid, :source, :reason, :operation_id, :provider_time])
+      accept([:principal_uid, :source, :disposition, :reason, :operation_id, :provider_time])
       change(set_attribute(:recovery_verified_at, nil))
     end
 
     update :repeat_restriction_in_tx do
-      accept([:source, :reason, :operation_id, :provider_time])
+      accept([:operation_id, :provider_time])
       change(set_attribute(:recovery_verified_at, nil))
     end
 

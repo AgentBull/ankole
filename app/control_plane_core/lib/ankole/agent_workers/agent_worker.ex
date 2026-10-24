@@ -1,9 +1,17 @@
 defmodule Ankole.AgentWorkers.AgentWorker do
   @moduledoc "The durable lifecycle, launch identity, and current connection of one Agent's Worker."
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.AgentWorkers,
-    extensions: [AshStateMachine, AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshStateMachine, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:agent_uid, :principal_key)
+    allow(:console_list, resource: "site_console:agent_workers", action: "read")
+    allow(:console_assign_provider, resource: "site_console:agent:{agent_uid}", action: "update")
+  end
 
   alias Ankole.AgentWorkers.ReconcileJob
 

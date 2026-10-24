@@ -18,6 +18,8 @@ const config: KnipConfig = {
       entry: [
         'tools/deploy/kubernetes/update-schema.ts!',
         'tools/e2e/support/pod_content_browser.mjs!',
+        'internals/webapps/account.tsx!',
+        'internals/webapps/pod.tsx!',
         'app/library/agent-plugins/lark/skills/lark-approvals/scripts/profile-setup.ts!'
       ]
     },

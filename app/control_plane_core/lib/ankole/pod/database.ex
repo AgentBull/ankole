@@ -20,11 +20,13 @@ defmodule Ankole.Pod.Database do
     Database.Write
   }
 
-  def copy_table(uid, id, attrs, authority \\ nil),
-    do: Ankole.Pod.Copy.table(uid, id, attrs, authority)
+  def copy_table(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority \\ nil) do
+    authority = authority || actor.turn_authority
+    Ankole.Pod.Copy.table(actor, id, attrs, authority)
+  end
 
-  def list_tables(uid, page_id) do
-    with {:ok, %{type: :database}} <- Pages.authorize(uid, page_id, "page_view"),
+  def list_tables(%Ankole.AuthZ.Actor{} = actor, page_id) do
+    with {:ok, %{type: :database}} <- Pages.authorize(actor, page_id, "page_view"),
          do:
            {:ok,
             %{
@@ -40,12 +42,14 @@ defmodule Ankole.Pod.Database do
          )
   end
 
-  def create_table(uid, page_id, attrs, authority \\ nil),
-    do: Access.write(authority, fn -> create_table_in_tx(uid, page_id, attrs) end)
+  def create_table(%Ankole.AuthZ.Actor{} = actor, page_id, attrs, authority \\ nil) do
+    authority = authority || actor.turn_authority
+    Access.write(authority, fn -> create_table_in_tx(actor, page_id, attrs) end)
+  end
 
   @doc false
-  def create_table_in_tx(uid, page_id, attrs) do
-    with {:ok, %{type: :database}} <- Pages.authorize(uid, page_id, "page_edit"),
+  def create_table_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, attrs) do
+    with {:ok, %{type: :database}} <- Pages.authorize(actor, page_id, "page_edit"),
          {:ok, table} <-
            Ankole.Ash.create(DbTable, :create_in_tx, %{
              page_id: page_id,
@@ -74,11 +78,13 @@ defmodule Ankole.Pod.Database do
     end
   end
 
-  def get_table(uid, id), do: Repo.transact_top_level(fn -> get_table_in_tx(uid, id) end)
+  def get_table(%Ankole.AuthZ.Actor{} = actor, id) do
+    Repo.transact_top_level(fn -> get_table_in_tx(actor, id) end)
+  end
 
   @doc false
-  def get_table_in_tx(uid, id) do
-    query_transaction(uid, id, fn table, limits ->
+  def get_table_in_tx(%Ankole.AuthZ.Actor{} = actor, id) do
+    query_transaction(actor, id, fn table, limits ->
       definitions = fields(table.id)
 
       mode = if table.record_count <= limits["local_rows"], do: "local", else: "remote"
@@ -102,12 +108,13 @@ defmodule Ankole.Pod.Database do
     end)
   end
 
-  def query(uid, id, attrs),
-    do: Repo.transact_top_level(fn -> query_in_tx(uid, id, attrs) end)
+  def query(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
+    Repo.transact_top_level(fn -> query_in_tx(actor, id, attrs) end)
+  end
 
   @doc false
-  def query_in_tx(uid, id, attrs) do
-    query_transaction(uid, id, fn table, limits ->
+  def query_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
+    query_transaction(actor, id, fn table, limits ->
       if Ankole.Attrs.get(attrs, :local, false) == true do
         local_records(table, fields(id), attrs, limits)
       else
@@ -140,12 +147,13 @@ defmodule Ankole.Pod.Database do
     end
   end
 
-  def aggregate(uid, id, attrs),
-    do: Repo.transact_top_level(fn -> aggregate_in_tx(uid, id, attrs) end)
+  def aggregate(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
+    Repo.transact_top_level(fn -> aggregate_in_tx(actor, id, attrs) end)
+  end
 
   @doc false
-  def aggregate_in_tx(uid, id, attrs) do
-    query_transaction(uid, id, fn table, limits ->
+  def aggregate_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
+    query_transaction(actor, id, fn table, limits ->
       case Query.aggregate(table, fields(id), attrs, max_groups: limits["group_count"]) do
         {:ok, %{groups: groups}} = result ->
           if length(groups) > limits["group_count"], do: {:error, :group_limit}, else: result
@@ -156,24 +164,26 @@ defmodule Ankole.Pod.Database do
     end)
   end
 
-  defdelegate create_field(uid, id, attrs, authority \\ nil), to: Ankole.Pod.Database.Schema
-  defdelegate update_field(uid, id, attrs, authority \\ nil), to: Ankole.Pod.Database.Schema
-  defdelegate delete_field(uid, id, version, authority \\ nil), to: Ankole.Pod.Database.Schema
-  defdelegate create_view(uid, id, attrs, authority \\ nil), to: Ankole.Pod.Database.Schema
-  defdelegate update_view(uid, id, attrs, authority \\ nil), to: Ankole.Pod.Database.Schema
-  defdelegate delete_view(uid, id, version, authority \\ nil), to: Ankole.Pod.Database.Schema
+  defdelegate create_field(actor, id, attrs, authority \\ nil), to: Ankole.Pod.Database.Schema
+  defdelegate update_field(actor, id, attrs, authority \\ nil), to: Ankole.Pod.Database.Schema
+  defdelegate delete_field(actor, id, version, authority \\ nil), to: Ankole.Pod.Database.Schema
+  defdelegate create_view(actor, id, attrs, authority \\ nil), to: Ankole.Pod.Database.Schema
+  defdelegate update_view(actor, id, attrs, authority \\ nil), to: Ankole.Pod.Database.Schema
+  defdelegate delete_view(actor, id, version, authority \\ nil), to: Ankole.Pod.Database.Schema
 
-  def write_records(uid, id, attrs, authority \\ nil) do
+  def write_records(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority \\ nil) do
+    authority = authority || actor.turn_authority
+
     with {:ok, %{result: result}} <-
-           Access.write(authority, fn -> write_records_in_tx(uid, id, attrs) end,
+           Access.write(authority, fn -> write_records_in_tx(actor, id, attrs) end,
              after_commit: &committed_records/1
            ),
          do: {:ok, result}
   end
 
   @doc false
-  def write_records_in_tx(uid, id, attrs) do
-    with {:ok, write} <- Write.open(uid, id),
+  def write_records_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
+    with {:ok, write} <- Write.open(actor, id),
          {:ok, result} <- Records.batch(write, attrs),
          do: {:ok, %{table_id: write.table.id, result: result}}
   end
@@ -184,16 +194,42 @@ defmodule Ankole.Pod.Database do
   @doc "Publishes committed schema changes to the table rooms."
   def committed_schema(%{changed: changed}), do: broadcast_schema(changed)
 
-  def table_access(uid, id, action) do
+  def table_access(%Ankole.AuthZ.Actor{} = actor, %DbTable{} = table, intent)
+      when intent in [:read, :write_records, :manage_schema] do
+    action = if intent == :read, do: "page_view", else: "page_edit"
+    with {:ok, _} <- Pages.authorize(actor, table.page_id, action), do: {:ok, table}
+  end
+
+  def table_access(%Ankole.AuthZ.Actor{} = actor, id, intent)
+      when intent in [:read, :write_records, :manage_schema] do
+    with {:ok, table} <- fetch_table(id), do: table_access(actor, table, intent)
+  end
+
+  def reconcile_versions(ids, reachable) do
+    ids = for id <- Enum.uniq(ids), {:ok, id} <- [Ecto.UUID.cast(id)], do: id
+    tables = DbTable |> Ash.Query.filter(id in ^ids) |> Ankole.Ash.read!()
+    page_ids = Enum.map(tables, & &1.page_id)
+    {anchors, own} = Ankole.Pod.Access.visibility_ids(reachable)
+
+    visible =
+      Ankole.Pod.Page
+      |> Ash.Query.filter(
+        id in ^page_ids and is_nil(deleted_at) and (acl_anchor_id in ^anchors or id in ^own)
+      )
+      |> Ash.Query.select([:id])
+      |> Ankole.Ash.read!()
+      |> MapSet.new(& &1.id)
+
+    for table <- tables,
+        MapSet.member?(visible, table.page_id),
+        do: Map.take(table, [:id, :data_version])
+  end
+
+  def fetch_table(id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
          %DbTable{} = table <- Ankole.Ash.read_one!(Ash.Query.filter(DbTable, id == ^id)),
-         {:ok, _} <- Pages.authorize(uid, table.page_id, action),
          do: {:ok, table},
-         else: (
-           nil -> {:error, :not_found}
-           :error -> {:error, :not_found}
-           error -> error
-         )
+         else: (_ -> {:error, :not_found})
   end
 
   def fields(id),
@@ -205,22 +241,26 @@ defmodule Ankole.Pod.Database do
 
   # Sets the query limits for the rest of the calling action's transaction and
   # reads the table under a shared lock.
-  defp query_transaction(uid, id, fun) do
-    with {:ok, limits} <- Config.limits(),
-         {:ok, table} <- table_access(uid, id, "page_view"),
+  defp query_transaction(%Ankole.AuthZ.Actor{} = actor, id, fun) do
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         %DbTable{} = locked <-
+           DbTable
+           |> Ash.Query.filter(id == ^id)
+           |> Ash.Query.lock("FOR SHARE")
+           |> Ankole.Ash.read_one!(),
+         {:ok, table} <- table_access(actor, locked, :read),
+         {:ok, limits} <- Config.limits(),
          {:ok, timezone} <- Ankole.SystemConfig.timezone() do
       Repo.query!(
         "SELECT set_config('statement_timeout',$1,true),set_config('TimeZone',$2,true)",
         [to_string(limits["statement_timeout_ms"]), timezone]
       )
 
-      case DbTable
-           |> Ash.Query.filter(id == ^table.id)
-           |> Ash.Query.lock("FOR SHARE")
-           |> Ankole.Ash.read_one!() do
-        nil -> {:error, :not_found}
-        locked -> fun.(locked, limits)
-      end
+      fun.(table, limits)
+    else
+      nil -> {:error, :not_found}
+      :error -> {:error, :not_found}
+      error -> error
     end
   end
 

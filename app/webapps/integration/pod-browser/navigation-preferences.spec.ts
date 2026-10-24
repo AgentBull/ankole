@@ -1,4 +1,4 @@
-import { state, request, login } from './fixtures'
+import { state, request, login, continuePodEntry } from './fixtures'
 import { expect, test, type Page } from '@playwright/test'
 import { pageRoute } from './routes'
 
@@ -44,6 +44,8 @@ test('root folding retains branches and reload restores the first visible naviga
     created.push(privatePage)
     await page.goto(pageRoute(privatePage))
     const branch = space(page).getByRole('button', { name: title, exact: true })
+    await expect(branch).toHaveAttribute('aria-expanded', 'false')
+    await branch.click()
     await expect(space(page).getByRole('link', { name: childTitle, exact: true })).toBeVisible()
     await branch.click()
     await expect(branch).toHaveAttribute('aria-expanded', 'false')
@@ -112,15 +114,7 @@ test('navigation stays with each real document identity and stored branches cann
     await expect(rootToggle(member)).toHaveAttribute('aria-expanded', 'false')
     await member.getByRole('button', { name: /^账户菜单/ }).click()
     await member.getByRole('menuitem', { name: '切换或添加账户', exact: true }).click()
-    await member.getByRole('textbox', { name: '邮箱', exact: true }).fill(state.member.email)
-    await member.getByLabel('密码', { exact: true }).fill(state.member.password)
-    const loggedIn = member.waitForResponse(
-      response =>
-        response.request().method() === 'POST' &&
-        new URL(response.url()).pathname === '/api/v2/browser/sessions/local-password'
-    )
-    await member.getByRole('button', { name: '登录', exact: true }).click()
-    expect((await loggedIn).status()).toBe(201)
+    await login(member, state.member)
     await expect(member).toHaveURL(state.base_url + pageRoute(state.report_id))
     expect(await identity(member)).toBe(state.member.uid)
     expect(await identity(owner)).toBe(state.owner.uid)
@@ -143,7 +137,13 @@ test('navigation stays with each real document identity and stored branches cann
     await expect(space(member).getByRole('link', { name: title, exact: true })).toHaveCount(0)
     await owner.getByRole('button', { name: /^账户菜单/ }).click()
     await owner.getByRole('menuitem', { name: '切换或添加账户', exact: true }).click()
-    await owner.getByRole('button', { name: /^Browser owner ·/ }).click()
+    const existingOwner = owner.getByRole('button', { name: /^Browser owner ·/ })
+    const podLogin = owner.getByRole('button', { name: '使用 Pod 自有登录', exact: true })
+    await expect(existingOwner.or(podLogin).first()).toBeVisible()
+    const throughPodEntry = await podLogin.isVisible()
+    if (throughPodEntry) await podLogin.click()
+    await existingOwner.click()
+    if (throughPodEntry) await continuePodEntry(owner, state.owner.uid)
     await expect(owner).toHaveURL(state.base_url + pageRoute(state.report_id))
     await expect(rootToggle(owner)).toHaveAttribute('aria-expanded', 'false')
     await expect(privateToggle(owner)).toHaveAttribute('aria-expanded', 'true')

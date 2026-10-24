@@ -2,10 +2,9 @@ defmodule AnkoleWeb.JSONAPI.RouterTest do
   @moduledoc "Checks the mounted JSON:API routers and the declarations of their domains."
   use AnkoleWeb.ConnCase, async: true
 
-  alias AnkoleWeb.JSONAPI.{ConsoleRouter, Policy, SiteRouter}
+  alias AnkoleWeb.JSONAPI.{ConsoleRouter, SiteRouter}
 
   @routers [SiteRouter, ConsoleRouter]
-  @scopes %{SiteRouter => :site, ConsoleRouter => :console}
 
   test "each router serves its OpenAPI document behind the Console session" do
     conn = console_conn(build_conn())
@@ -60,28 +59,17 @@ defmodule AnkoleWeb.JSONAPI.RouterTest do
     end
   end
 
-  test "each route has one AuthZ rule and each rule has one route" do
-    for router <- @routers do
-      routes = routes(router)
-      rules = Policy.rules(@scopes[router])
-      keys = Enum.map(routes, fn {resource, route} -> Policy.rule_key(resource, route) end)
+  test "each routed action has a native authorizer rule and each target has an explicit resolver" do
+    for router <- @routers, {resource, route} <- routes(router) do
+      assert Ankole.AuthZ.Authorizer in Ash.Resource.Info.authorizers(resource)
+      assert rule = Ankole.AuthZ.Dsl.rule(resource, route.action)
+      params = Ankole.AuthZ.Dsl.params(resource)
 
-      assert Enum.sort(keys) == Enum.sort(Map.keys(rules)), inspect(router)
-
-      for {key, rule} <- rules do
-        authz_resource = elem(rule, 0)
-
-        {_resource, route} =
-          Enum.find(routes, fn {resource, route} -> Policy.rule_key(resource, route) == key end)
-
-        path_params = for ":" <> name <- String.split(route.route, "/"), do: name
-
-        for [_match, name] <- Regex.scan(~r/\{(\w+)\}/, authz_resource) do
-          assert name in path_params,
-                 "#{authz_resource} names no path parameter of #{route.route}"
-
-          assert is_binary(Policy.resolve_target!(elem(key, 0), name, "probe"))
-        end
+      for [_, name] <- Regex.scan(~r/\{(\w+)\}/, rule.resource || "") do
+        assert param = Enum.find(params, &(to_string(&1.name) == name))
+        value = if param.type == :uuid, do: Ankole.Ecto.UUIDv7.autogenerate(), else: "probe"
+        assert {:ok, normalized} = Ankole.AuthZ.Checks.GrantCheck.resolve(param.type, value)
+        assert is_binary(normalized)
       end
     end
   end

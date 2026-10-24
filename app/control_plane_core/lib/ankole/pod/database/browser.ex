@@ -1,17 +1,47 @@
 defmodule Ankole.Pod.Database.Browser do
   @moduledoc "Typed browser operations for Database schemas and versioned record batches."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: Ankole.Pod,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:pod)
+    allow(:tables, check: :guardrail)
+    allow(:create_table, check: :guardrail)
+    allow(:show, check: :guardrail)
+    allow(:query, check: :guardrail)
+    allow(:aggregate, check: :guardrail)
+    allow(:write, check: :guardrail)
+    allow(:create_field, check: :guardrail)
+    allow(:update_field, check: :guardrail)
+    allow(:delete_field, check: :guardrail)
+    allow(:create_view, check: :guardrail)
+    allow(:update_view, check: :guardrail)
+    allow(:delete_view, check: :guardrail)
+    allow(:copy, check: :guardrail)
+  end
 
   alias Ankole.Pod.{Database, APIError, Serialization}
   alias Ankole.Pod.Database.{Record, RecordData, FieldVersions, Value}
   alias Ankole.Ash.Types.{UUIDv7, PrincipalKey, JSONMap}
 
-  @table [type: :struct, constraints: [instance_of: Ankole.Pod.DbTable], allow_nil?: false]
-  @field [type: :struct, constraints: [instance_of: Ankole.Pod.DbField], allow_nil?: false]
-  @view [type: :struct, constraints: [instance_of: Ankole.Pod.DbView], allow_nil?: false]
+  @table [
+    type: :struct,
+    constraints: struct_constraints(Ankole.Pod.DbTable),
+    allow_nil?: false
+  ]
+  @field [
+    type: :struct,
+    constraints: struct_constraints(Ankole.Pod.DbField),
+    allow_nil?: false
+  ]
+  @view [
+    type: :struct,
+    constraints: struct_constraints(Ankole.Pod.DbView),
+    allow_nil?: false
+  ]
   @field_types Ash.Resource.Info.attribute(Ankole.Pod.DbField, :type).constraints
   @view_types Ash.Resource.Info.attribute(Ankole.Pod.DbView, :type).constraints
   @filter [
@@ -65,7 +95,7 @@ defmodule Ankole.Pod.Database.Browser do
         fields: [
           tables: [
             type: {:array, :struct},
-            constraints: [items: [instance_of: Ankole.Pod.DbTable]],
+            constraints: [items: struct_constraints(Ankole.Pod.DbTable)],
             allow_nil?: false
           ]
         ]
@@ -74,7 +104,7 @@ defmodule Ankole.Pod.Database.Browser do
       argument(:page_id, UUIDv7, allow_nil?: false)
 
       run(fn input, context ->
-        APIError.result(Database.list_tables(context.actor.uid, input.arguments.page_id))
+        APIError.result(Database.list_tables(context.actor, input.arguments.page_id))
       end)
     end
 
@@ -84,7 +114,7 @@ defmodule Ankole.Pod.Database.Browser do
       argument(:name, :string)
 
       run(fn input, context ->
-        Database.create_table(context.actor.uid, input.arguments.page_id, attrs(input))
+        Database.create_table(context.actor, input.arguments.page_id, attrs(input))
         |> APIError.result(&%{table: &1})
       end)
     end
@@ -95,12 +125,12 @@ defmodule Ankole.Pod.Database.Browser do
           table: @table,
           fields: [
             type: {:array, :struct},
-            constraints: [items: [instance_of: Ankole.Pod.DbField]],
+            constraints: [items: struct_constraints(Ankole.Pod.DbField)],
             allow_nil?: false
           ],
           views: [
             type: {:array, :struct},
-            constraints: [items: [instance_of: Ankole.Pod.DbView]],
+            constraints: [items: struct_constraints(Ankole.Pod.DbView)],
             allow_nil?: false
           ],
           mode: [type: :atom, constraints: [one_of: [:local, :remote]], allow_nil?: false],
@@ -135,7 +165,7 @@ defmodule Ankole.Pod.Database.Browser do
       argument(:id, UUIDv7, allow_nil?: false)
 
       run(fn input, context ->
-        APIError.result(Database.get_table(context.actor.uid, input.arguments.id))
+        APIError.result(Database.get_table(context.actor, input.arguments.id))
       end)
     end
 
@@ -179,7 +209,7 @@ defmodule Ankole.Pod.Database.Browser do
       argument(:local, :boolean)
 
       run(fn input, context ->
-        APIError.result(Database.query(context.actor.uid, input.arguments.id, attrs(input)))
+        APIError.result(Database.query(context.actor, input.arguments.id, attrs(input)))
       end)
     end
 
@@ -243,7 +273,7 @@ defmodule Ankole.Pod.Database.Browser do
       )
 
       run(fn input, context ->
-        APIError.result(Database.aggregate(context.actor.uid, input.arguments.id, attrs(input)))
+        APIError.result(Database.aggregate(context.actor, input.arguments.id, attrs(input)))
       end)
     end
 
@@ -288,7 +318,7 @@ defmodule Ankole.Pod.Database.Browser do
       )
 
       run(fn input, context ->
-        Database.write_records(context.actor.uid, input.arguments.id, attrs(input))
+        Database.write_records(context.actor, input.arguments.id, attrs(input))
         |> APIError.result(&Serialization.json_value/1)
       end)
     end
@@ -303,7 +333,7 @@ defmodule Ankole.Pod.Database.Browser do
       argument(:is_primary, :boolean)
 
       run(fn input, context ->
-        Database.create_field(context.actor.uid, input.arguments.id, attrs(input))
+        Database.create_field(context.actor, input.arguments.id, attrs(input))
         |> APIError.result(&%{field: &1})
       end)
     end
@@ -319,7 +349,7 @@ defmodule Ankole.Pod.Database.Browser do
       argument(:clear_invalid, :boolean)
 
       run(fn input, context ->
-        Database.update_field(context.actor.uid, input.arguments.id, attrs(input))
+        Database.update_field(context.actor, input.arguments.id, attrs(input))
         |> APIError.result(&%{field: &1})
       end)
     end
@@ -330,7 +360,7 @@ defmodule Ankole.Pod.Database.Browser do
       argument(:version, :integer, allow_nil?: false, constraints: [min: 1])
 
       run(fn input, context ->
-        Database.delete_field(context.actor.uid, input.arguments.id, input.arguments.version)
+        Database.delete_field(context.actor, input.arguments.id, input.arguments.version)
         |> APIError.result(&%{field: &1})
       end)
     end
@@ -344,7 +374,7 @@ defmodule Ankole.Pod.Database.Browser do
       argument(:config, JSONMap)
 
       run(fn input, context ->
-        Database.create_view(context.actor.uid, input.arguments.id, attrs(input))
+        Database.create_view(context.actor, input.arguments.id, attrs(input))
         |> APIError.result(&%{view: &1})
       end)
     end
@@ -359,7 +389,7 @@ defmodule Ankole.Pod.Database.Browser do
       argument(:config, JSONMap)
 
       run(fn input, context ->
-        Database.update_view(context.actor.uid, input.arguments.id, attrs(input))
+        Database.update_view(context.actor, input.arguments.id, attrs(input))
         |> APIError.result(&%{view: &1})
       end)
     end
@@ -370,7 +400,7 @@ defmodule Ankole.Pod.Database.Browser do
       argument(:version, :integer, allow_nil?: false, constraints: [min: 1])
 
       run(fn input, context ->
-        Database.delete_view(context.actor.uid, input.arguments.id, input.arguments.version)
+        Database.delete_view(context.actor, input.arguments.id, input.arguments.version)
         |> APIError.result(&%{view: &1})
       end)
     end
@@ -378,7 +408,11 @@ defmodule Ankole.Pod.Database.Browser do
     action :copy, :map do
       constraints(
         fields: [
-          page: [type: :struct, constraints: [instance_of: Ankole.Pod.Page], allow_nil?: false],
+          page: [
+            type: :struct,
+            constraints: struct_constraints(Ankole.Pod.Page),
+            allow_nil?: false
+          ],
           table: @table
         ]
       )
@@ -390,7 +424,7 @@ defmodule Ankole.Pod.Database.Browser do
       argument(:filter, :map, constraints: @filter)
 
       run(fn input, context ->
-        APIError.result(Database.copy_table(context.actor.uid, input.arguments.id, attrs(input)))
+        APIError.result(Database.copy_table(context.actor, input.arguments.id, attrs(input)))
       end)
     end
   end

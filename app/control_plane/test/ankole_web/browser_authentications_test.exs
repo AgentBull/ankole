@@ -69,7 +69,7 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     assert %{"ok" => true} = api_response(ended, 200)
     assert current(ended, b_ref)["principalUID"] == b.uid
     stale = ended |> recycle() |> pin(a_ref) |> api_get("/api/v2/browser/session")
-    assert %{"errors" => [%{"code" => "unauthenticated"}]} = api_response(stale, 401)
+    assert_available_account(stale, b.uid)
   end
 
   test "a late A cookie rejects only A and does not replace B", %{
@@ -99,14 +99,15 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
       |> pin(current_a)
       |> api_get("/api/v2/browser/session")
 
-    assert %{"errors" => [%{"code" => "unauthenticated"}]} = api_response(stale, 401)
+    assert_available_account(stale, b.uid)
     assert current(stale, b_ref)["principalUID"] == b.uid
   end
 
-  test "unknown explicit API references fail without falling back to the active identity", %{
-    conn: conn,
-    a: a
-  } do
+  test "an expired reference keeps the account selector available; malformed selectors are rejected",
+       %{
+         conn: conn,
+         a: a
+       } do
     {conn, _} = add_login(conn |> init_test_session(%{}), a)
     page = get(conn, "/")
 
@@ -116,16 +117,22 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
       |> put_req_header("x-ankole-authentication", Ecto.UUID.generate() <> ".1")
       |> api_get("/api/v2/browser/session")
 
-    assert %{"errors" => [%{"code" => "unauthenticated"}]} =
-             api_response(response, 401)
+    assert_available_account(response, a.uid)
 
     response =
       page
       |> recycle()
       |> api_get("/api/v2/browser/session", %{"authentication_ref" => "foreign"})
 
-    assert %{"errors" => [%{"code" => "unauthenticated"}]} =
-             api_response(response, 401)
+    assert api_response(response, 401)["errors"]
+
+    malformed_header =
+      page
+      |> recycle()
+      |> put_req_header("x-ankole-authentication", "forged")
+      |> api_get("/api/v2/browser/session")
+
+    assert api_response(malformed_header, 401)["errors"]
   end
 
   test "a complete late login response cannot undo browser logout or displace the next account",
@@ -151,8 +158,7 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
 
     a_response = cookies |> api_request(a_ref) |> api_get("/api/v2/browser/session")
 
-    assert %{"errors" => [%{"code" => "unauthenticated"}]} =
-             api_response(a_response, 401)
+    assert_available_account(a_response, b.uid)
 
     Repo.put_tenant_id(tenant.id)
     assert {:error, :browser_session_expired} = BrowserSessions.get_authentication(a_ref)
@@ -191,11 +197,15 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     b: b,
     tenant: tenant
   } do
-    {:ok, page} = Ankole.Pod.Pages.create(a.uid, %{type: "file", private_owner_uid: a.uid})
+    {:ok, page} =
+      Ankole.Pod.Pages.create(Ankole.PrincipalsFixtures.actor_fixture(a.uid), %{
+        type: "file",
+        private_owner_uid: a.uid
+      })
 
     {:ok, uploaded} =
       Ankole.Pod.Files.upload(
-        a.uid,
+        Ankole.PrincipalsFixtures.actor_fixture(a.uid),
         page.id,
         "file",
         0,
@@ -244,11 +254,15 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     a: a,
     b: b
   } do
-    {:ok, page} = Ankole.Pod.Pages.create(a.uid, %{type: "file", private_owner_uid: a.uid})
+    {:ok, page} =
+      Ankole.Pod.Pages.create(Ankole.PrincipalsFixtures.actor_fixture(a.uid), %{
+        type: "file",
+        private_owner_uid: a.uid
+      })
 
     {:ok, _} =
       Ankole.Pod.Files.upload(
-        a.uid,
+        Ankole.PrincipalsFixtures.actor_fixture(a.uid),
         page.id,
         "file",
         0,
@@ -276,6 +290,15 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
 
     foreign = foreign_cookies |> unpinned_request() |> get(path, params)
     assert %{"error" => %{"code" => "unauthorized"}} = json_response(foreign, 401)
+  end
+
+  defp assert_available_account(response, uid) do
+    # Discovery lists the other held proofs. A pinned Pod request still fails.
+    assert %{"authenticated" => true, "principalUID" => nil, "accounts" => accounts} =
+             api_response(response, 200)
+
+    assert Enum.map(accounts, & &1["principalUID"]) == [uid]
+    refute WebSession.pod_session(response)
   end
 
   defp browser_request(cookies) do

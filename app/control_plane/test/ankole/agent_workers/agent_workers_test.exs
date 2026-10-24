@@ -73,10 +73,14 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
     end
 
     test "rotating the installation key does not touch Worker credentials", ctx do
-      {:ok, _key} =
-        AppConfigure.put_global(WorkerAuthKey.definition(), "rotated-installation-key")
+      definition = WorkerAuthKey.definition()
+      assert {:ok, original_key} = AppConfigure.get(definition)
 
-      on_exit(fn -> AppConfigure.delete_global(WorkerAuthKey.definition()) end)
+      on_exit(fn ->
+        assert {:ok, _key} = AppConfigure.put_global(definition, original_key)
+      end)
+
+      {:ok, _key} = AppConfigure.put_global(definition, "rotated-installation-key")
 
       generation = Repo.get!(AgentWorker, ctx.agent_uid).generation
 

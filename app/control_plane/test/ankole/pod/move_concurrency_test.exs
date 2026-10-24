@@ -14,14 +14,16 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
     {:ok, _} =
       AuthZ.create_permission_grant(%{
         principal_uid: owner.uid,
-        resource_pattern: "**",
+        resource_pattern: "tenant_console:**",
         action: "update"
       })
 
-    {:ok, _} = Pages.set_space(owner.uid, "edit")
-    {:ok, left} = Pages.create(owner.uid, %{})
-    {:ok, right} = Pages.create(owner.uid, %{})
-    {:ok, page} = Pages.create(owner.uid, %{parent_id: left.id})
+    {:ok, _} = Pages.set_space(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), "edit")
+    {:ok, left} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{})
+    {:ok, right} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{parent_id: left.id})
 
     on_exit(fn ->
       Repo.with_tenant(tenant.id, fn ->
@@ -48,8 +50,12 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
         Repo.bind_tenant(fn ->
           # The test holds the move's transaction open, so it runs the move body.
           Repo.transact(fn _repo ->
-            {:ok, moved} =
-              Pages.move_in_tx(ctx.editor.uid, ctx.page.id, %{parent_id: ctx.right.id})
+            {:ok, %{page: moved}} =
+              Pages.move_in_tx(
+                Ankole.PrincipalsFixtures.actor_fixture(ctx.editor.uid),
+                ctx.page.id,
+                %{parent_id: ctx.right.id}
+              )
 
             send(parent, {:checked, backend_pid()})
             receive do: (:commit -> {:ok, moved})
@@ -129,7 +135,10 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
         Repo.bind_tenant(fn ->
           Repo.checkout(fn ->
             send(parent, {:move_started, backend_pid()})
-            Pages.move(ctx.editor.uid, ctx.page.id, %{parent_id: ctx.right.id})
+
+            Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.editor.uid), ctx.page.id, %{
+              parent_id: ctx.right.id
+            })
           end)
         end)
       )
@@ -155,7 +164,12 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
       Task.async(
         Repo.bind_tenant(fn ->
           Repo.transact(fn _repo ->
-            {:ok, _} = Pages.set_space_in_tx(ctx.owner.uid, "view")
+            {:ok, _} =
+              Pages.set_space_in_tx(
+                Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+                "view"
+              )
+
             send(parent, {:access_uncommitted, backend_pid()})
             receive do: (:commit -> {:ok, :written})
           end)
@@ -169,7 +183,10 @@ defmodule Ankole.Pod.MoveConcurrencyTest do
         Repo.bind_tenant(fn ->
           Repo.checkout(fn ->
             send(parent, {:move_started, backend_pid()})
-            Pages.move(ctx.editor.uid, ctx.page.id, %{parent_id: ctx.right.id})
+
+            Pages.move(Ankole.PrincipalsFixtures.actor_fixture(ctx.editor.uid), ctx.page.id, %{
+              parent_id: ctx.right.id
+            })
           end)
         end)
       )

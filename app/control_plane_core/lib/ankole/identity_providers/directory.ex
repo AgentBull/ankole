@@ -13,6 +13,7 @@ defmodule Ankole.IdentityProviders.Directory do
   alias Ankole.AuthZ
   alias Ankole.Logging
   alias Ankole.Principals
+  require Ash.Query
 
   defmodule Group do
     @moduledoc """
@@ -35,6 +36,12 @@ defmodule Ankole.IdentityProviders.Directory do
             parent_external_id: String.t() | nil,
             provider_metadata: map()
           }
+  end
+
+  def managed_member?(uid) do
+    Ankole.IdentityProviders.DirectoryState
+    |> Ash.Query.filter(^uid in member_uids or ^uid in missing_uids)
+    |> Ankole.Ash.exists?()
   end
 
   @doc """
@@ -82,19 +89,20 @@ defmodule Ankole.IdentityProviders.Directory do
 
   @doc false
   def upsert_user_in_tx(provider_id, attrs, opts) do
+    :ok = Ankole.Repo.require_transaction()
     observation = Keyword.get(opts, :access_observation)
 
     if is_binary(observation),
-      do:
-        Ankole.AuthZ.Store.lock_built_in_admin_group_for_update(
-          Ankole.AuthZ.Root.admin_group_name()
-        )
+      do: Ankole.AuthZ.Store.lock_admin_groups_for_update()
 
     with {:ok, observed} <-
            Principals.upsert_platform_subject_human_in_tx(
-             Map.put_new(attrs, :authoritative_profile, true)
+             attrs
+             |> Map.put_new(:authoritative_profile, true)
+             |> Map.put_new(:membership, Keyword.get(opts, :membership, :member))
+             |> Map.put(:access_observation, observation)
            ),
-         :ok <- bind_attested_email(provider_id, observed.principal.uid, attrs),
+         :ok <- bind_contact_emails(provider_id, observed.principal, attrs, observation),
          :ok <- ensure_members_group_membership(provider_id, observed.principal.uid),
          {:ok, _sync} <- maybe_sync_memberships(provider_id, observed.principal.uid, opts),
          {:ok, principal} <-
@@ -124,40 +132,55 @@ defmodule Ankole.IdentityProviders.Directory do
     String.downcase("#{provider_id}:members:all")
   end
 
-  # The provider is the authority for the address it reports, on directory
-  # sync and on sign-in alike, so the address becomes an `email` identity
-  # binding: the Email adapter identifies a sender only by such a binding. An
-  # address that is already bound elsewhere stays there; an explicit binding
-  # always wins and the conflict is only logged. The binding runs on the
-  # caller's transaction, so the logged conflict never rolls back the upsert.
-  defp bind_attested_email(provider_id, principal_uid, attrs) do
-    case Principals.normalize_email(Map.get(attrs, :email)) do
-      nil ->
+  defp bind_contact_emails(provider_id, principal, attrs, observation) do
+    if observation in ["departure", "enterprise_exit", "directory_removal"] or
+         Principals.HumanAccess.offboarded_in_current_cycle?(principal) do
+      :ok
+    else
+      contacts =
+        Map.get(attrs, :contact_emails, []) ++ [%{email: Map.get(attrs, :email), kind: "member"}]
+
+      contacts
+      |> Enum.map(&%{&1 | email: Principals.normalize_email(&1.email)})
+      |> Enum.reject(&is_nil(&1.email))
+      |> Enum.uniq_by(& &1.email)
+      |> Enum.reduce_while(:ok, fn contact, :ok ->
+        case bind_attested_email(provider_id, principal.uid, contact) do
+          :ok -> {:cont, :ok}
+          error -> {:halt, error}
+        end
+      end)
+    end
+  end
+
+  # Directory contacts establish message attribution and member discovery.
+  # Personal login still requires a real site credential ceremony.
+  defp bind_attested_email(provider_id, principal_uid, %{email: email, kind: kind}) do
+    with :ok <- Principals.lock_platform_subject("email", email),
+         {:ok, _identity} <-
+           Principals.bind_external_identity(%{
+             principal_uid: principal_uid,
+             provider: "email",
+             external_id: email,
+             metadata: %{
+               "origin" => "directory",
+               "provider_id" => provider_id,
+               "email_kind" => kind
+             }
+           }) do
+      :ok
+    else
+      {:error, :platform_subject_already_bound} ->
+        Logging.warning(
+          "identity_providers.directory.email_already_bound",
+          "directory email address is bound to another principal",
+          %{provider_id: provider_id, principal_uid: principal_uid}
+        )
+
         :ok
 
-      email ->
-        with :ok <- Principals.lock_platform_subject("email", email),
-             {:ok, _identity} <-
-               Principals.bind_external_identity(%{
-                 principal_uid: principal_uid,
-                 provider: "email",
-                 external_id: email,
-                 metadata: %{"origin" => "directory", "provider_id" => provider_id}
-               }) do
-          :ok
-        else
-          {:error, :platform_subject_already_bound} ->
-            Logging.warning(
-              "identity_providers.directory.email_already_bound",
-              "directory email address is bound to another principal",
-              %{provider_id: provider_id, principal_uid: principal_uid}
-            )
-
-            :ok
-
-          {:error, _reason} = error ->
-            error
-        end
+      {:error, _reason} = error ->
+        error
     end
   end
 

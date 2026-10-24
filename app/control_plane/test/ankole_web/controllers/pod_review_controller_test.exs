@@ -20,10 +20,18 @@ defmodule AnkoleWeb.PodReviewControllerTest do
           {"image.svg", "image/svg+xml", "attachment"},
           {"report.pdf", "application/pdf", "inline"}
         ] do
-      {:ok, page} = Pages.create(uid, %{type: "file"})
+      {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{type: "file"})
 
       {:ok, uploaded} =
-        Files.upload(uid, page.id, "file", 0, name, "<script>parent.alert(1)</script>", type)
+        Files.upload(
+          Ankole.PrincipalsFixtures.actor_fixture(uid),
+          page.id,
+          "file",
+          0,
+          name,
+          "<script>parent.alert(1)</script>",
+          type
+        )
 
       response =
         conn
@@ -52,10 +60,23 @@ defmodule AnkoleWeb.PodReviewControllerTest do
     {conn, reader} = console_conn_with_principal(conn)
     Repo.put_tenant_id(tenant.id)
     owner = Ankole.PrincipalsFixtures.human_fixture().principal
-    {:ok, page} = Pages.create(owner.uid, %{type: "file", private_owner_uid: owner.uid})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+        type: "file",
+        private_owner_uid: owner.uid
+      })
 
     {:ok, uploaded} =
-      Files.upload(owner.uid, page.id, "file", 0, "report.txt", "private", "text/plain")
+      Files.upload(
+        Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
+        page.id,
+        "file",
+        0,
+        "report.txt",
+        "private",
+        "text/plain"
+      )
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(owner.uid, page.id, %{
@@ -83,7 +104,7 @@ defmodule AnkoleWeb.PodReviewControllerTest do
     Repo.put_tenant_id(tenant.id)
     other = Ankole.PrincipalsFixtures.human_fixture().principal
     agent = Ankole.PrincipalsFixtures.agent_fixture().principal
-    {:ok, page} = Pages.create(uid, %{})
+    {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{})
     first = api_get(conn, "/api/v2/pod/pages/#{page.id}/sharing")
     baseline = json_response(first, 200)["sharing_version"]
 
@@ -106,7 +127,7 @@ defmodule AnkoleWeb.PodReviewControllerTest do
       })
 
     assert %{"errors" => [%{"code" => "sharing_conflict"}]} = json_response(stale, 409)
-    {:ok, current} = Pages.sharing(uid, page.id)
+    {:ok, current} = Pages.sharing(Ankole.PrincipalsFixtures.actor_fixture(uid), page.id)
     assert Enum.any?(current.grants, &(&1.principal_uid == agent.uid))
     refute Enum.any?(current.grants, &(&1.principal_uid == other.uid))
 
@@ -133,6 +154,7 @@ defmodule AnkoleWeb.PodReviewControllerTest do
     {conn, uid} = console_conn_with_principal(conn)
     Repo.put_tenant_id(tenant.id)
     agent = Ankole.PrincipalsFixtures.agent_fixture(%{owner_principal_uid: uid}).principal
+    Ankole.ConversationsFixtures.grant_chat(uid, agent.uid)
     id = Ecto.UUID.generate()
 
     {:ok, _} =
@@ -174,7 +196,7 @@ defmodule AnkoleWeb.PodReviewControllerTest do
   } do
     {conn, uid} = console_conn_with_principal(conn)
     Repo.put_tenant_id(tenant.id)
-    {:ok, page} = Pages.create(uid, %{})
+    {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{})
     malformed = api_post(conn, "/api/v2/pod/versions", %{pages: [], tables: %{}})
 
     assert json_response(malformed, 400)

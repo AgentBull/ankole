@@ -1,6 +1,6 @@
 defmodule Ankole.Ash.Verifiers.Contracts do
   @moduledoc false
-  use Spark.Dsl.Transformer
+  use Spark.Dsl.Verifier
   alias Spark.Dsl.Verifier
 
   @transaction_hooks [
@@ -11,32 +11,20 @@ defmodule Ankole.Ash.Verifiers.Contracts do
   @action_hooks [Ash.Resource.Change.BeforeAction, Ash.Resource.Change.AfterAction]
   @mutations [:create, :update, :destroy]
 
-  def after?(module),
-    do:
-      module in [
-        Ash.Resource.Transformers.DefaultAccept,
-        Ash.Resource.Transformers.SetPrimaryActions,
-        AshStateMachine.Transformers.AddState,
-        Ankole.Ash.Transformers.TenantUpsertCondition,
-        Ankole.Ash.Transformers.CallerTransaction
-      ]
-
-  def transform(dsl) do
-    case verify(dsl) do
-      :ok -> {:ok, dsl}
-      error -> error
-    end
-  end
-
   def verify(dsl) do
     actions = Ash.Resource.Info.actions(dsl)
     tenant? = Verifier.get_persisted(dsl, :ankole_tenancy) == :tenant
 
     cond do
-      AshPostgres.DataLayer.Info.migrate?(dsl) ->
+      Ash.Resource.Info.data_layer(dsl) == AshPostgres.DataLayer and
+          AshPostgres.DataLayer.Info.migrate?(dsl) ->
         error(dsl, [:postgres], "existing tables must retain Ecto migrations with migrate? false")
 
-      Ash.Resource.Info.authorizers(dsl) != [] or Verifier.get_entities(dsl, [:policies]) != [] ->
+      Enum.any?(
+        Ash.Resource.Info.authorizers(dsl),
+        &(not Ankole.AuthZ.Dsl.native_authorizer?(&1))
+      ) or
+          Verifier.get_entities(dsl, [:policies]) != [] ->
         error(dsl, [], "Principal/AuthZ owns authorization; resource policies are forbidden")
 
       tenant? and Ash.Resource.Info.multitenancy_global?(dsl) ->

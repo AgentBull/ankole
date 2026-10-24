@@ -31,9 +31,23 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     :ok = Ankole.Tenants.ensure_scaffold(tenant)
     owner = Ankole.PrincipalsFixtures.human_fixture().principal.uid
     reader = Ankole.PrincipalsFixtures.human_fixture().principal.uid
-    {:ok, page} = Pages.create(owner, %{type: "database", private_owner_uid: owner})
-    {:ok, table} = Database.create_table(owner, page.id, %{name: "Durable"})
-    {:ok, field} = Database.create_field(owner, table.id, %{name: "Value", type: "text"})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner), %{
+        type: "database",
+        private_owner_uid: owner
+      })
+
+    {:ok, table} =
+      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(owner), page.id, %{
+        name: "Durable"
+      })
+
+    {:ok, field} =
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(owner), table.id, %{
+        name: "Value",
+        type: "text"
+      })
 
     on_exit(fn ->
       Repo.with_tenant(tenant.id, fn ->
@@ -93,7 +107,10 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     refute Task.Supervisor.children(Ankole.Pod.AppletTaskSupervisor) == []
     :ok = :gen_tcp.close(client)
     eventually(fn -> assert Task.Supervisor.children(Ankole.Pod.AppletTaskSupervisor) == [] end)
-    assert {:ok, %{records: [record]}} = Database.query(ctx.owner, ctx.table.id, %{})
+
+    assert {:ok, %{records: [record]}} =
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{})
+
     assert record["data"][ctx.field.id] == "committed"
   end
 
@@ -185,7 +202,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     invocation =
       Task.async(
         Repo.bind_tenant(fn ->
-          Applets.call(ctx.reader, applet.id, %{
+          Applets.call(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader), applet.id, %{
             "method" => "GET",
             "path" => "/read",
             "query" => %{}
@@ -209,16 +226,22 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     assert {:ok, %{"status" => 403, "body" => %{"error" => %{"code" => "forbidden"}}}} =
              Task.await(invocation)
 
-    assert {:ok, _} = Database.get_table(ctx.reader, ctx.table.id)
+    assert {:ok, _} =
+             Database.get_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader), ctx.table.id)
   end
 
   test "two callers retry field conflicts without losing inventory deductions or going negative",
        ctx do
     {:ok, stock} =
-      Database.create_field(ctx.owner, ctx.table.id, %{name: "Stock", type: "number"})
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{
+        name: "Stock",
+        type: "number"
+      })
 
     {:ok, %{records: [record]}} =
-      Database.write_records(ctx.owner, ctx.table.id, %{creates: [%{data: %{stock.id => 5}}]})
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{
+        creates: [%{data: %{stock.id => 5}}]
+      })
 
     applet =
       publish(ctx.owner, """
@@ -280,7 +303,12 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
 
     callers =
       for uid <- [ctx.owner, ctx.reader],
-          do: Task.async(Repo.bind_tenant(fn -> Applets.call(uid, applet.id, request) end))
+          do:
+            Task.async(
+              Repo.bind_tenant(fn ->
+                Applets.call(Ankole.PrincipalsFixtures.actor_fixture(uid), applet.id, request)
+              end)
+            )
 
     eventually(fn ->
       [[waiting]] =
@@ -302,13 +330,18 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
 
     assert Enum.sort(Enum.map(results, & &1["remaining"])) == [1, 3]
     assert Enum.sum(Enum.map(results, & &1["retries"])) >= 1
-    assert {:ok, %{records: [saved]}} = Database.query(ctx.owner, ctx.table.id, %{})
+
+    assert {:ok, %{records: [saved]}} =
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{})
+
     assert saved["data"][stock.id] == 1
 
     assert {:ok, %{"status" => 409, "body" => %{"error" => %{"code" => "insufficient_stock"}}}} =
-             Applets.call(ctx.reader, applet.id, request)
+             Applets.call(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader), applet.id, request)
 
-    assert {:ok, %{records: [unchanged]}} = Database.query(ctx.owner, ctx.table.id, %{})
+    assert {:ok, %{records: [unchanged]}} =
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), ctx.table.id, %{})
+
     assert unchanged["data"][stock.id] == 1
   end
 
@@ -317,7 +350,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
 
     assert {:ok, task} =
              Applets.start(
-               ctx.owner,
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
                applet.id,
                %{"method" => "GET", "path" => "/version", "query" => %{}},
                revision: 1
@@ -328,7 +361,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
 
     assert {:error, {:applet_revision_changed, %{revision: 2}}} =
              Applets.call(
-               ctx.owner,
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
                applet.id,
                %{"method" => "GET", "path" => "/version", "query" => %{}},
                revision: 1
@@ -336,7 +369,7 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
 
     assert {:ok, %{"body" => 2}} =
              Applets.call(
-               ctx.owner,
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
                applet.id,
                %{"method" => "GET", "path" => "/version", "query" => %{}},
                revision: 2
@@ -345,7 +378,12 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
 
   test "file writes retain the Pod upload limit before any durable bytes are stored", ctx do
     applet = publish(ctx.owner, "export default {}")
-    {:ok, file} = Pages.create(ctx.owner, %{type: "file", private_owner_uid: ctx.owner})
+
+    {:ok, file} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
+        type: "file",
+        private_owner_uid: ctx.owner
+      })
 
     context = %{
       "method" => "POST",
@@ -367,7 +405,8 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
     assert {:error, %{status: 413, code: "file_too_large"}} =
              Ankole.Pod.Applets.Capabilities.call(context, nil, "file.write", args)
 
-    assert {:ok, %{revision: 0, files: []}} = Files.manifest(ctx.owner, file.id)
+    assert {:ok, %{revision: 0, files: []}} =
+             Files.manifest(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), file.id)
   end
 
   test "cancelling an Applet with pending AI closes the actual upstream provider request", ctx do
@@ -417,7 +456,11 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
       )
 
     {:ok, task} =
-      Applets.start(ctx.owner, applet.id, %{"method" => "POST", "path" => "/ai", "query" => %{}})
+      Applets.start(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), applet.id, %{
+        "method" => "POST",
+        "path" => "/ai",
+        "query" => %{}
+      })
 
     assert_receive :provider_started, 5000
     Ankole.Pod.Applets.Invocation.cancel(task)
@@ -452,7 +495,11 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
       for _ <- 1..100 do
         {micros, {:ok, %{"status" => 200, "body" => 1}}} =
           :timer.tc(fn ->
-            Applets.call(ctx.owner, applet.id, %{"method" => "GET", "path" => "/", "query" => %{}})
+            Applets.call(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), applet.id, %{
+              "method" => "GET",
+              "path" => "/",
+              "query" => %{}
+            })
           end)
 
         micros
@@ -491,7 +538,12 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
   end
 
   defp publish(uid, source) do
-    {:ok, page} = Pages.create(uid, %{type: "applet", private_owner_uid: uid})
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{
+        type: "applet",
+        private_owner_uid: uid
+      })
+
     {:ok, _} = publish_existing(uid, page, 0, source)
     page
   end
@@ -512,6 +564,6 @@ defmodule Ankole.Pod.AppletLifecycleIntegrationTest do
         end
       )
 
-    Files.publish(uid, page.id, revision, manifest)
+    Files.publish(Ankole.PrincipalsFixtures.actor_fixture(uid), page.id, revision, manifest)
   end
 end

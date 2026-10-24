@@ -5,9 +5,18 @@ defmodule Ankole.Brain.Schemas.Claim do
   disjoint; actions own each change to the assertion and its history.
   """
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.Brain,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    allow(:console_list, resource: "site_console:brain", action: "read")
+    allow(:console_supersede, resource: "site_console:brain", action: "update")
+    allow(:console_forget, resource: "site_console:brain", action: "update")
+    allow(:console_resolve, resource: "site_console:brain", action: "update")
+  end
 
   json_api do
     type("brain_claim")

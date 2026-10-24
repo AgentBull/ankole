@@ -10,31 +10,33 @@ defmodule Ankole.Conversations.NativeQueue do
   @addressed "conversation.message.addressed"
 
   @doc "Changes only native follow-ups that have not been admitted to a turn."
-  def update_queue(human_uid, id, attrs) when is_map(attrs) do
+  def update_queue(%Ankole.AuthZ.Actor{} = actor, id, attrs) when is_map(attrs) do
     Repo.transact_top_level(
-      fn -> update_queue_in_tx(human_uid, id, attrs) end,
+      fn -> update_queue_in_tx(actor, id, attrs) end,
       after_commit: &Native.publish_native_change/1
     )
-    |> Native.committed(human_uid)
+    |> Native.committed(actor)
   end
 
   def update_queue(_human_uid, _id, _attrs), do: {:error, :invalid_request}
 
   @doc false
-  def update_queue_in_tx(human_uid, id, attrs) do
+  def update_queue_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
+    human_uid = Ankole.AuthZ.Actor.uid(actor)
+
     with {:ok, id} <- Queries.cast_id(id),
-         %Conversation{} = visible <- Native.visible_conversation(human_uid, id),
+         %Conversation{} = visible <- Native.visible_conversation(actor, id),
          %{} = agent <- Native.conversation_agent(id),
          session_id = Ankole.Sessions.Key.conversation(id),
-         :ok <- Native.lock_participants_in_tx(human_uid, agent.uid),
+         :ok <- Native.lock_participants_in_tx(actor, agent.uid),
          :ok <-
            Signals.lock_target_in_tx(%{
              agent_uid: agent.uid,
              session_id: session_id
            }),
-         :ok <- Native.check_human_in_tx(human_uid),
-         :ok <- Native.authorize_page(human_uid, visible.page_id),
-         %Conversation{} = conversation <- Native.visible_conversation(human_uid, id, lock: true),
+         :ok <- Native.check_human_in_tx(actor),
+         :ok <- Native.authorize_page(actor, visible.page_id),
+         %Conversation{} = conversation <- Native.visible_conversation(actor, id, lock: true),
          inputs = Signals.lock_signals_in_tx(Native.pending_filter(id)),
          true <- Enum.all?(inputs, &(&1.human_uid == human_uid)),
          {:ok, accepted_retry} <- accepted_retry(conversation, agent, attrs),
@@ -43,7 +45,7 @@ defmodule Ankole.Conversations.NativeQueue do
          {:ok, changed} <-
            if(accepted_retry,
              do: {:ok, [accepted_retry]},
-             else: change_queue_in_tx(human_uid, conversation, agent, inputs, attrs)
+             else: change_queue_in_tx(actor, conversation, agent, inputs, attrs)
            ),
          :ok <-
            Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
@@ -98,10 +100,12 @@ defmodule Ankole.Conversations.NativeQueue do
        else: {:error, :queue_changed}
   end
 
-  defp change_queue_in_tx(human_uid, conversation, agent, inputs, attrs) do
+  defp change_queue_in_tx(%Ankole.AuthZ.Actor{} = actor, conversation, agent, inputs, attrs) do
+    human_uid = Ankole.AuthZ.Actor.uid(actor)
+
     case Ankole.Attrs.get(attrs, :action) do
       "stop" ->
-        stop_queue_in_tx(human_uid, conversation, agent, inputs, attrs)
+        stop_queue_in_tx(actor, conversation, agent, inputs, attrs)
 
       "resume" ->
         with {:ok, _} <- put_queue_pause(conversation, false), do: {:ok, []}
@@ -110,7 +114,7 @@ defmodule Ankole.Conversations.NativeQueue do
         reorder_inputs(inputs, Ankole.Attrs.get(attrs, :message_ids))
 
       action when action in ["regenerate", "edit_last"] ->
-        retry_last_in_tx(human_uid, conversation, agent, action, attrs)
+        retry_last_in_tx(actor, conversation, agent, action, attrs)
 
       action when action in ["edit", "send_now", "remove"] ->
         with {:ok, id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :message_id)),
@@ -178,7 +182,9 @@ defmodule Ankole.Conversations.NativeQueue do
     |> List.first()
   end
 
-  defp retry_last_in_tx(human_uid, conversation, agent, action, attrs) do
+  defp retry_last_in_tx(%Ankole.AuthZ.Actor{} = actor, conversation, agent, action, attrs) do
+    human_uid = Ankole.AuthZ.Actor.uid(actor)
+
     with {:ok, command_id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :command_id)),
          {:ok, message_id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :message_id)) do
       key = %{agent_uid: agent.uid, session_id: Ankole.Sessions.Key.conversation(conversation.id)}
@@ -289,7 +295,9 @@ defmodule Ankole.Conversations.NativeQueue do
     Ankole.Ash.update(conversation, :put_metadata, %{metadata: metadata})
   end
 
-  defp stop_queue_in_tx(human_uid, conversation, agent, inputs, attrs) do
+  defp stop_queue_in_tx(%Ankole.AuthZ.Actor{} = actor, conversation, agent, inputs, attrs) do
+    human_uid = Ankole.AuthZ.Actor.uid(actor)
+
     with {:ok, command_id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :command_id)) do
       case control_signal(agent, conversation, command_id) do
         %Signal{} = existing ->

@@ -11,7 +11,6 @@ mod ids;
 ))]
 pub(crate) mod io_runtime;
 mod jwt;
-mod password;
 mod phone;
 mod search;
 mod token;
@@ -23,7 +22,6 @@ pub use error::{KernelError, KernelResult};
 pub use hash::xxh3_128_hex;
 pub use ids::{gen_uuid, gen_uuid_v7, uuid_expand, uuid_shorten};
 pub use jwt::{jwt_sign_pem, jwt_verify_jwk};
-pub use password::{argon2id_hash, argon2id_verify};
 pub use phone::phone_normalize_e164;
 pub use search::{ReciprocalRankFusionResult, reciprocal_rank_fusion};
 pub use token::estimate_o200k_base_tokens;
@@ -57,31 +55,6 @@ mod tests {
             b"api-key-\0-with-bytes"
         );
         assert_eq!(aead_decrypt(AEAD_CIPHERTEXT, AEAD_KEY).unwrap(), b"secret");
-    }
-
-    #[test]
-    fn argon2id_hash_round_trips_and_rejects_wrong_passwords() {
-        let hash = argon2id_hash("correct horse battery staple").unwrap();
-
-        assert!(hash.starts_with("$argon2id$v=19$"));
-        assert!(argon2id_verify("correct horse battery staple", &hash).unwrap());
-        assert!(!argon2id_verify("wrong password", &hash).unwrap());
-    }
-
-    #[test]
-    fn argon2id_hash_generates_a_new_salt_per_call() {
-        let first = argon2id_hash("same password").unwrap();
-        let second = argon2id_hash("same password").unwrap();
-
-        assert_ne!(first, second);
-        assert!(argon2id_verify("same password", &first).unwrap());
-        assert!(argon2id_verify("same password", &second).unwrap());
-    }
-
-    #[test]
-    fn argon2id_verify_rejects_malformed_hash_strings() {
-        assert!(argon2id_verify("password", "not a phc string").is_err());
-        assert!(argon2id_verify("password", "$argon2id$v=19$not*valid*salt").is_err());
     }
 
     #[test]

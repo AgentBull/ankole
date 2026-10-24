@@ -15,6 +15,7 @@ defmodule AnkoleWeb.PodModelControllerTest do
       console_conn_with_principal(pod_conn(conn, tenant))
 
     agent = agent_fixture(%{owner_principal_uid: human}).principal
+    Ankole.ConversationsFixtures.grant_chat(human, agent.uid)
     {:ok, heavy} = ModelProfiles.get_model_profile(agent.uid, "heavy")
 
     {:ok, _} =
@@ -87,7 +88,7 @@ defmodule AnkoleWeb.PodModelControllerTest do
     id = Ecto.UUID.generate()
 
     {:ok, detail} =
-      Conversations.create(ctx.human, %{
+      Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.human), %{
         conversation_id: id,
         message_id: Ecto.UUID.generate(),
         agent_uid: ctx.agent.uid,

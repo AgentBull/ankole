@@ -15,17 +15,39 @@ defmodule AnkoleWeb.PodPageControllerTest do
     {conn, uid} = console_conn_with_principal(conn)
     Repo.put_tenant_id(tenant.id)
     other = Ankole.PrincipalsFixtures.human_fixture().principal
-    {:ok, space} = Pages.create(uid, %{title: "Admin space"})
-    {:ok, own_private} = Pages.create(uid, %{title: "Own Private", private_owner_uid: uid})
+
+    {:ok, space} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{title: "Admin space"})
+
+    {:ok, own_private} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{
+        title: "Own Private",
+        private_owner_uid: uid
+      })
 
     {:ok, private} =
-      Pages.create(other.uid, %{title: "Shared Private", private_owner_uid: other.uid})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(other.uid), %{
+        title: "Shared Private",
+        private_owner_uid: other.uid
+      })
 
-    {:ok, child} = Pages.create(other.uid, %{title: "Inherited editor", parent_id: private.id})
-    {:ok, restricted} = Pages.create(other.uid, %{title: "Direct viewer", parent_id: private.id})
+    {:ok, child} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(other.uid), %{
+        title: "Inherited editor",
+        parent_id: private.id
+      })
+
+    {:ok, restricted} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(other.uid), %{
+        title: "Direct viewer",
+        parent_id: private.id
+      })
 
     {:ok, hidden} =
-      Pages.create(other.uid, %{title: "Hidden Private", private_owner_uid: other.uid})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(other.uid), %{
+        title: "Hidden Private",
+        private_owner_uid: other.uid
+      })
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(other.uid, private.id, %{
@@ -38,8 +60,13 @@ defmodule AnkoleWeb.PodPageControllerTest do
         grants: [%{principal_uid: uid, role: "view"}]
       })
 
-    {:ok, _} = Pages.state(uid, child.id, %{favorite: true, visited: true})
-    {:ok, _} = Pages.set_space(uid, "view")
+    {:ok, _} =
+      Pages.state(Ankole.PrincipalsFixtures.actor_fixture(uid), child.id, %{
+        favorite: true,
+        visited: true
+      })
+
+    {:ok, _} = Pages.set_space(Ankole.PrincipalsFixtures.actor_fixture(uid), "view")
 
     expected = %{
       space.id => "manage",
@@ -56,12 +83,15 @@ defmodule AnkoleWeb.PodPageControllerTest do
 
       for page <- pages do
         assert page["role"] == Map.fetch!(expected, page["id"])
-        assert {:ok, %{role: role}} = Pages.get(uid, page["id"])
+
+        assert {:ok, %{role: role}} =
+                 Pages.get(Ankole.PrincipalsFixtures.actor_fixture(uid), page["id"])
+
         assert page["role"] == role
       end
     end
 
-    {:ok, _} = Pages.delete(uid, space.id)
+    {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(uid), space.id)
     response = conn |> recycle_api() |> api_get("/api/v2/pod/pages", %{scope: "trash"})
     assert %{"pages" => [%{"id" => id, "role" => "manage"}]} = api_response(response, 200)
     assert id == space.id
@@ -115,8 +145,13 @@ defmodule AnkoleWeb.PodPageControllerTest do
     {conn, uid} = console_conn_with_principal(conn)
     Repo.put_tenant_id(tenant.id)
     other = Ankole.PrincipalsFixtures.human_fixture().principal
-    {:ok, parent} = Pages.create(uid, %{})
-    {:ok, target} = Pages.create(other.uid, %{type: "database", private_owner_uid: other.uid})
+    {:ok, parent} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{})
+
+    {:ok, target} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(other.uid), %{
+        type: "database",
+        private_owner_uid: other.uid
+      })
 
     hidden = api_post(conn, "/api/v2/pod/pages/#{parent.id}/embeds/#{target.id}/delete", %{})
     assert true == api_response(hidden, 200)
@@ -133,7 +168,12 @@ defmodule AnkoleWeb.PodPageControllerTest do
         grants: [%{principal_uid: uid, role: "view"}]
       })
 
-    assert {:error, :forbidden} = Pages.authorize(uid, target.id, "page_manage")
+    assert {:error, :forbidden} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(uid),
+               target.id,
+               "page_manage"
+             )
 
     removed =
       missing
@@ -141,7 +181,9 @@ defmodule AnkoleWeb.PodPageControllerTest do
       |> api_post("/api/v2/pod/pages/#{parent.id}/embeds/#{target.id}/delete", %{})
 
     assert true == api_response(removed, 200)
-    assert {:ok, %{page: %{deleted_at: nil}}} = Pages.get(other.uid, target.id)
+
+    assert {:ok, %{page: %{deleted_at: nil}}} =
+             Pages.get(Ankole.PrincipalsFixtures.actor_fixture(other.uid), target.id)
   end
 
   test "personal state, sharing candidates and Space agents use browser JSON values", %{
@@ -150,9 +192,11 @@ defmodule AnkoleWeb.PodPageControllerTest do
   } do
     {conn, uid} = console_conn_with_principal(conn)
     Repo.put_tenant_id(tenant.id)
-    {:ok, page} = Pages.create(uid, %{})
+    {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{})
     agent = Ankole.PrincipalsFixtures.agent_fixture(%{owner_principal_uid: uid}).principal
-    {:ok, _} = Pages.space_agent(uid, agent.uid, "edit")
+
+    Ankole.ConversationsFixtures.grant_chat(uid, agent.uid)
+    {:ok, _} = Pages.space_agent(Ankole.PrincipalsFixtures.actor_fixture(uid), agent.uid, "edit")
 
     state =
       api_put(conn, "/api/v2/pod/pages/#{page.id}/user-state", %{
@@ -186,9 +230,13 @@ defmodule AnkoleWeb.PodPageControllerTest do
        %{conn: conn, tenant: tenant} do
     {conn, uid} = console_conn_with_principal(conn)
     Repo.put_tenant_id(tenant.id)
-    {:ok, visible} = Pages.create(uid, %{})
+    {:ok, visible} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{})
     other = Ankole.PrincipalsFixtures.human_fixture().principal
-    {:ok, hidden} = Pages.create(other.uid, %{private_owner_uid: other.uid})
+
+    {:ok, hidden} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(other.uid), %{
+        private_owner_uid: other.uid
+      })
 
     versions =
       api_post(conn, "/api/v2/pod/versions", %{pages: [visible.id, hidden.id], tables: []})
@@ -211,6 +259,7 @@ defmodule AnkoleWeb.PodPageControllerTest do
     {conn, uid} = console_conn_with_principal(conn)
     Repo.put_tenant_id(tenant.id)
     agent = Ankole.PrincipalsFixtures.agent_fixture(%{owner_principal_uid: uid}).principal
+    Ankole.ConversationsFixtures.grant_chat(uid, agent.uid)
     id = Ankole.Kernel.gen_uuid_v7()
     message = Ankole.Kernel.gen_uuid_v7()
 

@@ -1,9 +1,17 @@
 defmodule Ankole.Pod.Files.Browser do
   @moduledoc "Page file manifests and atomic publication through the browser API."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: Ankole.Pod,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:pod)
+    allow(:manifest, check: :guardrail)
+    allow(:publish, check: :guardrail)
+    allow(:copy, check: :guardrail)
+  end
 
   alias Ankole.Pod.{Files, APIError}
   alias Ankole.Ash.Types.UUIDv7
@@ -41,7 +49,7 @@ defmodule Ankole.Pod.Files.Browser do
       argument(:id, UUIDv7, allow_nil?: false)
 
       run(fn input, context ->
-        APIError.result(Files.manifest(context.actor.uid, input.arguments.id))
+        APIError.result(Files.manifest(context.actor, input.arguments.id))
       end)
     end
 
@@ -58,7 +66,7 @@ defmodule Ankole.Pod.Files.Browser do
       run(fn input, context ->
         APIError.result(
           Files.publish(
-            context.actor.uid,
+            context.actor,
             input.arguments.id,
             input.arguments.base_revision,
             input.arguments.files
@@ -85,7 +93,7 @@ defmodule Ankole.Pod.Files.Browser do
       run(fn input, context ->
         APIError.result(
           Files.copy_from_message(
-            context.actor.uid,
+            context.actor,
             input.arguments.id,
             input.arguments.base_revision,
             input.arguments.message_id,

@@ -225,6 +225,7 @@ defmodule Ankole.Signals.CloudEventsTest do
   test "subscriptions require the participating Agent and preserve native conversation identity",
        context do
     %{principal: human} = human_fixture()
+    Ankole.ConversationsFixtures.grant_chat(human.uid, context.first.uid)
     id = Ecto.UUID.generate()
 
     assert {:ok, _} =

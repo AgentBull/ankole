@@ -2,8 +2,8 @@ defmodule Ankole.Principals.HumanAccess do
   @moduledoc """
   Human restrictions and persistent credential revocation.
 
-  Each change is a generic action of `Ankole.Principals.Principal` that owns
-  its transaction; the `_in_tx` functions are its steps.
+  Public functions own the transaction. Their `_in_tx` steps compose resource
+  actions for restrictions, credentials, sessions, and cleanup work.
   """
 
   require Ash.Query
@@ -32,6 +32,7 @@ defmodule Ankole.Principals.HumanAccess do
              &Map.take(&1, [
                :id,
                :source,
+               :disposition,
                :reason,
                :provider_time,
                :recovery_verified_at,
@@ -140,9 +141,51 @@ defmodule Ankole.Principals.HumanAccess do
     end
   end
 
-  def disable(uid, reason, actor_uid, operation_id) do
+  def recover_pod_admin(tenant_id, uid, operator, reason)
+      when is_binary(operator) and operator != "" do
+    Repo.with_tenant(tenant_id, fn ->
+      Repo.transact_top_level(fn ->
+        with {:ok, _} <- Ankole.Tenants.lock_administration(),
+             {:ok, principal} <- Ankole.AuthZ.Recovery.recover_pod_admin_in_tx(uid),
+             {:ok, _} <-
+               record(principal, principal, "operator_admin_recovery", %{
+                 source: "operator",
+                 reason: reason,
+                 operation_id: Ash.UUIDv7.generate(),
+                 details: %{
+                   "operator" => operator,
+                   "identity_verified" => true,
+                   "group" => "pod_admin"
+                 }
+               }),
+             do: {:ok, principal}
+      end)
+    end)
+  end
+
+  def exit(%Ankole.AuthZ.Actor{} = actor) do
+    uid = Ankole.AuthZ.Actor.uid(actor)
+
+    Repo.transact_top_level(fn ->
+      with false <- Ankole.IdentityProviders.directory_managed_member?(uid),
+           do:
+             restrict_in_tx(uid, %{
+               source: "manual",
+               disposition: :offboarded,
+               reason: "member_exit",
+               actor: Ankole.ActorRef.from_actor(actor),
+               self_exit: true,
+               operation_id: Ankole.Ecto.UUIDv7.autogenerate()
+             }),
+           else: (true -> {:error, :directory_managed_member})
+    end)
+  end
+
+  def disable(uid, reason, actor_uid, operation_id, disposition \\ :suspended)
+      when disposition in [:suspended, :offboarded] do
     restrict(uid, %{
       source: "manual",
+      disposition: disposition,
       reason: reason,
       actor: actor_uid,
       operation_id: operation_id
@@ -153,6 +196,7 @@ defmodule Ankole.Principals.HumanAccess do
       when is_binary(provider_id) and provider_id != "" do
     restrict(uid, %{
       source: "provider:" <> provider_id,
+      disposition: provider_disposition(reason),
       reason: reason,
       operation_id: operation_id,
       provider_time: provider_time
@@ -163,6 +207,7 @@ defmodule Ankole.Principals.HumanAccess do
   def restrict_from_provider_in_tx(uid, provider_id, reason, operation_id, provider_time) do
     restrict_in_tx(uid, %{
       source: "provider:" <> provider_id,
+      disposition: provider_disposition(reason),
       reason: reason,
       operation_id: operation_id,
       provider_time: provider_time
@@ -171,6 +216,33 @@ defmodule Ankole.Principals.HumanAccess do
 
   defp restrict(uid, attrs),
     do: Repo.transact_top_level(fn -> restrict_in_tx(uid, attrs) end)
+
+  defp provider_disposition("suspended"), do: :suspended
+  defp provider_disposition(_reason), do: :offboarded
+
+  def offboarded_in_current_cycle?(%Principal{status: :disabled, uid: uid}) do
+    last_restore =
+      AccessEvent
+      |> Ash.Query.filter(principal_uid == ^uid and action == "restore")
+      |> Ash.Query.sort(inserted_at: :desc)
+      |> Ash.Query.limit(1)
+      |> Ankole.Ash.read_one!()
+
+    query =
+      AccessRestriction
+      |> Ash.Query.filter(principal_uid == ^uid and disposition == :offboarded)
+
+    query =
+      if last_restore do
+        Ash.Query.filter(query, is_nil(cleared_at) or cleared_at > ^last_restore.inserted_at)
+      else
+        query
+      end
+
+    Ankole.Ash.exists?(query)
+  end
+
+  def offboarded_in_current_cycle?(%Principal{}), do: false
 
   @doc false
   def restrict_in_tx(uid, attrs) do
@@ -197,6 +269,9 @@ defmodule Ankole.Principals.HumanAccess do
     end
   end
 
+  defp lock_disable(uid, %{source: "manual", self_exit: true}),
+    do: AuthZ.ensure_can_disable_principal(uid)
+
   defp lock_disable(uid, %{source: "manual", actor: %Ankole.ActorRef{uid: uid}}),
     do: {:error, :cannot_disable_self}
 
@@ -204,7 +279,7 @@ defmodule Ankole.Principals.HumanAccess do
     do: AuthZ.ensure_can_disable_principal(uid)
 
   defp lock_disable(_uid, %{source: "provider:" <> _}) do
-    Store.lock_built_in_admin_group_for_update(Ankole.AuthZ.Root.admin_group_name())
+    Store.lock_admin_groups_for_update()
     :ok
   end
 
@@ -213,7 +288,7 @@ defmodule Ankole.Principals.HumanAccess do
       AccessRestriction
       |> Ash.Query.filter(
         principal_uid == ^principal.uid and source == ^attrs.source and
-          reason == ^attrs.reason and is_nil(cleared_at)
+          disposition == ^attrs.disposition and reason == ^attrs.reason and is_nil(cleared_at)
       )
       |> Ankole.Ash.read_one!() || %AccessRestriction{}
 
@@ -221,7 +296,9 @@ defmodule Ankole.Principals.HumanAccess do
            persist_restriction(restriction, Map.put(attrs, :principal_uid, principal.uid)),
          {:ok, disabled} <-
            Ankole.Ash.update(principal, :revoke_human_in_tx, %{}),
-         {:ok, _event} <- record(principal, disabled, "disable", attrs),
+         {:ok, released} <- release_for_disposition(principal, attrs.disposition),
+         {:ok, _event} <-
+           record(principal, disabled, "disable", Map.put(attrs, :released_identifiers, released)),
          :ok <-
            Ankole.OIDC.Sessions.revoke_human_in_tx(disabled.uid, disabled.access_version),
          :ok <- Ankole.Principals.WorkCleanup.enqueue_in_tx(disabled.uid, disabled.access_version) do
@@ -229,12 +306,27 @@ defmodule Ankole.Principals.HumanAccess do
     end
   end
 
+  defp release_for_disposition(principal, :offboarded),
+    do:
+      Ankole.Authn.Info.run_add_on(Principal, :offboarding_release, :release, %{
+        principal: principal
+      })
+
+  defp release_for_disposition(_principal, :suspended), do: {:ok, []}
+
   defp persist_restriction(%AccessRestriction{id: nil}, attrs),
     do:
       Ankole.Ash.create(
         AccessRestriction,
         :restrict_in_tx,
-        Map.take(attrs, [:principal_uid, :source, :reason, :operation_id, :provider_time])
+        Map.take(attrs, [
+          :principal_uid,
+          :source,
+          :disposition,
+          :reason,
+          :operation_id,
+          :provider_time
+        ])
       )
 
   defp persist_restriction(restriction, attrs),
@@ -242,7 +334,7 @@ defmodule Ankole.Principals.HumanAccess do
       Ankole.Ash.update(
         restriction,
         :repeat_restriction_in_tx,
-        Map.take(attrs, [:source, :reason, :operation_id, :provider_time])
+        Map.take(attrs, [:operation_id, :provider_time])
       )
 
   defp stale_provider_observation?(uid, %{
@@ -413,6 +505,7 @@ defmodule Ankole.Principals.HumanAccess do
           :reason,
           :actor,
           :provider_time,
+          :released_identifiers,
           :details
         ]),
         %{

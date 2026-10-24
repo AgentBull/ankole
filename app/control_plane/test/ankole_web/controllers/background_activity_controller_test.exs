@@ -24,6 +24,7 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     %{principal: agent} =
       Ankole.AIGatewayCase.background_agent_fixture(%{owner_principal_uid: human.uid})
 
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
     source = Ankole.WorkFixtures.service_source(agent.uid)
     {job, run} = automation_run(agent.uid, source)
 
@@ -284,12 +285,17 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
 
     {conn, uid} = console_conn_with_principal(conn)
     Repo.put_tenant_id(tenant.id)
-    Repo.delete_all(from(grant in Ankole.AuthZ.Grant, where: grant.resource_pattern == "**"))
+
+    Repo.delete_all(
+      from(grant in Ankole.AuthZ.Grant,
+        where: grant.resource_pattern in ["site_console:**", "tenant_console:**"]
+      )
+    )
 
     assert {:ok, _} =
              Ankole.AuthZ.create_permission_grant(%{
                principal_uid: uid,
-               resource_pattern: "agent:#{agent.uid}:automation_jobs",
+               resource_pattern: "site_console:agent:#{agent.uid}:automation_jobs",
                action: "read",
                condition: "true",
                metadata: %{}
@@ -315,7 +321,7 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     assert {:ok, _} =
              Ankole.AuthZ.create_permission_grant(%{
                principal_uid: uid,
-               resource_pattern: "agent:#{agent.uid}:workflow",
+               resource_pattern: "site_console:agent:#{agent.uid}:workflow",
                action: "read",
                condition: "true",
                metadata: %{}

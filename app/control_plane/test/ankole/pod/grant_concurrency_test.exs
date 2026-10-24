@@ -37,7 +37,7 @@ defmodule Ankole.Pod.GrantConcurrencyTest do
     {:ok, _} =
       AuthZ.create_permission_grant(%{
         principal_uid: owner.uid,
-        resource_pattern: "**",
+        resource_pattern: "tenant_console:**",
         action: "update"
       })
 
@@ -48,9 +48,18 @@ defmodule Ankole.Pod.GrantConcurrencyTest do
         action: "page_edit"
       })
 
-    {:ok, root} = Pages.create(owner.uid, %{title: "Source"})
-    {:ok, child} = Pages.create(owner.uid, %{parent_id: root.id, title: "Moving"})
-    {:ok, destination} = Pages.create(owner.uid, %{title: "Target"})
+    {:ok, root} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{title: "Source"})
+
+    {:ok, child} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+        parent_id: root.id,
+        title: "Moving"
+      })
+
+    {:ok, destination} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{title: "Target"})
+
     other_actor = Repo.with_tenant(other.id, fn -> human_fixture().principal end)
     parent = self()
 
@@ -59,7 +68,13 @@ defmodule Ankole.Pod.GrantConcurrencyTest do
         Repo.bind_tenant(fn ->
           Repo.transact(fn _ ->
             # The test holds the move's transaction open, so it runs the move body.
-            assert {:ok, _} = Pages.move_in_tx(editor.uid, child.id, %{parent_id: destination.id})
+            assert {:ok, _} =
+                     Pages.move_in_tx(
+                       Ankole.PrincipalsFixtures.actor_fixture(editor.uid),
+                       child.id,
+                       %{parent_id: destination.id}
+                     )
+
             send(parent, :move_holds_tree)
 
             receive do
@@ -99,7 +114,11 @@ defmodule Ankole.Pod.GrantConcurrencyTest do
       send(holder.pid, :release_move)
       assert {:ok, :moved} = Task.await(holder)
       assert {:ok, _} = Task.await(revoke)
-      assert {:error, :forbidden} = Pages.move(editor.uid, child.id, %{parent_id: root.id})
+
+      assert {:error, :forbidden} =
+               Pages.move(Ankole.PrincipalsFixtures.actor_fixture(editor.uid), child.id, %{
+                 parent_id: root.id
+               })
     after
       send(holder.pid, :release_move)
     end

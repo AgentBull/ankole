@@ -6,7 +6,6 @@ defmodule Ankole.AppConfigure.Declarations do
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.PatternDefinition
   alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
-  alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Sessions.AgentConfig
   alias Ankole.AgentWorkers.Settings, as: AgentWorkerSettings
   alias Ankole.Sessions.BackgroundAgentJobCap
@@ -21,11 +20,11 @@ defmodule Ankole.AppConfigure.Declarations do
       Ankole.Tenants.privileged_definition(),
       Ankole.SystemConfig.timezone_definition(),
       Ankole.Setup.Config.completed_definition(),
+      Ankole.Principals.PodLoginPolicy.definition(),
       Ankole.Setup.Config.bootstrap_activation_code_definition(),
       Ankole.Plugins.Config.enabled_ids_definition(),
       CompactionPolicy.config_definition(),
       Ankole.Security.SSRFFilter.definition(),
-      LocalPassword.RetryGuard.concurrency_definition(),
       WorkerAuthKey.definition(),
       WorkerWebFetchConfig.definition(),
       BackgroundAgentJobCap.definition(),
@@ -40,11 +39,12 @@ defmodule Ankole.AppConfigure.Declarations do
       Ankole.Observability.definitions() ++
       AgentPluginConfig.definitions() ++
       IdentityProviderConfig.definitions() ++
+      Ankole.Authn.Config.definitions() ++
       AgentConfig.definitions()
   end
 
   @spec core_patterns() :: [PatternDefinition.t()]
   def core_patterns do
-    [LocalPassword.app_config_pattern()]
+    []
   end
 end

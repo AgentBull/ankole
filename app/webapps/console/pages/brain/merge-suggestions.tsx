@@ -30,7 +30,7 @@ import type { ListBrainMergeSuggestionsResponse } from '../../api/v2/generated/t
 import { nextPageParams, fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
-import { LoadMore, ResourceListPage } from '../../console-list-page'
+import { ResourceListPage } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
 
 const SUGGESTION_STATUSES = ['pending', 'approved', 'rejected'] as const
@@ -102,8 +102,7 @@ export function BrainMergeSuggestionsPage() {
         emptyTitle={t('console.brain.merge_suggestions_empty_title')}
         emptyDescription={t('console.brain.merge_suggestions_empty_description')}
         emptyIcon={<RiGitMergeLine aria-hidden />}
-        error={suggestions.error}
-        footer={<LoadMore query={suggestions} />}
+        pagination={suggestions}
         isFiltered={status !== 'pending'}
         onClearFilters={() => setStatus('pending')}
         toolbarCanRevealRows

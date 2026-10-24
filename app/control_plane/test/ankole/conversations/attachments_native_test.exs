@@ -10,6 +10,7 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
   setup do
     human = human_fixture().principal
     agent = agent_fixture(%{owner_principal_uid: human.uid}).principal
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
     %{human: human, agent: agent}
   end
 
@@ -187,7 +188,7 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
 
     assert {:ok, ^attachment} =
              Native.read_to_file(
-               ctx.human.uid,
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid),
                attrs.conversation_id,
                attrs.message_id,
                attachment["path"],
@@ -199,7 +200,7 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
 
     assert {:error, :not_found} =
              Native.read_to_file(
-               other.uid,
+               Ankole.PrincipalsFixtures.actor_fixture(other.uid),
                attrs.conversation_id,
                attrs.message_id,
                attachment["path"],
@@ -208,7 +209,7 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
 
     assert {:error, :not_found} =
              Native.read_to_file(
-               ctx.human.uid,
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid),
                attrs.conversation_id,
                Ecto.UUID.generate(),
                attachment["path"],
@@ -223,6 +224,7 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
     bytes = File.read!(Path.expand("../../fixtures/sessions/rgba.png", __DIR__))
 
     upload = upload!(ctx.human.uid, "pixel.png", bytes, "image/png")
+    Ankole.ConversationsFixtures.grant_chat(ctx.human.uid, agent.uid)
     attrs = attrs(agent, [upload.receipt])
     {:ok, detail} = Ankole.ConversationsFixtures.create(ctx.human.uid, attrs)
     attachment = hd(hd(detail.messages).attachments)
@@ -260,7 +262,16 @@ defmodule Ankole.Conversations.AttachmentsNativeTest do
     local = Files.temp_path()
     File.write!(local, bytes)
     on_exit(fn -> File.rm(local) end)
-    {:ok, upload} = Native.upload(uid, Ecto.UUID.generate(), name, {:file, local}, content_type)
+
+    {:ok, upload} =
+      Native.upload(
+        Ankole.PrincipalsFixtures.actor_fixture(uid),
+        Ecto.UUID.generate(),
+        name,
+        {:file, local},
+        content_type
+      )
+
     upload
   end
 end

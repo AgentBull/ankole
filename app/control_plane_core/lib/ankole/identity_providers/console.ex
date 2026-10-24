@@ -1,9 +1,35 @@
 defmodule Ankole.IdentityProviders.Console do
   @moduledoc "Typed Console transport for the identity-provider domain."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: Ankole.IdentityProviders,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:provider_id, :provider_id)
+    allow(:adapters, resource: "site_console:identity_provider_adapters", action: "read")
+    allow(:providers, resource: "site_console:identity_providers", action: "read")
+
+    allow(:save_provider,
+      resource: "site_console:identity_provider:{provider_id}",
+      action: "update"
+    )
+
+    allow(:run_sync, resource: "site_console:identity_provider:{provider_id}", action: "sync")
+    allow(:directory, resource: "site_console:identity_provider:{provider_id}", action: "read")
+
+    allow(:approve_directory,
+      resource: "site_console:identity_provider:{provider_id}",
+      action: "update"
+    )
+
+    allow(:review_event,
+      resource: "site_console:identity_provider:{provider_id}",
+      action: "update"
+    )
+  end
 
   resource do
     require_primary_key?(false)

@@ -15,7 +15,11 @@ export type PermissionGrantEditorDraft = {
 export type PermissionGrantOwner = { principalUID: string } | { groupName: string }
 
 /** Client-side draft problems, reported as i18n key suffixes under `console.permission_grants`. */
-export type PermissionGrantDraftError = 'resource_pattern_required' | 'action_required' | 'action_no_colon'
+export type PermissionGrantDraftError =
+  | 'resource_pattern_required'
+  | 'resource_pattern_bare_wildcard'
+  | 'action_required'
+  | 'action_no_colon'
 
 export const PermissionGrantEditorModel = createModel(() => {
   const sourceKey = signal<string>()
@@ -71,6 +75,7 @@ export const PermissionGrantEditorModel = createModel(() => {
     },
     draftError(): PermissionGrantDraftError | undefined {
       if (!resourcePattern.value.trim()) return 'resource_pattern_required'
+      if (resourcePattern.value.trim() === '**') return 'resource_pattern_bare_wildcard'
       const trimmedAction = action.value.trim()
       if (!trimmedAction) return 'action_required'
       if (trimmedAction.includes(':')) return 'action_no_colon'

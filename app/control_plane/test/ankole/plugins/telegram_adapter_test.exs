@@ -802,7 +802,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   end
 
   describe "identity admission" do
-    test "manual review maps Telegram users to humans with or without a LocalPassword credential" do
+    test "manual review binds held requests and explicit Telegram subjects to tenant humans" do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, _binding} =
@@ -838,13 +838,6 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert notice == Ankole.I18n.t("conversations.delivery.reply.unmapped_sender")
 
       %{principal: local_human} = human_fixture()
-
-      assert {:ok, _credential} =
-               Ankole.IdentityProviders.LocalPassword.set_local_password(
-                 local_human.uid,
-                 "local-secret",
-                 false
-               )
 
       assert {:ok, _mapping} = MappingRequests.bind_request(request.id, local_human.uid)
 

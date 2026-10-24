@@ -36,8 +36,11 @@ test('bootstrap validates on submit and then on input', async ({ page }) => {
   await expect.poll(() => submitted).toEqual({ activation_code: 'ABC', locale: 'en-US' })
 })
 
-test('the first administrator form reports field errors and a password mismatch', async ({ page }) => {
-  let created: { email: string; password: string; display_name?: string } | undefined
+test('the first administrator completes setup only after SMTP configuration and code verification', async ({
+  page
+}) => {
+  let sent: Record<string, unknown> | undefined
+  let verified: Record<string, unknown> | undefined
   await page.route('**/api/v2/browser/setup/**', async route => {
     const url = new URL(route.request().url())
     const path = url.pathname
@@ -57,27 +60,14 @@ test('the first administrator form reports field errors and a password mismatch'
     if (path.endsWith('/brain-packs')) {
       return route.fulfill({ json: { packs: [{ name: 'general', required: true }], selected: ['general'] } })
     }
-    if (path.endsWith('/identity-provider-adapters')) {
-      return route.fulfill({
-        json: {
-          adapters: [
-            {
-              adapterID: 'local',
-              defaultProviderID: 'local',
-              displayName: { default: 'Local account' },
-              fields: [],
-              pluginID: 'local'
-            }
-          ]
-        }
-      })
+    if (path.endsWith('/identity-provider-adapters')) return route.fulfill({ json: { adapters: [] } })
+    if (path.endsWith('/email-otp/challenges')) {
+      sent = route.request().postDataJSON().data
+      return route.fulfill({ status: 201, json: { challengeID: '018f0000-0000-7000-8000-000000000001' } })
     }
-    if (path.endsWith('/identity-providers/local') && route.request().method() === 'PUT') {
-      return route.fulfill({ json: {} })
-    }
-    if (path.endsWith('/local-admin') && route.request().method() === 'POST') {
-      created = route.request().postDataJSON().data
-      return route.fulfill({ json: { returnTo: '/sessions/new' } })
+    if (path.endsWith('/email-otp/verifications')) {
+      verified = route.request().postDataJSON().data
+      return route.fulfill({ status: 201, json: { returnTo: '/sessions/new' } })
     }
     return route.fulfill({ status: 404, json: {} })
   })
@@ -85,19 +75,21 @@ test('the first administrator form reports field errors and a password mismatch'
   await page.goto('/setup-repair')
   await page.getByRole('button', { name: 'Save plugin selection', exact: true }).click()
   await page.getByRole('button', { name: 'Save industry selection', exact: true }).click()
-  const email = page.getByRole('textbox', { name: 'Administrator email' })
-  const password = page.getByLabel('Password', { exact: true })
-  const confirm = page.getByLabel('Confirm password', { exact: true })
-  await email.fill('not-an-email')
-  await expect(page.getByRole('alert')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Create administrator and finish setup', exact: true }).click()
-  await expect(page.getByRole('alert')).toContainText(['Enter a valid email address.', 'Use at least 6 characters.'])
-  await email.fill('ada@example.com')
-  await password.fill('123456')
-  await confirm.fill('12345')
-  await expect(page.getByRole('alert')).toHaveText("The passwords don't match.")
-  await confirm.fill('123456')
-  await expect(page.getByRole('alert')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Create administrator and finish setup', exact: true }).click()
-  await expect.poll(() => created).toEqual({ email: 'ada@example.com', password: '123456' })
+  await page.getByRole('textbox', { name: 'SMTP server', exact: true }).fill('smtp.example.test')
+  await page.getByLabel('Port', { exact: true }).fill('587')
+  await page.getByRole('textbox', { name: 'Sender email', exact: true }).fill('login@example.test')
+  await page.getByRole('textbox', { name: 'Administrator email', exact: true }).fill('ada@example.com')
+  await page.getByRole('button', { name: 'Send code', exact: true }).click()
+  await expect
+    .poll(() => sent)
+    .toMatchObject({
+      email: 'ada@example.com',
+      mail: { server: 'smtp.example.test', port: 587, from: 'login@example.test' }
+    })
+  expect(verified).toBeUndefined()
+  await page.getByRole('textbox', { name: '6-digit email code', exact: true }).fill('123456')
+  await page.getByRole('button', { name: 'Verify code and complete setup', exact: true }).click()
+  await expect
+    .poll(() => verified)
+    .toMatchObject({ challengeID: '018f0000-0000-7000-8000-000000000001', code: '123456' })
 })

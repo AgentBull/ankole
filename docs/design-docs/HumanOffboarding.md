@@ -2,8 +2,9 @@
 
 Disabling a Human Principal prevents that person from signing in and starting
 more work in Ankole. It also ends future execution of the person's existing
-tasks, cron schedules, and automation jobs. The Principal UID, identity links,
-work results, and audit history remain.
+tasks, cron schedules, and automation jobs. The Principal UID, immutable enterprise subjects, work results, and audit
+history remain. Suspension keeps personal credentials and contacts; offboarding
+releases them in the affected tenant.
 
 Ankole also provides standard Back-Channel Logout and Token Introspection for
 OIDC Clients. Clients own their business sessions and can apply these results
@@ -65,35 +66,33 @@ Tenant suspension rejects new work and treats Human OIDC tokens as inactive.
 Already admitted attempts can finish and recover after a process exit. Agent
 credentials used to finish those attempts remain usable.
 
-## Keep the Existing Identity
+## Suspend and Offboard
 
-Use the existing Human Principal UID. Keep provider-scoped identity bindings
-and their unique keys when disabling or restoring a person. Keep the same OIDC
-`issuer + sub`. A login, directory update, or delayed provider event must not
-create an active replacement for a known disabled identity.
+Suspension keeps the Human Principal, stable provider subjects, personal
+credentials, and contact ownership. Its restoration uses the same Human after
+identity and permission review.
 
-Keep the identity matching rules in [Principal](Principal.md), including contact
-matching and provider aliases. Offboarding does not replace that matching
-algorithm. A contact match to a disabled Principal must retain its disabled
-state; it cannot restore access or grant the matched person the old permissions.
-An existing provider binding remains authoritative.
+Offboarding keeps the departed Human UID, immutable enterprise subject IDs,
+work ownership, and audit history. It releases every personal credential, email
+alias, contact email, and phone in that tenant. A replacement employee with new
+provider subjects receives a new Human UID. A released contact cannot select the
+departed Human. Local offboarding suppresses upstream contact writes during that
+cycle. Each Pod controls its own contact and credential ownership.
 
-A provider rebuild, a changed provider user ID, or a reused contact value is
-not proof that the person may regain the old account. An administrator must
-verify the identity before restoration or reassignment. Do not guess from a
-display name, email address, or phone number during offboarding or recovery.
+A restriction's `suspended` or `offboarded` disposition is part of its identity.
+An offboarding operation must release identifiers even if a prior suspension
+already disabled access. The audit stores the released identifier keys. Pending
+claims check their ceremony start against the latest release.
 
-A person normally uses one login method. If one Principal has several methods,
-disablement covers all of them, including local passwords and linked provider
-accounts. Confirmed removal from the configured Ankole admission scope also
-disables the whole Principal. There is no provider-only disabled state.
-Separate accounts with no trusted link require explicit operator review.
+All login methods and work of the affected Human use the same access version.
+See [Authentication](Authentication.md) for the credential release and fresh
+claim contract.
 
 ## Browser authentication evidence
 
 A site authentication can hold separate access proofs for Humans in several
 Pods. Each proof fixes the Principal UID and the version verified during real
-login. Disablement invalidates only that Human's proofs; the account's other Pod
+login. Disablement invalidates only that Human's proofs; the browser's other Pod
 identities can remain valid. A login completed during disablement records no
 proof for the disabled Human.
 
@@ -129,7 +128,7 @@ scope controls admission.
 ## Stored Access and Directory State
 
 `principals.access_version` is the durable Human revocation generation. Each
-new restriction invalidates credentials and work that captured an earlier
+new restriction invalidates session proofs and work that captured an earlier
 version. `human_access_restrictions` stores independent active reasons with
 provider recovery evidence. `human_access_events` stores immutable decisions,
 permission approvals, and cleanup results. Duplicate source operations use a
@@ -221,12 +220,14 @@ boundary. Do not add a global restricted-management state or leave the departed
 administrator active.
 
 An operator with control-plane shell and database access can grant administrator
-access to an independently verified, active Human when no active administrator
-remains. Run `mix ankole.admin.recover HUMAN_UID OPERATOR REASON --identity-verified`
-from the control-plane directory with the deployment configuration. The command
-records the operator and reason. It rejects a disabled target and refuses to run
-while an active administrator exists. Establish and verify the replacement
-Human through the Principal and identity-provider owners first. Zero active administrators must not
+access to an independently verified, active Human. Run
+`mix ankole.admin.recover HUMAN_UID OPERATOR REASON --identity-verified --tenant SLUG`
+from the control-plane directory with the deployment configuration. The target
+must have a login method that the Pod policy permits. The command refuses to run
+while an active Pod administrator has a permitted login method. Without
+`--tenant`, the command recovers site administrator access and also grants Pod
+administrator access. It records the operator and reason. Establish and verify
+the replacement Human through the Principal and identity-provider owners first. Zero active administrators must not
 reopen public first-administrator setup or automatically restore the departed
 person. See [AuthZ](AuthZ.md) for the administrator boundary.
 
@@ -386,11 +387,15 @@ silently become effective again. Keep only the permissions approved for the
 restored Human; retain removed permissions as audit history, not active grant
 rows merely labelled historical.
 `AuthZ.restoration_review/1` returns the current direct grants, static
-memberships, computed group definitions, and their possible grants. Computed
-rules remain request-dependent; the preview does not assert that every rule
-applies to every resource. Remove unwanted grants or memberships through their
-AuthZ editors, then approve the current fingerprint. The restore operation
-rejects a changed fingerprint and records the approved rules and identity check.
+memberships, computed group definitions, their possible grants, and all Userset
+grants in the selected tenant. Userset entries contain the source Page and action,
+target Page and scope, resource pattern, action, and condition. They are sorted by
+ID and included in the fingerprint. This includes recursive permission paths;
+computed and conditional rules remain request-dependent. The preview does not
+assert that every rule applies to every resource. Remove unwanted grants or
+memberships through their AuthZ editors, then approve the current fingerprint.
+The restore operation rejects a changed fingerprint and records the approved
+rules and identity check.
 This review uses AuthZ rules and does not add a second permission model.
 
 The fingerprint includes the Principal display name and avatar URL because
@@ -403,6 +408,12 @@ observes that subject as healthy. The directory must be `healthy`; a snapshot
 that requires scope or removal approval must first receive that approval.
 Neither a partial sync nor a login profile proves recovery. This requirement
 does not clear an independent manual restriction or restore access by itself.
+
+Pod administrators clear eligible restrictions and restore the Human in one
+transaction. Each provider restriction requires current healthy directory
+evidence, and restoration requires the approved permission fingerprint.
+If any restriction or permission check fails, all restrictions and the disabled
+state stay in place.
 
 Require a new login after restoration. Old sessions, credentials, cancelled
 jobs, and paused schedules remain invalid or inactive. Restarting work requires

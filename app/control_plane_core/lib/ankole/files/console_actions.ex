@@ -2,6 +2,25 @@ defmodule Ankole.Files.ConsoleActions do
   @moduledoc "Lists, moves, and deletes the real Agent drive while its Worker is stopped."
   use Ash.Resource.Actions.Implementation
   alias Ankole.{Files, Principals, Errors}
+
+  def download(actor, uid, path, local_path),
+    do:
+      authorized(actor, :console_download, %{agent_uid: uid, path: path, local_path: local_path})
+
+  def upload(actor, uid, path, local_path, content_type),
+    do:
+      authorized(actor, :console_upload, %{
+        agent_uid: uid,
+        path: path,
+        local_path: local_path,
+        content_type: content_type
+      })
+
+  defp authorized(actor, action, args) do
+    input = Ash.ActionInput.for_action(Files.ConsoleOperations, action, args)
+    Ankole.Ash.run_action_authorized(input, actor)
+  end
+
   @impl true
   def run(input, _opts, _context) do
     result =
@@ -10,6 +29,26 @@ defmodule Ankole.Files.ConsoleActions do
            do: execute(input, uid)
 
     Errors.wrap(result, &describe/1)
+  end
+
+  defp execute(%{action: %{name: :console_download}, arguments: attrs}, uid) do
+    with {:ok, path} <- Files.Path.normalize(attrs.path),
+         do: Files.read_to_file(uid, path, attrs.local_path)
+  end
+
+  defp execute(%{action: %{name: :console_upload}, arguments: attrs}, uid) do
+    with {:ok, path} <- Files.Path.normalize(attrs.path),
+         {:ok, blob} <- Files.store({:file, attrs.local_path}),
+         {:ok, %{files: [file]}} <-
+           Files.commit(uid, [
+             %{
+               path: path,
+               sha256: blob.sha256,
+               source: "console",
+               content_type: attrs.content_type
+             }
+           ]),
+         do: {:ok, file}
   end
 
   defp execute(%{action: %{name: :console_list}, arguments: attrs}, uid) do

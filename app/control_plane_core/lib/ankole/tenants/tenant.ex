@@ -1,9 +1,28 @@
 defmodule Ankole.Tenants.Tenant do
   @moduledoc "One organization's durable data boundary within a site."
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :site,
     domain: Ankole.Tenants,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:id, :uuid)
+    allow(:list, resource: "site_console:tenants", action: "read")
+    allow(:brain_packs, resource: "site_console:tenants", action: "read")
+    allow(:create, resource: "site_console:tenants", action: "update")
+    allow(:change_profile, resource: "site_console:tenant:{id}", action: "update")
+    allow(:begin_delete, resource: "site_console:tenant:{id}", action: "delete")
+    allow(:suspend, resource: "site_console:tenant:{id}", action: "update")
+    allow(:resume, resource: "site_console:tenant:{id}", action: "update")
+    allow(:privileged, resource: "site_console:privileged_tenant", action: "read")
+
+    allow(:transfer_site_administration,
+      resource: "site_console:privileged_tenant",
+      action: "update"
+    )
+  end
 
   json_api do
     type("tenant")

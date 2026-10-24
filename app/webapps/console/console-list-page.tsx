@@ -67,6 +67,7 @@ export function ResourceListPage({
   isEmpty,
   isLoading,
   onClearFilters,
+  pagination,
   subNav,
   title,
   toolbar,
@@ -92,6 +93,7 @@ export function ResourceListPage({
   isEmpty: boolean
   isLoading: boolean
   onClearFilters?: () => void
+  pagination?: LoadMoreQuery
   /** Sibling views of the same nav area, for sections the side nav lists once. */
   subNav?: ReactNode
   title: string
@@ -102,7 +104,8 @@ export function ResourceListPage({
   const { t } = useTranslation()
   const toolbarRef = useRef<HTMLDivElement>(null)
   const restoreToolbarFocus = useRef(false)
-  const hasError = Boolean(error)
+  const listError = error ?? pagination?.error
+  const hasError = Boolean(listError)
   // Hide a toolbar that can only search an empty source. Keep it when a filter
   // is active or one of its controls can broaden the server query.
   const showToolbar = Boolean(toolbar) && (toolbarCanRevealRows || isFiltered || !isEmpty || isLoading)
@@ -116,7 +119,7 @@ export function ResourceListPage({
         {createLabel ?? t('common.new')}
       </Link>
     ) : null)
-  const showHeaderCreate = Boolean(createControl) && !hasError && (!isEmpty || isLoading)
+  const showHeaderCreate = Boolean(createControl) && (!hasError || !isEmpty) && (!isEmpty || isLoading)
 
   useEffect(() => {
     if (isFiltered || !showToolbar || !restoreToolbarFocus.current) return
@@ -155,7 +158,7 @@ export function ResourceListPage({
         </div>
       ) : null}
       {showToolbar && count !== undefined && !isLoading ? <ResultCount count={count} /> : null}
-      <ErrorBlock error={error} />
+      <ErrorBlock error={pagination?.isFetchNextPageError ? undefined : listError} />
 
       {!hasError && isEmpty && !isLoading ? (
         <Empty className="items-start border border-border bg-card p-8 text-left md:p-10">
@@ -180,7 +183,7 @@ export function ResourceListPage({
             <EmptyActions create={createControl} extra={emptyAction} />
           )}
         </Empty>
-      ) : !hasError ? (
+      ) : !hasError || !isEmpty ? (
         <div className="grid gap-2">
           <p className="text-xs text-muted-foreground sm:hidden">{t('console.table.scroll_hint')}</p>
           <Table
@@ -217,6 +220,7 @@ export function ResourceListPage({
           </Table>
         </div>
       ) : null}
+      {pagination && <LoadMore query={pagination} />}
       {footer}
     </PageStack>
   )
@@ -286,28 +290,29 @@ function EmptyActions({ create, extra }: { create: ReactNode; extra: ReactNode }
   return <>{extra ?? create}</>
 }
 
+type LoadMoreQuery = {
+  hasNextPage: boolean
+  isFetching: boolean
+  isPlaceholderData: boolean
+  isFetchNextPageError: boolean
+  error: unknown
+  fetchNextPage: () => Promise<unknown>
+}
+
 /** Fetches the next page while keeping the loaded rows available. */
-export function LoadMore({
-  query
-}: {
-  query: {
-    hasNextPage: boolean
-    isFetching: boolean
-    isPlaceholderData: boolean
-    fetchNextPage: () => Promise<unknown>
-  }
-}) {
+export function LoadMore({ query }: { query: LoadMoreQuery }) {
   const { t } = useTranslation()
-  if (!query.hasNextPage) return null
-  return (
+  if (!query.hasNextPage && !query.isFetchNextPageError) return null
+  const action = (
     <Button
       type="button"
       variant="outline"
       disabled={query.isFetching || query.isPlaceholderData}
       onClick={() => void query.fetchNextPage()}>
-      {t('console.pagination.next_page')}
+      {t(query.isFetchNextPageError ? 'common.retry' : 'console.pagination.next_page')}
     </Button>
   )
+  return query.isFetchNextPageError ? <ErrorBlock error={query.error} action={action} /> : action
 }
 
 /**

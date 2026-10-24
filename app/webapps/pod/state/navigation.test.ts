@@ -17,11 +17,11 @@ test('navigation restores before its first read and closing a root retains branc
   first.togglePage('parent')
   first.toggleRoot('space')
   first.toggleRoot('space')
-  expect(first.preferences.value.collapsed.has('parent')).toBe(true)
+  expect(first.preferences.value.expanded.has('parent')).toBe(true)
   first.toggleRoot('space')
   const reopened = new NavigationModel('pod', 'owner', saved)
   expect(reopened.preferences.value.rootOpen).toEqual({ space: false, private: true })
-  expect([...reopened.preferences.value.collapsed]).toEqual(['parent'])
+  expect([...reopened.preferences.value.expanded]).toEqual(['parent'])
 })
 
 test('navigation preferences belong to both the Pod and the pinned document identity', () => {
@@ -35,7 +35,7 @@ test('navigation preferences belong to both the Pod and the pinned document iden
   ]) {
     const separate = new NavigationModel(pod, identity, saved)
     expect(separate.preferences.value.rootOpen.space).toBe(true)
-    expect(separate.preferences.value.collapsed.size).toBe(0)
+    expect(separate.preferences.value.expanded.size).toBe(0)
   }
   expect(new NavigationModel('pod', 'owner', saved).preferences.value.rootOpen.space).toBe(false)
 })
@@ -61,7 +61,7 @@ test('unavailable or malformed storage cannot prevent local navigation choices',
     model.toggleRoot('space')
     model.togglePage('parent')
     expect(model.preferences.value.rootOpen.space).toBe(false)
-    expect(model.preferences.value.collapsed.has('parent')).toBe(true)
+    expect(model.preferences.value.expanded.has('parent')).toBe(true)
   }
 })
 
@@ -74,10 +74,20 @@ test('an external preference update does not write it back or restore page data'
     }
   })
   model.restore(
-    JSON.stringify({ rootOpen: { space: false }, collapsed: ['parent', null, 7], pages: [{ title: 'obsolete' }] })
+    JSON.stringify({ rootOpen: { space: false }, expanded: ['parent', null, 7], pages: [{ title: 'obsolete' }] })
   )
   expect(model.preferences.value.rootOpen).toEqual({ space: false, private: true })
-  expect([...model.preferences.value.collapsed]).toEqual(['parent'])
-  expect(Object.keys(model.preferences.value).sort()).toEqual(['collapsed', 'rootOpen'])
+  expect([...model.preferences.value.expanded]).toEqual(['parent'])
+  expect(Object.keys(model.preferences.value).sort()).toEqual(['expanded', 'rootOpen'])
   expect(writes).toBe(0)
+})
+
+test('new navigation preferences leave branches closed until the user expands them', () => {
+  const model = new NavigationModel('pod', 'owner', storage())
+  expect(model.preferences.value.expanded.size).toBe(0)
+  model.togglePage('root')
+  expect(model.preferences.value.expanded.has('root')).toBe(true)
+  model.togglePage('root')
+  expect(model.preferences.value.expanded.has('root')).toBe(false)
+  model[Symbol.dispose]()
 })

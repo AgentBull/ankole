@@ -17,7 +17,7 @@ import {
   useTreeAutoScroll,
   useTreeItemDrag
 } from '@ankole/uikit'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
@@ -36,8 +36,18 @@ import {
 import { authenticationRef, podID, podLocation, podRouteID } from '../common/browser-context'
 import { requestErrorMessage } from '../common/request-errors'
 import { NavigationModel, type NavigationScope } from './state/navigation'
-import { dropAvailability, dropRequest, positionOrder, rootRequest } from './state/page-move'
-import { contentKeys, pageAPI, pagesQuery, type Page, type PageScope, type PageType } from './content-api'
+import { dropAvailability, dropRequest, rootRequest } from './state/page-move'
+import {
+  contentKeys,
+  pageAPI,
+  pagesQuery,
+  pageChildrenQuery,
+  pageSearchQuery,
+  cachedPages,
+  type Page,
+  type PageScope,
+  type PageType
+} from './content-api'
 import { contentError } from './content-errors'
 import { Choice, ContentError, TextField, typeLabels } from './content-primitives'
 import { PageMenuItems, usePageActions, type PageActions } from './page-actions'
@@ -80,11 +90,9 @@ export const scopeIcons = {
 const pageTree = 'pod-pages'
 
 type PageTreeContextValue = {
-  pages: Page[]
   favorites: Set<string>
-  collapsed: Set<string>
+  expanded: Set<string>
   actions: PageActions
-  privateOwner?: string
   togglePage(id: string): void
   onNavigate?: () => void
 }
@@ -110,26 +118,18 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
     window.addEventListener('storage', restore)
     return () => window.removeEventListener('storage', restore)
   }, [model])
-  const space = useQuery(pagesQuery('space'))
-  const privatePages = useQuery(pagesQuery('private'))
   const favorites = useQuery(pagesQuery('favorites'))
-  const pages = useMemo(
-    () => [...(space.data?.pages ?? []), ...(privatePages.data?.pages ?? [])],
-    [space.data, privatePages.data]
-  )
+  const actions = usePageActions()
   const favoriteIDs = useMemo(() => new Set(favorites.data?.pages.map(page => page.id)), [favorites.data])
-  const actions = usePageActions(pages)
   const autoScroll = useTreeAutoScroll<HTMLElement>(pageTree)
   const scrollContainer = useCallback(
     (node: HTMLElement | null) => autoScroll(node?.closest<HTMLElement>('[data-sidebar="content"]') ?? null),
     [autoScroll]
   )
   const tree: PageTreeContextValue = {
-    pages,
-    favorites: favoriteIDs,
-    collapsed: preferences.collapsed,
     actions,
-    privateOwner: privatePages.data?.principal_uid,
+    favorites: favoriteIDs,
+    expanded: preferences.expanded,
     togglePage: model.togglePage,
     onNavigate
   }
@@ -173,25 +173,29 @@ function NavigationTree({
   open: boolean
   onToggleRoot(): void
 }) {
-  const { pages: known, actions, privateOwner, onNavigate } = usePageTree()
-  const pages = useQuery(pagesQuery(scope))
-  const owner = pages.data?.principal_uid ?? privateOwner
+  const { actions, onNavigate } = usePageTree()
+  const client = useQueryClient()
+  const pages = useInfiniteQuery({ ...pageChildrenQuery(scope), enabled: open })
+  const known = pages.data?.pages.flatMap(batch => batch.pages) ?? []
+  const owner = pages.data?.pages[0]?.principal_uid
+  const canCreatePrivate = pages.data?.pages[0]?.can_create_private
   const drop = useTreeItemDrag<HTMLElement, HTMLDivElement>({
     tree: pageTree,
     id: `root:${scope}`,
     availability: (sourceID, operation) => {
-      const source = known.find(page => page.id === sourceID)
+      const source = cachedPages(client).find(page => page.id === sourceID)
       return operation === 'inside' && source && source.role !== 'view' && (scope === 'space' || owner)
         ? 'available'
         : 'not-available'
     },
     onDrop: ({ source }) => {
-      const page = known.find(candidate => candidate.id === source)
+      const page = cachedPages(client).find(candidate => candidate.id === source)
       if (!page) return
       actions.move(page, rootRequest(scope, owner))
       if (!open) onToggleRoot()
     }
   })
+  if (scope === 'private' && canCreatePrivate === false) return null
   return (
     <section aria-label={scopeLabels[scope]} className="pod-nav-section">
       <div ref={drop.targetRef} className="pod-nav-section-heading">
@@ -208,7 +212,7 @@ function NavigationTree({
         </Link>
         <div className="pod-nav-actions flex items-center">
           {scope === 'space' && <SpaceSettingsButton />}
-          <CreatePageButton scope={scope} privateOwner={pages.data?.principal_uid} compact />
+          <CreatePageButton scope={scope} privateOwner={owner} compact />
         </div>
         <TreeDropIndicator indication={drop.indication} />
       </div>
@@ -220,59 +224,90 @@ function NavigationTree({
         ) : pages.error ? (
           <ContentError error={pages.error} retry={() => void pages.refetch()} />
         ) : (
-          <PageTree pages={pages.data?.pages ?? []} />
+          <>
+            <PageTree pages={known} scope={scope} />
+            {pages.hasNextPage && (
+              <Button size="sm" variant="ghost" disabled={pages.isFetching} onClick={() => void pages.fetchNextPage()}>
+                {t('pod.content.load_more_pages')}
+              </Button>
+            )}
+          </>
         ))}
     </section>
   )
 }
 
-function PageTree({ pages }: { pages: Page[] }) {
-  const { collapsed } = usePageTree()
-  const { pageID: routePageID } = useParams({ strict: false })
-  const pageID = podRouteID(routePageID)
-  const ids = new Set(pages.map(page => page.id))
-  const roots = pages.filter(page => !page.parent_id || !ids.has(page.parent_id))
-  const children = new Map<string, Page[]>()
-  for (const page of pages) {
-    if (!page.parent_id) continue
-    const siblings = children.get(page.parent_id)
-    if (siblings) siblings.push(page)
-    else children.set(page.parent_id, [page])
-  }
-  for (const siblings of children.values()) siblings.sort(positionOrder)
-  const branch = (page: Page, ancestors: Set<string>) => {
-    if (ancestors.has(page.id)) return null
-    ancestors.add(page.id)
-    const nested = children.get(page.id) ?? []
-    const open = !collapsed.has(page.id)
-    const childNodes = open ? nested.map(child => branch(child, ancestors)) : []
-    ancestors.delete(page.id)
-    return (
-      <li key={page.id} className="min-w-0">
-        <PageTreeRow page={page} hasChildren={nested.length > 0} open={open} active={pageID === page.id} />
-        {nested.length > 0 && open && <ul className="pod-tree-children">{childNodes}</ul>}
-      </li>
-    )
-  }
-  return roots.length ? (
-    <ul className="pod-tree">{roots.sort(positionOrder).map(page => branch(page, new Set()))}</ul>
+function PageTree({ pages, scope }: { pages: Page[]; scope: NavigationScope }) {
+  return pages.length ? (
+    <ul className="pod-tree">
+      {pages.map(page => (
+        <PageTreeNode key={page.id} page={page} scope={scope} siblings={pages} />
+      ))}
+    </ul>
   ) : (
     <p className="pod-tree-empty">{t('pod.content.no_pages_yet')}</p>
   )
 }
 
+function PageTreeNode({ page, scope, siblings }: { page: Page; scope: NavigationScope; siblings: Page[] }) {
+  const { expanded } = usePageTree()
+  const { pageID: routePageID } = useParams({ strict: false })
+  const open = expanded.has(page.id)
+  const children = useInfiniteQuery({ ...pageChildrenQuery(scope, page.id), enabled: open && page.type === 'doc' })
+  const nested = children.data?.pages.flatMap(batch => batch.pages) ?? []
+  return (
+    <li className="min-w-0">
+      <PageTreeRow
+        page={page}
+        siblings={siblings}
+        hasChildren={page.type === 'doc'}
+        open={open}
+        active={podRouteID(routePageID) === page.id}
+      />
+      {open && page.type === 'doc' && (
+        <ul className="pod-tree-children">
+          {children.isPending && <li role="status">{t('pod.content.loading')}</li>}
+          {!!children.error && (
+            <li>
+              <ContentError error={children.error} retry={() => void children.refetch()} />
+            </li>
+          )}
+          {nested.map(child => (
+            <PageTreeNode key={child.id} page={child} scope={scope} siblings={nested} />
+          ))}
+          {children.hasNextPage && (
+            <li>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={children.isFetching}
+                onClick={() => void children.fetchNextPage()}>
+                {t('pod.content.load_more_pages')}
+              </Button>
+            </li>
+          )}
+        </ul>
+      )}
+    </li>
+  )
+}
+
 function PageTreeRow({
   page,
+  siblings,
   hasChildren,
   open,
   active
 }: {
   page: Page
+  siblings: Page[]
   hasChildren: boolean
   open: boolean
   active: boolean
 }) {
-  const { pages, favorites, actions, togglePage, onNavigate } = usePageTree()
+  const { favorites, actions, togglePage, onNavigate } = usePageTree()
+  const client = useQueryClient()
+  const pages = siblings
   const [renaming, setRenaming] = useState(false)
   const [dialog, setDialog] = useState<'create' | 'move'>()
   const keepFocusInRow = useRef(false)
@@ -290,13 +325,13 @@ function PageTreeRow({
     canDrag: edit,
     availability: (sourceID, operation) =>
       dropAvailability(
-        pages,
-        pages.find(candidate => candidate.id === sourceID),
+        cachedPages(client),
+        cachedPages(client).find(candidate => candidate.id === sourceID),
         page,
         operation
       ),
     onDrop: ({ source, operation }) => {
-      const moving = pages.find(candidate => candidate.id === source)
+      const moving = cachedPages(client).find(candidate => candidate.id === source)
       if (!moving) return
       actions.move(moving, dropRequest(page, operation))
       if (operation === 'inside' && hasChildren && !open) togglePage(page.id)
@@ -550,11 +585,27 @@ export function ContentListRoute() {
   const { scope = 'space' } = useParams({ strict: false })
   const effectiveScope: PageScope =
     scope === 'search' ? 'all' : Object.hasOwn(scopeLabels, scope) ? (scope as PageScope) : 'space'
-  const search = scope === 'search'
+  const search = scope === 'search' || effectiveScope === 'all'
   const trash = effectiveScope === 'trash'
   const [searchDraft, setSearchDraft] = useState({ scope, query: '' })
   const query = searchDraft.scope === scope ? searchDraft.query : ''
-  const pages = useQuery(pagesQuery(effectiveScope, search ? query : ''))
+  const rootScope = !search && (effectiveScope === 'space' || effectiveScope === 'private')
+  const listing = useQuery({ ...pagesQuery(effectiveScope), enabled: !rootScope && !search })
+  const searched = useQuery({ ...pageSearchQuery(query), enabled: search })
+  const roots = useInfiniteQuery({
+    ...pageChildrenQuery(effectiveScope === 'private' ? 'private' : 'space'),
+    enabled: rootScope
+  })
+  const pages = rootScope
+    ? {
+        ...roots,
+        data: roots.data
+          ? { ...roots.data.pages[0]!, pages: roots.data.pages.flatMap(batch => batch.pages) }
+          : undefined
+      }
+    : search
+      ? searched
+      : listing
   const client = useQueryClient()
   const navigate = useNavigate()
   const restore = useMutation({
@@ -569,7 +620,7 @@ export function ContentListRoute() {
       })
     }
   })
-  const visible =
+  const visible: Page[] | undefined =
     trash && query.trim()
       ? pages.data?.pages.filter(page => page.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
       : pages.data?.pages
@@ -602,7 +653,7 @@ export function ContentListRoute() {
         <h1 className="text-2xl font-semibold">
           {search ? t('pod.content.search_pages') : scopeLabels[effectiveScope]}
         </h1>
-        {effectiveScope !== 'trash' && (
+        {effectiveScope !== 'trash' && (effectiveScope !== 'private' || pages.data?.can_create_private !== false) && (
           <CreatePageButton
             scope={effectiveScope === 'private' ? 'private' : 'space'}
             privateOwner={pages.data?.principal_uid}
@@ -667,6 +718,15 @@ export function ContentListRoute() {
             </li>
           ))}
         </ul>
+      )}
+      {rootScope && roots.hasNextPage && (
+        <Button
+          className="mt-4"
+          variant="outline"
+          disabled={roots.isFetching}
+          onClick={() => void roots.fetchNextPage()}>
+          {t('pod.content.load_more_pages')}
+        </Button>
       )}
       {!pages.isPending && !pages.error && !visible?.length && (
         <p className="py-10 text-sm text-fg-tertiary">

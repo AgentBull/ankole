@@ -5,6 +5,11 @@ defmodule Ankole.BrowserSessions.Authentication do
   @proof_fields [
     :revision,
     :auth_time,
+    :authenticated_at,
+    :challenge_started_at,
+    :amr,
+    :verified_email,
+    :verified_phone,
     :external_id,
     :console_authenticated,
     :csrf_token,
@@ -62,6 +67,16 @@ defmodule Ankole.BrowserSessions.Authentication do
     attribute(:console_authenticated, :boolean, public?: true, allow_nil?: false, default: false)
     attribute(:revision, :integer, public?: true, allow_nil?: false, constraints: [min: 1])
     attribute(:auth_time, :integer, public?: true)
+
+    attribute(:authenticated_at, :utc_datetime_usec,
+      allow_nil?: false,
+      default: &DateTime.utc_now/0
+    )
+
+    attribute(:challenge_started_at, :utc_datetime_usec, allow_nil?: false)
+    attribute(:amr, {:array, :string}, allow_nil?: false, default: [])
+    attribute(:verified_email, :string)
+    attribute(:verified_phone, :string)
 
     attribute(:csrf_token, :string,
       public?: true,

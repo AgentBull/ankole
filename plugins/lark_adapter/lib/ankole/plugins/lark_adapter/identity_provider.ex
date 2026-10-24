@@ -82,37 +82,45 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   Merges one Lark contact user into the Principal platform-subject model.
   """
   @spec upsert_user(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def upsert_user(provider_id, user, opts \\ []) when is_binary(provider_id) and is_map(user) do
-    email = identity_email(user)
+  def upsert_user(provider_id, user, opts \\ []) do
+    with {:ok, attrs, options} <- normalize_user(provider_id, user, opts) do
+      Directory.upsert_user(provider_id, attrs, options)
+    end
+  end
 
-    with [external_id | external_ids] <- subject_candidates(user, email) do
+  def upsert_user_in_tx(provider_id, user, opts) do
+    with {:ok, attrs, options} <- normalize_user(provider_id, user, opts) do
+      Directory.upsert_user_in_tx(provider_id, attrs, options)
+    end
+  end
+
+  defp normalize_user(provider_id, user, opts) when is_binary(provider_id) and is_map(user) do
+    with [external_id | external_ids] <- subject_candidates(user) do
       department_ids = Map.get(user, "department_ids")
 
-      Directory.upsert_user(
-        provider_id,
-        %{
-          provider: provider_id,
-          external_id: external_id,
-          external_ids: external_ids,
-          metadata:
-            compact_metadata_map(%{
-              "user_id" => optional_text(user, "user_id") || optional_text(user, "id"),
-              "open_id" => optional_text(user, "open_id"),
-              "union_id" => optional_text(user, "union_id"),
-              "tenant_key" => optional_text(user, "tenant_key"),
-              "employee_no" => optional_text(user, "employee_no")
-            })
-            |> then(fn metadata ->
-              if is_list(department_ids),
-                do: Map.put(metadata, "department_ids", department_ids),
-                else: metadata
-            end)
-        }
-        |> Map.merge(observed_profile(user)),
-        [access_observation: access_observation(user)] ++
-          if(is_list(department_ids), do: [group_external_ids: department_ids], else: []) ++
-          Keyword.take(opts, [:directory_group_index, :observed_at, :operation_id])
-      )
+      {:ok,
+       %{
+         provider: provider_id,
+         external_id: external_id,
+         external_ids: external_ids,
+         metadata:
+           compact_metadata_map(%{
+             "user_id" => optional_text(user, "user_id") || optional_text(user, "id"),
+             "open_id" => optional_text(user, "open_id"),
+             "union_id" => optional_text(user, "union_id"),
+             "tenant_key" => optional_text(user, "tenant_key"),
+             "employee_no" => optional_text(user, "employee_no")
+           })
+           |> then(fn metadata ->
+             if is_list(department_ids),
+               do: Map.put(metadata, "department_ids", department_ids),
+               else: metadata
+           end)
+       }
+       |> Map.merge(observed_profile(user)),
+       [access_observation: access_observation(user)] ++
+         if(is_list(department_ids), do: [group_external_ids: department_ids], else: []) ++
+         Keyword.take(opts, [:membership, :directory_group_index, :observed_at, :operation_id])}
     else
       [] -> {:error, :missing_platform_subject}
     end
@@ -438,7 +446,7 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
     content = event.content || %{}
     user = fetch_map(content, "object", fetch_map(content, "user", content))
     user = Map.merge(fetch_map(content, "old_object", %{}), user)
-    ids = subject_candidates(user, identity_email(user))
+    ids = subject_candidates(user)
     reason = if event_type == "contact.user.deleted_v3", do: "departure"
 
     event_id =
@@ -544,7 +552,6 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
 
     candidates =
       SubjectIdentity.candidates(%{
-        "email" => email,
         "user_id" =>
           optional_text(user, "user_id") ||
             optional_text(user, "id") || optional_text(metadata, "user_id"),
@@ -610,7 +617,7 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   defp directory_user_key(user) do
     case optional_text(user, "user_id") ||
            optional_text(user, "id") ||
-           List.first(subject_candidates(user, identity_email(user))) do
+           List.first(subject_candidates(user)) do
       value when is_binary(value) -> {:ok, value}
       nil -> {:error, :missing_platform_subject}
     end
@@ -636,6 +643,10 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   defp observed_profile(user) do
     profile = %{
       display_name: display_name(user),
+      contact_emails: [
+        %{email: enterprise_email(user), kind: "enterprise"},
+        %{email: optional_text(user, "email"), kind: "member"}
+      ],
       authoritative_profile: Enum.any?(["name", "en_name", "nickname"], &Map.has_key?(user, &1))
     }
 
@@ -663,9 +674,8 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
     enterprise_email(user) || optional_text(user, "email")
   end
 
-  defp subject_candidates(user, email) do
+  defp subject_candidates(user) do
     SubjectIdentity.candidates(%{
-      "email" => email,
       "user_id" => optional_text(user, "user_id") || optional_text(user, "id"),
       "union_id" => optional_text(user, "union_id"),
       "open_id" => optional_text(user, "open_id")

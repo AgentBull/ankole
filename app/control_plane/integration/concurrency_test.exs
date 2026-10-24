@@ -829,10 +829,8 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
           if original, do: Repo.insert!(original)
 
-          for adapter <- ["lark", "local"], provider_id <- provider_ids do
-            AppConfigure.delete_tenant_by_key(
-              "principals.identity_providers.#{adapter}.#{provider_id}"
-            )
+          for provider_id <- provider_ids do
+            AppConfigure.delete_tenant_by_key("principals.identity_providers.lark.#{provider_id}")
           end
         end)
 
@@ -884,37 +882,25 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       end
     end
 
-    test "a disabled local provider still excludes a concurrent second instance without orphan config",
+    test "concurrent local password provider requests are rejected without configuration writes",
          ctx do
       [first_id, second_id] = ctx.provider_ids
-      first = paused_provider_save(first_id, "local", %{}, false)
+
+      first =
+        start_unboxed(fn -> IdentityProviders.save_provider(first_id, "local", %{}, false) end)
 
       second =
         start_unboxed(fn -> IdentityProviders.save_provider(second_id, "local", %{}, true) end)
 
-      assert_blocked_by(second, first)
-      send(first.task.pid, :continue_query)
+      assert {:error, {:unknown_identity_provider_adapter, "local"}} = finish(first)
+      assert {:error, {:unknown_identity_provider_adapter, "local"}} = finish(second)
+      assert {:ok, []} = ProviderConfig.active_providers()
 
-      assert {:ok, %{"provider_id" => ^first_id}} = finish(first)
-      assert {:error, {:local_provider_exists, ^first_id}} = finish(second)
-
-      assert {:ok, [%{"provider_id" => ^first_id, "enabled" => false}]} =
-               ProviderConfig.active_providers()
-
-      refute Repo.get_by(AppConfig,
-               scope: ctx.scope,
-               key: "principals.identity_providers.local.#{second_id}"
-             )
-
-      assert :error = AppConfigure.get_by_key("principals.identity_providers.local.#{second_id}")
-
-      assert {:ok, %{"enabled" => true}} =
-               Sandbox.unboxed_run(Repo, fn ->
-                 IdentityProviders.save_provider(first_id, "local", %{}, true)
-               end)
-
-      assert {:ok, [%{"provider_id" => ^first_id, "enabled" => true}]} =
-               ProviderConfig.active_providers()
+      for provider_id <- ctx.provider_ids do
+        key = "principals.identity_providers.local.#{provider_id}"
+        refute Repo.get_by(AppConfig, scope: ctx.scope, key: key)
+        assert {:error, {:unknown_key, ^key}} = AppConfigure.get_by_key(key)
+      end
     end
   end
 

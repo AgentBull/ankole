@@ -78,18 +78,19 @@ PostgreSQL `vector(4096)` column.
 Every claim, timeline row, and Markdown audience block carries one
 `audience_scope`:
 
-- `world`: every Principal of the current tenant.
+- `world`: active Human members, Agents, and System Principals of the current
+  tenant. Human guests do not receive this scope.
 - `group:<name>`: members of one AuthZ Principal group.
 - `principal:<uid>`: one Principal.
 
 Two boundaries apply on every read, in order:
 
 1. **Knowledge boundary.** A querier reaches a row when the row's scope is in
-   the querier's accessible scopes (`world`, own principal scope, and current
-   group scopes), when the querier authored the row, or when an Agent the
-   querier owns authored or holds it — except group-scoped rows, which an
-   owner cannot reach through its Agent. `Ankole.Brain.Access` owns this rule
-   and applies it as an SQL prefilter plus a row filter.
+   the querier's accessible scopes (own principal scope, current group scopes,
+   and `world` for an eligible Principal), when the querier authored the row,
+   or when an Agent the querier owns authored or holds it. An owner cannot
+   reach group-scoped rows through its Agent. `Ankole.Brain.Access` owns this
+   rule and applies it as an SQL prefilter plus a row filter.
 2. **Disclosure boundary.** A reply that other Principals can see narrows
    further: relaxed mode requires the asker to satisfy the scope, strict mode
    requires every present member to satisfy it. Group-memory disclosure mode
@@ -539,6 +540,10 @@ history and rollback, claim listing with take resolution, source management
 search preview as any Principal, and health counters. The implementation in
 [`BrainMarkdoc.md`](BrainMarkdoc.md) includes a full-page Object source editor
 with segment preview, diagnostics, and server-authoritative save validation.
+
+Lists keep loaded rows visible when a later page fails to load. The error and
+Retry control appear below those rows. Retry requests the failed page and adds
+its rows to the same list.
 
 ### Resource write contracts
 

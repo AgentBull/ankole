@@ -19,6 +19,13 @@ defmodule Ankole.Sessions.MessageToolTest do
         now: @base_time
       )
 
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: input.human_uid,
+        resource_pattern: "agent:#{agent.uid}:tool:send_message",
+        action: "invoke"
+      })
+
     drive_file_fixture(agent.uid, "reports/weekly.pdf", "%PDF weekly")
     {:ok, run} = Admission.admit(input, input)
     {:ok, context} = Context.resolve(run.agent_uid, run.session_id)

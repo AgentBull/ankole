@@ -16,7 +16,7 @@ defmodule Ankole.E2E.ComposeDeployment do
   @admin_email "compose-e2e@example.test"
   @admin_password "Compose-E2E-Only-1234"
 
-  def start!(release \\ :current) when release in [:current, :source, :pooled] do
+  def start!(release \\ :source) when release in [:source, :pooled] do
     suffix = Base.encode16(:crypto.strong_rand_bytes(5), case: :lower)
     project = "e2e-up-" <> suffix
     directory = Path.join(System.tmp_dir!(), project)
@@ -99,7 +99,7 @@ defmodule Ankole.E2E.ComposeDeployment do
              "ghcr.io/agentbull/ankole-agent-control-plane:#{@legacy_revision}"}
           ]
       else
-        image = if release == :source, do: System.fetch_env!("ANKOLE_E2E_CONTROL_PLANE_IMAGE")
+        image = System.fetch_env!("ANKOLE_E2E_CONTROL_PLANE_IMAGE")
         environment ++ [{"ANKOLE_CONTROL_PLANE_IMAGE", image}, {"ANKOLE_POSTGRESQL_IMAGE", nil}]
       end
 
@@ -114,7 +114,8 @@ defmodule Ankole.E2E.ComposeDeployment do
       cookies: %{},
       csrf: nil,
       token: nil,
-      tenant_id: nil
+      tenant_id: nil,
+      smtp: nil
     }
 
     on_exit(fn -> cleanup(deployment) end)
@@ -197,7 +198,22 @@ defmodule Ankole.E2E.ComposeDeployment do
     end
 
     # The authentication migration requires a new login with the original account.
-    deployment = deployment |> Map.put(:token, nil) |> wait_http!()
+    deployment =
+      deployment
+      |> Map.put(:token, nil)
+      |> wait_http!()
+      |> prepare_mail!()
+
+    mail = deployment |> mail_settings() |> Ankole.JSON.encode!()
+
+    compose!(deployment, [
+      "exec",
+      "-T",
+      "control-plane",
+      "/app/bin/ankole",
+      "eval",
+      "Ankole.Release.put_authn_mail(#{inspect(mail)})"
+    ])
 
     {_response, deployment} =
       request!(deployment, :get, "/api/v2/site/privileged-tenant", nil, 401)
@@ -221,13 +237,35 @@ defmodule Ankole.E2E.ComposeDeployment do
     deployment = %{deployment | csrf: csrf}
 
     {login, deployment} =
-      browser_request!(deployment, :post, "/sessions/local-password", %{
-        flow: flow,
-        email: @admin_email,
-        password: @admin_password
-      })
+      if deployment.compose == @compose do
+        assert {:ok, true} =
+                 wait_until(deadline(15_000), fn ->
+                   {providers, _} =
+                     browser_request!(deployment, :get, "/identity-providers?flow=" <> flow)
 
-    assert %{"status" => "ok", "returnTo" => return_to} = login.body
+                   Enum.any?(providers.body["providers"], &(&1["providerID"] == "email_otp"))
+                 end)
+
+        {sent, deployment} =
+          browser_request!(deployment, :post, "/sessions/email-otp/challenges", %{
+            flow: flow,
+            email: @admin_email
+          })
+
+        browser_request!(deployment, :post, "/sessions/email-otp/verifications", %{
+          flow: flow,
+          challengeID: sent.body["challengeID"],
+          code: verification_code!()
+        })
+      else
+        browser_request!(deployment, :post, "/sessions/local-password", %{
+          flow: flow,
+          email: @admin_email,
+          password: @admin_password
+        })
+      end
+
+    assert %{"returnTo" => return_to} = login.body
     {page, deployment} = request!(deployment, :get, return_to)
     [_, csrf] = Regex.run(~r/<meta name="csrf-token" content="([^"]+)"/, page.body)
     %{deployment | csrf: csrf}
@@ -284,19 +322,7 @@ defmodule Ankole.E2E.ComposeDeployment do
     {_response, deployment} =
       browser_request!(deployment, :post, "/setup/sessions", %{activation_code: code})
 
-    {_response, deployment} =
-      browser_request!(deployment, :put, "/setup/identity-providers/local-main", %{
-        adapterID: "local",
-        config: %{},
-        enabled: true
-      })
-
-    {setup, deployment} =
-      browser_request!(deployment, :post, "/setup/local-admin", %{
-        email: @admin_email,
-        password: @admin_password,
-        display_name: "Compose test owner"
-      })
+    {setup, deployment} = setup_identity!(deployment)
 
     {session, deployment} = browser_request!(deployment, :get, "/session")
 
@@ -318,6 +344,72 @@ defmodule Ankole.E2E.ComposeDeployment do
       end
 
     {deployment, Map.fetch!(session.body, "principalUID")}
+  end
+
+  defp setup_identity!(%{compose: @compose} = deployment) do
+    deployment = prepare_mail!(deployment)
+
+    {sent, deployment} =
+      browser_request!(deployment, :post, "/setup/email-otp/challenges", %{
+        email: @admin_email,
+        mail: mail_settings(deployment),
+        display_name: "Compose test owner"
+      })
+
+    browser_request!(deployment, :post, "/setup/email-otp/verifications", %{
+      flow: sent.body["flow"],
+      challengeID: sent.body["challengeID"],
+      code: verification_code!()
+    })
+  end
+
+  # The pinned release is an upgrade input with its own password protocol.
+  defp setup_identity!(deployment) do
+    {_, deployment} =
+      browser_request!(deployment, :put, "/setup/identity-providers/local-main", %{
+        adapterID: "local",
+        config: %{},
+        enabled: true
+      })
+
+    browser_request!(deployment, :post, "/setup/local-admin", %{
+      email: @admin_email,
+      password: @admin_password,
+      display_name: "Compose test owner"
+    })
+  end
+
+  defp prepare_mail!(deployment) do
+    smtp =
+      deployment.smtp ||
+        Ankole.Authn.SMTPFixture.start(self(),
+          address: {0, 0, 0, 0},
+          hostname: "host.docker.internal"
+        )
+
+    if is_nil(deployment.smtp), do: on_exit(fn -> Ankole.Authn.SMTPFixture.stop(smtp) end)
+    container = String.trim(compose!(deployment, ["ps", "-q", "control-plane"]))
+    docker!(["cp", smtp.ca_path, "#{container}:/tmp/ankole-authn-test-ca.pem"])
+    %{deployment | smtp: smtp}
+  end
+
+  defp mail_settings(deployment),
+    do: %{
+      "server" => "host.docker.internal",
+      "port" => deployment.smtp.port,
+      "ssl" => true,
+      "from" => "login@ankole.test",
+      "cacertfile" => "/tmp/ankole-authn-test-ca.pem"
+    }
+
+  defp verification_code! do
+    receive do
+      {:smtp_message, _, [@admin_email], message} ->
+        [_, code] = Regex.run(~r/code is (\d{6})/, Ankole.Authn.SMTPFixture.text(message))
+        code
+    after
+      10_000 -> flunk("The real SMTP peer did not receive the administrator code")
+    end
   end
 
   def api!(deployment, method, path, body \\ nil, expected_status \\ 200) do

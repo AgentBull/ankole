@@ -50,6 +50,35 @@ export type Links = {
 }
 
 /**
+ * A "Resource object" representing a pod_admin_operation
+ */
+export type PodAdminOperation = {
+  /**
+   * An attributes object for a pod_admin_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_admin_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type PodAdminOperationFilter = {
+  and?: Array<PodAdminOperationFilter>
+  not?: PodAdminOperationFilter
+  or?: Array<PodAdminOperationFilter>
+}
+
+/**
  * A "Resource object" representing a pod_chat_operation
  */
 export type PodChatOperation = {
@@ -373,6 +402,35 @@ export type PodFileOperation = {
     [key: string]: never
   }
   type: string
+}
+
+/**
+ * A "Resource object" representing a pod_member_account
+ */
+export type PodMemberAccount = {
+  /**
+   * An attributes object for a pod_member_account
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_member_account
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * Filters the query to results matching the given filter object
+ */
+export type PodMemberAccountFilter = {
+  and?: Array<PodMemberAccountFilter>
+  not?: PodMemberAccountFilter
+  or?: Array<PodMemberAccountFilter>
 }
 
 /**
@@ -866,10 +924,107 @@ export type PodPageMoveResponses = {
    */
   201: {
     page: PodPageType
+    undo: {
+      after_id?: string | null
+      before_id?: string | null
+      parent_id?: string | null
+      private_owner_uid?: string | null
+    }
   }
 }
 
 export type PodPageMoveResponse = PodPageMoveResponses[keyof PodPageMoveResponses]
+
+export type PodAdminIdentityProvidersData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/identity-providers'
+}
+
+export type PodAdminIdentityProvidersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAdminIdentityProvidersError = PodAdminIdentityProvidersErrors[keyof PodAdminIdentityProvidersErrors]
+
+export type PodAdminIdentityProvidersResponses = {
+  /**
+   * Success
+   */
+  200: {
+    adapters: Array<{
+      adapter_id: string
+      default_provider_id: string
+      display_name: {
+        [key: string]: string
+      }
+      fields: Array<{
+        advanced?: boolean | null
+        default?: unknown | null
+        description?: {
+          [key: string]: string
+        } | null
+        encrypted?: boolean | null
+        label?: {
+          [key: string]: string
+        } | null
+        max?: number | null
+        min?: number | null
+        options?: Array<{
+          description?: {
+            [key: string]: string
+          } | null
+          label?: {
+            [key: string]: string
+          } | null
+          value: string
+        }> | null
+        path: string
+        required?: boolean | null
+        requiredWhen?: Array<{
+          path: string
+          value?: unknown | null
+        }> | null
+        type: string
+        validation?:
+          | null
+          | {
+              kind: 'pattern'
+              message: {
+                [key: string]: string
+              }
+              pattern: string
+            }
+          | {
+              kind: 'json_object'
+              message: {
+                [key: string]: string
+              }
+              requiredStringProperties?: Array<string> | null
+              stringPrefixes?: {
+                [key: string]: string
+              } | null
+            }
+      }>
+    }>
+    providers: Array<{
+      adapter_id: string
+      config: {
+        [key: string]: unknown
+      }
+      enabled: boolean
+      provider_id: string
+      stored_secret_paths: Array<string>
+    }>
+  }
+}
+
+export type PodAdminIdentityProvidersResponse =
+  PodAdminIdentityProvidersResponses[keyof PodAdminIdentityProvidersResponses]
 
 export type PodVersionsData = {
   /**
@@ -1287,6 +1442,42 @@ export type ConversationDetailResponses = {
 
 export type ConversationDetailResponse = ConversationDetailResponses[keyof ConversationDetailResponses]
 
+export type ChangePodMembershipData = {
+  /**
+   * Request body for the changePodMembership operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      membership: 'member' | 'guest'
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/members/{uid}'
+}
+
+export type ChangePodMembershipErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ChangePodMembershipError = ChangePodMembershipErrors[keyof ChangePodMembershipErrors]
+
+export type ChangePodMembershipResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type ChangePodMembershipResponse = ChangePodMembershipResponses[keyof ChangePodMembershipResponses]
+
 export type PodDatabaseCopyData = {
   /**
    * Request body for the podDatabaseCopy operation on pod_database_operation resource
@@ -1334,6 +1525,186 @@ export type PodDatabaseCopyResponses = {
 
 export type PodDatabaseCopyResponse = PodDatabaseCopyResponses[keyof PodDatabaseCopyResponses]
 
+export type RestorePodMemberData = {
+  /**
+   * Request body for the restorePodMember operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      identityVerified: boolean
+      reason: string
+      reviewFingerprint: string
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/members/{uid}/restorations'
+}
+
+export type RestorePodMemberErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RestorePodMemberError = RestorePodMemberErrors[keyof RestorePodMemberErrors]
+
+export type RestorePodMemberResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ok: boolean
+  }
+}
+
+export type RestorePodMemberResponse = RestorePodMemberResponses[keyof RestorePodMemberResponses]
+
+export type SyncPodDirectoryData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/identity-providers/{provider_id}/syncs'
+}
+
+export type SyncPodDirectoryErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SyncPodDirectoryError = SyncPodDirectoryErrors[keyof SyncPodDirectoryErrors]
+
+export type SyncPodDirectoryResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ok: boolean
+  }
+}
+
+export type SyncPodDirectoryResponse = SyncPodDirectoryResponses[keyof SyncPodDirectoryResponses]
+
+export type PodMemberAccessReviewData = {
+  body?: never
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/members/{uid}/access'
+}
+
+export type PodMemberAccessReviewErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodMemberAccessReviewError = PodMemberAccessReviewErrors[keyof PodMemberAccessReviewErrors]
+
+export type PodMemberAccessReviewResponses = {
+  /**
+   * Success
+   */
+  200: {
+    review: {
+      access_revoked_at?: string | null
+      access_version: number
+      cleanup_jobs: Array<{
+        attempt: number
+        completed_at?: string | null
+        discarded_at?: string | null
+        id: number
+        max_attempts: number
+        scheduled_at?: string | null
+        state: string
+      }>
+      history: Array<{
+        access_version: number
+        action: string
+        actor?: {
+          tenant_id: string
+          uid: string
+        } | null
+        details?: unknown | null
+        id: string
+        inserted_at: string
+        reason: string
+        source: string
+      }>
+      permission_review: {
+        fingerprint: string
+        permissions: {
+          grants: Array<{
+            action: string
+            condition?: unknown | null
+            group_id?: string | null
+            id: string
+            principal_uid?: string | null
+            resource_pattern: string
+          }>
+          groups: Array<{
+            condition?: unknown | null
+            domain: string
+            id: string
+            kind: string
+            name: string
+          }>
+          principal: {
+            access_version: number
+            avatar_url?: string | null
+            display_name?: string | null
+            uid: string
+          }
+          userset_grants: Array<{
+            action: string
+            condition: unknown
+            id: string
+            resource_pattern: string
+            source_action: string
+            source_page_id: string
+            target_page_id: string
+            target_scope: string
+          }>
+        }
+      }
+      restrictions: Array<{
+        cleared_at?: string | null
+        disposition: string
+        id: string
+        inserted_at: string
+        provider_time?: string | null
+        reason: string
+        recovery_verified_at?: string | null
+        source: string
+      }>
+      status: string
+      uid: string
+      work: Array<{
+        agent_uid: string
+        authorization_kind: string
+        can_reauthorize: boolean
+        human_access_version?: number | null
+        human_uid?: string | null
+        id: string
+        kind: string
+        status: string
+        updated_at: string
+      }>
+    }
+  }
+}
+
+export type PodMemberAccessReviewResponse = PodMemberAccessReviewResponses[keyof PodMemberAccessReviewResponses]
+
 export type PodFilesData = {
   body?: never
   path: {
@@ -1370,6 +1741,43 @@ export type PodFilesResponses = {
 }
 
 export type PodFilesResponse = PodFilesResponses[keyof PodFilesResponses]
+
+export type VerifyPodEmailBindingData = {
+  /**
+   * Request body for the verifyPodEmailBinding operation on pod_member_account resource
+   */
+  body: {
+    data: {
+      challengeID: string
+      code: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/me/email/verifications'
+}
+
+export type VerifyPodEmailBindingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type VerifyPodEmailBindingError = VerifyPodEmailBindingErrors[keyof VerifyPodEmailBindingErrors]
+
+export type VerifyPodEmailBindingResponses = {
+  /**
+   * Success
+   */
+  201: {
+    authenticationRef: string
+    csrfToken: string
+    ok: boolean
+  }
+}
+
+export type VerifyPodEmailBindingResponse = VerifyPodEmailBindingResponses[keyof VerifyPodEmailBindingResponses]
 
 export type PodFileCopyData = {
   /**
@@ -1524,6 +1932,43 @@ export type PodDatabaseAggregateResponses = {
 
 export type PodDatabaseAggregateResponse = PodDatabaseAggregateResponses[keyof PodDatabaseAggregateResponses]
 
+export type DisablePodMemberData = {
+  /**
+   * Request body for the disablePodMember operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      disposition: 'suspended' | 'offboarded'
+      reason: string
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/members/{uid}/restrictions'
+}
+
+export type DisablePodMemberErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type DisablePodMemberError = DisablePodMemberErrors[keyof DisablePodMemberErrors]
+
+export type DisablePodMemberResponses = {
+  /**
+   * Success
+   */
+  201: {
+    ok: boolean
+  }
+}
+
+export type DisablePodMemberResponse = DisablePodMemberResponses[keyof DisablePodMemberResponses]
+
 export type PodDatabaseFieldCreateData = {
   /**
    * Request body for the podDatabaseFieldCreate operation on pod_database_operation resource
@@ -1581,6 +2026,40 @@ export type PodDatabaseFieldCreateResponses = {
 
 export type PodDatabaseFieldCreateResponse = PodDatabaseFieldCreateResponses[keyof PodDatabaseFieldCreateResponses]
 
+export type RequestPodEmailBindingData = {
+  /**
+   * Request body for the requestPodEmailBinding operation on pod_member_account resource
+   */
+  body: {
+    data: {
+      email: string
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/me/email/challenges'
+}
+
+export type RequestPodEmailBindingErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RequestPodEmailBindingError = RequestPodEmailBindingErrors[keyof RequestPodEmailBindingErrors]
+
+export type RequestPodEmailBindingResponses = {
+  /**
+   * Success
+   */
+  201: {
+    challengeID: string
+  }
+}
+
+export type RequestPodEmailBindingResponse = RequestPodEmailBindingResponses[keyof RequestPodEmailBindingResponses]
+
 export type PodPageRestoreData = {
   body?: never
   path: {
@@ -1609,6 +2088,80 @@ export type PodPageRestoreResponses = {
 }
 
 export type PodPageRestoreResponse = PodPageRestoreResponses[keyof PodPageRestoreResponses]
+
+export type RevokePodInvitationData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/invitations/{id}'
+}
+
+export type RevokePodInvitationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type RevokePodInvitationError = RevokePodInvitationErrors[keyof RevokePodInvitationErrors]
+
+export type RevokePodInvitationResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type RevokePodInvitationResponse = RevokePodInvitationResponses[keyof RevokePodInvitationResponses]
+
+export type PodPageChildrenData = {
+  body?: never
+  path?: never
+  query?: {
+    cursor?: string
+    limit?: number
+    parent_id?: string
+    scope?: 'space' | 'private'
+  }
+  url: '/api/v2/pod/pages/children'
+}
+
+export type PodPageChildrenErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageChildrenError = PodPageChildrenErrors[keyof PodPageChildrenErrors]
+
+export type PodPageChildrenResponses = {
+  /**
+   * Success
+   */
+  200: {
+    can_create_private: boolean
+    next_cursor?: string | null
+    pages: Array<{
+      icon?: string | null
+      id: string
+      inherit_permissions: boolean
+      parent_id?: string | null
+      position: string
+      private_owner_uid?: string | null
+      role: 'view' | 'edit' | 'manage'
+      title: string
+      type: 'doc' | 'database' | 'applet' | 'file'
+    }>
+    principal_uid: string
+  }
+}
+
+export type PodPageChildrenResponse = PodPageChildrenResponses[keyof PodPageChildrenResponses]
 
 export type PodPageUserStateData = {
   /**
@@ -1646,6 +2199,33 @@ export type PodPageUserStateResponses = {
 }
 
 export type PodPageUserStateResponse = PodPageUserStateResponses[keyof PodPageUserStateResponses]
+
+export type ExitPodData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/me/membership'
+}
+
+export type ExitPodErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ExitPodError = ExitPodErrors[keyof ExitPodErrors]
+
+export type ExitPodResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type ExitPodResponse = ExitPodResponses[keyof ExitPodResponses]
 
 export type PostConversationMessageData = {
   /**
@@ -1784,6 +2364,111 @@ export type PostConversationMessageResponses = {
 
 export type PostConversationMessageResponse = PostConversationMessageResponses[keyof PostConversationMessageResponses]
 
+export type UnbindPodCredentialData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: '/api/v2/pod/me/credentials/{id}'
+}
+
+export type UnbindPodCredentialErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UnbindPodCredentialError = UnbindPodCredentialErrors[keyof UnbindPodCredentialErrors]
+
+export type UnbindPodCredentialResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type UnbindPodCredentialResponse = UnbindPodCredentialResponses[keyof UnbindPodCredentialResponses]
+
+export type PodAdminMembersData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/members'
+}
+
+export type PodAdminMembersErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAdminMembersError = PodAdminMembersErrors[keyof PodAdminMembersErrors]
+
+export type PodAdminMembersResponses = {
+  /**
+   * Success
+   */
+  200: {
+    members: Array<{
+      administrator: boolean
+      credentials: Array<{
+        id: string
+        identifier: string
+        kind: string
+        provider: string
+      }>
+      displayName: string
+      email?: string | null
+      membership: string
+      status: string
+      uid: string
+    }>
+  }
+}
+
+export type PodAdminMembersResponse = PodAdminMembersResponses[keyof PodAdminMembersResponses]
+
+export type CreatePodMemberData = {
+  /**
+   * Request body for the createPodMember operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      displayName: string
+      email?: string | null
+      membership: 'member' | 'guest'
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/members'
+}
+
+export type CreatePodMemberErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreatePodMemberError = CreatePodMemberErrors[keyof CreatePodMemberErrors]
+
+export type CreatePodMemberResponses = {
+  /**
+   * Success
+   */
+  201: {
+    uid: string
+  }
+}
+
+export type CreatePodMemberResponse = CreatePodMemberResponses[keyof CreatePodMemberResponses]
+
 export type PodSubjectsData = {
   body?: never
   path?: never
@@ -1807,7 +2492,7 @@ export type PodSubjectsResponses = {
   200: {
     subjects: Array<{
       group_id?: string | null
-      kind: 'human' | 'agent' | 'group'
+      kind: 'human' | 'agent' | 'group' | 'userset'
       name: string
       principal_uid?: string | null
     }>
@@ -1904,6 +2589,46 @@ export type PodDatabaseFieldUpdateResponses = {
 }
 
 export type PodDatabaseFieldUpdateResponse = PodDatabaseFieldUpdateResponses[keyof PodDatabaseFieldUpdateResponses]
+
+export type SavePodIdentityProviderData = {
+  /**
+   * Request body for the savePodIdentityProvider operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      adapter_id: string
+      config: {
+        [key: string]: unknown
+      }
+      enabled: boolean
+    }
+  }
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/identity-providers/{provider_id}'
+}
+
+export type SavePodIdentityProviderErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SavePodIdentityProviderError = SavePodIdentityProviderErrors[keyof SavePodIdentityProviderErrors]
+
+export type SavePodIdentityProviderResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SavePodIdentityProviderResponse = SavePodIdentityProviderResponses[keyof SavePodIdentityProviderResponses]
 
 export type PodPageDeleteData = {
   body?: never
@@ -2008,6 +2733,42 @@ export type PodPageUpdateResponses = {
 
 export type PodPageUpdateResponse = PodPageUpdateResponses[keyof PodPageUpdateResponses]
 
+export type SetPodAdministratorData = {
+  /**
+   * Request body for the setPodAdministrator operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      administrator: boolean
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/members/{uid}/administrator'
+}
+
+export type SetPodAdministratorErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type SetPodAdministratorError = SetPodAdministratorErrors[keyof SetPodAdministratorErrors]
+
+export type SetPodAdministratorResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type SetPodAdministratorResponse = SetPodAdministratorResponses[keyof SetPodAdministratorResponses]
+
 export type PodPageListData = {
   body?: never
   path?: never
@@ -2032,6 +2793,7 @@ export type PodPageListResponses = {
    * Success
    */
   200: {
+    can_create_private: boolean
     pages: Array<PodPageType>
     principal_uid: string
   }
@@ -2078,6 +2840,124 @@ export type PodPageCreateResponses = {
 }
 
 export type PodPageCreateResponse = PodPageCreateResponses[keyof PodPageCreateResponses]
+
+export type UnbindPodMemberCredentialData = {
+  body?: never
+  path: {
+    credential_id: string
+    uid: string
+  }
+  query?: never
+  url: '/api/v2/pod/admin/members/{uid}/credentials/{credential_id}'
+}
+
+export type UnbindPodMemberCredentialErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UnbindPodMemberCredentialError = UnbindPodMemberCredentialErrors[keyof UnbindPodMemberCredentialErrors]
+
+export type UnbindPodMemberCredentialResponses = {
+  /**
+   * Success
+   */
+  200: {
+    ok: boolean
+  }
+}
+
+export type UnbindPodMemberCredentialResponse =
+  UnbindPodMemberCredentialResponses[keyof UnbindPodMemberCredentialResponses]
+
+export type PodAdminSettingsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/settings'
+}
+
+export type PodAdminSettingsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAdminSettingsError = PodAdminSettingsErrors[keyof PodAdminSettingsErrors]
+
+export type PodAdminSettingsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    allowExternalGuests: boolean
+    displayName: string
+    emailAvailable: boolean
+    loginPolicy: {
+      allow_email_otp: boolean
+      allow_invite_links: boolean
+      allow_member_credential_change: boolean
+      allowed_email_domains: Array<string>
+      require_sso_for_members: boolean
+    }
+  }
+}
+
+export type PodAdminSettingsResponse = PodAdminSettingsResponses[keyof PodAdminSettingsResponses]
+
+export type UpdatePodAdminSettingsData = {
+  /**
+   * Request body for the updatePodAdminSettings operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      allowExternalGuests: boolean
+      displayName: string
+      loginPolicy: {
+        allow_email_otp: boolean
+        allow_invite_links: boolean
+        allow_member_credential_change: boolean
+        allowed_email_domains: Array<string>
+        require_sso_for_members: boolean
+      }
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/settings'
+}
+
+export type UpdatePodAdminSettingsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type UpdatePodAdminSettingsError = UpdatePodAdminSettingsErrors[keyof UpdatePodAdminSettingsErrors]
+
+export type UpdatePodAdminSettingsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    allowExternalGuests: boolean
+    displayName: string
+    emailAvailable: boolean
+    loginPolicy: {
+      allow_email_otp: boolean
+      allow_invite_links: boolean
+      allow_member_credential_change: boolean
+      allowed_email_domains: Array<string>
+      require_sso_for_members: boolean
+    }
+  }
+}
+
+export type UpdatePodAdminSettingsResponse = UpdatePodAdminSettingsResponses[keyof UpdatePodAdminSettingsResponses]
 
 export type PodRealtimeTokenData = {
   body?: never
@@ -2179,6 +3059,81 @@ export type PodDatabaseViewCreateResponses = {
 }
 
 export type PodDatabaseViewCreateResponse = PodDatabaseViewCreateResponses[keyof PodDatabaseViewCreateResponses]
+
+export type PodAdminInvitationsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/invitations'
+}
+
+export type PodAdminInvitationsErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodAdminInvitationsError = PodAdminInvitationsErrors[keyof PodAdminInvitationsErrors]
+
+export type PodAdminInvitationsResponses = {
+  /**
+   * Success
+   */
+  200: {
+    invitations: Array<{
+      expires_at: string
+      id: string
+      invited_email?: string | null
+      kind: string
+      max_uses?: number | null
+      membership: string
+      revoked_at?: string | null
+      used_count: number
+    }>
+  }
+}
+
+export type PodAdminInvitationsResponse = PodAdminInvitationsResponses[keyof PodAdminInvitationsResponses]
+
+export type CreatePodInvitationData = {
+  /**
+   * Request body for the createPodInvitation operation on pod_admin_operation resource
+   */
+  body: {
+    data: {
+      email?: string | null
+      expiresAt: unknown
+      maxUses?: number | null
+      membership: 'member' | 'guest'
+    }
+  }
+  path?: never
+  query?: never
+  url: '/api/v2/pod/admin/invitations'
+}
+
+export type CreatePodInvitationErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type CreatePodInvitationError = CreatePodInvitationErrors[keyof CreatePodInvitationErrors]
+
+export type CreatePodInvitationResponses = {
+  /**
+   * Success
+   */
+  201: {
+    code: string
+    id: string
+    url: string
+  }
+}
+
+export type CreatePodInvitationResponse = CreatePodInvitationResponses[keyof CreatePodInvitationResponses]
 
 export type PodDatabaseViewDeleteData = {
   body?: never
@@ -2355,17 +3310,27 @@ export type PodPageSharingResponses = {
    */
   200: {
     grants: Array<{
+      condition?: string | null
       group_id?: string | null
-      kind: 'human' | 'agent' | 'group'
+      kind: 'human' | 'agent' | 'group' | 'userset'
       name: string
       principal_uid?: string | null
       role: 'view' | 'edit' | 'manage'
+      source_action?: string | null
+      source_page?: {
+        accessible?: boolean | null
+        icon?: string | null
+        id?: string | null
+        title?: string | null
+      } | null
+      source_page_id?: string | null
+      target_scope?: string | null
     }>
     inherit_permissions: boolean
     sharing_version: string
     subjects: Array<{
       group_id?: string | null
-      kind: 'human' | 'agent' | 'group'
+      kind: 'human' | 'agent' | 'group' | 'userset'
       name: string
       principal_uid?: string | null
     }>
@@ -2381,9 +3346,13 @@ export type PodPageSharingWriteData = {
   body: {
     data: {
       grants?: Array<{
+        condition?: string | null
         group_id?: string | null
         principal_uid?: string | null
         role: 'view' | 'edit' | 'manage'
+        source_action?: string | null
+        source_page_id?: string | null
+        target_scope?: string | null
       }> | null
       inherit_permissions?: boolean | null
       sharing_version: string
@@ -2743,6 +3712,100 @@ export type SetPodModelSelectionResponses = {
 
 export type SetPodModelSelectionResponse = SetPodModelSelectionResponses[keyof SetPodModelSelectionResponses]
 
+export type PodMeData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/me'
+}
+
+export type PodMeErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodMeError = PodMeErrors[keyof PodMeErrors]
+
+export type PodMeResponses = {
+  /**
+   * Success
+   */
+  200: {
+    credentialChangeAllowed: boolean
+    credentials: Array<{
+      id: string
+      identifier: string
+      kind: string
+      provider: string
+    }>
+    displayName: string
+    managed: boolean
+  }
+}
+
+export type PodMeResponse = PodMeResponses[keyof PodMeResponses]
+
+export type ReauthenticatePodMemberData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v2/pod/me/reauthentication'
+}
+
+export type ReauthenticatePodMemberErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ReauthenticatePodMemberError = ReauthenticatePodMemberErrors[keyof ReauthenticatePodMemberErrors]
+
+export type ReauthenticatePodMemberResponses = {
+  /**
+   * Success
+   */
+  201: {
+    loginURL: string
+  }
+}
+
+export type ReauthenticatePodMemberResponse = ReauthenticatePodMemberResponses[keyof ReauthenticatePodMemberResponses]
+
+export type PodPageSearchData = {
+  body?: never
+  path?: never
+  query: {
+    exclude_subtree_of?: string
+    query: string
+  }
+  url: '/api/v2/pod/pages/search'
+}
+
+export type PodPageSearchErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type PodPageSearchError = PodPageSearchErrors[keyof PodPageSearchErrors]
+
+export type PodPageSearchResponses = {
+  /**
+   * Success
+   */
+  200: {
+    can_create_private: boolean
+    pages: Array<PodPageType>
+    principal_uid: string
+  }
+}
+
+export type PodPageSearchResponse = PodPageSearchResponses[keyof PodPageSearchResponses]
+
 export type PodSpaceData = {
   body?: never
   path?: never
@@ -2765,11 +3828,21 @@ export type PodSpaceResponses = {
    */
   200: {
     agents: Array<{
+      condition?: string | null
       group_id?: string | null
-      kind: 'human' | 'agent' | 'group'
+      kind: 'human' | 'agent' | 'group' | 'userset'
       name: string
       principal_uid?: string | null
       role: 'view' | 'edit' | 'manage'
+      source_action?: string | null
+      source_page?: {
+        accessible?: boolean | null
+        icon?: string | null
+        id?: string | null
+        title?: string | null
+      } | null
+      source_page_id?: string | null
+      target_scope?: string | null
     }>
     can_manage: boolean
     role: 'view' | 'edit' | 'manage'

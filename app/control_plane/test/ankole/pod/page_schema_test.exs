@@ -80,8 +80,9 @@ defmodule Ankole.Pod.PageSchemaTest do
     )
 
     assert_sql_constraint(
-      "UPDATE pages SET parent_id = id, private_owner_uid = 'owner'" <> where,
-      args,
+      "UPDATE pages SET parent_id = id, inherit_permissions = false, parent_anchor_id = $3::text::uuid, private_owner_uid = 'owner'" <>
+        where,
+      args ++ [new_page().id],
       "pages_private_owner"
     )
 
@@ -102,7 +103,14 @@ defmodule Ankole.Pod.PageSchemaTest do
     foreign_table = Repo.with_tenant(other.id, fn -> new_table(foreign_page) end)
 
     assert_constraint(
-      action_changeset(Page, page_attrs(%{parent_id: foreign_page.id})),
+      action_changeset(
+        Page,
+        page_attrs(%{
+          parent_id: foreign_page.id,
+          inherit_permissions: false,
+          parent_anchor_id: foreign_page.id
+        })
+      ),
       "pages_tenant_id_parent_id_fkey"
     )
 
@@ -390,6 +398,7 @@ defmodule Ankole.Pod.PageSchemaTest do
     do:
       Map.merge(
         %{
+          id: Ankole.Ecto.UUIDv7.autogenerate(),
           type: :doc,
           title: "",
           position: "a",
@@ -399,6 +408,7 @@ defmodule Ankole.Pod.PageSchemaTest do
         },
         attrs
       )
+      |> then(fn attrs -> Map.put(attrs, :acl_anchor_id, attrs.id) end)
 
   defp new_page(attrs \\ %{}), do: insert!(Page, page_attrs(attrs))
 

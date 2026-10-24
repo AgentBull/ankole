@@ -93,14 +93,7 @@ function manualChunks(moduleID: string): string | undefined {
     return 'vendor-router'
   }
 
-  // Only a dynamic import reaches the zxcvbn dictionaries, so a chunk of
-  // their own loads lazily. The catch-all would fold their hundreds of
-  // kilobytes into the eagerly loaded utilities bundle.
-  if (moduleID.includes('/@zxcvbn-ts/')) return 'vendor-zxcvbn'
-
-  // The same reasoning covers the other dynamic-import-only heavyweights:
-  // the agents editor's transliteration table, the JSON tree editor, and the
-  // Markdown pipeline.
+  // Keep dynamic-import-only editor and Markdown dependencies in lazy chunks.
   if (moduleID.includes('/any-ascii/')) return 'vendor-transliteration'
   if (moduleID.includes('/json-edit-react/')) return 'vendor-json-editor'
   if (moduleID.includes('/xlsx/')) return 'vendor-spreadsheet'

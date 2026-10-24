@@ -3,13 +3,15 @@ defmodule Ankole.Conversations.Attachments.Native do
 
   require Ash.Query
   alias Ankole.Conversations.{Attachments, Message}
-  alias Ankole.{Files, Principals, Repo, WorkerFiles}
+  alias Ankole.{Files, Repo, WorkerFiles}
 
   @salt "native-conversation-attachment"
   @max_age 86_400
 
-  def upload(uid, file_id, name, {:file, path} = content, content_type) do
-    with {:ok, %{type: :human, status: :active}} <- Principals.get_principal(uid),
+  def upload(%Ankole.AuthZ.Actor{} = actor, file_id, name, {:file, path} = content, content_type) do
+    uid = Ankole.AuthZ.Actor.uid(actor)
+
+    with {:ok, %{type: :human}} <- Ankole.Pod.principal(actor),
          {:ok, file_id} <- Ecto.UUID.cast(file_id),
          {:ok, stat} <- File.stat(path),
          true <- stat.size <= WorkerFiles.max_transfer_bytes(),
@@ -37,6 +39,7 @@ defmodule Ankole.Conversations.Attachments.Native do
          content_type: Attachments.content_type(attachment)
        }}
     else
+      {:error, :forbidden} = error -> error
       false -> {:error, :file_too_large}
       _ -> {:error, :invalid_attachment}
     end
@@ -93,9 +96,9 @@ defmodule Ankole.Conversations.Attachments.Native do
         Map.take(right, ~w(upload_id blob_ref name size content_type resource_type))
 
   @doc "Reads frozen bytes through the current Human's Conversation membership."
-  def read_to_file(uid, conversation_id, message_id, path, local_path) do
+  def read_to_file(%Ankole.AuthZ.Actor{} = actor, conversation_id, message_id, path, local_path) do
     with {:ok, message_id} <- Ecto.UUID.cast(message_id),
-         {:ok, _} <- Ankole.Conversations.visible_native_conversation(uid, conversation_id),
+         {:ok, _} <- Ankole.Conversations.visible_native_conversation(actor, conversation_id),
          %Message{attachments: attachments} <-
            Message
            |> Ash.Query.filter(id == ^message_id and conversation_id == ^conversation_id)

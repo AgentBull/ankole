@@ -9,3 +9,6 @@ app/library/skills/** linguist-vendored
 # Linux containers run these scripts, also from a Windows checkout with
 # core.autocrlf. A CR at a line end breaks sh.
 *.sh text eol=lf
+
+# Unified diffs use a space prefix for unchanged empty lines.
+*.patch -whitespace

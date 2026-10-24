@@ -12,9 +12,20 @@ defmodule Ankole.Signals.Binding do
   """
 
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.Signals,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:agent_uid, :principal_key)
+
+    allow(:console_disable,
+      resource: "site_console:agent:{agent_uid}:signal_bindings",
+      action: "delete"
+    )
+  end
 
   alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.Signals.BindingFilters

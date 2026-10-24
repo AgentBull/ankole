@@ -41,6 +41,29 @@ pub struct AuthzBatchSnapshot {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PodContextSnapshot {
+    pub principal: SnapshotPrincipal,
+    #[serde(rename = "staticGroupIDs")]
+    pub static_group_ids: Vec<String>,
+    pub computed_groups: Vec<SnapshotComputedGroup>,
+    pub grants: Vec<SnapshotGrant>,
+    #[serde(default)]
+    pub context: JSONValue,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodContextDecision {
+    pub status: String,
+    #[serde(rename = "effectiveGroupIDs")]
+    pub effective_group_ids: Vec<String>,
+    #[serde(rename = "satisfiedGrantIDs")]
+    pub satisfied_grant_ids: Vec<String>,
+    pub diagnostics: Vec<AuthzDiagnostic>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AuthzCheck {
     pub resource: String,
     pub action: String,
@@ -70,6 +93,8 @@ pub struct SnapshotPrincipal {
     pub principal_type: String,
     pub status: String,
     #[serde(default)]
+    pub membership: Option<String>,
+    #[serde(default)]
     pub display_name: Option<String>,
     #[serde(default, rename = "avatarURL")]
     pub avatar_url: Option<String>,
@@ -93,6 +118,8 @@ pub struct SnapshotGrant {
     pub principal_uid: Option<String>,
     #[serde(default, rename = "groupID")]
     pub group_id: Option<String>,
+    #[serde(default)]
+    pub has_source_page: bool,
     pub resource_pattern: String,
     pub action: String,
     pub condition: String,
@@ -259,6 +286,88 @@ pub fn authorize_checks_value(snapshot: JSONValue) -> KernelResult<JSONValue> {
         .map_err(|reason| KernelError::new(format!("invalid authz checks snapshot: {reason}")))?;
     serde_json::to_value(authorize_checks(input)?)
         .map_err(|reason| KernelError::new(format!("failed to encode authz checks: {reason}")))
+}
+
+pub fn evaluate_pod_context(snapshot: PodContextSnapshot) -> KernelResult<PodContextDecision> {
+    if snapshot.principal.status != "active" {
+        return Ok(PodContextDecision {
+            status: "principal_disabled".to_owned(),
+            effective_group_ids: Vec::new(),
+            satisfied_grant_ids: Vec::new(),
+            diagnostics: Vec::new(),
+        });
+    }
+
+    let (effective_group_ids, mut diagnostics) = effective_group_ids(
+        &snapshot.principal,
+        &snapshot.static_group_ids,
+        &snapshot.computed_groups,
+    )?;
+    let groups = effective_group_ids.iter().map(String::as_str).collect();
+    let context = cel::build_context(vec![
+        ("principal", principal_to_json(&snapshot.principal)),
+        ("context", normalized_context(&snapshot.context)),
+    ])?;
+    let mut satisfied_grant_ids = Vec::new();
+
+    for grant in &snapshot.grants {
+        let owned = if grant.has_source_page {
+            grant.principal_uid.is_none() && grant.group_id.is_none()
+        } else {
+            grant_owned_by_subject(grant, &snapshot.principal.uid, &groups)
+        };
+        if !owned
+            || grant.condition == "true"
+            || !matches!(
+                grant.action.as_str(),
+                "page_view" | "page_edit" | "page_manage"
+            )
+        {
+            continue;
+        }
+
+        let program = match cached_condition_program(&grant.condition) {
+            Ok(program) => program,
+            Err(reason) => {
+                diagnostics.push(grant_diagnostic(grant, "condition_compile", reason));
+                continue;
+            }
+        };
+        if let Err(reason) = cel::validate_pod_condition_program(&program) {
+            diagnostics.push(grant_diagnostic(
+                grant,
+                "condition_variables",
+                reason.to_string(),
+            ));
+            continue;
+        }
+        match cel::execute_bool(&program, &context) {
+            Ok(true) => satisfied_grant_ids.push(grant.id.clone()),
+            Ok(false) => {}
+            Err(BoolEvalError::Execution(reason)) => {
+                diagnostics.push(grant_diagnostic(grant, "condition_execution", reason));
+            }
+            Err(BoolEvalError::ResultType(reason)) => {
+                diagnostics.push(grant_diagnostic(grant, "condition_result_type", reason));
+            }
+        }
+    }
+
+    satisfied_grant_ids.sort();
+    satisfied_grant_ids.dedup();
+    Ok(PodContextDecision {
+        status: "active".to_owned(),
+        effective_group_ids,
+        satisfied_grant_ids,
+        diagnostics,
+    })
+}
+
+pub fn evaluate_pod_context_value(snapshot: JSONValue) -> KernelResult<JSONValue> {
+    let snapshot = serde_json::from_value(snapshot)
+        .map_err(|reason| KernelError::new(format!("invalid pod context snapshot: {reason}")))?;
+    serde_json::to_value(evaluate_pod_context(snapshot)?)
+        .map_err(|reason| KernelError::new(format!("failed to encode pod context: {reason}")))
 }
 
 fn authorize_one(snapshot: &AuthzSnapshot) -> KernelResult<AuthzDecision> {
@@ -429,6 +538,9 @@ fn grant_owned_by_subject(
     principal_uid: &str,
     effective_group_ids: &HashSet<&str>,
 ) -> bool {
+    if grant.has_source_page {
+        return false;
+    }
     match (&grant.principal_uid, &grant.group_id) {
         (Some(grant_principal_uid), None) => grant_principal_uid == principal_uid,
         (None, Some(group_id)) => effective_group_ids.contains(group_id.as_str()),
@@ -441,6 +553,7 @@ fn principal_to_json(principal: &SnapshotPrincipal) -> JSONValue {
         "uid": principal.uid,
         "type": principal.principal_type,
         "status": principal.status,
+        "membership": principal.membership,
         "displayName": principal.display_name,
         "avatarURL": principal.avatar_url
     })
@@ -524,15 +637,166 @@ fn decision(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn principal(status: &str, principal_type: &str) -> SnapshotPrincipal {
         SnapshotPrincipal {
             uid: "alice".to_owned(),
             principal_type: principal_type.to_owned(),
             status: status.to_owned(),
+            membership: if principal_type == "human" {
+                Some("member".to_owned())
+            } else {
+                None
+            },
             display_name: None,
             avatar_url: None,
         }
+    }
+
+    fn pod_snapshot() -> JSONValue {
+        json!({
+            "principal": {
+                "uid": "alice", "type": "human", "status": "active", "membership": "member"
+            },
+            "staticGroupIDs": ["static", "static"],
+            "computedGroups": [{
+                "id": "members",
+                "condition": "principal.type == 'human' && principal.membership == 'member' && principal.status == 'active'"
+            }],
+            "context": {"ip": "10.0.0.1"},
+            "grants": []
+        })
+    }
+
+    fn pod_grant(id: &str, condition: &str) -> JSONValue {
+        json!({
+            "id": id, "principalUID": "alice", "resourcePattern": "pod:space:**",
+            "action": "page_view", "condition": condition
+        })
+    }
+
+    #[test]
+    fn pod_context_evaluates_owned_conditional_grants_and_usersets() {
+        let mut snapshot = pod_snapshot();
+        let condition = "['10.0.0.1'].exists(ip, context.request.ip == ip)";
+        let mut group = pod_grant("group", condition);
+        group.as_object_mut().unwrap().remove("principalUID");
+        group["groupID"] = json!("members");
+        let mut userset = pod_grant("userset", condition);
+        userset.as_object_mut().unwrap().remove("principalUID");
+        userset["hasSourcePage"] = json!(true);
+        let mut foreign = pod_grant("foreign", condition);
+        foreign["principalUID"] = json!("bob");
+        let mut mixed = userset.clone();
+        mixed["id"] = json!("mixed");
+        mixed["principalUID"] = json!("alice");
+        let mut no_owner = pod_grant("no-owner", condition);
+        no_owner.as_object_mut().unwrap().remove("principalUID");
+        let mut non_pod = pod_grant("non-pod", condition);
+        non_pod["action"] = json!("read");
+        snapshot["grants"] = json!([
+            pod_grant("direct", condition),
+            group,
+            userset,
+            foreign,
+            mixed,
+            no_owner,
+            non_pod,
+            pod_grant("unconditional", "true"),
+            pod_grant("false", "context.request.ip == 'other'")
+        ]);
+
+        let result = evaluate_pod_context_value(snapshot).unwrap();
+        assert_eq!(result["status"], "active");
+        assert_eq!(result["effectiveGroupIDs"], json!(["members", "static"]));
+        assert_eq!(
+            result["satisfiedGrantIDs"],
+            json!(["direct", "group", "userset"])
+        );
+        assert_eq!(result["diagnostics"], json!([]));
+    }
+
+    #[test]
+    fn pod_context_rejects_invalid_persisted_conditions() {
+        let mut snapshot = pod_snapshot();
+        snapshot["grants"] = json!([
+            pod_grant("resource", "resource == 'pod:space'"),
+            pod_grant("action", "action == 'page_view'"),
+            pod_grant("malformed", "["),
+            pod_grant("non-bool", "principal.uid"),
+            pod_grant("execution", "context.request.missing == true")
+        ]);
+        let result = evaluate_pod_context_value(snapshot).unwrap();
+        assert_eq!(result["satisfiedGrantIDs"], json!([]));
+        let diagnostics: Vec<_> = result["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|diagnostic| {
+                (
+                    diagnostic["id"].as_str().unwrap(),
+                    diagnostic["kind"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            diagnostics,
+            vec![
+                ("resource", "condition_variables"),
+                ("action", "condition_variables"),
+                ("malformed", "condition_compile"),
+                ("non-bool", "condition_result_type"),
+                ("execution", "condition_execution")
+            ]
+        );
+    }
+
+    #[test]
+    fn guest_membership_and_disabled_status_do_not_seed_member_permissions() {
+        let mut snapshot = pod_snapshot();
+        snapshot["principal"]["membership"] = json!("guest");
+        snapshot["grants"] = json!([pod_grant("guest", "principal.membership == 'guest'")]);
+        let result = evaluate_pod_context_value(snapshot.clone()).unwrap();
+        assert_eq!(result["effectiveGroupIDs"], json!(["static"]));
+        assert_eq!(result["satisfiedGrantIDs"], json!(["guest"]));
+
+        snapshot["principal"]["status"] = json!("disabled");
+        let result = evaluate_pod_context_value(snapshot).unwrap();
+        assert_eq!(result["status"], "principal_disabled");
+        assert_eq!(result["effectiveGroupIDs"], json!([]));
+        assert_eq!(result["satisfiedGrantIDs"], json!([]));
+    }
+
+    #[test]
+    fn generic_authorization_rejects_usersets_and_exposes_null_membership() {
+        let mut snapshot = pod_snapshot();
+        snapshot["principal"]["type"] = json!("agent");
+        snapshot["principal"]
+            .as_object_mut()
+            .unwrap()
+            .remove("membership");
+        snapshot["resource"] = json!("pod:space:page");
+        snapshot["action"] = json!("page_view");
+        let mut userset = pod_grant("userset", "true");
+        userset["hasSourcePage"] = json!(true);
+        snapshot["grants"] = json!([userset]);
+        assert_eq!(authorize_value(snapshot.clone()).unwrap()["status"], "deny");
+
+        snapshot["grants"] = json!([pod_grant("agent", "principal.membership == null")]);
+        assert_eq!(authorize_value(snapshot).unwrap()["status"], "allow");
+    }
+
+    #[test]
+    fn pod_context_rejects_malformed_snapshot_shapes() {
+        for snapshot in [json!(null), json!({}), json!({"principal": true})] {
+            assert!(evaluate_pod_context_value(snapshot).is_err());
+        }
+        let mut snapshot = pod_snapshot();
+        let mut grant = pod_grant("invalid", "true");
+        grant["hasSourcePage"] = json!("yes");
+        snapshot["grants"] = json!([grant]);
+        assert!(evaluate_pod_context_value(snapshot).is_err());
     }
 
     #[test]
@@ -545,6 +809,7 @@ mod tests {
                 id: "grant-1".to_owned(),
                 principal_uid: Some("alice".to_owned()),
                 group_id: None,
+                has_source_page: false,
                 resource_pattern: "web_console".to_owned(),
                 action: "read".to_owned(),
                 condition: "true".to_owned(),
@@ -572,6 +837,7 @@ mod tests {
                 id: "grant-1".to_owned(),
                 principal_uid: None,
                 group_id: Some("all_humans".to_owned()),
+                has_source_page: false,
                 resource_pattern: "ai_agent:**".to_owned(),
                 action: "invoke".to_owned(),
                 condition: "true".to_owned(),
@@ -596,6 +862,7 @@ mod tests {
                 id: "grant-1".to_owned(),
                 principal_uid: Some("alice".to_owned()),
                 group_id: None,
+                has_source_page: false,
                 resource_pattern: "web_console".to_owned(),
                 action: "read".to_owned(),
                 condition: "principal.uid".to_owned(),
@@ -620,6 +887,7 @@ mod tests {
                 id: "grant-1".to_owned(),
                 principal_uid: Some("alice".to_owned()),
                 group_id: None,
+                has_source_page: false,
                 resource_pattern: "web_console".to_owned(),
                 action: "read".to_owned(),
                 condition: "true".to_owned(),

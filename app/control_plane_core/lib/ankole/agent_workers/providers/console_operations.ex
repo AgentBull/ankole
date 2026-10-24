@@ -1,9 +1,17 @@
 defmodule Ankole.AgentWorkers.Providers.ConsoleOperations do
   @moduledoc "Worker provider catalog and connection checks for site operators."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: Ankole.AgentWorkers.Providers,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:provider_id, :string)
+    allow(:console_kinds, resource: "site_console:worker_providers", action: "read")
+    allow(:console_check, resource: "site_console:worker_provider:{provider_id}", action: "read")
+  end
 
   resource do
     require_primary_key?(false)

@@ -29,13 +29,25 @@ defmodule Ankole.Ash.Transformers.CallerTransaction do
      dsl
      |> Transformer.get_entities([:actions])
      |> Enum.reduce(dsl, fn action, dsl ->
-       Transformer.replace_entity(dsl, [:actions], defaults(action), &(&1.name == action.name))
+       Transformer.replace_entity(
+         dsl,
+         [:actions],
+         defaults(action, dsl),
+         &(&1.name == action.name)
+       )
      end)}
   end
 
-  defp defaults(%{type: :action} = action), do: %{action | transaction?: true}
+  defp defaults(%{type: :action} = action, dsl) do
+    if Ash.Resource.Info.data_layer(dsl) == Ash.DataLayer.Simple or
+         Spark.Dsl.Entity.property_anno(action, :transaction?) do
+      action
+    else
+      %{action | transaction?: true}
+    end
+  end
 
-  defp defaults(%{type: type} = action) when type in @mutations do
+  defp defaults(%{type: type} = action, _dsl) when type in @mutations do
     action = %{
       action
       | transaction?: false,
@@ -45,5 +57,5 @@ defmodule Ankole.Ash.Transformers.CallerTransaction do
     if type == :create, do: action, else: %{action | atomic_upgrade?: false}
   end
 
-  defp defaults(action), do: action
+  defp defaults(action, _dsl), do: action
 end

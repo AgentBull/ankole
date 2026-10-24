@@ -1,4 +1,4 @@
-import { podLocation } from '../common/browser-context'
+import { authenticationRef, podID, podLocation } from '../common/browser-context'
 import {
   Button,
   Dialog,
@@ -36,9 +36,15 @@ import { podKeys } from './api'
 import { useQueryClient } from '@tanstack/react-query'
 import { usePodCommandMenu } from './command-menu'
 
+import { browserSession } from '../common/api/generated/sdk.gen'
+
 export function PodSidebar({ accountNavigation }: { accountNavigation?: ReactNode }) {
   const { t } = useTranslation()
   const client = useQueryClient()
+  const account = useQuery({
+    queryKey: ['pod-session', authenticationRef() ?? '', podID() ?? ''],
+    queryFn: () => browserSession()
+  })
   const location = useLocation()
   const { isMobile, setOpenMobile } = useSidebar()
   const openCommand = usePodCommandMenu()
@@ -108,6 +114,11 @@ export function PodSidebar({ accountNavigation }: { accountNavigation?: ReactNod
         </SidebarContent>
       </Tabs>
       <SidebarFooter className="pod-sidebar-footer">
+        {account.data?.canManagePod && (
+          <Link to="/settings" className="p-2 text-sm">
+            {t('pod.settings.title')}
+          </Link>
+        )}
         <AccountMenu extra={accountNavigation} />
       </SidebarFooter>
     </Sidebar>

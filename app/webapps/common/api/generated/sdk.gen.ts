@@ -3,15 +3,18 @@
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client'
 import { client } from './client.gen'
 import type {
+  AcceptInvitationData,
+  AcceptInvitationErrors,
+  AcceptInvitationResponses,
   ActivateBrowserAccountData,
   ActivateBrowserAccountErrors,
   ActivateBrowserAccountResponses,
+  BeginInvitationLoginData,
+  BeginInvitationLoginErrors,
+  BeginInvitationLoginResponses,
   BrowserSessionData,
   BrowserSessionErrors,
   BrowserSessionResponses,
-  CreateSetupLocalAdminData,
-  CreateSetupLocalAdminErrors,
-  CreateSetupLocalAdminResponses,
   CreateSetupSessionData,
   CreateSetupSessionErrors,
   CreateSetupSessionResponses,
@@ -24,12 +27,6 @@ import type {
   DeleteSetupSessionData,
   DeleteSetupSessionErrors,
   DeleteSetupSessionResponses,
-  LocalPasswordChangeData,
-  LocalPasswordChangeErrors,
-  LocalPasswordChangeResponses,
-  LocalPasswordLoginData,
-  LocalPasswordLoginErrors,
-  LocalPasswordLoginResponses,
   LoginProvidersData,
   LoginProvidersErrors,
   LoginProvidersResponses,
@@ -39,9 +36,21 @@ import type {
   LogSetupActivationCodeData,
   LogSetupActivationCodeErrors,
   LogSetupActivationCodeResponses,
+  PreviewInvitationData,
+  PreviewInvitationErrors,
+  PreviewInvitationResponses,
   PutSetupIdentityProviderData,
   PutSetupIdentityProviderErrors,
   PutSetupIdentityProviderResponses,
+  RequestEmailOtpData,
+  RequestEmailOtpErrors,
+  RequestEmailOtpResponses,
+  RequestSetupEmailOtpData,
+  RequestSetupEmailOtpErrors,
+  RequestSetupEmailOtpResponses,
+  ResolvePodLoginData,
+  ResolvePodLoginErrors,
+  ResolvePodLoginResponses,
   SelectLoginIdentityData,
   SelectLoginIdentityErrors,
   SelectLoginIdentityResponses,
@@ -65,7 +74,13 @@ import type {
   UpdateSetupBrainPacksResponses,
   UpdateSetupPluginsData,
   UpdateSetupPluginsErrors,
-  UpdateSetupPluginsResponses
+  UpdateSetupPluginsResponses,
+  VerifyEmailOtpData,
+  VerifyEmailOtpErrors,
+  VerifyEmailOtpResponses,
+  VerifySetupEmailOtpData,
+  VerifySetupEmailOtpErrors,
+  VerifySetupEmailOtpResponses
 } from './types.gen'
 
 export type Options<
@@ -105,6 +120,23 @@ export const deleteBrowserAuthentication = <ThrowOnError extends boolean = true>
   })
 
 /**
+ * activateBrowserAccount operation on browser_authentication resource
+ */
+export const activateBrowserAccount = <ThrowOnError extends boolean = true>(
+  options: Options<ActivateBrowserAccountData, ThrowOnError>
+): RequestResult<ActivateBrowserAccountResponses, ActivateBrowserAccountErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<ActivateBrowserAccountResponses, ActivateBrowserAccountErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/browser/authentications/current',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * loginProviders operation on browser_authentication resource
  */
 export const loginProviders = <ThrowOnError extends boolean = true>(
@@ -114,6 +146,49 @@ export const loginProviders = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/browser/identity-providers',
+    ...options
+  })
+
+/**
+ * previewInvitation operation on browser_invitation resource
+ */
+export const previewInvitation = <ThrowOnError extends boolean = true>(
+  options: Options<PreviewInvitationData, ThrowOnError>
+): RequestResult<PreviewInvitationResponses, PreviewInvitationErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PreviewInvitationResponses, PreviewInvitationErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/browser/invitations/{token}',
+    ...options
+  })
+
+/**
+ * acceptInvitation operation on browser_invitation resource
+ */
+export const acceptInvitation = <ThrowOnError extends boolean = true>(
+  options: Options<AcceptInvitationData, ThrowOnError>
+): RequestResult<AcceptInvitationResponses, AcceptInvitationErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<AcceptInvitationResponses, AcceptInvitationErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/browser/invitations/{token}/acceptances',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * beginInvitationLogin operation on browser_invitation resource
+ */
+export const beginInvitationLogin = <ThrowOnError extends boolean = true>(
+  options: Options<BeginInvitationLoginData, ThrowOnError>
+): RequestResult<BeginInvitationLoginResponses, BeginInvitationLoginErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<BeginInvitationLoginResponses, BeginInvitationLoginErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/browser/invitations/{token}/sessions',
     ...options
   })
 
@@ -128,6 +203,23 @@ export const logoutConfirmation = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/browser/oidc-logout/{id}',
     ...options
+  })
+
+/**
+ * resolvePodLogin operation on browser_authentication resource
+ */
+export const resolvePodLogin = <ThrowOnError extends boolean = true>(
+  options: Options<ResolvePodLoginData, ThrowOnError>
+): RequestResult<ResolvePodLoginResponses, ResolvePodLoginErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<ResolvePodLoginResponses, ResolvePodLoginErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/browser/pod-logins',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -157,15 +249,32 @@ export const browserSession = <ThrowOnError extends boolean = true>(
   })
 
 /**
- * activateBrowserAccount operation on browser_authentication resource
+ * requestEmailOTP operation on browser_authentication resource
  */
-export const activateBrowserAccount = <ThrowOnError extends boolean = true>(
-  options: Options<ActivateBrowserAccountData, ThrowOnError>
-): RequestResult<ActivateBrowserAccountResponses, ActivateBrowserAccountErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).put<ActivateBrowserAccountResponses, ActivateBrowserAccountErrors, ThrowOnError, 'data'>({
+export const requestEmailOtp = <ThrowOnError extends boolean = true>(
+  options: Options<RequestEmailOtpData, ThrowOnError>
+): RequestResult<RequestEmailOtpResponses, RequestEmailOtpErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<RequestEmailOtpResponses, RequestEmailOtpErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/browser/sessions/active',
+    url: '/api/v2/browser/sessions/email-otp/challenges',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * verifyEmailOTP operation on browser_authentication resource
+ */
+export const verifyEmailOtp = <ThrowOnError extends boolean = true>(
+  options: Options<VerifyEmailOtpData, ThrowOnError>
+): RequestResult<VerifyEmailOtpResponses, VerifyEmailOtpErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<VerifyEmailOtpResponses, VerifyEmailOtpErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/browser/sessions/email-otp/verifications',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -183,40 +292,6 @@ export const selectLoginIdentity = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/browser/sessions/identity-selection',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * localPasswordLogin operation on browser_authentication resource
- */
-export const localPasswordLogin = <ThrowOnError extends boolean = true>(
-  options: Options<LocalPasswordLoginData, ThrowOnError>
-): RequestResult<LocalPasswordLoginResponses, LocalPasswordLoginErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<LocalPasswordLoginResponses, LocalPasswordLoginErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/browser/sessions/local-password',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
- * localPasswordChange operation on browser_authentication resource
- */
-export const localPasswordChange = <ThrowOnError extends boolean = true>(
-  options: Options<LocalPasswordChangeData, ThrowOnError>
-): RequestResult<LocalPasswordChangeResponses, LocalPasswordChangeErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<LocalPasswordChangeResponses, LocalPasswordChangeErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/browser/sessions/local-password/change',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -262,6 +337,40 @@ export const updateSetupBrainPacks = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/browser/setup/brain-packs',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * requestSetupEmailOTP operation on browser_setup resource
+ */
+export const requestSetupEmailOtp = <ThrowOnError extends boolean = true>(
+  options: Options<RequestSetupEmailOtpData, ThrowOnError>
+): RequestResult<RequestSetupEmailOtpResponses, RequestSetupEmailOtpErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<RequestSetupEmailOtpResponses, RequestSetupEmailOtpErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/browser/setup/email-otp/challenges',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * verifySetupEmailOTP operation on browser_setup resource
+ */
+export const verifySetupEmailOtp = <ThrowOnError extends boolean = true>(
+  options: Options<VerifySetupEmailOtpData, ThrowOnError>
+): RequestResult<VerifySetupEmailOtpResponses, VerifySetupEmailOtpErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<VerifySetupEmailOtpResponses, VerifySetupEmailOtpErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/browser/setup/email-otp/verifications',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -320,23 +429,6 @@ export const setupOidcAuthorization = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/browser/setup/identity-providers/{provider_id}/oidc/authorizations',
     ...options
-  })
-
-/**
- * createSetupLocalAdmin operation on browser_setup resource
- */
-export const createSetupLocalAdmin = <ThrowOnError extends boolean = true>(
-  options: Options<CreateSetupLocalAdminData, ThrowOnError>
-): RequestResult<CreateSetupLocalAdminResponses, CreateSetupLocalAdminErrors, ThrowOnError, 'data'> =>
-  (options.client ?? client).post<CreateSetupLocalAdminResponses, CreateSetupLocalAdminErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/browser/setup/local-admin',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
   })
 
 /**

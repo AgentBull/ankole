@@ -51,26 +51,50 @@ defmodule Ankole.Pod.FormulaPlanTest do
 
   test "aggregate and copy filters evaluate only the formulas they need" do
     uid = human_fixture().principal.uid
-    {:ok, page} = Pages.create(uid, %{type: "database", title: "Conditional formulas"})
-    {:ok, table} = Database.create_table(uid, page.id, %{name: "Numbers"})
-    {:ok, n} = Database.create_field(uid, table.id, %{name: "N", type: "number"})
-    {:ok, digits} = Database.create_field(uid, table.id, %{name: "Digits", type: "number"})
-    {:ok, gate} = Database.create_field(uid, table.id, %{name: "Gate", type: "checkbox"})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{
+        type: "database",
+        title: "Conditional formulas"
+      })
+
+    {:ok, table} =
+      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(uid), page.id, %{
+        name: "Numbers"
+      })
+
+    {:ok, n} =
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(uid), table.id, %{
+        name: "N",
+        type: "number"
+      })
+
+    {:ok, digits} =
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(uid), table.id, %{
+        name: "Digits",
+        type: "number"
+      })
+
+    {:ok, gate} =
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(uid), table.id, %{
+        name: "Gate",
+        type: "checkbox"
+      })
 
     {:ok, _} =
-      Database.write_records(uid, table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(uid), table.id, %{
         creates: [%{data: %{n.id => 1, digits.id => 1_000_000_000_000, gate.id => false}}]
       })
 
     {:ok, _} =
-      Database.create_field(uid, table.id, %{
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(uid), table.id, %{
         name: "Bad",
         type: "formula",
         config: %{"source" => "ROUND([N], [Digits])"}
       })
 
     {:ok, safe} =
-      Database.create_field(uid, table.id, %{
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(uid), table.id, %{
         name: "Safe",
         type: "formula",
         config: %{"source" => "IF([Gate], [Bad], 1)"}
@@ -79,28 +103,46 @@ defmodule Ankole.Pod.FormulaPlanTest do
     filter = %{conditions: [%{field_id: safe.id, operator: "is", value: 1}]}
 
     assert {:ok, %{groups: [%{metrics: %{"sum" => 1}}]}} =
-             Database.aggregate(uid, table.id, %{
+             Database.aggregate(Ankole.PrincipalsFixtures.actor_fixture(uid), table.id, %{
                filter: filter,
                metrics: [%{operation: "sum", field_id: safe.id}]
              })
 
     assert {:ok, %{table: %{record_count: 1}}} =
-             Database.copy_table(uid, table.id, %{filter: filter})
+             Database.copy_table(Ankole.PrincipalsFixtures.actor_fixture(uid), table.id, %{
+               filter: filter
+             })
 
-    assert {:error, {:invalid_query, reason}} = Database.query(uid, table.id, %{})
+    assert {:error, {:invalid_query, reason}} =
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(uid), table.id, %{})
+
     assert reason =~ "integer out of range"
   end
 
   test "each formula root compiles its dependency graph once across query and copy paths" do
     uid = human_fixture().principal.uid
-    {:ok, page} = Pages.create(uid, %{type: "database", title: "Shared formulas"})
-    {:ok, table} = Database.create_table(uid, page.id, %{name: "Numbers"})
-    {:ok, base} = Database.create_field(uid, table.id, %{name: "Base", type: "number"})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{
+        type: "database",
+        title: "Shared formulas"
+      })
+
+    {:ok, table} =
+      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(uid), page.id, %{
+        name: "Numbers"
+      })
+
+    {:ok, base} =
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(uid), table.id, %{
+        name: "Base",
+        type: "number"
+      })
 
     last =
       Enum.reduce(1..20, base, fn index, previous ->
         {:ok, field} =
-          Database.create_field(uid, table.id, %{
+          Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(uid), table.id, %{
             name: "F#{index}",
             type: "formula",
             config: %{"source" => "[#{previous.name}] + [#{previous.name}]"}
@@ -127,14 +169,14 @@ defmodule Ankole.Pod.FormulaPlanTest do
     assert length(params) == 21
 
     assert {:ok, _} =
-             Database.write_records(uid, table.id, %{
+             Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(uid), table.id, %{
                creates: [%{data: %{base.id => 2}}, %{data: %{base.id => 3}}]
              })
 
     filter = %{conditions: [%{field_id: last.id, operator: "gt", value: 2_500_000}]}
 
     assert {:ok, %{records: [row]}} =
-             Database.query(uid, table.id, %{
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(uid), table.id, %{
                filter: filter,
                sort: [%{field_id: last.id, direction: "desc"}]
              })
@@ -142,13 +184,20 @@ defmodule Ankole.Pod.FormulaPlanTest do
     assert row["data"][last.id] == 3_145_728
 
     assert {:ok, %{groups: [%{metrics: %{"total" => 5_242_880}}]}} =
-             Database.aggregate(uid, table.id, %{
+             Database.aggregate(Ankole.PrincipalsFixtures.actor_fixture(uid), table.id, %{
                metrics: [%{field_id: last.id, operation: "sum", alias: "total"}]
              })
 
-    assert {:ok, copied} = Database.copy_table(uid, table.id, %{filter: filter})
+    assert {:ok, copied} =
+             Database.copy_table(Ankole.PrincipalsFixtures.actor_fixture(uid), table.id, %{
+               filter: filter
+             })
+
     copied_last = Enum.find(Database.fields(copied.table.id), &(&1.name == last.name))
-    assert {:ok, %{records: [row]}} = Database.query(uid, copied.table.id, %{})
+
+    assert {:ok, %{records: [row]}} =
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(uid), copied.table.id, %{})
+
     assert row["data"][copied_last.id] == 3_145_728
   end
 end

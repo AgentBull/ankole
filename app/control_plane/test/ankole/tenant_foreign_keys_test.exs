@@ -52,7 +52,7 @@ defmodule Ankole.TenantForeignKeysTest do
           principal_uid: ctx.foreign.human.uid,
           group_id: ctx.foreign.group.id
         ] do
-      attrs = Map.put(%{resource_pattern: "**", action: "read"}, field, id)
+      attrs = Map.put(%{resource_pattern: "tenant_console:**", action: "read"}, field, id)
       assert_rejected(Grant, :create_in_tx, attrs, field)
     end
 
@@ -60,7 +60,7 @@ defmodule Ankole.TenantForeignKeysTest do
              Repo.transact(fn _repo ->
                Ankole.Ash.create(Grant, :create_in_tx, %{
                  principal_uid: ctx.local.human.uid,
-                 resource_pattern: "**",
+                 resource_pattern: "tenant_console:**",
                  action: "read"
                })
              end)

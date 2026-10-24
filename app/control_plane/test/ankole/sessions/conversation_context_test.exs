@@ -13,6 +13,7 @@ defmodule Ankole.Sessions.ConversationContextTest do
   setup do
     %{principal: human} = human_fixture()
     %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
 
     attrs = %{
       conversation_id: Ecto.UUID.generate(),

@@ -661,6 +661,22 @@ export type PermissionGrant = {
      * Field included by default.
      */
     resource_pattern: string
+    /**
+     * Field included by default.
+     */
+    source_action?: string | null
+    /**
+     * Field included by default.
+     */
+    source_page_id?: string | null
+    /**
+     * Field included by default.
+     */
+    target_page_id?: string | null
+    /**
+     * Field included by default.
+     */
+    target_scope?: string | null
   }
   id: string
   /**
@@ -1470,7 +1486,7 @@ export type Principal = {
     /**
      * Field included by default.
      */
-    local_credential_status?: 'must_change' | 'active' | null
+    membership?: 'member' | 'guest' | null
     /**
      * Field included by default.
      */
@@ -1637,6 +1653,26 @@ export type IdentityProviderOperation = {
   id: string
   /**
    * A relationships object for a identity_provider_operation
+   */
+  relationships?: {
+    [key: string]: never
+  }
+  type: string
+}
+
+/**
+ * A "Resource object" representing a pod_admin_operation
+ */
+export type PodAdminOperation = {
+  /**
+   * An attributes object for a pod_admin_operation
+   */
+  attributes?: {
+    [key: string]: never
+  }
+  id: string
+  /**
+   * A relationships object for a pod_admin_operation
    */
   relationships?: {
     [key: string]: never
@@ -4962,42 +4998,6 @@ export type UpdatePrincipalGroupResponses = {
 
 export type UpdatePrincipalGroupResponse = UpdatePrincipalGroupResponses[keyof UpdatePrincipalGroupResponses]
 
-export type ResetLocalPasswordData = {
-  /**
-   * Request body for the reset_local_password operation on human_access resource
-   */
-  body?: {
-    data: {
-      must_change_password?: boolean | null
-    }
-  }
-  path: {
-    uid: string
-  }
-  query?: never
-  url: '/api/v2/principals/{uid}/local-password-resets'
-}
-
-export type ResetLocalPasswordErrors = {
-  /**
-   * General Error
-   */
-  default: Errors
-}
-
-export type ResetLocalPasswordError = ResetLocalPasswordErrors[keyof ResetLocalPasswordErrors]
-
-export type ResetLocalPasswordResponses = {
-  /**
-   * Success
-   */
-  201: {
-    initial_password: string
-  }
-}
-
-export type ResetLocalPasswordResponse = ResetLocalPasswordResponses[keyof ResetLocalPasswordResponses]
-
 export type BackgroundActivityJobsData = {
   body?: never
   path: {
@@ -5499,10 +5499,21 @@ export type GetHumanAccessResponses = {
           display_name?: string | null
           uid: string
         }
+        userset_grants: Array<{
+          action: string
+          condition: unknown
+          id: string
+          resource_pattern: string
+          source_action: string
+          source_page_id: string
+          target_page_id: string
+          target_scope: string
+        }>
       }
     }
     restrictions: Array<{
       cleared_at?: string | null
+      disposition: string
       id: string
       inserted_at: string
       provider_time?: string | null
@@ -6105,6 +6116,7 @@ export type DisableHumanAccessData = {
    */
   body: {
     data: {
+      disposition: 'suspended' | 'offboarded'
       operation_id: string
       reason: string
     }
@@ -6178,10 +6190,21 @@ export type DisableHumanAccessResponses = {
           display_name?: string | null
           uid: string
         }
+        userset_grants: Array<{
+          action: string
+          condition: unknown
+          id: string
+          resource_pattern: string
+          source_action: string
+          source_page_id: string
+          target_page_id: string
+          target_scope: string
+        }>
       }
     }
     restrictions: Array<{
       cleared_at?: string | null
+      disposition: string
       id: string
       inserted_at: string
       provider_time?: string | null
@@ -6668,6 +6691,68 @@ export type ListPrincipalGroupGrantsResponses = {
 
 export type ListPrincipalGroupGrantsResponse =
   ListPrincipalGroupGrantsResponses[keyof ListPrincipalGroupGrantsResponses]
+
+export type ChangeHumanMembershipData = {
+  /**
+   * Request body for the change_human_membership operation on principal resource
+   */
+  body: {
+    data: {
+      attributes?: {
+        membership: 'member' | 'guest'
+      }
+      id: string
+      relationships?: {
+        [key: string]: never
+      }
+      type?: 'principal'
+    }
+  }
+  path: {
+    uid: string
+  }
+  query?: {
+    /**
+     * Relationship paths to include in the response
+     */
+    include?: string
+    /**
+     * Limits the response fields to only those listed for each type
+     */
+    fields?: {
+      /**
+       * Comma separated field names for principal
+       */
+      principal?: string
+      [key: string]: unknown
+    }
+  }
+  url: '/api/v2/principals/{uid}/membership'
+}
+
+export type ChangeHumanMembershipErrors = {
+  /**
+   * General Error
+   */
+  default: Errors
+}
+
+export type ChangeHumanMembershipError = ChangeHumanMembershipErrors[keyof ChangeHumanMembershipErrors]
+
+export type ChangeHumanMembershipResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data?: Principal
+    included?: Array<unknown>
+    meta?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type ChangeHumanMembershipResponse = ChangeHumanMembershipResponses[keyof ChangeHumanMembershipResponses]
 
 export type BackgroundActivityAutomationRunsData = {
   body?: never
@@ -7473,10 +7558,21 @@ export type RetryHumanWorkCleanupResponses = {
           display_name?: string | null
           uid: string
         }
+        userset_grants: Array<{
+          action: string
+          condition: unknown
+          id: string
+          resource_pattern: string
+          source_action: string
+          source_page_id: string
+          target_page_id: string
+          target_scope: string
+        }>
       }
     }
     restrictions: Array<{
       cleared_at?: string | null
+      disposition: string
       id: string
       inserted_at: string
       provider_time?: string | null
@@ -7767,69 +7863,42 @@ export type ListPrincipalsResponses = {
 
 export type ListPrincipalsResponse = ListPrincipalsResponses[keyof ListPrincipalsResponses]
 
-export type CreateLocalUserData = {
+export type CreateMemberData = {
   /**
-   * Request body for the create_local_user operation on principal resource
+   * Request body for the create_member operation on principal resource
    */
   body: {
     data: {
-      attributes?: {
-        display_name?: string | null
-        email: string
-        /**
-         * Omitted or null means true.
-         */
-        must_change_password?: boolean | null
-      }
-      relationships?: {
-        [key: string]: never
-      }
-      type?: 'principal'
+      display_name?: string | null
+      email?: string | null
+      membership: 'member' | 'guest'
     }
   }
   path?: never
-  query?: {
-    /**
-     * Relationship paths to include in the response
-     */
-    include?: string
-    /**
-     * Limits the response fields to only those listed for each type
-     */
-    fields?: {
-      /**
-       * Comma separated field names for principal
-       */
-      principal?: string
-      [key: string]: unknown
-    }
-  }
+  query?: never
   url: '/api/v2/principals'
 }
 
-export type CreateLocalUserErrors = {
+export type CreateMemberErrors = {
   /**
    * General Error
    */
   default: Errors
 }
 
-export type CreateLocalUserError = CreateLocalUserErrors[keyof CreateLocalUserErrors]
+export type CreateMemberError = CreateMemberErrors[keyof CreateMemberErrors]
 
-export type CreateLocalUserResponses = {
+export type CreateMemberResponses = {
   /**
    * Success
    */
   201: {
-    data?: Principal
-    included?: Array<unknown>
-    meta?: {
-      [key: string]: unknown
-    }
+    email?: string | null
+    uid: string
   }
 }
 
-export type CreateLocalUserResponse = CreateLocalUserResponses[keyof CreateLocalUserResponses]
+export type CreateMemberResponse = CreateMemberResponses[keyof CreateMemberResponses]
 
 export type GetAgentLibraryCapabilitiesData = {
   body?: never
@@ -8667,10 +8736,21 @@ export type RestoreHumanAccessResponses = {
           display_name?: string | null
           uid: string
         }
+        userset_grants: Array<{
+          action: string
+          condition: unknown
+          id: string
+          resource_pattern: string
+          source_action: string
+          source_page_id: string
+          target_page_id: string
+          target_scope: string
+        }>
       }
     }
     restrictions: Array<{
       cleared_at?: string | null
+      disposition: string
       id: string
       inserted_at: string
       provider_time?: string | null
@@ -10974,10 +11054,21 @@ export type ClearHumanAccessRestrictionResponses = {
           display_name?: string | null
           uid: string
         }
+        userset_grants: Array<{
+          action: string
+          condition: unknown
+          id: string
+          resource_pattern: string
+          source_action: string
+          source_page_id: string
+          target_page_id: string
+          target_scope: string
+        }>
       }
     }
     restrictions: Array<{
       cleared_at?: string | null
+      disposition: string
       id: string
       inserted_at: string
       provider_time?: string | null

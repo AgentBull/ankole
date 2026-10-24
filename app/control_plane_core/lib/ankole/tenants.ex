@@ -27,7 +27,7 @@ defmodule Ankole.Tenants do
 
   # The site administration API at `/api/v2/site` (`AnkoleWeb.JSONAPI.SiteRouter`).
   json_api do
-    authorize?(false)
+    authorize?(true)
     log_errors?(true)
     show_raised_errors?(false)
 
@@ -237,6 +237,8 @@ defmodule Ankole.Tenants do
     Repo.with_tenant(tenant.id, fn ->
       with {:ok, _} <- lock_administration(),
            {:ok, _} <- Root.ensure_all_humans_group(),
+           {:ok, pod_admin} <- Root.ensure_pod_admin_group(),
+           {:ok, _} <- Grants.upsert_pod_admin_grants(pod_admin),
            {:ok, _} <- Principals.ensure_system_principal_in_tx(),
            :ok <- ensure_privileged_group(tenant) do
         :ok
@@ -323,6 +325,7 @@ defmodule Ankole.Tenants do
          {:ok, target} <- lock_tenant(id),
          :ok <- not_privileged(target, privileged_id),
          true <- accepting_work?(target),
+         :ok <- lock_permission_trees([privileged_id, target.id]),
          {:ok, _} <-
            Repo.with_tenant(target.id, fn ->
              with {:ok, group} <- Root.ensure_site_admin_group(),
@@ -331,6 +334,9 @@ defmodule Ankole.Tenants do
                   :ok <- Store.ensure_active_human(principal),
                   {:ok, _} <- Store.insert_membership(group.id, principal.uid),
                   {:ok, _} <- Grants.upsert_console_admin_grants(group),
+                  {:ok, pod_group} <- Root.ensure_pod_admin_group(),
+                  {:ok, _} <- Grants.upsert_pod_admin_grants(pod_group),
+                  {:ok, _} <- Store.insert_membership(pod_group.id, principal.uid),
                   do: {:ok, group}
            end),
          {:ok, _write} <-
@@ -343,6 +349,11 @@ defmodule Ankole.Tenants do
       {:error, {:built_in_group_conflict, "siteadmin"}} -> {:error, :group_name_taken}
       error -> error
     end
+  end
+
+  defp lock_permission_trees(ids) do
+    for id <- Enum.sort(ids), do: Repo.with_tenant(id, &Ankole.Pod.Pages.lock_tree/0)
+    :ok
   end
 
   @doc false

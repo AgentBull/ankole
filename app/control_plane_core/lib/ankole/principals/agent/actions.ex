@@ -11,7 +11,7 @@ defmodule Ankole.Principals.Agent.Actions do
 
   defp action(:console_create, input, context) do
     input.arguments
-    |> AgentConsole.create_in_tx(context.actor)
+    |> AgentConsole.create_in_tx(context.actor.principal)
     |> Ankole.Errors.wrap(&AgentConsole.rejection/1)
   end
 

@@ -8,7 +8,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule.Actions do
   def run(input, _opts, context), do: action(input.action.name, input, context)
 
   defp action(:console_create, input, context) do
-    Ankole.Schedule.Cron.console_create_in_tx(input.arguments, context.actor)
+    Ankole.Schedule.Cron.console_create_in_tx(input.arguments, context.actor.principal)
     |> Ankole.Errors.wrap()
   end
 

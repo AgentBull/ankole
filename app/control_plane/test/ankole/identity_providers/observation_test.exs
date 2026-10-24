@@ -24,6 +24,102 @@ defmodule Ankole.IdentityProviders.ObservationTest do
     :ok
   end
 
+  test "OIDC invitation rejects an unrelated identity before any member is committed" do
+    admin = Ankole.PrincipalsFixtures.human_fixture().principal
+    assert {:ok, _} = IdentityProviders.save_provider("lark-invite", "lark", config("lark"))
+
+    assert {:ok, created} =
+             Ankole.Principals.create_invitation(admin.uid, %{
+               kind: :email,
+               invited_email: "invited@example.com",
+               membership: :member,
+               expires_at: DateTime.add(DateTime.utc_now(), 3600),
+               max_uses: 1
+             })
+
+    stub_login("lark", :error)
+    count = Repo.aggregate(Principal, :count)
+
+    assert {:error, :invitation_identity_mismatch} =
+             Login.complete_oidc_login("lark-invite", "code",
+               invitation_id: created.invitation.id
+             )
+
+    assert Repo.aggregate(Principal, :count) == count
+
+    assert {:error, :not_found} =
+             Ankole.Principals.resolve_platform_subject_uid("lark-invite", "employee-1")
+
+    assert Repo.get!(Ankole.Principals.Invitation, created.invitation.id).used_count == 0
+  end
+
+  test "failed login completion rolls back a new invited member and its invitation use" do
+    admin = Ankole.PrincipalsFixtures.human_fixture().principal
+    assert {:ok, _} = IdentityProviders.save_provider("lark-invite", "lark", config("lark"))
+
+    assert {:ok, created} =
+             Ankole.Principals.create_invitation(admin.uid, %{
+               kind: :link,
+               invited_email: nil,
+               membership: :member,
+               expires_at: DateTime.add(DateTime.utc_now(), 3600),
+               max_uses: 1
+             })
+
+    stub_login("lark", :error)
+    count = Repo.aggregate(Principal, :count)
+
+    assert {:error, :login_expired} =
+             Login.complete_oidc_login("lark-invite", "code",
+               invitation_id: created.invitation.id,
+               complete: fn _ -> {:error, :login_expired} end
+             )
+
+    assert Repo.aggregate(Principal, :count) == count
+    assert Repo.get!(Ankole.Principals.Invitation, created.invitation.id).used_count == 0
+
+    assert {:ok, login} =
+             Login.complete_oidc_login("lark-invite", "code",
+               invitation_id: created.invitation.id
+             )
+
+    assert Repo.get!(Principal, login.principal_uid).membership == :member
+    assert Repo.get!(Ankole.Principals.Invitation, created.invitation.id).used_count == 1
+  end
+
+  test "OIDC invitation keeps an existing guest's role and does not consume a new-member seat" do
+    assert {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.allow_external_guests", true)
+    admin = Ankole.PrincipalsFixtures.human_fixture().principal
+    assert {:ok, _} = IdentityProviders.save_provider("lark-existing", "lark", config("lark"))
+
+    assert {:ok, %{principal: guest}} =
+             Ankole.Plugins.LarkAdapter.IdentityProvider.upsert_user(
+               "lark-existing",
+               %{"user_id" => "employee-1"},
+               membership: :guest
+             )
+
+    assert {:ok, created} =
+             Ankole.Principals.create_invitation(admin.uid, %{
+               kind: :link,
+               invited_email: nil,
+               membership: :member,
+               expires_at: DateTime.add(DateTime.utc_now(), 3600),
+               max_uses: 1
+             })
+
+    stub_login("lark", :error)
+
+    assert {:ok, login} =
+             Login.complete_oidc_login("lark-existing", "code",
+               invitation_id: created.invitation.id
+             )
+
+    assert login.principal_uid == guest.uid
+    assert Repo.get!(Principal, guest.uid).membership == :guest
+    assert Repo.get!(Ankole.Principals.Invitation, created.invitation.id).used_count == 0
+  end
+
   for {adapter, module, department_key, email_key, title_key} <- [
         {"lark", Ankole.Plugins.LarkAdapter.IdentityProvider, "department_ids",
          "enterprise_email", "job_title"},

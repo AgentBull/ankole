@@ -59,28 +59,38 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
 
   @spec upsert_user(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def upsert_user(provider_id, user, opts \\ []) do
+    with {:ok, attrs, options} <- normalize_user(provider_id, user, opts) do
+      IdentityDirectory.upsert_user(provider_id, attrs, options)
+    end
+  end
+
+  def upsert_user_in_tx(provider_id, user, opts) do
+    with {:ok, attrs, options} <- normalize_user(provider_id, user, opts) do
+      IdentityDirectory.upsert_user_in_tx(provider_id, attrs, options)
+    end
+  end
+
+  defp normalize_user(provider_id, user, opts) do
     with {:ok, user_id} <- user_id(user) do
-      IdentityDirectory.upsert_user(
-        provider_id,
-        %{
-          provider: provider_id,
-          external_id: user_id,
-          display_name: display_name(user) || user_id,
-          email: MapHelpers.optional_text(user, "primaryEmail"),
-          job_title: job_title(user),
-          mobile: normalized_mobile(user),
-          metadata:
-            MapHelpers.compact_metadata_map(%{
-              "primary_email" => MapHelpers.optional_text(user, "primaryEmail"),
-              "org_unit_path" => MapHelpers.optional_text(user, "orgUnitPath"),
-              "hosted_domain" => MapHelpers.optional_text(user, "hd"),
-              "suspended" => Map.get(user, "suspended"),
-              "archived" => Map.get(user, "archived")
-            })
-        }
-        |> MapHelpers.compact_map(),
-        Keyword.take(opts, [:group_external_ids, :directory_group_index])
-      )
+      {:ok,
+       %{
+         provider: provider_id,
+         external_id: user_id,
+         display_name: display_name(user) || user_id,
+         email: MapHelpers.optional_text(user, "primaryEmail"),
+         job_title: job_title(user),
+         mobile: normalized_mobile(user),
+         metadata:
+           MapHelpers.compact_metadata_map(%{
+             "primary_email" => MapHelpers.optional_text(user, "primaryEmail"),
+             "org_unit_path" => MapHelpers.optional_text(user, "orgUnitPath"),
+             "hosted_domain" => MapHelpers.optional_text(user, "hd"),
+             "suspended" => Map.get(user, "suspended"),
+             "archived" => Map.get(user, "archived")
+           })
+       }
+       |> MapHelpers.compact_map(),
+       Keyword.take(opts, [:membership, :group_external_ids, :directory_group_index])}
     end
   end
 

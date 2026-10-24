@@ -1,9 +1,15 @@
 defmodule AnkoleWeb.JSONAPI.PodRealtime do
   @moduledoc "A short-lived socket credential for the selected Pod authentication."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: Ankole.Pod,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:pod)
+    allow(:token, check: :guardrail)
+  end
 
   resource do
     require_primary_key?(false)
@@ -32,7 +38,7 @@ defmodule AnkoleWeb.JSONAPI.PodRealtime do
       )
 
       run(fn input, context ->
-        Ankole.Pod.Access.principal(context.actor.uid)
+        Ankole.Pod.Access.principal(context.actor)
         |> Ankole.Pod.APIError.result(fn principal ->
           %{
             token: AnkoleWeb.PodSocket.token(principal.uid, input.context.authentication_ref),

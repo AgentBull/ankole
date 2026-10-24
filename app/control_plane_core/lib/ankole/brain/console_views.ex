@@ -1,9 +1,20 @@
 defmodule Ankole.Brain.ConsoleViews do
   @moduledoc "Console views and operations that combine Brain resources."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     domain: Ankole.Brain,
     data_layer: Ash.DataLayer.Simple,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    allow(:health, resource: "site_console:brain", action: "read")
+    allow(:dream, resource: "site_console:brain", action: "update")
+    allow(:object_types, resource: "site_console:brain", action: "read")
+    allow(:show_object, resource: "site_console:brain", action: "read")
+    allow(:search_preview, resource: "site_console:brain", action: "read")
+    allow(:principal_knowledge, resource: "site_console:brain", action: "read")
+  end
 
   resource do
     require_primary_key?(false)

@@ -1,8 +1,8 @@
 import { t } from 'i18next'
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle } from '@ankole/uikit'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useState, type RefObject } from 'react'
-import { contentKeys, pageAPI, pagesQuery, type Page } from './content-api'
+import { contentKeys, pageAPI, pageChildrenQuery, pageQuery, type Page } from './content-api'
 import { ContentError } from './content-primitives'
 import { moveDestinations } from './state/page-location'
 
@@ -21,10 +21,11 @@ export function MovePageDialog({
 }) {
   const currentTarget = page.parent_id ?? (page.private_owner_uid ? 'private' : 'space')
   const [target, setTarget] = useState(currentTarget)
-  const available = useQuery(pagesQuery('all'))
-  const privatePages = useQuery(pagesQuery('private'))
+  const [selectedPage, setSelectedPage] = useState<Page>()
+  const privatePages = useInfiniteQuery(pageChildrenQuery('private'))
+  const currentParent = useQuery({ ...pageQuery(page.parent_id ?? ''), enabled: Boolean(page.parent_id) })
   const client = useQueryClient()
-  const waitingForIdentity = target === 'private' && !privatePages.data?.principal_uid
+  const waitingForIdentity = target === 'private' && !privatePages.data?.pages[0]?.principal_uid
   const move = useMutation({
     mutationFn: async () => {
       if (waitingForIdentity) throw new Error(t('pod.content.your_private_identity_is_not_available_yet_wait_for_the'))
@@ -32,7 +33,7 @@ export function MovePageDialog({
       await beforeMove?.()
       return pageAPI.move(page.id, {
         parent_id: target === 'space' || target === 'private' ? null : target,
-        private_owner_uid: target === 'private' ? privatePages.data?.principal_uid : null
+        private_owner_uid: target === 'private' ? privatePages.data?.pages[0]?.principal_uid : null
       })
     },
     onSuccess: async () => {
@@ -40,14 +41,18 @@ export function MovePageDialog({
       close()
     }
   })
-  const pages = moveDestinations(available.data?.pages ?? [], page.id)
-  const validTarget = target === 'private' || target === 'space' || pages.some(candidate => candidate.id === target)
+  const validTarget =
+    (target === 'private' && privatePages.data?.pages[0]?.can_create_private === true) ||
+    target === 'space' ||
+    selectedPage?.id === target
   const targetTitle =
     target === 'space'
       ? t('pod.content.space')
       : target === 'private'
         ? 'Private'
-        : pages.find(candidate => candidate.id === target)?.title || t('pod.content.untitled')
+        : selectedPage?.title ||
+          (target === page.parent_id ? currentParent.data?.page.title : undefined) ||
+          t('pod.content.untitled')
   return (
     <Dialog open onOpenChange={next => !next && !move.isPending && close()}>
       <DialogContent
@@ -60,13 +65,19 @@ export function MovePageDialog({
           <Suspense fallback={<p role="status">{t('pod.content.loading_destinations')}</p>}>
             <PagePicker
               label={t('pod.content.destination')}
-              pages={pages}
+              excludeSubtreeOf={page.id}
+              filter={pages => moveDestinations(pages, page.id)}
               roots={[
                 { id: 'space', title: t('pod.content.space') },
-                { id: 'private', title: 'Private', private: true }
+                ...(privatePages.data?.pages[0]?.can_create_private
+                  ? [{ id: 'private', title: 'Private', private: true }]
+                  : [])
               ]}
               selected={target}
-              onSelect={setTarget}
+              onSelect={(id, candidate) => {
+                setTarget(id)
+                setSelectedPage(candidate)
+              }}
               disabled={move.isPending}
             />
           </Suspense>
@@ -81,12 +92,10 @@ export function MovePageDialog({
                 : t('pod.content.the_page_and_its_subpages_move_together_pages_with_inherited')}
             </p>
           )}
-          {available.isPending && <p role="status">{t('pod.content.loading_destinations')}</p>}
           {waitingForIdentity && !privatePages.error && <p role="status">{t('pod.content.loading_private')}</p>}
           <ContentError
-            error={move.error || available.error || (target === 'private' ? privatePages.error : undefined)}
+            error={move.error || (target === 'private' ? privatePages.error : undefined)}
             retry={() => {
-              void available.refetch()
               if (target === 'private') void privatePages.refetch()
             }}
           />

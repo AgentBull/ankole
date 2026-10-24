@@ -19,6 +19,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
   setup do
     %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
     %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
     id = Ecto.UUID.generate()
 
     assert {:ok, detail} =
@@ -63,7 +64,12 @@ defmodule Ankole.Sessions.NativeConversationTest do
     assert %Message{text: "The project has one durable owner.", kind: :message} =
              result.posted.messages |> List.first()
 
-    assert {:ok, detail} = Conversations.get(context.human.uid, context.id)
+    assert {:ok, detail} =
+             Conversations.get(
+               Ankole.PrincipalsFixtures.actor_fixture(context.human.uid),
+               context.id
+             )
+
     assert Enum.map(detail.messages, & &1.seq) == [1, 2]
     reply = List.last(detail.messages)
     assert reply.author_uid == context.agent.uid
@@ -415,10 +421,17 @@ defmodule Ankole.Sessions.NativeConversationTest do
     run = context |> prepare() |> respond("Private history from the first Human")
     assert {:ok, _} = Run.finalize(run)
     old_id = run.conversation.id
-    assert {:ok, _} = Conversations.delete(context.human.uid, context.id)
+
+    assert {:ok, _} =
+             Conversations.delete(
+               Ankole.PrincipalsFixtures.actor_fixture(context.human.uid),
+               context.id
+             )
+
     assert %{ended_at: %DateTime{}} = Repo.get!(Ankole.AIGateway.Schemas.Conversation, old_id)
 
     other = Ankole.PrincipalsFixtures.human_fixture().principal
+    Ankole.ConversationsFixtures.grant_chat(other.uid, context.agent.uid)
 
     attrs = %{
       conversation_id: context.id,
@@ -476,15 +489,27 @@ defmodule Ankole.Sessions.NativeConversationTest do
              })
 
     assert {:ok, _} = Run.finalize(parent, :silent)
-    assert {:error, :conversation_busy} = Conversations.delete(context.human.uid, context.id)
+
+    assert {:error, :conversation_busy} =
+             Conversations.delete(
+               Ankole.PrincipalsFixtures.actor_fixture(context.human.uid),
+               context.id
+             )
 
     assert {:ok, _} =
              Ankole.BackgroundAgentJobs.request_stop(job.id, %{"agent_uid" => context.agent.uid})
 
     assert Repo.reload!(dispatch).completed_at
     assert Repo.reload!(job).reply_route["conversation_id"] == context.id
-    assert {:ok, _} = Conversations.delete(context.human.uid, context.id)
+
+    assert {:ok, _} =
+             Conversations.delete(
+               Ankole.PrincipalsFixtures.actor_fixture(context.human.uid),
+               context.id
+             )
+
     other = Ankole.PrincipalsFixtures.human_fixture().principal
+    Ankole.ConversationsFixtures.grant_chat(other.uid, context.agent.uid)
 
     assert {:error, :conversation_conflict} =
              Ankole.ConversationsFixtures.create(other.uid, %{
@@ -514,7 +539,11 @@ defmodule Ankole.Sessions.NativeConversationTest do
                )
              end)
 
-    assert {:ok, _} = Conversations.delete(context.human.uid, context.id)
+    assert {:ok, _} =
+             Conversations.delete(
+               Ankole.PrincipalsFixtures.actor_fixture(context.human.uid),
+               context.id
+             )
 
     [history] =
       Repo.all(
@@ -533,6 +562,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
 
     Repo.delete!(history)
     other = Ankole.PrincipalsFixtures.human_fixture().principal
+    Ankole.ConversationsFixtures.grant_chat(other.uid, context.agent.uid)
 
     assert {:error, :conversation_conflict} =
              Ankole.ConversationsFixtures.create(other.uid, %{

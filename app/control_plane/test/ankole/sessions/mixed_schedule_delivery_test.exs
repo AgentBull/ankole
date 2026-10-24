@@ -11,6 +11,7 @@ defmodule Ankole.Sessions.MixedScheduleDeliveryTest do
   test "a real native-primary schedule finalizes both targets and recovers the external delivery" do
     %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
     %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
     binding_fixture(agent.uid, "secondary", :ignore, adapter: "mock-provider")
 
     assert {:ok, native} =

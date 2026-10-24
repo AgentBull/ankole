@@ -1,24 +1,22 @@
 # Principal
 
 `Ankole.Principals` is the Ash domain of the typed persistence actions for
-Principals, Agent and Human profiles, external identities, local credentials,
+Principals, Agent and Human profiles, external identities, site credentials, invitations,
 access restrictions, audit events, and pending identity mappings. These
 resources use the PostgreSQL tables and constraints. The Principal UID
 codec and tenant-qualified ActorRef codec are the identity and attribution
 contracts.
 
 Each aggregate operation (create, enable, delete, or update an Agent; create
-or update a Human; create a local account; platform subject upserts; Human
+or update a Human; bind a site credential; platform subject upserts; Human
 access changes; mapping observations and reviews; work classification and
-cleanup; local password writes) runs in `Repo.transact_top_level/2`, which owns
+cleanup; invitation acceptance) runs in `Repo.transact_top_level/2`, which owns
 the transaction and the lock order while the resource actions run inside it.
 Console `/api/v2` routes use generic actions on `Principal` and
 `MappingRequest`. Another domain runs the same steps in its own transaction
 through the `_in_tx` functions, for example `Principals.create_human_in_tx/1`
 and `Principals.lock_principal_in_tx/2`; it cannot call a top-level operation
-there. Browser login completes a forced password change in its own transaction
-with `complete_forced_password_change_in_tx/3`; it hashes the password before
-that transaction.
+there.
 A read of a Principal in any tenant uses the `allow_global` read action through
 `Principals.get_principal_across_tenants/1` in a `Repo.across_tenants` block.
 Profile actions accept only profile fields;
@@ -32,6 +30,13 @@ A Principal identifies the human or Agent responsible for an action. Work,
 permissions, and audit records all use that same identity.
 
 Current Principal types are `human`, `agent`, and `system`.
+Human membership controls tenant collaboration. Members receive the computed
+`all_humans` group. Guests require explicit Pod shares and Agent grants. Guests
+cannot join built-in administrator groups or use Private space. They do not
+receive the Brain `world` scope. `pod.allow_external_guests` controls guest admission and Pod
+access. A membership change increments `access_version`. Identity-provider
+sign-in and directory synchronization preserve the stored membership.
+
 One opaque UID identifies a Principal across the site. Every Principal belongs
 to exactly one tenant. The same person in two tenants has two Principal rows.
 
@@ -86,6 +91,7 @@ The table stores these fields:
 - `tenant_id` as the required tenant foreign key.
 - `type` as `human`, `agent`, or `system`.
 - `status` as `active` or `disabled`.
+- Human `membership` as `member` or `guest`. Agents and System Principals use null.
 - `access_version`, a positive generation for Human credential and work revocation.
 - Optional `display_name` and `avatar_url`.
 - `inserted_at` and `updated_at`.
@@ -115,9 +121,13 @@ rules.
 
 Unique indexes protect non-null email and mobile values.
 
-A human user can also hold a local sign-in password in
-`human_user_local_credentials`. See
-[Local Password Identity Provider](LocalPasswordIdentityProvider.md).
+### `principal_site_credentials`
+
+A verified site credential binds one identifier and provider to one Human in
+one tenant. Account providers permit one binding per Human; WebAuthn permits
+multiple keys. The provider/identifier index supports a proved site's Pod list.
+See [Authentication](Authentication.md) for ceremonies, admission, invitations,
+login policy, and recyclable identifier release.
 
 ### `agents`
 
@@ -172,8 +182,9 @@ tenant_id + provider + external_id
 The binding ID identifies only that external link. The Principal UID still
 identifies the responsible human or Agent.
 
-Provider IDs, external subjects and contact matches are tenant-local. When no
-binding exists, Ankole matches attested contact data only within that tenant.
+Provider IDs and external subjects are tenant-local. Enterprise admission uses
+immutable provider IDs. Contact data can discover a pending member for a
+separately verified personal credential.
 A UID is opaque and is never evidence that two subjects are the same person.
 
 There is one identity shape. Login, directory sync, Signals identity admission,
@@ -181,18 +192,16 @@ and manual console mappings all write this same row.
 
 ### Build-declared site sources
 
-`IdentityProviders.SiteSources` declares trusted site credential authorities at
-build time. Their opaque subject IDs reuse `principal_external_identities` with
-the `(tenant_id, provider, external_id)` key. Tenant provider configuration
-cannot claim those source IDs. A private account ID, its email, a Principal UID,
-a Pod, and a Solid WebID are separate identities.
+`IdentityProviders.SiteSources` declares the built-in email OTP source and
+trusted build-selected sources. A verified site source addresses
+`principal_site_credentials` by provider and identifier. It discovers available
+Pods and pending memberships. Tenant enterprise configuration uses a separate
+provider namespace and a fixed target tenant.
 
-A site login resolves existing links only. It cannot perform cross-tenant
-contact matching or create a Human. The explicit creation or connection owner
-writes the link. BrowserSessions records access only from a newly created Human
-or a second verified Pod authentication, with the current Human access version.
-Switching alone cannot refresh this evidence or restore a disabled member.
-Pod profile changes and Email adapter identity links belong to their domain owners.
+BrowserSessions records the current Human access version for each Pod proof.
+Pending claims require the current Pod login policy and identifier release
+waterline. Directory contacts and personal login credentials have separate
+owners.
 
 ### `identity_mapping_requests`
 
@@ -208,65 +217,43 @@ pending.
 
 ## Link First-Seen Provider Users to Existing Humans
 
-When `upsert_platform_subject_human` sees a provider user for the first time, it
-tries these identities in order:
+`upsert_platform_subject_human` selects an existing binding for an immutable
+provider subject candidate. An explicit reviewed mapping can select an existing
+Human UID in the same tenant. For a first binding to a provider, an attested
+contact email can select an active Human who has no binding to that provider.
+The match includes the Human profile email, a verified personal login email, and
+directory contact aliases whose metadata has `origin: "directory"`. An Email
+channel sender binding alone does not register a contact email for admission.
+The Human keeps their UID, roles, files, and conversations. A provider binding
+or a completed offboarding prevents email-based reassignment to that Human.
+If no eligible Human matches, the server creates a new opaque UID.
 
-1. Use the Principal from an existing binding for any supplied provider subject
-   candidate.
-2. Use the Principal that owns the normalized email.
-3. Use the Principal that owns the normalized mobile number.
-4. Use the caller-supplied UID only when it identifies an existing human in
-   this tenant; a missing Principal is rejected. This is an explicit mapping
-   by a reviewer or identity admission after a match, not a new UID assignment.
-5. Create a new Principal with a server-generated UUIDv7 UID.
+The transaction locks subject candidates, contact keys, and the selected
+Principal. It writes the supplied stable aliases atomically. A conflicting alias
+rolls back the observation. A binding stays with its Human when contact data
+changes.
 
-The contact lookups include disabled Principals. This can link accounts from
-different providers when they share one email or mobile number. The contact
-match is safe only for a provider whose users are members of the
-organization; the Email adapter therefore reports no contact fields, and its
-senders match only through an `email` binding.
+Directory sync and provider login can bind attested contact email addresses in
+the `email` namespace. Lark supplies both enterprise and member email. These
+contacts support Email adapter identity and pending member discovery. A contact
+conflict preserves the current owner and emits an observation warning.
 
-The transaction locks every supplied provider subject candidate, the tenant-local email
-and mobile keys, and the Principal UID it selected or generated. It then writes
-every candidate as an alias for the selected Principal. Concurrent observations serialize the same identity
-decisions. If one candidate already belongs to a different Principal, the
-complete alias write fails and rolls back.
+A current local offboarding cycle suppresses contact writes from healthy
+upstream observations. A departure observation releases contacts before another
+employee can claim them. Immutable provider IDs keep historical attribution.
 
-An existing provider link stays with its current Principal. New contact data
-does not move it.
-
-Directory sync and provider sign-in also bind the address that the provider
-reports for the user as an `email` identity. The provider is the authority
-for that address, so the binding lets the Email adapter admit the user
-without a manual mapping. An address that is already bound elsewhere stays
-there; the write logs `identity_providers.directory.email_already_bound` and
-continues.
-
-`IdentityProviders.Directory.sync_users/3` owns user-stream traversal for Slack,
-Google Workspace, and Microsoft 365. Each adapter owns provider pagination,
-user selection, and profile mapping. The shared loop loads the directory-group
-index once, counts successful writes, and stops on the first page or write
-error. Each user has its own transaction; a later failure does not undo prior
-users. WeCom owns its department traversal and user deduplication.
-
-If another Principal owns the supplied email or mobile number, Ankole ignores
-that field and logs `principals.platform_subject.contact_conflict`. It stores
-the remaining identity data.
+`IdentityProviders.Directory.sync_users/3` traverses users for the adapters that
+use its shared loop. Adapters own pagination, selection, and profile mapping.
+Each observed user has its own transaction.
 
 ## Match Without Creating
 
-`match_platform_subject_human` is the read side of the same ladder. An existing
-binding for any provider-specific candidate ID wins. Otherwise, the optional
-email and mobile values match. An equal Principal UID never matches. The
-function returns the matched active human Principal or `{:error, :not_found}`.
-It never creates or re-points anything. Signals identity admission uses
-it to decide whether a sender is known before the binding's unmatched-sender
-policy applies.
-
-Manual mappings bypass the ladder on purpose: `MappingRequests.bind_request`
-and `MappingRequests.bind_subject` write the identity to exactly the Principal
-the operator chose. This explicit provider binding stays authoritative even
-when another provider uses the same external ID.
+`match_platform_subject_human` matches a bound provider subject and returns
+an active Human. The `email` provider matches its email identity row or the
+Human's recorded contact address, using the sender address as its subject.
+Enterprise providers match stable subjects. A supplied UID is a reviewed mapping
+target, not identity evidence. [Authentication](Authentication.md) owns the
+separate verified personal-credential pending claim.
 
 ## Verify Upstream Login
 
@@ -327,7 +314,10 @@ It cannot change the UID or Principal type.
 
 Enable and delete transactions capture the affected Conversation IDs. The first
 delete request disables an active Agent; a delete request for a disabled Agent
-removes its durable rows. `Principals.publish_agent_changes/1` publishes status
+removes its durable rows. Physical deletion holds the Pod tree lock and removes
+Page grants through Pod access maintenance before it removes the Principal.
+This updates affected anchors and pass-through descendants.
+`Principals.publish_agent_changes/1` publishes status
 notifications in the Agent's tenant after commit, including for Conversations
 removed by that transaction. `Principals.publish_agent_deletion/1` then requests
 Worker reconciliation. Domain operations and the Console use these same
@@ -353,10 +343,10 @@ explicit removal approval. Event review checks both the provider and event ID.
 `Ankole.IdentityProviders.Console` and `Ankole.Principals.Access` are typed,
 stateless Ash transport resources. Their actions call the owning domain's
 public operations. They keep no rows and open no transaction. Each durable
-write stays with its existing domain action and PostgreSQL adapter.
-`AnkoleWeb.JSONAPI.Policy` resolves decoded route targets to their canonical
-identifiers, authorizes the route through Principal/AuthZ, and passes those
-resolved targets, the operator, and the selected data tenant to the Ash action.
+write belongs to its domain action and PostgreSQL adapter.
+`AnkoleWeb.JSONAPI.Context` resolves decoded route targets to canonical identifiers
+and passes the full Actor and selected data tenant to the Ash action.
+`Ankole.AuthZ.Authorizer` enforces the resource action declaration.
 
 The Human access view at `/api/v2/principals/:uid/access` includes restrictions,
 permission review, history, affected work, and cleanup results. Access changes

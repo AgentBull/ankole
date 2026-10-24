@@ -15,8 +15,18 @@ defmodule Ankole.Pod.DatabaseTest do
     Ankole.AppConfigure.Cache.clear_for_test()
     {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.database.limits", @limits)
     human = human_fixture().principal
-    {:ok, page} = Pages.create(human.uid, %{type: "database", title: "Sales"})
-    {:ok, table} = Database.create_table(human.uid, page.id, %{name: "Sales"})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{
+        type: "database",
+        title: "Sales"
+      })
+
+    {:ok, table} =
+      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(human.uid), page.id, %{
+        name: "Sales"
+      })
+
     primary = Database.fields(table.id) |> Enum.find(& &1.is_primary)
     %{uid: human.uid, page: page, table: table, primary: primary}
   end
@@ -26,27 +36,37 @@ defmodule Ankole.Pod.DatabaseTest do
     {:ok, link} = field(ctx, "Single", "link", %{"table_id" => ctx.table.id, "multiple" => false})
 
     {:ok, %{records: [target]}} =
-      Database.write_records(ctx.uid, ctx.table.id, %{creates: [%{data: %{}}]})
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        creates: [%{data: %{}}]
+      })
 
     assert {:ok, %{records: [record]}} =
-             Database.write_records(ctx.uid, ctx.table.id, %{
-               creates: [
-                 %{
-                   data: %{
-                     user.id => ["  " <> String.upcase(ctx.uid) <> "  ", ctx.uid],
-                     link.id => [String.upcase(target.id), target.id]
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 creates: [
+                   %{
+                     data: %{
+                       user.id => ["  " <> String.upcase(ctx.uid) <> "  ", ctx.uid],
+                       link.id => [String.upcase(target.id), target.id]
+                     }
                    }
-                 }
-               ]
-             })
+                 ]
+               }
+             )
 
     assert record.data[user.id] == [ctx.uid]
     assert record.data[link.id] == [target.id]
 
     assert {:ok, _} =
-             Database.write_records(ctx.uid, ctx.table.id, %{
-               deletes: [%{id: target.id, expected_versions: target.versions}]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 deletes: [%{id: target.id, expected_versions: target.versions}]
+               }
+             )
 
     saved = Repo.get_by!(DbRecord, id: record.id)
     refute Map.has_key?(saved.data, link.id)
@@ -62,11 +82,15 @@ defmodule Ankole.Pod.DatabaseTest do
              [ctx.primary.id, first.id, second.id]
 
     assert {:ok, before_name} =
-             Database.create_field(ctx.uid, ctx.table.id, %{
-               "name" => "Before name",
-               "type" => "text",
-               "position" => "0"
-             })
+             Database.create_field(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 "name" => "Before name",
+                 "type" => "text",
+                 "position" => "0"
+               }
+             )
 
     assert before_name.position == "0"
     assert {:ok, last} = field(ctx, "Last", "text")
@@ -75,27 +99,46 @@ defmodule Ankole.Pod.DatabaseTest do
              [before_name.id, ctx.primary.id, first.id, second.id, last.id]
 
     assert {:ok, first_view} =
-             Database.create_view(ctx.uid, ctx.table.id, %{name: "Board", type: "kanban"})
+             Database.create_view(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{name: "Board", type: "kanban"}
+             )
 
     assert {:ok, second_view} =
-             Database.create_view(ctx.uid, ctx.table.id, %{name: "Gallery", type: "gallery"})
+             Database.create_view(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{name: "Gallery", type: "gallery"}
+             )
 
-    assert {:ok, %{views: [grid | _] = views}} = Database.get_table(ctx.uid, ctx.table.id)
+    assert {:ok, %{views: [grid | _] = views}} =
+             Database.get_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id)
+
     assert Enum.map(views, & &1.name) == ["Grid", "Board", "Gallery"]
 
     assert {:ok, before_grid} =
-             Database.create_view(ctx.uid, ctx.table.id, %{
-               name: "Before grid",
-               type: "grid",
-               position: "0"
-             })
+             Database.create_view(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 name: "Before grid",
+                 type: "grid",
+                 position: "0"
+               }
+             )
 
     assert before_grid.position == "0"
 
     assert {:ok, last_view} =
-             Database.create_view(ctx.uid, ctx.table.id, %{name: "Last", type: "grid"})
+             Database.create_view(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{name: "Last", type: "grid"}
+             )
 
-    assert {:ok, %{views: views}} = Database.get_table(ctx.uid, ctx.table.id)
+    assert {:ok, %{views: views}} =
+             Database.get_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id)
 
     assert Enum.map(views, & &1.id) ==
              [before_grid.id, grid.id, first_view.id, second_view.id, last_view.id]
@@ -107,38 +150,54 @@ defmodule Ankole.Pod.DatabaseTest do
     {:ok, note} = field(ctx, "Note", "text")
 
     {:ok, %{records: [record]}} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [%{data: %{amount.id => 2, note.id => "old"}}]
       })
 
     assert {:ok, _} =
-             Database.write_records(ctx.uid, ctx.table.id, %{
-               updates: [
-                 %{id: record.id, data: %{amount.id => 3}, expected_versions: %{amount.id => 1}}
-               ]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 updates: [
+                   %{id: record.id, data: %{amount.id => 3}, expected_versions: %{amount.id => 1}}
+                 ]
+               }
+             )
 
     assert {:ok, _} =
-             Database.write_records(ctx.uid, ctx.table.id, %{
-               updates: [
-                 %{id: record.id, data: %{note.id => "new"}, expected_versions: %{note.id => 1}}
-               ]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 updates: [
+                   %{id: record.id, data: %{note.id => "new"}, expected_versions: %{note.id => 1}}
+                 ]
+               }
+             )
 
     assert {:error, {:field_conflict, conflict}} =
-             Database.write_records(ctx.uid, ctx.table.id, %{
-               updates: [
-                 %{id: record.id, data: %{amount.id => 9}, expected_versions: %{amount.id => 1}}
-               ]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 updates: [
+                   %{id: record.id, data: %{amount.id => 9}, expected_versions: %{amount.id => 1}}
+                 ]
+               }
+             )
 
     assert conflict.fields == [amount.id]
     assert conflict.data[amount.id] == 3
 
     assert {:error, {:record_conflict, _}} =
-             Database.write_records(ctx.uid, ctx.table.id, %{
-               deletes: [%{id: record.id, expected_versions: record.versions}]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 deletes: [%{id: record.id, expected_versions: record.versions}]
+               }
+             )
 
     assert Repo.get_by!(DbRecord, table_id: ctx.table.id, id: record.id).data == %{
              amount.id => 3,
@@ -148,12 +207,16 @@ defmodule Ankole.Pod.DatabaseTest do
     before = Repo.get!(DbTable, ctx.table.id).data_version
 
     assert {:error, _} =
-             Database.write_records(ctx.uid, ctx.table.id, %{
-               creates: [%{data: %{note.id => "rollback"}}],
-               updates: [
-                 %{id: record.id, data: %{amount.id => 8}, expected_versions: %{amount.id => 1}}
-               ]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 creates: [%{data: %{note.id => "rollback"}}],
+                 updates: [
+                   %{id: record.id, data: %{amount.id => 8}, expected_versions: %{amount.id => 1}}
+                 ]
+               }
+             )
 
     assert Repo.aggregate(DbRecord, :count) == 1
     assert Repo.get!(DbTable, ctx.table.id).data_version == before
@@ -168,54 +231,70 @@ defmodule Ankole.Pod.DatabaseTest do
     {:ok, ratio} = field(ctx, "Ratio", "formula", %{"source" => "[Price] / ([Quantity] - 3)"})
 
     {:ok, _} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [%{data: %{price.id => 4, quantity.id => 3}}]
       })
 
-    assert {:ok, %{records: [record]}} = Database.query(ctx.uid, ctx.table.id, %{})
+    assert {:ok, %{records: [record]}} =
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{})
+
     assert record["data"][total.id] == 12
     assert record["data"][doubled.id] == 24
     assert is_nil(record["data"][ratio.id])
 
     assert {:ok, _} =
-             Database.update_field(ctx.uid, total.id, %{
+             Database.update_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), total.id, %{
                version: 1,
                config: %{"source" => "[Price] + [Quantity]"}
              })
 
-    assert {:ok, %{records: [record]}} = Database.query(ctx.uid, ctx.table.id, %{})
+    assert {:ok, %{records: [record]}} =
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{})
+
     assert record["data"][doubled.id] == 14
-    assert {:error, :field_referenced} = Database.delete_field(ctx.uid, price.id, 1)
+
+    assert {:error, :field_referenced} =
+             Database.delete_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), price.id, 1)
 
     assert {:error, :formula_cycle} =
-             Database.update_field(ctx.uid, total.id, %{
+             Database.update_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), total.id, %{
                version: 2,
                config: %{"source" => "[Doubled]"}
              })
 
     assert {:error, :formula_type} =
-             Database.update_field(ctx.uid, price.id, %{version: 1, type: "text"})
+             Database.update_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), price.id, %{
+               version: 1,
+               type: "text"
+             })
 
     assert {:error, {:readonly_field, _}} =
-             Database.write_records(ctx.uid, ctx.table.id, %{creates: [%{data: %{total.id => 9}}]})
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{creates: [%{data: %{total.id => 9}}]}
+             )
   end
 
   test "failed conversions retain data; successful conversion advances cell versions", ctx do
     {:ok, source} = field(ctx, "Number text", "text")
 
     {:ok, %{records: [a, b]}} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [%{data: %{source.id => "12"}}, %{data: %{source.id => "bad"}}]
       })
 
     assert {:error, {:conversion_failed, [id]}} =
-             Database.update_field(ctx.uid, source.id, %{version: 1, type: "number"})
+             Database.update_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), source.id, %{
+               version: 1,
+               type: "number"
+             })
 
     assert id == b.id
     assert Repo.get!(DbField, source.id).type == :text
 
     assert {:ok, converted} =
-             Database.update_field(ctx.uid, source.id, %{
+             Database.update_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), source.id, %{
                version: 1,
                type: "number",
                clear_invalid: true
@@ -225,11 +304,15 @@ defmodule Ankole.Pod.DatabaseTest do
     assert Repo.get_by!(DbRecord, table_id: ctx.table.id, id: a.id).data[source.id] == 12.0
 
     assert {:error, {:field_conflict, _}} =
-             Database.write_records(ctx.uid, ctx.table.id, %{
-               updates: [
-                 %{id: a.id, data: %{source.id => 9}, expected_versions: %{source.id => 1}}
-               ]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 updates: [
+                   %{id: a.id, data: %{source.id => 9}, expected_versions: %{source.id => 1}}
+                 ]
+               }
+             )
 
     refute Map.has_key?(Repo.get_by!(DbRecord, table_id: ctx.table.id, id: b.id).data, source.id)
   end
@@ -246,7 +329,9 @@ defmodule Ankole.Pod.DatabaseTest do
     ]
 
     {:ok, _} =
-      Database.write_records(ctx.uid, ctx.table.id, %{creates: Enum.map(data, &%{data: &1})})
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        creates: Enum.map(data, &%{data: &1})
+      })
 
     for direction <- ["asc", "desc"] do
       attrs = %{
@@ -260,7 +345,14 @@ defmodule Ankole.Pod.DatabaseTest do
       ids = all_pages(ctx, attrs, [])
       assert length(ids) == 5
       assert length(Enum.uniq(ids)) == 5
-      {:ok, all} = Database.query(ctx.uid, ctx.table.id, Map.put(attrs, :page_size, 100))
+
+      {:ok, all} =
+        Database.query(
+          Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+          ctx.table.id,
+          Map.put(attrs, :page_size, 100)
+        )
+
       assert ids == Enum.map(all.records, & &1["id"])
     end
   end
@@ -293,7 +385,7 @@ defmodule Ankole.Pod.DatabaseTest do
 
     {:ok, uploaded} =
       Ankole.Pod.Files.upload(
-        ctx.uid,
+        Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
         ctx.page.id,
         "attachment",
         nil,
@@ -333,11 +425,20 @@ defmodule Ankole.Pod.DatabaseTest do
         }
       end)
 
-    {:ok, _} = Database.write_records(ctx.uid, ctx.table.id, %{creates: creates})
+    {:ok, _} =
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        creates: creates
+      })
 
     Enum.each(fixture["queries"], fn testcase ->
       query = remap(testcase["query"], mapping)
-      assert {:ok, result} = Database.query(ctx.uid, ctx.table.id, query)
+
+      assert {:ok, result} =
+               Database.query(
+                 Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+                 ctx.table.id,
+                 query
+               )
 
       assert Enum.map(result.records, & &1["id"]) == Enum.map(testcase["ids"], &record_ids[&1]),
              testcase["name"]
@@ -345,20 +446,26 @@ defmodule Ankole.Pod.DatabaseTest do
 
     Enum.each(fixture["aggregates"], fn testcase ->
       assert {:ok, result} =
-               Database.aggregate(ctx.uid, ctx.table.id, remap(testcase["query"], mapping))
+               Database.aggregate(
+                 Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+                 ctx.table.id,
+                 remap(testcase["query"], mapping)
+               )
 
       assert Enum.map(result.groups, &%{"values" => &1.values, "metrics" => &1.metrics}) ==
                testcase["groups"],
              testcase["name"]
     end)
 
-    assert {:ok, %{records: projected}} = Database.query(ctx.uid, ctx.table.id, %{})
+    assert {:ok, %{records: projected}} =
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{})
+
     alpha = Enum.find(projected, &(&1["id"] == record_ids["a"]))
     assert alpha["data"][empty_text.id] == nil
     assert alpha["data"][blank.id] == true
 
     assert {:ok, %{records: [selected]}} =
-             Database.query(ctx.uid, ctx.table.id, %{
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
                filter: %{
                  conjunction: "or",
                  conditions: [
@@ -372,7 +479,7 @@ defmodule Ankole.Pod.DatabaseTest do
     assert selected["id"] == record_ids["a"]
 
     assert {:ok, %{records: empty_group}} =
-             Database.query(ctx.uid, ctx.table.id, %{
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
                group: %{field_id: tags.id, value_json: "null"}
              })
 
@@ -380,15 +487,20 @@ defmodule Ankole.Pod.DatabaseTest do
   end
 
   test "bidirectional links commit both cells and reject cross-Database references", ctx do
-    {:ok, target} = Database.create_table(ctx.uid, ctx.page.id, %{name: "People"})
+    {:ok, target} =
+      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.page.id, %{
+        name: "People"
+      })
 
     {:ok, %{records: [person]}} =
-      Database.write_records(ctx.uid, target.id, %{creates: [%{data: %{}}]})
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), target.id, %{
+        creates: [%{data: %{}}]
+      })
 
     {:ok, link} = field(ctx, "Owner", "link", %{"table_id" => target.id, "bidirectional" => true})
 
     {:ok, %{records: [sale]}} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [%{data: %{link.id => [person.id]}}]
       })
 
@@ -397,15 +509,25 @@ defmodule Ankole.Pod.DatabaseTest do
     assert Repo.get_by!(DbRecord, table_id: target.id, id: person.id).data[reverse] == [sale.id]
 
     assert {:ok, _} =
-             Database.write_records(ctx.uid, ctx.table.id, %{
-               updates: [
-                 %{id: sale.id, data: %{link.id => []}, expected_versions: %{link.id => 1}}
-               ]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 updates: [
+                   %{id: sale.id, data: %{link.id => []}, expected_versions: %{link.id => 1}}
+                 ]
+               }
+             )
 
     refute Map.has_key?(Repo.get_by!(DbRecord, table_id: target.id, id: person.id).data, reverse)
-    {:ok, foreign_page} = Pages.create(ctx.uid, %{type: "database"})
-    {:ok, foreign} = Database.create_table(ctx.uid, foreign_page.id, %{name: "Other"})
+
+    {:ok, foreign_page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), %{type: "database"})
+
+    {:ok, foreign} =
+      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), foreign_page.id, %{
+        name: "Other"
+      })
 
     assert {:error, :cross_database_link} =
              field(ctx, "Wrong", "link", %{"table_id" => foreign.id})
@@ -414,15 +536,25 @@ defmodule Ankole.Pod.DatabaseTest do
   test "built-in view types use version CAS", ctx do
     for type <- ~w(grid kanban gallery) do
       assert {:ok, view} =
-               Database.create_view(ctx.uid, ctx.table.id, %{name: type, type: type, config: %{}})
+               Database.create_view(
+                 Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+                 ctx.table.id,
+                 %{name: type, type: type, config: %{}}
+               )
 
       assert {:ok, saved} =
-               Database.update_view(ctx.uid, view.id, %{version: 1, name: type <> " 2"})
+               Database.update_view(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), view.id, %{
+                 version: 1,
+                 name: type <> " 2"
+               })
 
       assert saved.version == 2
 
       assert {:error, {:schema_conflict, _}} =
-               Database.update_view(ctx.uid, view.id, %{version: 1, name: "stale"})
+               Database.update_view(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), view.id, %{
+                 version: 1,
+                 name: "stale"
+               })
     end
   end
 
@@ -437,17 +569,23 @@ defmodule Ankole.Pod.DatabaseTest do
              [ctx.primary.id, link.id, reverse]
 
     {:ok, %{records: [first, second]}} =
-      Database.write_records(ctx.uid, ctx.table.id, %{creates: [%{data: %{}}, %{data: %{}}]})
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        creates: [%{data: %{}}, %{data: %{}}]
+      })
 
     Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-room:table:#{ctx.table.id}")
 
     assert {:ok, %{records: [written_first, written_second]}} =
-             Database.write_records(ctx.uid, ctx.table.id, %{
-               updates: [
-                 %{id: first.id, data: %{link.id => [second.id]}, expected_versions: %{}},
-                 %{id: second.id, data: %{link.id => [first.id]}, expected_versions: %{}}
-               ]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 updates: [
+                   %{id: first.id, data: %{link.id => [second.id]}, expected_versions: %{}},
+                   %{id: second.id, data: %{link.id => [first.id]}, expected_versions: %{}}
+                 ]
+               }
+             )
 
     assert written_first.data[reverse] == [second.id]
 
@@ -459,15 +597,19 @@ defmodule Ankole.Pod.DatabaseTest do
     assert MapSet.new(ids) == MapSet.new([first.id, second.id])
 
     assert {:ok, %{changed_ids: indirect}} =
-             Database.write_records(ctx.uid, ctx.table.id, %{
-               updates: [
-                 %{
-                   id: first.id,
-                   data: %{link.id => []},
-                   expected_versions: %{link.id => written_first.versions[link.id]}
-                 }
-               ]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 updates: [
+                   %{
+                     id: first.id,
+                     data: %{link.id => []},
+                     expected_versions: %{link.id => written_first.versions[link.id]}
+                   }
+                 ]
+               }
+             )
 
     assert MapSet.new(indirect) == MapSet.new([first.id, second.id])
   end
@@ -477,11 +619,31 @@ defmodule Ankole.Pod.DatabaseTest do
     value = String.duplicate("a", @limits["record_bytes"] - empty_size)
     data = %{ctx.primary.id => value}
     assert byte_size(Torque.encode!(data)) == @limits["record_bytes"]
-    assert {:ok, _} = Database.write_records(ctx.uid, ctx.table.id, %{creates: [%{data: data}]})
-    {:ok, report} = Pages.create(ctx.uid, %{title: "Boundary report"})
 
-    assert {:ok, copied} = Database.copy_table(ctx.uid, ctx.table.id, %{parent_id: report.id})
-    assert {:ok, %{records: [record]}} = Database.query(ctx.uid, copied.table.id, %{})
+    assert {:ok, _} =
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{creates: [%{data: data}]}
+             )
+
+    {:ok, report} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), %{title: "Boundary report"})
+
+    assert {:ok, copied} =
+             Database.copy_table(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{parent_id: report.id}
+             )
+
+    assert {:ok, %{records: [record]}} =
+             Database.query(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               copied.table.id,
+               %{}
+             )
+
     copied_primary = Database.fields(copied.table.id) |> Enum.find(& &1.is_primary)
     assert record["data"][copied_primary.id] == value
     assert byte_size(Torque.encode!(record["data"])) == @limits["record_bytes"]
@@ -492,17 +654,24 @@ defmodule Ankole.Pod.DatabaseTest do
     {:ok, _formula} = field(ctx, "Total", "formula", %{"source" => "[Amount] * 2"})
 
     {:ok, %{records: [original]}} =
-      Database.write_records(ctx.uid, ctx.table.id, %{creates: [%{data: %{amount.id => 5}}]})
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        creates: [%{data: %{amount.id => 5}}]
+      })
 
-    {:ok, report} = Pages.create(ctx.uid, %{title: "Report"})
+    {:ok, report} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), %{title: "Report"})
 
     Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-access:" <> Repo.tenant_id!())
 
     assert {:ok, copied} =
-             Database.copy_table(ctx.uid, ctx.table.id, %{
-               parent_id: report.id,
-               title: "Frozen sales"
-             })
+             Database.copy_table(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 parent_id: report.id,
+                 title: "Frozen sales"
+               }
+             )
 
     assert_receive :recheck_access
     assert copied.page.parent_id == report.id
@@ -511,35 +680,62 @@ defmodule Ankole.Pod.DatabaseTest do
     frozen = Enum.find(copied_fields, &(&1.name == "Total"))
     assert frozen.type == :formula
     copied_amount = Enum.find(copied_fields, &(&1.name == "Amount"))
-    assert {:ok, %{records: [record]}} = Database.query(ctx.uid, copied.table.id, %{})
+
+    assert {:ok, %{records: [record]}} =
+             Database.query(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               copied.table.id,
+               %{}
+             )
+
     assert record["data"][frozen.id] == 10
 
     assert {:ok, _} =
-             Database.write_records(ctx.uid, ctx.table.id, %{
-               updates: [
-                 %{
-                   id: original.id,
-                   data: %{amount.id => 20},
-                   expected_versions: %{amount.id => 1}
-                 }
-               ]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 updates: [
+                   %{
+                     id: original.id,
+                     data: %{amount.id => 20},
+                     expected_versions: %{amount.id => 1}
+                   }
+                 ]
+               }
+             )
 
-    assert {:ok, %{records: [record]}} = Database.query(ctx.uid, copied.table.id, %{})
+    assert {:ok, %{records: [record]}} =
+             Database.query(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               copied.table.id,
+               %{}
+             )
+
     assert record["data"][frozen.id] == 10
 
     assert {:ok, _} =
-             Database.write_records(ctx.uid, copied.table.id, %{
-               updates: [
-                 %{
-                   id: record["id"],
-                   data: %{copied_amount.id => 7},
-                   expected_versions: %{copied_amount.id => 1}
-                 }
-               ]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               copied.table.id,
+               %{
+                 updates: [
+                   %{
+                     id: record["id"],
+                     data: %{copied_amount.id => 7},
+                     expected_versions: %{copied_amount.id => 1}
+                   }
+                 ]
+               }
+             )
 
-    assert {:ok, %{records: [record]}} = Database.query(ctx.uid, copied.table.id, %{})
+    assert {:ok, %{records: [record]}} =
+             Database.query(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               copied.table.id,
+               %{}
+             )
+
     assert record["data"][frozen.id] == 14
   end
 
@@ -555,7 +751,7 @@ defmodule Ankole.Pod.DatabaseTest do
     {:ok, total} = field(ctx, "Total", "formula", %{"source" => "[Amount] * 2"})
 
     {:ok, _} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [
           %{data: %{amount.id => 3, tags.id => ["a", "b"]}},
           %{data: %{amount.id => 4, tags.id => ["a"]}},
@@ -564,7 +760,7 @@ defmodule Ankole.Pod.DatabaseTest do
       })
 
     assert {:ok, result} =
-             Database.aggregate(ctx.uid, ctx.table.id, %{
+             Database.aggregate(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
                group_by: [%{field_id: tags.id}],
                metrics: [
                  %{operation: "count", alias: "count"},
@@ -583,7 +779,7 @@ defmodule Ankole.Pod.DatabaseTest do
 
     {:ok, uploaded} =
       Ankole.Pod.Files.upload(
-        ctx.uid,
+        Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
         ctx.page.id,
         "attachment",
         nil,
@@ -604,14 +800,29 @@ defmodule Ankole.Pod.DatabaseTest do
     ]
 
     {:ok, _} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [%{data: %{attachment.id => value}}]
       })
 
-    {:ok, report} = Pages.create(ctx.uid, %{title: "Report"})
-    assert {:ok, copied} = Database.copy_table(ctx.uid, ctx.table.id, %{parent_id: report.id})
+    {:ok, report} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), %{title: "Report"})
+
+    assert {:ok, copied} =
+             Database.copy_table(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{parent_id: report.id}
+             )
+
     copied_field = Enum.find(Database.fields(copied.table.id), &(&1.type == :attachment))
-    assert {:ok, %{records: [record]}} = Database.query(ctx.uid, copied.table.id, %{})
+
+    assert {:ok, %{records: [record]}} =
+             Database.query(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               copied.table.id,
+               %{}
+             )
+
     new_path = hd(record["data"][copied_field.id])["path"]
     assert String.starts_with?(new_path, "pages/#{copied.page.id}/attachments/")
     assert {:ok, before} = Ankole.Files.fetch(:pod, path)
@@ -622,19 +833,22 @@ defmodule Ankole.Pod.DatabaseTest do
   test "local mode returns the whole small table and enforces the actual response byte threshold",
        ctx do
     {:ok, _} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: Enum.map(1..200, &%{data: %{ctx.primary.id => to_string(&1)}})
       })
 
     {:ok, _} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: Enum.map(201..220, &%{data: %{ctx.primary.id => to_string(&1)}})
       })
 
-    assert {:ok, %{mode: "local", timezone: _}} = Database.get_table(ctx.uid, ctx.table.id)
+    assert {:ok, %{mode: "local", timezone: _}} =
+             Database.get_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id)
 
     assert {:ok, %{records: records, complete: true}} =
-             Database.query(ctx.uid, ctx.table.id, %{local: true})
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+               local: true
+             })
 
     assert length(records) == 220
 
@@ -647,12 +861,15 @@ defmodule Ankole.Pod.DatabaseTest do
     # Schema is a cheap row-count hint. Only the snapshot owner computes exact
     # serialized bytes; its rejection leaves the ordinary remote query usable.
     assert {:ok, %{mode: "local", limits: %{"local_bytes" => 100}}} =
-             Database.get_table(ctx.uid, ctx.table.id)
+             Database.get_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id)
 
-    assert {:error, :local_table_changed} = Database.query(ctx.uid, ctx.table.id, %{local: true})
+    assert {:error, :local_table_changed} =
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+               local: true
+             })
 
     assert {:ok, %{records: remote, complete: false, page_token: token}} =
-             Database.query(ctx.uid, ctx.table.id, %{})
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{})
 
     assert length(remote) == 200
     assert is_binary(token)
@@ -663,12 +880,12 @@ defmodule Ankole.Pod.DatabaseTest do
       field(ctx, "Status", "select", %{"options" => [%{"id" => "stable", "name" => "Before"}]})
 
     {:ok, %{records: [record]}} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [%{data: %{select.id => "stable"}}]
       })
 
     assert {:ok, _} =
-             Database.update_field(ctx.uid, select.id, %{
+             Database.update_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), select.id, %{
                version: 1,
                config: %{"options" => [%{"id" => "stable", "name" => "After"}]}
              })
@@ -679,20 +896,28 @@ defmodule Ankole.Pod.DatabaseTest do
   end
 
   test "deleting one side of a two-way link preserves the opposite field and its values", ctx do
-    {:ok, target} = Database.create_table(ctx.uid, ctx.page.id, %{name: "People"})
+    {:ok, target} =
+      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.page.id, %{
+        name: "People"
+      })
 
     {:ok, %{records: [person]}} =
-      Database.write_records(ctx.uid, target.id, %{creates: [%{data: %{}}]})
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), target.id, %{
+        creates: [%{data: %{}}]
+      })
 
     {:ok, link} = field(ctx, "Owner", "link", %{"table_id" => target.id, "bidirectional" => true})
 
     {:ok, %{records: [sale]}} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [%{data: %{link.id => [person.id]}}]
       })
 
     reverse_id = link.config["reverse_field_id"]
-    assert {:ok, _} = Database.delete_field(ctx.uid, link.id, 1)
+
+    assert {:ok, _} =
+             Database.delete_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), link.id, 1)
+
     assert is_nil(Repo.get(DbField, link.id))
     reverse = Repo.get!(DbField, reverse_id)
     refute Map.has_key?(reverse.config, "reverse_field_id")
@@ -704,12 +929,12 @@ defmodule Ankole.Pod.DatabaseTest do
     {:ok, one_way} = field(ctx, "One-way owner", "link", %{"table_id" => target.id})
 
     {:ok, _} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         updates: [%{id: sale.id, data: %{one_way.id => [person.id]}, expected_versions: %{}}]
       })
 
     {:ok, _} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         updates: [
           %{id: sale.id, data: %{one_way.id => []}, expected_versions: %{one_way.id => 1}}
         ]
@@ -722,20 +947,25 @@ defmodule Ankole.Pod.DatabaseTest do
 
   test "turning a link into a two-way link fills the reverse cells and disabling it stops propagation",
        ctx do
-    {:ok, target} = Database.create_table(ctx.uid, ctx.page.id, %{name: "People"})
+    {:ok, target} =
+      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.page.id, %{
+        name: "People"
+      })
 
     {:ok, %{records: [person]}} =
-      Database.write_records(ctx.uid, target.id, %{creates: [%{data: %{}}]})
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), target.id, %{
+        creates: [%{data: %{}}]
+      })
 
     {:ok, link} = field(ctx, "Owner", "link", %{"table_id" => target.id})
 
     {:ok, %{records: [sale]}} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [%{data: %{link.id => [person.id]}}]
       })
 
     assert {:ok, two_way} =
-             Database.update_field(ctx.uid, link.id, %{
+             Database.update_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), link.id, %{
                version: 1,
                config: %{"table_id" => target.id, "bidirectional" => true}
              })
@@ -747,13 +977,13 @@ defmodule Ankole.Pod.DatabaseTest do
            ]
 
     assert {:ok, _} =
-             Database.update_field(ctx.uid, link.id, %{
+             Database.update_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), link.id, %{
                version: 2,
                config: %{"table_id" => target.id, "bidirectional" => false}
              })
 
     {:ok, _} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         updates: [%{id: sale.id, data: %{link.id => []}, expected_versions: %{link.id => 1}}]
       })
 
@@ -778,23 +1008,25 @@ defmodule Ankole.Pod.DatabaseTest do
       })
 
     {:ok, _} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [%{data: %{amount.id => 0.1}}, %{data: %{amount.id => 0.2}}]
       })
 
-    assert {:ok, %{records: [record | _]}} = Database.query(ctx.uid, ctx.table.id, %{})
+    assert {:ok, %{records: [record | _]}} =
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{})
+
     rounded = record["data"][ratio.id]
     assert rounded == 0.3333333333333333
     assert record["data"][exact.id] == true
     assert record["data"][invalid.id] == true
 
     assert {:ok, %{records: []}} =
-             Database.query(ctx.uid, ctx.table.id, %{
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
                filter: %{conditions: [%{field_id: ratio.id, operator: "is", value: rounded}]}
              })
 
     assert {:ok, %{groups: [%{metrics: %{"sum" => sum}}]}} =
-             Database.aggregate(ctx.uid, ctx.table.id, %{
+             Database.aggregate(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
                metrics: [%{operation: "sum", field_id: amount.id, alias: "sum"}]
              })
 
@@ -803,22 +1035,30 @@ defmodule Ankole.Pod.DatabaseTest do
 
     for direction <- ["asc", "desc"] do
       attrs = %{sort: [%{field_id: ratio.id, direction: direction}], page_size: 1}
-      {:ok, first} = Database.query(ctx.uid, ctx.table.id, attrs)
+
+      {:ok, first} =
+        Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, attrs)
 
       {:ok, second} =
-        Database.query(ctx.uid, ctx.table.id, Map.put(attrs, :page_token, first.page_token))
+        Database.query(
+          Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+          ctx.table.id,
+          Map.put(attrs, :page_token, first.page_token)
+        )
 
       assert hd(first.records)["id"] != hd(second.records)["id"]
       assert second.complete
     end
 
     assert {:ok, %{groups: [group]}} =
-             Database.aggregate(ctx.uid, ctx.table.id, %{group_by: [%{field_id: ratio.id}]})
+             Database.aggregate(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+               group_by: [%{field_id: ratio.id}]
+             })
 
     assert group.values == [rounded]
 
     assert {:ok, %{records: exact_group}} =
-             Database.query(ctx.uid, ctx.table.id, %{
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
                group: %{field_id: ratio.id, value_json: hd(group.value_json)}
              })
 
@@ -830,16 +1070,21 @@ defmodule Ankole.Pod.DatabaseTest do
     {:ok, created_at} = field(ctx, "Created", "created_at")
 
     {:ok, %{records: [record]}} =
-      Database.write_records(ctx.uid, ctx.table.id, %{creates: [%{data: %{}}]})
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        creates: [%{data: %{}}]
+      })
 
     stored = Repo.get_by!(DbRecord, table_id: ctx.table.id, id: record.id)
     expected = DateTime.to_iso8601(stored.created_at)
     assert record.created_at == expected
-    assert {:ok, %{records: [queried]}} = Database.query(ctx.uid, ctx.table.id, %{})
+
+    assert {:ok, %{records: [queried]}} =
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{})
+
     assert queried["created_at"] == expected
 
     assert {:ok, %{records: [_]}} =
-             Database.query(ctx.uid, ctx.table.id, %{
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
                filter: %{
                  conditions: [%{field_id: created_at.id, operator: "is", value: expected}]
                }
@@ -848,7 +1093,7 @@ defmodule Ankole.Pod.DatabaseTest do
 
   test "text search treats backslashes and wildcards as literal characters", ctx do
     {:ok, %{records: [path, _]}} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [
           %{data: %{ctx.primary.id => "C:\\reports\\100%_sales"}},
           %{data: %{ctx.primary.id => "literal%"}}
@@ -857,7 +1102,7 @@ defmodule Ankole.Pod.DatabaseTest do
 
     for value <- ["\\", "100%_"] do
       assert {:ok, %{records: [found]}} =
-               Database.query(ctx.uid, ctx.table.id, %{
+               Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
                  filter: %{
                    conditions: [
                      %{field_id: ctx.primary.id, operator: "text_contains", value: value}
@@ -871,7 +1116,8 @@ defmodule Ankole.Pod.DatabaseTest do
 
   test "current PostgreSQL locale capabilities agree with the operations executed in the browser",
        ctx do
-    assert {:ok, schema} = Database.get_table(ctx.uid, ctx.table.id)
+    assert {:ok, schema} =
+             Database.get_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id)
 
     [[collation, ctype, provider]] =
       Repo.query!(
@@ -880,13 +1126,13 @@ defmodule Ankole.Pod.DatabaseTest do
       ).rows
 
     {:ok, _} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [%{data: %{ctx.primary.id => "ASCII"}}, %{data: %{ctx.primary.id => "Ö"}}]
       })
 
     if schema.local_query.text_contains_ascii do
       assert {:ok, %{records: [_]}} =
-               Database.query(ctx.uid, ctx.table.id, %{
+               Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
                  filter: %{
                    conditions: [
                      %{field_id: ctx.primary.id, operator: "text_contains", value: "ascii"}
@@ -895,7 +1141,7 @@ defmodule Ankole.Pod.DatabaseTest do
                })
 
       assert {:ok, %{records: []}} =
-               Database.query(ctx.uid, ctx.table.id, %{
+               Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
                  filter: %{
                    conditions: [
                      %{field_id: ctx.primary.id, operator: "text_contains", value: "ö"}
@@ -925,10 +1171,17 @@ defmodule Ankole.Pod.DatabaseTest do
   end
 
   defp field(ctx, name, type, config \\ %{}),
-    do: Database.create_field(ctx.uid, ctx.table.id, %{name: name, type: type, config: config})
+    do:
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        name: name,
+        type: type,
+        config: config
+      })
 
   defp all_pages(ctx, attrs, ids) do
-    {:ok, result} = Database.query(ctx.uid, ctx.table.id, attrs)
+    {:ok, result} =
+      Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, attrs)
+
     ids = ids ++ Enum.map(result.records, & &1["id"])
 
     if result.page_token,

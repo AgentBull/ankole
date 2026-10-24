@@ -3,9 +3,8 @@ defmodule Ankole.Principals.Humans do
 
   require Ash.Query
 
-  alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Principals
-  alias Ankole.Principals.{HumanUser, LocalCredential, Principal}
+  alias Ankole.Principals.{HumanUser, Principal}
   alias Ankole.Repo
 
   @principal_profile_fields [:display_name, :avatar_url]
@@ -71,9 +70,7 @@ defmodule Ankole.Principals.Humans do
   def update_human_in_tx(%{uid: uid} = changes) do
     attrs = Map.take(changes, [:display_name, :email])
 
-    with :ok <- require_local_identity_provider(),
-         :ok <- keep_email(attrs),
-         {:ok, principal} <- lock_principal_in_tx(uid),
+    with {:ok, principal} <- lock_principal_in_tx(uid),
          :ok <- ensure_principal_type(principal, :human),
          {:ok, principal} <- update_principal_profile(principal, attrs),
          {:ok, human_user} <-
@@ -82,132 +79,9 @@ defmodule Ankole.Principals.Humans do
     end
   end
 
-  def create_local_user(attrs, must_change_password)
-      when is_map(attrs) and is_boolean(must_change_password) do
-    Repo.assert_outside_transaction!()
-    initial_password = LocalCredential.generate_initial_password()
-
-    with {:ok, password_hash} <- LocalPassword.hash_password(initial_password),
-         {:ok, principal} <-
-           Repo.transact_top_level(fn ->
-             create_local_user_in_tx(%{
-               email: Map.get(attrs, :email),
-               display_name: Map.get(attrs, :display_name),
-               must_change_password: must_change_password,
-               initial_password: initial_password,
-               password_hash: password_hash
-             })
-           end) do
-      {:ok,
-       %{
-         principal: principal,
-         human_user: principal.human_user,
-         initial_password: principal.__metadata__.initial_password
-       }}
-    end
-  end
-
-  def create_local_user_in_tx(args) do
-    with :ok <- require_local_identity_provider(),
-         {:ok, %{principal: principal, human_user: human_user}} <-
-           create_human_in_tx(Map.take(args, [:email, :display_name]), :create_local_in_tx),
-         {:ok, _credential} <-
-           put_local_credential_in_tx(
-             principal.uid,
-             args.password_hash,
-             Map.get(args, :must_change_password) != false
-           ) do
-      {:ok,
-       principal
-       |> Map.put(:human_user, human_user)
-       |> Ash.Resource.put_metadata(:initial_password, args.initial_password)}
-    end
-  end
-
-  # Each local-account write needs an enabled local identity provider, so that
-  # no credential is made that no login path accepts.
-  defp require_local_identity_provider do
-    if LocalPassword.enabled?(), do: :ok, else: {:error, :local_identity_provider_disabled}
-  end
-
-  defp keep_email(%{email: nil}),
-    do: {:error, Ash.Error.Changes.Required.exception(field: :email, type: :argument)}
-
-  defp keep_email(_attrs), do: :ok
-
-  def fetch_local_login(email) do
-    case HumanUser
-         |> Ash.Query.filter(email == ^email)
-         |> Ash.Query.load(principal: [:local_credential])
-         |> Ankole.Ash.read_one!() do
-      %HumanUser{principal: %Principal{} = principal} = human_user ->
-        {:ok,
-         %{principal: principal, human_user: human_user, credential: principal.local_credential}}
-
-      _missing ->
-        {:error, :not_found}
-    end
-  end
-
-  def put_local_credential(uid, password_hash, must_change_password) do
-    Repo.transact_top_level(fn ->
-      put_local_password_in_tx(uid, password_hash, must_change_password)
-    end)
-  end
-
-  def put_local_password_in_tx(uid, password_hash, must_change_password) do
-    with :ok <- ensure_local_login_human(uid),
-         do: put_local_credential_in_tx(uid, password_hash, must_change_password)
-  end
-
-  def put_local_credential_in_tx(uid, password_hash, must_change_password) do
-    attrs = %{password_hash: password_hash, must_change_password: must_change_password}
-
-    case LocalCredential |> Ash.Query.filter(principal_uid == ^uid) |> Ankole.Ash.read_one!() do
-      %LocalCredential{} = credential ->
-        Ankole.Ash.update(credential, :set_password_in_tx, attrs)
-
-      nil ->
-        Ankole.Ash.create(LocalCredential, :create_in_tx, Map.put(attrs, :principal_uid, uid))
-    end
-  end
-
-  def complete_forced_password_change(uid, password_hash, credential_version) do
-    Repo.transact_top_level(fn ->
-      complete_forced_password_change_in_tx(uid, password_hash, credential_version)
-    end)
-  end
-
-  def complete_forced_password_change_in_tx(uid, password_hash, credential_version) do
-    with %LocalCredential{must_change_password: true} = credential <-
-           LocalCredential
-           |> Ash.Query.filter(principal_uid == ^uid)
-           |> Ash.Query.lock(:for_update)
-           |> Ankole.Ash.read_one!(),
-         true <- LocalCredential.version(credential) == credential_version do
-      Ankole.Ash.update(credential, :set_password_in_tx, %{
-        password_hash: password_hash,
-        must_change_password: false
-      })
-    else
-      _no_matching_change -> {:error, :password_change_not_required}
-    end
-  end
-
-  defp ensure_local_login_human(uid) do
-    case HumanUser |> Ash.Query.filter(principal_uid == ^uid) |> Ankole.Ash.read_one!() do
-      %HumanUser{email: email} when is_binary(email) ->
-        :ok
-
-      %HumanUser{} ->
-        {:error, :email_missing}
-
-      nil ->
-        case get_principal(uid) do
-          {:ok, %Principal{}} -> {:error, :not_human}
-          {:error, _missing} -> {:error, :not_found}
-        end
-    end
+  def create_member_in_tx(attrs) do
+    with {:ok, %{principal: principal, human_user: human}} <- create_human_in_tx(attrs),
+         do: {:ok, %{principal | human_user: human}}
   end
 
   def lock_principal_in_tx(uid, mode \\ :update) do
@@ -259,7 +133,8 @@ defmodule Ankole.Principals.Humans do
   # (people/<uid> or agents/<uid>); the creation transaction keeps that
   # invariant so holder attribution and recall never miss a subject page.
   def insert_principal(attrs) do
-    with {:ok, principal} <-
+    with :ok <- allow_guest_admission(attrs),
+         {:ok, principal} <-
            Ankole.Ash.create(Principal, :create_in_tx, attrs),
          :ok <- ensure_canonical_brain_object(principal) do
       {:ok, principal}
@@ -308,13 +183,53 @@ defmodule Ankole.Principals.Humans do
   end
 
   def ensure_principal_type(%Principal{type: type}, type), do: :ok
-  def ensure_principal_type(%Principal{type: :human}, :agent), do: {:error, :not_agent}
-  def ensure_principal_type(%Principal{type: :agent}, :human), do: {:error, :not_human}
+  def ensure_principal_type(%Principal{}, :agent), do: {:error, :not_agent}
+  def ensure_principal_type(%Principal{}, :human), do: {:error, :not_human}
 
   def human_principal_attrs(attrs, uid \\ Ash.UUIDv7.generate()) do
     attrs
-    |> take_attrs(@principal_profile_fields)
+    |> take_attrs([:membership | @principal_profile_fields])
+    |> Map.put_new(:membership, :member)
     |> Map.merge(%{uid: uid, type: :human})
+  end
+
+  def change_human_membership(uid, membership) when membership in [:member, :guest] do
+    Repo.transact_top_level(fn -> change_human_membership_in_tx(uid, membership) end)
+  end
+
+  def change_human_membership(_uid, _membership), do: {:error, :invalid_membership}
+
+  def change_human_membership_in_tx(uid, membership) do
+    Ankole.Pod.Pages.lock_tree()
+
+    with :ok <- allow_guest_admission(%{membership: membership}),
+         {:ok, principal} <- lock_principal_in_tx(uid),
+         :ok <- ensure_principal_type(principal, :human),
+         :ok <- membership_transition_allowed(principal, membership) do
+      Ankole.Ash.update(principal, :membership_in_tx, %{membership: membership})
+    end
+  end
+
+  defp membership_transition_allowed(principal, :guest) do
+    admin_name = Ankole.AuthZ.Root.admin_group_name()
+
+    with {:ok, groups} <- Ankole.AuthZ.list_principal_group_memberships(principal.uid) do
+      if Enum.any?(groups, &(&1.name in [admin_name, "pod_admin"] and &1.built_in)),
+        do: {:error, :admin_cannot_be_guest},
+        else: :ok
+    end
+  end
+
+  defp membership_transition_allowed(_principal, :member), do: :ok
+
+  defp allow_guest_admission(attrs) do
+    if Ankole.Attrs.get(attrs, :membership) in [:guest, "guest"] do
+      with {:ok, enabled} <-
+             Ankole.AppConfigure.get_tenant_by_key_in_tx("pod.allow_external_guests"),
+           do: if(enabled, do: :ok, else: {:error, :external_guests_disabled})
+    else
+      :ok
+    end
   end
 
   def required_text(attrs, key) do

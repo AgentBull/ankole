@@ -43,12 +43,6 @@ export function dropAvailability(
   return !parent || destinations.has(parent.id) ? 'available' : 'blocked'
 }
 
-/** The request that puts `page` back where it is now. Capture it before a move to undo the move. */
-export function currentPlace(pages: Page[], page: Page): PodPageMove {
-  const next = siblings(pages, page).find(sibling => sibling.id !== page.id && positionOrder(sibling, page) > 0)
-  return { ...placeOf(page), ...(next ? { before_id: next.id } : {}) }
-}
-
 /** The request that moves `page` one place up or down among its siblings, or `null` at an end. */
 export function stepRequest(pages: Page[], page: Page, direction: -1 | 1): PodPageMove | null {
   const ordered = siblings(pages, page)

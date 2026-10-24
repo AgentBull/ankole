@@ -8,9 +8,18 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
   """
 
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.BackgroundAgentJobs,
-    extensions: [AshStateMachine, AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshStateMachine, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    allow(:console_list, resource: "site_console:background_agent_jobs", action: "read")
+    allow(:read, resource: "site_console:background_agent_jobs", action: "read")
+    allow(:console_cancel, resource: "site_console:background_agent_jobs", action: "delete")
+    allow(:console_complete, resource: "site_console:background_agent_jobs", action: "update")
+  end
 
   use Ankole.Work.Provenance,
     owner_session?: true,

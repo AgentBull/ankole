@@ -1,19 +1,8 @@
 defmodule Ankole.IdentityProviders.Login do
-  @moduledoc """
-  Login boundary for configured identity providers.
-
-  Login availability is one host-owned decision. For OIDC the adapter must
-  declare the OIDC capability and the provider config must not turn
-  `oidc.enabled` off; for the built-in password adapter the capability alone
-  decides. The login list, the authorization redirect, and the code exchange
-  all apply this same decision, so a sync-only provider never appears as a
-  login option and adapters do not repeat the check. The password verify flow
-  itself lives in `Ankole.IdentityProviders.LocalPassword`.
-  """
+  @moduledoc "Enterprise login availability, upstream proof verification, and member admission."
 
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.Config
-  alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.IdentityProviders.OIDC
 
   @authorization_capability "oidc_authorization"
@@ -22,7 +11,7 @@ defmodule Ankole.IdentityProviders.Login do
   @doc """
   Lists configured providers available to the login page.
 
-  Each entry carries a `"kind"` of `"password"` or `"oidc"` so the login page
+  Each entry carries a `"kind"` of `"oidc"` so the login page
   knows which interaction the provider needs.
   """
   @spec list_login_providers() :: {:ok, [map()]} | {:error, term()}
@@ -37,6 +26,7 @@ defmodule Ankole.IdentityProviders.Login do
 
          provider
          |> Map.put("kind", kind)
+         |> Map.put("display_name", adapter.display_name)
          |> Map.put(
            "fresh_authentication",
            "oidc_fresh_authentication" in IdentityProviders.adapter_capabilities(adapter)
@@ -57,33 +47,55 @@ defmodule Ankole.IdentityProviders.Login do
   end
 
   @doc """
-  Exchanges an OIDC authorization code and upserts the authenticated user.
-
-  The adapter exchanges the code. This function verifies the upstream proof
-  with `Ankole.IdentityProviders.OIDC.verify_login/3` before the adapter can
-  write the user.
+  Verifies the upstream proof before it starts a transaction. The transaction
+  admits the member, accepts the invitation, and calls the optional completion
+  function. A rejected invitation or completion commits none of those writes.
   """
   @spec complete_oidc_login(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def complete_oidc_login(provider_id, code, opts)
       when is_binary(provider_id) and is_binary(code) and is_list(opts) do
     with {:ok, module, config} <-
            login_module(provider_id, capability(opts, @code_exchange_capability)),
-         {:ok, %{user: user} = login} <- module.exchange_code(config, code, opts),
+         {:ok, %{user: _user} = login} <- module.exchange_code(config, code, opts),
          {:ok, auth_time} <-
            OIDC.verify_login(module.id_token_verification(config), login, opts),
-         {:ok, %{principal: principal, identity: identity}} <-
-           module.upsert_user(provider_id, user),
-         :ok <- Ankole.Principals.HumanAccess.check(principal.uid, principal.access_version) do
-      {:ok,
-       %{
-         principal_uid: principal.uid,
-         access_version: principal.access_version,
-         auth_time: auth_time,
-         provider_id: provider_id,
-         external_id: identity.external_id,
-         user: user
-       }}
-    end
+         do: admit_login(module, provider_id, login, auth_time, opts)
+  end
+
+  defp admit_login(module, provider_id, login, auth_time, opts) do
+    Ankole.Repo.transact_top_level(fn ->
+      with :ok <- lock_browser(Keyword.get(opts, :browser_reference)),
+           {:ok, invitation} <-
+             Ankole.Principals.prepare_oidc_invitation_in_tx(
+               Keyword.get(opts, :invitation_id),
+               login
+             ),
+           {:ok, %{principal: principal, identity: identity} = observed} <-
+             module.upsert_user_in_tx(
+               provider_id,
+               login.user,
+               if(invitation, do: [membership: invitation.membership], else: [])
+             ),
+           :ok <- Ankole.Principals.HumanAccess.check(principal.uid, principal.access_version),
+           {:ok, _} <- Ankole.Principals.accept_oidc_invitation_in_tx(invitation, observed) do
+        result = %{
+          principal_uid: principal.uid,
+          access_version: principal.access_version,
+          auth_time: auth_time,
+          provider_id: provider_id,
+          external_id: identity.external_id,
+          user: login.user
+        }
+
+        Keyword.get(opts, :complete, &{:ok, &1}).(result)
+      end
+    end)
+  end
+
+  defp lock_browser(nil), do: :ok
+
+  defp lock_browser(reference) do
+    with {:ok, _} <- Ankole.BrowserSessions.lock_browser_in_tx(reference), do: :ok
   end
 
   defp capability(opts, ordinary) do
@@ -123,7 +135,6 @@ defmodule Ankole.IdentityProviders.Login do
       capabilities = IdentityProviders.adapter_capabilities(adapter)
 
       cond do
-        LocalPassword.capability() in capabilities -> "password"
         @authorization_capability in capabilities -> oidc_login_kind(provider, adapter)
         true -> nil
       end

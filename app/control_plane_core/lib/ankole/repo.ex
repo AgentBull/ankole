@@ -579,6 +579,36 @@ defmodule Ankole.Repo do
     result
   end
 
+  @doc "Runs a pure multi-resource read in one repeatable, read-only snapshot."
+  def transact_repeatable_read_only(fun) when is_function(fun, 0) do
+    transact_top_level(fn ->
+      unless sandbox_savepoint?(),
+        do: query!("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+
+      fun.()
+    end)
+  end
+
+  # Ecto SQL 3.14 stores the checked-out DBConnection in this process. Inspect
+  # its actual adapter because a Sandbox pool can also check out without a sandbox.
+  defp sandbox_savepoint? do
+    require DBConnection.Holder
+    %{pid: pool} = Ecto.Adapter.lookup_meta(get_dynamic_repo())
+
+    case Process.get({Ecto.Adapters.SQL, pool}) do
+      %DBConnection{pool_ref: pool_ref} ->
+        holder = DBConnection.Holder.pool_ref(pool_ref, :holder)
+
+        case :ets.lookup(holder, :conn) do
+          [DBConnection.Holder.conn(module: Ecto.Adapters.SQL.Sandbox.Connection)] -> true
+          _ -> false
+        end
+
+      _ ->
+        false
+    end
+  end
+
   defp run_after_commit(_result, nil), do: :ok
   defp run_after_commit({:ok, value}, {module, function}), do: apply(module, function, [value])
   defp run_after_commit(:ok, {module, function}), do: apply(module, function, [nil])

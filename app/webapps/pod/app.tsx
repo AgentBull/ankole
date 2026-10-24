@@ -49,6 +49,18 @@ export function PodApp({ accountNavigation }: PodAppProps = {}) {
     const routeTree = rootRoute.addChildren([
       createRoute({
         getParentRoute: () => rootRoute,
+        path: 'me',
+        component: lazyRouteComponent(() => import('./account-settings'), 'AccountSettings'),
+        ...routeFeedback
+      }),
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: 'settings',
+        component: lazyRouteComponent(() => import('./pod-settings'), 'PodSettings'),
+        ...routeFeedback
+      }),
+      createRoute({
+        getParentRoute: () => rootRoute,
         path: '/',
         component: LazyChatRoute,
         ...routeFeedback

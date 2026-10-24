@@ -22,8 +22,12 @@ defmodule Ankole.Migrations do
     validate!(paths)
 
     case direction do
-      :up -> Ankole.Upgrade202610.migrate(repo, paths, :up, opts)
-      :down -> Ecto.Migrator.run(repo, paths, :down, opts)
+      :up ->
+        Ankole.CredentialUpgrade.preflight!(repo)
+        Ankole.Upgrade202610.migrate(repo, paths, :up, opts)
+
+      :down ->
+        Ecto.Migrator.run(repo, paths, :down, opts)
     end
   end
 

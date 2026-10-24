@@ -40,7 +40,7 @@ defmodule Ankole.AgentWorkers do
   end
 
   json_api do
-    authorize?(false)
+    authorize?(true)
     log_errors?(true)
     show_raised_errors?(false)
 

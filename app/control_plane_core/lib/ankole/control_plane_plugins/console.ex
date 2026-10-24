@@ -1,9 +1,16 @@
 defmodule Ankole.ControlPlanePlugins.Console do
   @moduledoc "Console configuration of Control Plane Plugins."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     domain: Ankole.ControlPlanePlugins,
     data_layer: Ash.DataLayer.Simple,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    allow(:list, resource: "site_console:control_plane_plugins", action: "read")
+    allow(:configure, resource: "site_console:control_plane_plugins", action: "update")
+  end
 
   resource do
     require_primary_key?(false)

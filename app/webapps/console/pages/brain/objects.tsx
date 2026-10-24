@@ -116,8 +116,7 @@ function BrainObjectsList() {
       emptyTitle={t('console.brain.objects_empty_title')}
       emptyDescription={t('console.brain.objects_empty_description')}
       emptyIcon={<RiBrainLine aria-hidden />}
-      error={objects.error}
-      footer={<LoadMore query={objects} />}
+      pagination={objects}
       isFiltered={filtered}
       onClearFilters={() => {
         setQuery('')
@@ -348,7 +347,7 @@ export function BrainObjectDrawer() {
               </div>
             ) : (
               <div className="grid gap-7">
-                <ErrorBlock error={detail.error ?? versions.error} />
+                <ErrorBlock error={detail.error ?? (versions.isFetchNextPageError ? undefined : versions.error)} />
 
                 {detail.data?.candidates ? (
                   <DrawerSection title={t('console.brain.ambiguous_title')}>

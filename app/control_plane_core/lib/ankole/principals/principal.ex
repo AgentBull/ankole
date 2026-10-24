@@ -1,9 +1,28 @@
 defmodule Ankole.Principals.Principal do
   @moduledoc false
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.Principals,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource, Ankole.Authn]
+
+  authn do
+    add_ons do
+      add_on(:offboarding_release, Ankole.Authn.AddOns.OffboardingRelease)
+      add_on(:site_credential_binding, Ankole.Authn.AddOns.SiteCredentialBinding)
+      add_on(:pod_invitation, Ankole.Authn.AddOns.PodInvitation)
+    end
+  end
+
+  authz do
+    scope(:site_console)
+    resolve_param(:uid, :principal_key)
+    allow(:console_list, resource: "site_console:principals", action: "read")
+    allow(:read, resource: "site_console:principal:{uid}", action: "read")
+    allow(:create_member, resource: "site_console:principals", action: "update")
+    allow(:update_human, resource: "site_console:principal:{uid}", action: "update")
+    allow(:change_human_membership, resource: "site_console:principal:{uid}", action: "update")
+  end
 
   json_api do
     type("principal")
@@ -13,12 +32,12 @@ defmodule Ankole.Principals.Principal do
     default_fields([
       :type,
       :status,
+      :membership,
       :display_name,
       :avatar_url,
       :email,
       :handle,
-      :has_external_identity,
-      :local_credential_status
+      :has_external_identity
     ])
   end
 
@@ -29,6 +48,7 @@ defmodule Ankole.Principals.Principal do
     unique_index_names([{[:type], "principals_one_system_per_tenant_index"}])
 
     check_constraints do
+      check_constraint(:membership, "principals_membership_shape")
       check_constraint(:uid, "principals_uid_present")
       check_constraint(:uid, "principals_uid_lowercase")
       check_constraint(:display_name, "principals_agent_display_name_present")
@@ -47,6 +67,11 @@ defmodule Ankole.Principals.Principal do
       public?: true,
       allow_nil?: false,
       constraints: [one_of: [:human, :agent, :system]]
+    )
+
+    attribute(:membership, :atom,
+      public?: true,
+      constraints: [one_of: [:member, :guest]]
     )
 
     attribute(:status, :atom,
@@ -85,11 +110,6 @@ defmodule Ankole.Principals.Principal do
       destination_attribute(:principal_uid)
     end
 
-    has_one :local_credential, Ankole.Principals.LocalCredential do
-      source_attribute(:uid)
-      destination_attribute(:principal_uid)
-    end
-
     has_many :access_events, Ankole.Principals.AccessEvent do
       source_attribute(:uid)
       destination_attribute(:principal_uid)
@@ -103,20 +123,6 @@ defmodule Ankole.Principals.Principal do
   calculations do
     calculate(:email, :string, expr(human_user.email), public?: true)
     calculate(:handle, :string, expr(agent.handle), public?: true)
-
-    calculate(
-      :local_credential_status,
-      :atom,
-      expr(
-        if is_nil(local_credential.principal_uid) do
-          nil
-        else
-          if local_credential.must_change_password, do: :must_change, else: :active
-        end
-      ),
-      constraints: [one_of: [:must_change, :active]],
-      public?: true
-    )
   end
 
   actions do
@@ -133,7 +139,29 @@ defmodule Ankole.Principals.Principal do
     end
 
     create :create_in_tx do
-      accept([:uid, :type, :display_name, :avatar_url])
+      accept([:uid, :type, :membership, :display_name, :avatar_url])
+
+      change(set_attribute(:membership, :member),
+        where: [attribute_equals(:type, :human), attribute_equals(:membership, nil)]
+      )
+    end
+
+    update :membership_in_tx do
+      accept([:membership])
+      validate(attribute_equals(:type, :human))
+      validate(attribute_does_not_equal(:membership, nil))
+
+      change(fn changeset, _context ->
+        if Ash.Changeset.changing_attribute?(changeset, :membership) do
+          Ash.Changeset.force_change_attribute(
+            changeset,
+            :access_version,
+            changeset.data.access_version + 1
+          )
+        else
+          changeset
+        end
+      end)
     end
 
     update :profile_in_tx do
@@ -159,7 +187,7 @@ defmodule Ankole.Principals.Principal do
     destroy(:delete_in_tx)
 
     action :update_human, :struct do
-      description("Updates the display name or the email of a Human with local sign-in.")
+      description("Updates the display name or directory email of a Human.")
       constraints(instance_of: __MODULE__)
       argument(:uid, :string, allow_nil?: false)
       argument(:display_name, :string)
@@ -168,21 +196,33 @@ defmodule Ankole.Principals.Principal do
       run(__MODULE__.Actions)
     end
 
-    action :create_local_user, :struct do
-      description("Creates a Human with an email and a generated one-time local password.")
+    action :change_human_membership, :struct do
+      description("Changes Human membership and revokes prior access versions.")
       constraints(instance_of: __MODULE__)
-      argument(:email, :string, allow_nil?: false)
-      argument(:display_name, :string)
+      argument(:uid, :string, allow_nil?: false)
+      argument(:membership, :atom, allow_nil?: false, constraints: [one_of: [:member, :guest]])
+      run(__MODULE__.Actions)
+    end
 
-      argument(:must_change_password, :boolean,
-        default: true,
-        description: "Omitted or null means true."
+    action :create_member, :map do
+      description("Creates a Pod member profile. Personal login requires email verification.")
+
+      constraints(
+        fields: [
+          uid: [type: Ankole.Ash.Types.PrincipalKey, allow_nil?: false],
+          email: [type: :string]
+        ]
       )
 
-      argument(:initial_password, :string, public?: false, sensitive?: true)
-      argument(:password_hash, :string, public?: false, sensitive?: true)
-      prepare(Ankole.Principals.Changes.InitialPassword)
+      argument(:email, :string)
 
+      argument(:membership, :atom,
+        default: :member,
+        allow_nil?: false,
+        constraints: [one_of: [:member, :guest]]
+      )
+
+      argument(:display_name, :string)
       run(__MODULE__.Actions)
     end
   end

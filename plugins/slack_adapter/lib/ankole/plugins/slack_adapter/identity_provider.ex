@@ -67,28 +67,38 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
 
   @spec upsert_user(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def upsert_user(provider_id, user, opts \\ []) do
+    with {:ok, attrs, options} <- normalize_user(provider_id, user, opts) do
+      Directory.upsert_user(provider_id, attrs, options)
+    end
+  end
+
+  def upsert_user_in_tx(provider_id, user, opts) do
+    with {:ok, attrs, options} <- normalize_user(provider_id, user, opts) do
+      Directory.upsert_user_in_tx(provider_id, attrs, options)
+    end
+  end
+
+  defp normalize_user(provider_id, user, opts) do
     with {:ok, user_id} <- user_id(user) do
-      Directory.upsert_user(
-        provider_id,
-        %{
-          provider: provider_id,
-          external_id: user_id,
-          display_name: display_name(user),
-          avatar_url: avatar_url(user),
-          email: profile_value(user, "email") || MapHelpers.optional_text(user, "email"),
-          job_title: profile_value(user, "title"),
-          mobile: normalized_mobile(user),
-          metadata:
-            MapHelpers.compact_metadata_map(%{
-              "team_id" => MapHelpers.optional_text(user, "team_id"),
-              "is_bot" => Map.get(user, "is_bot"),
-              "deleted" => Map.get(user, "deleted"),
-              "tz" => MapHelpers.optional_text(user, "tz")
-            })
-        }
-        |> MapHelpers.compact_map(),
-        Keyword.take(opts, [:group_external_ids, :directory_group_index])
-      )
+      {:ok,
+       %{
+         provider: provider_id,
+         external_id: user_id,
+         display_name: display_name(user),
+         avatar_url: avatar_url(user),
+         email: profile_value(user, "email") || MapHelpers.optional_text(user, "email"),
+         job_title: profile_value(user, "title"),
+         mobile: normalized_mobile(user),
+         metadata:
+           MapHelpers.compact_metadata_map(%{
+             "team_id" => MapHelpers.optional_text(user, "team_id"),
+             "is_bot" => Map.get(user, "is_bot"),
+             "deleted" => Map.get(user, "deleted"),
+             "tz" => MapHelpers.optional_text(user, "tz")
+           })
+       }
+       |> MapHelpers.compact_map(),
+       Keyword.take(opts, [:membership, :group_external_ids, :directory_group_index])}
     end
   end
 

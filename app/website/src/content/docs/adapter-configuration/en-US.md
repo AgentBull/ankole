@@ -11,7 +11,7 @@ During first-run setup, `/setup` shows the login callback URL and a guide link f
 
 ## Identity Providers
 
-An IdP supplies Console sign-in. It can also synchronize employees, departments, or groups when the platform supports this function. The built-in local password provider needs no external application: it is always listed in `/setup` and the Console, and it signs people in with an email address and a password that Ankole stores. Use it for the first administrator, for a small team without a directory, or for the accounts that consumer-IM users are mapped to. The credential names below match the Ankole form. Use the linked guide for the exact permissions, provider-console paths, and verification steps.
+An IdP provides organization sign-in and can synchronize employees, departments, or groups. Each Pod administrator configures its enterprise providers in Space settings. Email-code sign-in uses the site SMTP service and appears when mail delivery is configured. During setup, verify a real email code or complete enterprise SSO to create the first administrator. Ankole stores no user passwords. The credential names below match the Ankole form. Use the linked guides for provider permissions, callback URLs, and verification steps.
 
 | Platform | External application | Main configuration | Detailed guide |
 |---|---|---|---|

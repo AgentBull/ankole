@@ -8,7 +8,7 @@ import type { ConversationMessage } from './api'
 import type { ConversationAttachment } from './api'
 import { podLocation } from '../common/browser-context'
 import { podFileCopy } from './api/generated/sdk.gen'
-import { contentKeys, pageAPI, pageQuery, pagesQuery, type Page } from './content-api'
+import { contentKeys, pageAPI, pageQuery, pageSearchQuery, type Page, type PageDetail } from './content-api'
 import { Choice, ContentError, TextField } from './content-primitives'
 import { MessageAttachments } from './chat-attachments'
 import { PageIcon } from './page-icon'
@@ -78,13 +78,21 @@ function SaveMessageButton({ message, attachment }: { message: Message; attachme
         t('pod.content.conversation_artifacts')
     )
   )
-  const [parent, setParent] = useState('private')
-  const created = useRef<Page | null>(null)
-  const pages = useQuery({ ...pagesQuery('all'), enabled: open })
-  const destinations = (pages.data?.pages ?? []).filter(
-    page => page.type === 'doc' && (page.role === 'edit' || page.role === 'manage')
-  )
-  const validParent = parent === 'private' || parent === 'space' || destinations.some(page => page.id === parent)
+  const [selectedParent, setParent] = useState<string>()
+  const [destinationQuery, setDestinationQuery] = useState('')
+  const [selectedPage, setSelectedPage] = useState<Page>()
+  const created = useRef<PageDetail['page'] | null>(null)
+  const pages = useQuery({ ...pageSearchQuery(destinationQuery), enabled: open })
+  const parent = selectedParent ?? (pages.data?.can_create_private === false ? 'space' : 'private')
+  const destinations = [
+    ...new Map(
+      [...(pages.data?.pages ?? []), ...(selectedPage ? [selectedPage] : [])].map(page => [page.id, page])
+    ).values()
+  ].filter(page => page.type === 'doc' && (page.role === 'edit' || page.role === 'manage'))
+  const validParent =
+    (parent === 'private' && pages.data?.can_create_private === true) ||
+    parent === 'space' ||
+    destinations.some(page => page.id === parent)
   const client = useQueryClient(),
     navigate = useNavigate()
   const save = useMutation({
@@ -170,13 +178,22 @@ function SaveMessageButton({ message, attachment }: { message: Message; attachme
           onChange={setTitle}
           disabled={save.isPending || !!created.current}
         />
+        <TextField
+          label={t('pod.content.search_pages')}
+          value={destinationQuery}
+          onChange={setDestinationQuery}
+          disabled={save.isPending || !!created.current}
+        />
         <Choice
           label={t('pod.content.save_to')}
           value={parent}
-          onChange={setParent}
+          onChange={id => {
+            setParent(id)
+            setSelectedPage(destinations.find(page => page.id === id))
+          }}
           disabled={save.isPending || !!created.current}
           options={{
-            private: 'Private',
+            ...(pages.data?.can_create_private ? { private: 'Private' } : {}),
             space: t('pod.content.space'),
             ...Object.fromEntries(destinations.map(page => [page.id, page.title || t('pod.content.untitled')]))
           }}

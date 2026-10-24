@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { Page } from '../content-api'
-import { currentPlace, dropAvailability, dropRequest, rootRequest, stepRequest } from './page-move'
+import { dropAvailability, dropRequest, rootRequest, stepRequest } from './page-move'
 
 function page(id: string, values: Partial<Page> = {}): Page {
   return {
@@ -54,9 +54,7 @@ test('a page cannot go into its own subtree, into a non-document, or move withou
   expect(dropAvailability(pages, c, mine, 'inside')).toBe('available')
 })
 
-test('undo returns the page before its next sibling, and steps stop at the ends', () => {
-  expect(currentPlace(pages, b)).toEqual({ parent_id: 'R', private_owner_uid: null, before_id: 'C' })
-  expect(currentPlace(pages, table)).toEqual({ parent_id: 'R', private_owner_uid: null })
+test('steps stop at the ends of the loaded siblings', () => {
   expect(stepRequest(pages, b, -1)).toEqual({ parent_id: 'R', private_owner_uid: null, before_id: 'A' })
   expect(stepRequest(pages, b, 1)).toEqual({ parent_id: 'R', private_owner_uid: null, after_id: 'C' })
   expect(stepRequest(pages, a, -1)).toBeNull()

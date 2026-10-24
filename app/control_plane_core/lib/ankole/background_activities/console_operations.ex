@@ -1,9 +1,22 @@
 defmodule Ankole.BackgroundActivities.ConsoleOperations do
   @moduledoc "Typed Console operations that call the Ankole.BackgroundActivities owner."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: Ankole.BackgroundActivities,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:agent_uid, :principal_key)
+    allow(:console_jobs, resource: "site_console:background_agent_jobs", action: "read")
+    allow(:console_workflow, resource: "site_console:agent:{agent_uid}:workflow", action: "read")
+
+    allow(:console_automation_runs,
+      resource: "site_console:agent:{agent_uid}:automation_jobs",
+      action: "read"
+    )
+  end
 
   resource do
     require_primary_key?(false)

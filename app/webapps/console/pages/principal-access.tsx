@@ -61,26 +61,38 @@ export function HumanAccessSection({ uid }: { uid: string }) {
               rows={2}
             />
           </LabeledField>
-          {state.status === 'active' ? (
-            <>
-              <label className="flex items-start gap-3 text-sm">
-                <Checkbox
-                  checked={model.confirmed.value}
-                  onCheckedChange={checked => {
-                    model.confirmed.value = checked === true
-                  }}
-                />
-                <span>{t('console.human_access.disable_confirm')}</span>
-              </label>
-              <Button
-                className="justify-self-start"
-                variant="destructive"
-                disabled={pending || !model.hasReason.value || !model.confirmed.value}
-                onClick={() => disable.mutate({ path: { uid }, body: { data: reasonBody() } })}>
-                {t('console.human_access.disable')}
-              </Button>
-            </>
-          ) : (
+          <>
+            <label className="flex items-start gap-3 text-sm">
+              <Checkbox
+                checked={model.confirmed.value}
+                onCheckedChange={checked => {
+                  model.confirmed.value = checked === true
+                }}
+              />
+              <span>{t('console.human_access.disable_confirm')}</span>
+            </label>
+            <Button
+              className="justify-self-start"
+              variant="destructive"
+              disabled={pending || !model.hasReason.value || !model.confirmed.value}
+              onClick={() =>
+                disable.mutate({ path: { uid }, body: { data: { ...reasonBody(), disposition: 'suspended' } } })
+              }>
+              {t('pod.settings.suspend')}
+            </Button>
+            <p className="text-sm text-muted-foreground">{t('pod.settings.offboarded_description')}</p>
+            <Button
+              className="justify-self-start"
+              variant="destructive"
+              disabled={pending || !model.hasReason.value || !model.confirmed.value}
+              onClick={() =>
+                disable.mutate({ path: { uid }, body: { data: { ...reasonBody(), disposition: 'offboarded' } } })
+              }>
+              {t('pod.settings.offboard')}
+            </Button>
+          </>
+
+          {state.status !== 'active' ? (
             <>
               <p className="text-sm text-muted-foreground">{t('console.human_access.restore_hint')}</p>
               {activeRestrictions.map(item => (
@@ -184,7 +196,7 @@ export function HumanAccessSection({ uid }: { uid: string }) {
                 {t('console.human_access.restore')}
               </Button>
             </>
-          )}
+          ) : null}
           <details className="border-t border-border pt-4">
             <summary className="cursor-pointer text-sm font-medium">{t('console.human_access.work')}</summary>
             <p className="my-3 text-sm text-muted-foreground">{t('console.human_access.work_hint')}</p>

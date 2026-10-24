@@ -245,6 +245,7 @@ defmodule Ankole.Sessions.SharedConversationTest do
     {:ok, second_workspace} =
       Ankole.SessionsCase.ensure_workspace(c.second.uid, second_signal.session_id)
 
+    Ankole.ConversationsFixtures.grant_chat(c.human.uid, c.first.uid)
     native_id = Ecto.UUID.generate()
 
     assert {:ok, _} =

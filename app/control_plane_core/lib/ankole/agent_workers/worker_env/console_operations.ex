@@ -1,9 +1,40 @@
 defmodule Ankole.AgentWorkers.WorkerEnv.ConsoleOperations do
   @moduledoc "Operator shell variable operations for the tenant and Agent Console."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: Ankole.AgentWorkers,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:name, :string)
+    resolve_param(:agent_uid, :principal_key)
+    allow(:console_list, resource: "site_console:worker_envs", action: "read")
+    allow(:console_put, resource: "site_console:worker_env:{name}", action: "update")
+    allow(:console_delete, resource: "site_console:worker_env:{name}", action: "reset")
+    allow(:console_decrypt, resource: "site_console:worker_env:{name}", action: "decrypt")
+
+    allow(:console_list_for_agent,
+      resource: "site_console:agent:{agent_uid}:worker_envs",
+      action: "read"
+    )
+
+    allow(:console_put_for_agent,
+      resource: "site_console:agent:{agent_uid}:worker_env:{name}",
+      action: "update"
+    )
+
+    allow(:console_delete_for_agent,
+      resource: "site_console:agent:{agent_uid}:worker_env:{name}",
+      action: "reset"
+    )
+
+    allow(:console_decrypt_for_agent,
+      resource: "site_console:agent:{agent_uid}:worker_env:{name}",
+      action: "decrypt"
+    )
+  end
 
   resource do
     require_primary_key?(false)

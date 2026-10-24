@@ -10,7 +10,7 @@ defmodule AnkoleWeb.PodFileController do
     local_path = Ankole.Files.temp_path()
 
     try do
-      case Files.read_to_file(uid(conn), id, path, local_path, params["sha256"]) do
+      case Files.read_to_file(actor(conn), id, path, local_path, params["sha256"]) do
         {:ok, file} ->
           send_sandboxed_file(
             conn,
@@ -39,7 +39,7 @@ defmodule AnkoleWeb.PodFileController do
       respond(
         conn,
         Files.upload(
-          uid(conn),
+          actor(conn),
           id,
           Ankole.Attrs.get(body, :role, "file"),
           revision(body),
@@ -54,7 +54,7 @@ defmodule AnkoleWeb.PodFileController do
     end
   end
 
-  defp uid(conn), do: conn.assigns.current_principal_uid
+  defp actor(conn), do: conn.assigns.authz_actor
 
   defp revision(body),
     do: body |> Ankole.Attrs.get(:base_revision) |> Ankole.Attrs.integer_value()

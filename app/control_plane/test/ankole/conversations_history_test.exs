@@ -9,6 +9,7 @@ defmodule Ankole.ConversationsHistoryTest do
     human = human_fixture().principal
     stranger = human_fixture().principal
     agent = agent_fixture(%{owner_principal_uid: human.uid}).principal
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
     id = Ankole.Kernel.gen_uuid_v7()
 
     {:ok, _} =
@@ -54,18 +55,31 @@ defmodule Ankole.ConversationsHistoryTest do
         })
       end)
 
-    {:ok, newest} = Conversations.get(human.uid, id)
+    {:ok, newest} = Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id)
     assert Enum.map(newest.messages, & &1.seq) == Enum.to_list(507..1006)
     assert newest.older_messages_before_seq == 507
     refute input.message_id in newest.removed_message_ids
-    assert {:ok, reconciled} = Conversations.get(human.uid, id, loaded_first_seq: 1)
+
+    assert {:ok, reconciled} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id,
+               loaded_first_seq: 1
+             )
+
     assert input.message_id in reconciled.removed_message_ids
 
-    {:ok, middle} = Conversations.get(human.uid, id, before_seq: newest.older_messages_before_seq)
+    {:ok, middle} =
+      Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id,
+        before_seq: newest.older_messages_before_seq
+      )
+
     assert Enum.map(middle.messages, & &1.seq) == Enum.to_list(7..506)
     assert middle.older_messages_before_seq == 7
 
-    {:ok, oldest} = Conversations.get(human.uid, id, before_seq: middle.older_messages_before_seq)
+    {:ok, oldest} =
+      Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id,
+        before_seq: middle.older_messages_before_seq
+      )
+
     assert Enum.map(oldest.messages, & &1.seq) == Enum.to_list(2..6)
     assert is_nil(oldest.older_messages_before_seq)
 
@@ -73,8 +87,13 @@ defmodule Ankole.ConversationsHistoryTest do
              1005
 
     assert {:error, :conversation_not_found} =
-             Conversations.get(stranger.uid, id, before_seq: 507)
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(stranger.uid), id,
+               before_seq: 507
+             )
 
-    assert {:error, :invalid_request} = Conversations.get(human.uid, id, before_seq: 0)
+    assert {:error, :invalid_request} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id,
+               before_seq: 0
+             )
   end
 end

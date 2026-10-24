@@ -16,7 +16,7 @@ async function identity(page: Page) {
   })
 }
 
-test('real password logins share two Pod accounts while the chooser preserves each open document identity', async ({
+test('real email code logins share two Pod accounts while the chooser preserves each open document identity', async ({
   browser
 }) => {
   const context = await browser.newContext()
@@ -48,7 +48,7 @@ test('real password logins share two Pod accounts while the chooser preserves ea
     await first.getByRole('button', { name: /^账户菜单/ }).click()
     await first.getByRole('menuitem', { name: '切换或添加账户', exact: true }).click()
     await expect(first).toHaveURL(url => url.pathname === '/sessions/new' && url.searchParams.has('flow'))
-    await first.getByRole('button', { name: /^Browser owner ·/ }).click()
+    await first.getByRole('button', { name: /Browser owner/ }).click()
     await expect(first).toHaveURL(original)
     await expect(first.getByRole('textbox', { name: '页面标题', exact: true })).toBeVisible()
     expect((await identity(first)).principalUID).toBe(state.owner.uid)
@@ -83,11 +83,18 @@ test('the normal chooser switches between two real accounts in one Pod without c
 
     await first.getByRole('button', { name: /^账户菜单/ }).click()
     await first.getByRole('menuitem', { name: '切换或添加账户', exact: true }).click()
-    await expect(first.getByRole('button', { name: /^Browser member ·/ })).toBeVisible()
-    await first.getByRole('button', { name: /^Browser owner ·/ }).click()
+    await expect(first.getByRole('button', { name: /Browser member/ })).toBeVisible()
+    await first.getByRole('button', { name: /Browser owner/ }).click()
     await expect(first).toHaveURL(original)
     await expect(first.getByRole('textbox', { name: '页面标题', exact: true })).toBeVisible()
     expect((await identity(first)).principalUID).toBe(state.owner.uid)
+    expect((await identity(second)).principalUID).toBe(state.member.uid)
+
+    await first.getByRole('button', { name: /^账户菜单/ }).click()
+    await Promise.all([first.waitForEvent('load'), first.getByRole('menuitem', { name: /Browser member/ }).click()])
+    await expect(first).toHaveURL(original)
+    await expect(first.getByRole('textbox', { name: '页面标题', exact: true })).toBeVisible()
+    expect((await identity(first)).principalUID).toBe(state.member.uid)
     expect((await identity(second)).principalUID).toBe(state.member.uid)
   } finally {
     await context.close()
@@ -114,6 +121,8 @@ test('the sidebar account menu lists each proved organization and opens another 
     await expect(menu.locator('[role="menuitem"][aria-current="true"]')).toHaveText(/Browser owner/)
     const other = menu.getByRole('menuitem', { name: /Other workspace owner/ })
     await expect(other).toBeVisible()
+    await expect(other).toContainText(new URL(state.other_pod.base_url).hostname.split('.')[0]!)
+    await expect(other).toContainText('使用 \u2068邮箱验证码\u2069 登录')
     await expect(menu.getByRole('menuitemradio', { name: '浅色', exact: true })).toBeVisible()
     await expect(menu.getByRole('menuitem', { name: /^退出 .*Browser owner/ })).toBeVisible()
     await other.click()

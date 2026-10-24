@@ -17,6 +17,13 @@ defmodule Ankole.Sessions.ChannelHistoryTest do
         now: @base_time
       )
 
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: input.human_uid,
+        resource_pattern: "agent:#{agent.uid}:tool:read_channel_history",
+        action: "invoke"
+      })
+
     channel_id = input.conversation_id
 
     for day <- 1..3 do

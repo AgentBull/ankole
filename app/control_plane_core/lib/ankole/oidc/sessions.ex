@@ -7,6 +7,17 @@ defmodule Ankole.OIDC.Sessions do
   alias Ankole.OIDC.Session
   alias Ankole.Principals.HumanAccess
 
+  def actor_for_session(id, principal, ip) do
+    with %Session{} = session <-
+           Session
+           |> Ash.Query.filter(id == ^id and principal_uid == ^principal.uid)
+           |> Ankole.Ash.read_one!(),
+         %{provider_id: _} = proof <-
+           BrowserSessions.authentication_evidence(session.authentication_id),
+         do: {:ok, Ankole.AuthZ.Actor.from_evidence(principal, proof, "oidc_token", ip)},
+         else: (_ -> {:error, :invalid_authentication})
+  end
+
   def ensure(client_id, auth, scope),
     do: Repo.transact_top_level(fn -> ensure_in_tx(client_id, auth, scope) end)
 
@@ -69,6 +80,13 @@ defmodule Ankole.OIDC.Sessions do
            (kind != :code and "offline_access" in scopes) or
              (is_nil(session.ended_at) and live_authentication?(session)),
          :ok <- HumanAccess.check(principal_uid, session.access_version),
+         {:ok, principal} <- Ankole.Principals.get_principal(principal_uid),
+         true <-
+           Ankole.Principals.PodLoginPolicy.authentication_allowed?(
+             principal,
+             session.provider_id,
+             BrowserSessions.authentication_evidence(session.authentication_id)
+           ),
          {:ok, client} <- OIDC.get_active_client(client_id),
          :ok <- LoginPolicy.authorize_source(client, session.provider_id),
          true <-

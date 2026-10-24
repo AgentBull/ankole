@@ -94,33 +94,43 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
 
   @doc "Merges one DingTalk contact user into the Principal platform-subject model."
   @spec upsert_user(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def upsert_user(provider_id, user, opts \\ []) when is_binary(provider_id) and is_map(user) do
+  def upsert_user(provider_id, user, opts \\ []) do
+    with {:ok, attrs, options} <- normalize_user(provider_id, user, opts) do
+      Directory.upsert_user(provider_id, attrs, options)
+    end
+  end
+
+  def upsert_user_in_tx(provider_id, user, opts) do
+    with {:ok, attrs, options} <- normalize_user(provider_id, user, opts) do
+      Directory.upsert_user_in_tx(provider_id, attrs, options)
+    end
+  end
+
+  defp normalize_user(provider_id, user, opts) when is_binary(provider_id) and is_map(user) do
     with {:ok, userid} <- user_id(user) do
       department_ids = department_ids(user)
 
-      Directory.upsert_user(
-        provider_id,
-        %{
-          provider: provider_id,
-          external_id: userid,
-          metadata:
-            compact_map(%{
-              "union_id" => optional_text(user, "unionid"),
-              "job_number" => optional_text(user, "job_number"),
-              "corp_id" => optional_text(user, "corp_id"),
-              "admin" => MapHelpers.fetch_value(user, "admin"),
-              "boss" => MapHelpers.fetch_value(user, "boss")
-            })
-            |> then(fn metadata ->
-              if is_list(department_ids),
-                do: Map.put(metadata, "department_ids", department_ids),
-                else: metadata
-            end)
-        }
-        |> Map.merge(observed_profile(user)),
-        if(is_list(department_ids), do: [group_external_ids: department_ids], else: []) ++
-          Keyword.take(opts, [:directory_group_index])
-      )
+      {:ok,
+       %{
+         provider: provider_id,
+         external_id: userid,
+         metadata:
+           compact_map(%{
+             "union_id" => optional_text(user, "unionid"),
+             "job_number" => optional_text(user, "job_number"),
+             "corp_id" => optional_text(user, "corp_id"),
+             "admin" => MapHelpers.fetch_value(user, "admin"),
+             "boss" => MapHelpers.fetch_value(user, "boss")
+           })
+           |> then(fn metadata ->
+             if is_list(department_ids),
+               do: Map.put(metadata, "department_ids", department_ids),
+               else: metadata
+           end)
+       }
+       |> Map.merge(observed_profile(user)),
+       if(is_list(department_ids), do: [group_external_ids: department_ids], else: []) ++
+         Keyword.take(opts, [:membership, :directory_group_index])}
     end
   end
 

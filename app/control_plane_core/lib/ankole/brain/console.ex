@@ -3,9 +3,9 @@ defmodule Ankole.Brain.Console do
   The Console contract of the Brain actions that the Console API runs: the
   operator of a write and the declared error of a failure.
 
-  `AnkoleWeb.JSONAPI.Policy` gives the Principal of the Console session as the
-  Ash actor. A Console action records it as the author or the reviewer of its
-  write. The actor does not authorize: Principal/AuthZ checks the route first.
+  `Ankole.AuthZ.Actor` carries the Console Principal and authentication facts.
+  The native Authorizer checks the action. A Console write records the
+  Principal as its author or reviewer.
   """
 
   # The domain reasons that conflict with the current state of the target.
@@ -14,7 +14,7 @@ defmodule Ankole.Brain.Console do
 
   @doc "Gives the attribution of the operator."
   @spec actor_ref(map()) :: Ankole.ActorRef.t()
-  def actor_ref(%{actor: principal}), do: Ankole.ActorRef.from_principal(principal)
+  def actor_ref(%{actor: actor}), do: Ankole.ActorRef.from_actor(actor)
 
   @doc """
   Gives the Brain writer of the operator: the Principal UID in its own
@@ -23,7 +23,8 @@ defmodule Ankole.Brain.Console do
   attribution as the author.
   """
   @spec writer(map()) :: String.t() | :system
-  def writer(%{actor: principal}) do
+  def writer(%{actor: actor}) do
+    principal = Ankole.AuthZ.Actor.principal(actor)
     if principal.tenant_id == Ankole.Repo.tenant_id!(), do: principal.uid, else: :system
   end
 

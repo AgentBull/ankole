@@ -23,7 +23,6 @@ export function PrincipalEditPage() {
   const detailPath = `/access/principals/${encodeURIComponent(uid)}`
   const principal = useQuery({ ...getPrincipalOptions({ path: { uid } }), select: data => fromDocument(data) })
   const loadedPrincipal = principal.data
-  const emailRequired = Boolean(loadedPrincipal?.email || loadedPrincipal?.local_credential_status)
   const principalDraft = useMemo(
     () =>
       loadedPrincipal
@@ -44,7 +43,7 @@ export function PrincipalEditPage() {
 
   const submit = () => {
     model.clearValidation()
-    const draftError = model.draftError(emailRequired)
+    const draftError = model.draftError()
     if (draftError) {
       model.validationError.value = draftError
       return
@@ -92,9 +91,8 @@ export function PrincipalEditPage() {
           onChange={event => (model.displayName.value = event.target.value)}
         />
       </LabeledField>
-      <LabeledField label={t('console.principals.email')} required={emailRequired}>
+      <LabeledField label={t('console.principals.email')}>
         <Input
-          required={emailRequired}
           disabled={update.isPending || draftStatus !== 'ready'}
           type="email"
           value={model.email.value}

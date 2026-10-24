@@ -10,7 +10,7 @@ defmodule Ankole.ConsoleReadiness do
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
   json_api do
-    authorize?(false)
+    authorize?(true)
     log_errors?(true)
     show_raised_errors?(false)
 

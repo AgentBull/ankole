@@ -20,6 +20,137 @@ defmodule Ankole.Conversations.Route do
           provider_message_id: String.t() | nil
         }
 
+  @doc "Returns the persisted input with the same Agent and Human work authorization."
+  def authorization_source(%Signal{producer: :kernel, authorization_kind: "human"} = signal) do
+    with %{agent_uid: uid} = owner <- authorization_owner(signal),
+         true <- uid == signal.agent_uid and same_authorization?(owner, signal),
+         source_id <-
+           Map.get(owner, :source_signal_id) ||
+             get_in(Map.get(owner, :created_by) || %{}, ["signal_id"]),
+         {:ok, source_id} <- Ecto.UUID.cast(source_id),
+         %Signal{} = source <- agent_signal(source_id, uid),
+         true <- same_authorization?(source, signal) do
+      source
+    else
+      _ -> nil
+    end
+  end
+
+  def authorization_source(_signal), do: nil
+
+  defp same_authorization?(left, right),
+    do: Ankole.Principals.WorkAccess.fields(left) == Ankole.Principals.WorkAccess.fields(right)
+
+  defp authorization_owner(%Signal{
+         source: "control-plane://background-agent-job",
+         type: type,
+         data: %{"job_id" => id},
+         agent_uid: uid,
+         session_id: session
+       })
+       when is_integer(id) and
+              type in [
+                "background_agent_job.dispatch",
+                "background_agent_job.completed",
+                "background_agent_job.failed",
+                "background_agent_job.waiting",
+                "background_agent_job.input_undeliverable"
+              ] do
+    case agent_job(id, uid) do
+      %Job{} = job ->
+        if session in [job.owner_session_id, BackgroundAgentJobs.job_session_id(id)], do: job
+
+      nil ->
+        nil
+    end
+  end
+
+  defp authorization_owner(%Signal{
+         source: "control-plane://background-agent-job",
+         type: "command.steer",
+         data: %{"source_signal_id" => source_id},
+         agent_uid: uid,
+         session_id: session
+       }) do
+    with {:ok, id} <- BackgroundAgentJobs.parse_job_session_id(session),
+         %Job{} = job <- agent_job(id, uid) do
+      %{job | source_signal_id: source_id}
+    else
+      _ -> nil
+    end
+  end
+
+  defp authorization_owner(%Signal{
+         source: "control-plane://workflow",
+         type: type,
+         data: %{"run_id" => run_id, "call_id" => call_id},
+         agent_uid: uid,
+         session_id: session
+       })
+       when is_integer(run_id) and is_integer(call_id) and
+              type in ["workflow.task.dispatch", "workflow.task.wakeup", "workflow.task.message"] do
+    with true <- session == Workflow.task_session_id(call_id),
+         %AgentCall{run_id: ^run_id} <- agent_call(call_id, uid),
+         do: agent_run(run_id, uid),
+         else: (_ -> nil)
+  end
+
+  defp authorization_owner(%Signal{
+         source: "control-plane://workflow",
+         type: type,
+         data: %{"run_id" => id},
+         agent_uid: uid,
+         session_id: session
+       })
+       when is_integer(id) and
+              type in ["workflow.run.completed", "workflow.run.failed", "workflow.run.attention"] do
+    case agent_run(id, uid) do
+      %Run{owner_session_id: ^session} = run -> run
+      _ -> nil
+    end
+  end
+
+  defp authorization_owner(%Signal{
+         source: source,
+         type: type,
+         data: %{"scheduled_event_id" => id},
+         id: signal_id,
+         agent_uid: uid,
+         session_id: session
+       })
+       when is_integer(id) and type in ["check_back_later.wakeup", "cron.fire"] do
+    case Ankole.Work.Owner.get(Ankole.Schedule.Schemas.ScheduledEvent, id) do
+      %{signal_id: ^signal_id, agent_uid: ^uid, session_id: ^session} = event ->
+        if source == "control-plane://schedule/#{event.kind}" do
+          if event.kind == "cron_fire" and is_nil(event.source_signal_id),
+            do:
+              Ankole.Work.Owner.get(Ankole.Schedule.Schemas.CronSchedule, event.cron_schedule_id),
+            else: event
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp authorization_owner(%Signal{
+         source: source,
+         type: type,
+         data: %{"automation_job_run_id" => id},
+         agent_uid: uid
+       })
+       when is_integer(id) and type in ["automation_job.emitted", "automation_job.run_failed"] do
+    with %{automation_job_id: job_id} <-
+           Ankole.Work.Owner.get(Ankole.AutomationJobs.Schemas.Run, id),
+         true <- source == "control-plane://automation-jobs/#{job_id}",
+         %{agent_uid: ^uid} = job <-
+           Ankole.Work.Owner.get(Ankole.AutomationJobs.Schemas.Job, job_id),
+         do: job,
+         else: (_ -> nil)
+  end
+
+  defp authorization_owner(_signal), do: nil
+
   @doc "Returns the creation source Message through Job wakeups and continuations."
   def source_message_id(turn), do: source_message([turn], MapSet.new(), :origin)
 

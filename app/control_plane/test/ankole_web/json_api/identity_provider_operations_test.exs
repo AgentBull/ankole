@@ -267,7 +267,10 @@ defmodule AnkoleWeb.JSONAPI.IdentityProviderOperationsTest do
   end
 
   defp revoke_console_grants do
-    Repo.delete_all(from grant in Grant, where: grant.resource_pattern == "**")
+    Repo.delete_all(
+      from grant in Grant,
+        where: grant.resource_pattern in ["site_console:**", "tenant_console:**"]
+    )
   end
 
   defp v2_get(conn, path), do: get(json_api(conn), path)

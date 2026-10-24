@@ -1,9 +1,22 @@
 defmodule Ankole.OIDC.Client do
   @moduledoc "Operator-managed OAuth client and its authorization boundary."
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.OIDC,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:id, :uuid)
+    allow(:login_sources, resource: "site_console:oidc_clients", action: "read")
+    allow(:console_rotate_secret, resource: "site_console:oidc_client:{id}", action: "update")
+    allow(:console_list, resource: "site_console:oidc_clients", action: "read")
+    allow(:console_create, resource: "site_console:oidc_clients", action: "update")
+    allow(:read, resource: "site_console:oidc_client:{id}", action: "read")
+    allow(:console_update, resource: "site_console:oidc_client:{id}", action: "update")
+    allow(:console_delete, resource: "site_console:oidc_client:{id}", action: "delete")
+  end
 
   @scopes ~w(openid profile email offline_access ai_gateway.write)
   @lists [:redirect_uris, :scopes, :allowed_identity_provider_ids, :post_logout_redirect_uris]

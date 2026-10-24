@@ -2,22 +2,38 @@ defmodule Ankole.IdentityProviders.SiteSources do
   @moduledoc "Trusted site authentication sources selected by the source build."
 
   @callback authenticate(term()) ::
-              {:ok, %{subject_id: String.t(), auth_time: integer() | nil}} | {:error, term()}
+              {:ok,
+               %{
+                 optional(:verified_email) => String.t() | nil,
+                 subject_id: String.t(),
+                 auth_time: integer() | nil,
+                 challenge_started_at: DateTime.t(),
+                 amr: [String.t()]
+               }}
+              | {:error, term()}
   @callback login_path() :: String.t()
   @callback display_name() :: String.t()
   @callback fresh_authentication?() :: boolean()
 
-  def declarations, do: Application.get_env(:ankole, :site_identity_sources, [])
+  def declarations,
+    do:
+      [{"email_otp", Ankole.Authn.EmailOtpSource}] ++
+        Application.get_env(:ankole, :site_identity_sources, [])
+
   def registered?(id), do: is_binary(id) and List.keymember?(declarations(), id, 0)
 
   def providers do
-    Enum.map(declarations(), fn {id, module} ->
+    declarations()
+    |> Enum.filter(fn {_id, module} ->
+      not function_exported?(module, :enabled?, 0) or module.enabled?()
+    end)
+    |> Enum.map(fn {id, module} ->
       %{
         "provider_id" => id,
         "adapter_id" => id,
         "plugin_id" => nil,
         "kind" => "site",
-        "display_name" => module.display_name(),
+        "display_name" => %{"default" => module.display_name()},
         "login_path" => module.login_path(),
         "fresh_authentication" => module.fresh_authentication?()
       }

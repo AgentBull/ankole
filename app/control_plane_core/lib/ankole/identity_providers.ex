@@ -17,12 +17,11 @@ defmodule Ankole.IdentityProviders do
   alias Ankole.IdentityProviders.DirectoryEvent
   alias Ankole.IdentityProviders.DirectoryState
   alias Ankole.IdentityProviders.DirectorySync
-  alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Plugins
   alias Ankole.Plugins.ConfigSecrets
 
   json_api do
-    authorize?(false)
+    authorize?(true)
     log_errors?(true)
     show_raised_errors?(false)
 
@@ -47,6 +46,10 @@ defmodule Ankole.IdentityProviders do
       end
     end
   end
+
+  defdelegate directory_managed_member?(uid),
+    to: Ankole.IdentityProviders.Directory,
+    as: :managed_member?
 
   resources do
     resource(Ankole.IdentityProviders.Console)
@@ -78,8 +81,7 @@ defmodule Ankole.IdentityProviders do
     # Configuration writes also honor the persisted next-start selection so
     # they cannot create a provider for a plugin that the next restart removes.
     # Built-in adapters are part of the control plane and skip that filter.
-    builtin_adapters() ++
-      Enum.filter(active_plugin_adapters(), &MapSet.member?(enabled_ids, &1.plugin_id))
+    Enum.filter(active_plugin_adapters(), &MapSet.member?(enabled_ids, &1.plugin_id))
   end
 
   @doc """
@@ -91,7 +93,7 @@ defmodule Ankole.IdentityProviders do
   """
   @spec list_active_adapters() :: [adapter()]
   def list_active_adapters do
-    builtin_adapters() ++ active_plugin_adapters()
+    active_plugin_adapters()
   end
 
   @doc """
@@ -317,16 +319,6 @@ defmodule Ankole.IdentityProviders do
     |> Enum.sort_by(& &1.adapter_id)
   end
 
-  defp builtin_adapters do
-    Enum.map(builtin_adapter_declarations(), fn declaration ->
-      adapter_projection(Ankole.Attrs.get(declaration, :plugin_id), declaration)
-    end)
-  end
-
-  defp builtin_adapter_declarations do
-    [LocalPassword.adapter_declaration()]
-  end
-
   defp adapters_for_plugin(plugin) do
     plugin.adapter_declarations
     |> Enum.filter(&contract?(&1, @adapter_contract_id))
@@ -359,7 +351,7 @@ defmodule Ankole.IdentityProviders do
   end
 
   defp adapter_declarations do
-    builtin_adapter_declarations() ++ Plugins.adapter_declarations(@adapter_contract_id)
+    Plugins.adapter_declarations(@adapter_contract_id)
   end
 
   defp fetch_configured_provider_entry(provider_id) do
@@ -456,15 +448,15 @@ defmodule Ankole.IdentityProviders do
   defp validate_identity_capability(module, "oidc_authorization"),
     do: ensure_exported(module, :authorization_url, 2)
 
-  # upsert_user is required exactly where the host calls it: the OIDC code
-  # exchange and the directory sync paths. A code exchange also declares the ID
-  # token that the host verifies (`Ankole.IdentityProviders.OIDC`).
+  # OIDC admission composes with invitation and browser writes in one transaction.
+  # Directory synchronization uses the adapter's top-level upsert operation.
+  # A code exchange declares the ID token that the host verifies.
   defp validate_identity_capability(module, "oidc_code_exchange"),
     do:
       ensure_exported_all(module, [
         {:exchange_code, 3},
         {:id_token_verification, 1},
-        {:upsert_user, 2}
+        {:upsert_user_in_tx, 3}
       ])
 
   defp validate_identity_capability(module, "oidc_fresh_authentication"),
@@ -473,7 +465,7 @@ defmodule Ankole.IdentityProviders do
         {:authorization_url, 2},
         {:exchange_code, 3},
         {:id_token_verification, 1},
-        {:upsert_user, 2}
+        {:upsert_user_in_tx, 3}
       ])
 
   defp validate_identity_capability(module, "directory_full_sync"),
@@ -481,9 +473,6 @@ defmodule Ankole.IdentityProviders do
 
   defp validate_identity_capability(module, "directory_realtime_sync"),
     do: ensure_exported_all(module, [{:handle_contact_event, 3}, {:upsert_user, 2}])
-
-  defp validate_identity_capability(module, "password_login"),
-    do: ensure_exported(module, :authenticate, 3)
 
   defp validate_identity_capability(module, @credential_check_capability),
     do: ensure_exported(module, :check_credentials, 1)

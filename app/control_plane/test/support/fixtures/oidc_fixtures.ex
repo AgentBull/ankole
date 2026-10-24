@@ -1,6 +1,6 @@
 defmodule Ankole.OIDCFixtures do
   @moduledoc false
-  alias Ankole.{BrowserSessions, IdentityProviders, OIDC}
+  alias Ankole.{AppConfigure, BrowserSessions, OIDC, Principals, Repo}
 
   def access_token(principal_uid, client_id, scope) do
     with {:ok, session} <- session(principal_uid, client_id, scope),
@@ -8,17 +8,34 @@ defmodule Ankole.OIDCFixtures do
   end
 
   def session(principal_uid, client_id, scope, opts \\ []) do
-    provider_id =
-      case IdentityProviders.LocalPassword.fetch_enabled_provider() do
-        {:ok, provider} ->
-          provider["provider_id"]
+    smtp = Ankole.Authn.SMTPFixture.start(self())
+    ExUnit.Callbacks.on_exit(fn -> Ankole.Authn.SMTPFixture.stop(smtp) end)
 
-        {:error, :no_local_provider} ->
-          {:ok, _} = IdentityProviders.save_provider("oidc-fixture", "local", %{}, true)
-          "oidc-fixture"
-      end
+    {:ok, _} =
+      AppConfigure.put_global_by_key("authn.email.mail", %{
+        "server" => "127.0.0.1",
+        "port" => smtp.port,
+        "ssl" => true,
+        "from" => "login@ankole.test",
+        "cacertfile" => smtp.ca_path
+      })
 
-    {:ok, version} = Ankole.Principals.HumanAccess.current_version(principal_uid)
+    # OIDC state tests issue many credentials for one Human. OTP abuse limits
+    # have dedicated tests; this factory still sends and verifies each code.
+    for key <- ["send_email_limit", "send_source_limit", "send_channel_limit"] do
+      {:ok, _} = AppConfigure.put_global_by_key("authn.email." <> key, 10_000)
+    end
+
+    email = String.downcase(principal_uid) <> "@oidc-fixture.test"
+
+    {:ok, _} =
+      Repo.transact(fn ->
+        Principals.bind_site_credential_in_tx(principal_uid, %{
+          provider_id: "email_otp",
+          subject_id: email,
+          verified_email: email
+        })
+      end)
 
     browser =
       Keyword.get_lazy(opts, :browser, fn ->
@@ -27,21 +44,27 @@ defmodule Ankole.OIDCFixtures do
       end)
 
     ref = BrowserSessions.reference(browser)
-    {:ok, flow} = BrowserSessions.begin_login(ref, :oauth, %{}, mode: :add)
-    {:ok, _} = BrowserSessions.bind_provider(ref, flow.id, provider_id)
 
-    {:ok, %{authentication: browser_authentication}} =
-      BrowserSessions.complete_login(ref, flow.id, %{
-        "principal_uid" => principal_uid,
-        "provider_id" => provider_id,
-        "external_id" => principal_uid,
-        "access_version" => version,
-        "auth_time" => System.system_time(:second)
-      })
+    {:ok, flow} =
+      BrowserSessions.begin_login(ref, :oauth, %{"client_id" => client_id, "scope" => scope},
+        mode: :add
+      )
 
-    authentication =
-      BrowserSessions.authentication(BrowserSessions.reference(browser_authentication), :oauth)
+    {:ok, sent} = Ankole.Authn.Domain.request_otp(ref, flow.id, email, "oidc-fixture")
 
-    OIDC.Sessions.ensure(client_id, authentication, scope)
+    code =
+      receive do
+        {:smtp_message, _, _, message} ->
+          [_, code] = Regex.run(~r/code is (\d{6})/, Ankole.Authn.SMTPFixture.text(message))
+          code
+      after
+        5_000 -> raise "SMTP verification email was not delivered"
+      end
+
+    {:ok, %{authentication: authentication}} =
+      Ankole.Authn.Domain.verify_otp(ref, flow.id, sent.challenge_id, code, "oidc-fixture")
+
+    proof = BrowserSessions.authentication(BrowserSessions.reference(authentication), :oauth)
+    OIDC.Sessions.ensure(client_id, proof, scope)
   end
 end

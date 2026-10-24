@@ -1,12 +1,26 @@
 defmodule Ankole.Pod.Chat.Browser do
   @moduledoc "The current human's native conversations and model selection."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: Ankole.Pod,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:pod)
+    allow(:agents, check: :guardrail)
+    allow(:list, check: :guardrail)
+    allow(:show, check: :guardrail)
+    allow(:create, check: :guardrail)
+    allow(:post_message, check: :guardrail)
+    allow(:update_queue, check: :guardrail)
+    allow(:delete, check: :guardrail)
+    allow(:model_profiles, check: :guardrail)
+    allow(:model_selection, check: :guardrail)
+    allow(:set_model_selection, check: :guardrail)
+  end
 
   alias Ankole.Conversations
-  alias Ankole.Conversations.ModelPreferences
   alias Ankole.Pod.Chat.{Detail, Conversation, Presentation}
   alias Ankole.Pod.APIError
   alias Ankole.Ash.Types.{UUIDv7, PrincipalKey}
@@ -54,8 +68,8 @@ defmodule Ankole.Pod.Chat.Browser do
         ]
       )
 
-      run(fn _input, _context ->
-        {:ok, %{agents: Enum.map(Conversations.agents(), &Presentation.agent/1)}}
+      run(fn _input, context ->
+        {:ok, %{agents: Enum.map(Conversations.agents(context.actor), &Presentation.agent/1)}}
       end)
     end
 
@@ -66,8 +80,8 @@ defmodule Ankole.Pod.Chat.Browser do
       run(fn input, context ->
         result =
           case input.arguments[:pageID] do
-            nil -> {:ok, Conversations.list(context.actor.uid)}
-            page -> Conversations.list_for_page(context.actor.uid, page)
+            nil -> {:ok, Conversations.list(context.actor)}
+            page -> Conversations.list_for_page(context.actor, page)
           end
 
         APIError.result(
@@ -83,7 +97,7 @@ defmodule Ankole.Pod.Chat.Browser do
       argument(:beforeSeq, :integer, constraints: [min: 1])
 
       run(fn input, context ->
-        Conversations.get(context.actor.uid, input.arguments.id,
+        Conversations.get(context.actor, input.arguments.id,
           before_seq: input.arguments[:beforeSeq],
           loaded_first_seq: input.arguments[:loadedFirstSeq]
         )
@@ -102,7 +116,7 @@ defmodule Ankole.Pod.Chat.Browser do
       argument(:attachments, {:array, :string})
 
       run(fn input, context ->
-        Conversations.create(context.actor.uid, creation(input.arguments))
+        Conversations.create(context.actor, creation(input.arguments))
         |> APIError.result(&Presentation.detail/1)
       end)
     end
@@ -115,7 +129,7 @@ defmodule Ankole.Pod.Chat.Browser do
       argument(:attachments, {:array, :string})
 
       run(fn input, context ->
-        Conversations.post(context.actor.uid, input.arguments.id, message(input.arguments))
+        Conversations.post(context.actor, input.arguments.id, message(input.arguments))
         |> APIError.result(&Presentation.detail/1)
       end)
     end
@@ -138,7 +152,7 @@ defmodule Ankole.Pod.Chat.Browser do
       argument(:expectedText, :string, constraints: [trim?: false, allow_empty?: true])
 
       run(fn input, context ->
-        Conversations.update_queue(context.actor.uid, input.arguments.id, queue(input.arguments))
+        Conversations.update_queue(context.actor, input.arguments.id, queue(input.arguments))
         |> APIError.result(&Presentation.detail/1)
       end)
     end
@@ -147,7 +161,7 @@ defmodule Ankole.Pod.Chat.Browser do
       argument(:id, UUIDv7, allow_nil?: false)
 
       run(fn input, context ->
-        Conversations.delete(context.actor.uid, input.arguments.id)
+        Conversations.delete(context.actor, input.arguments.id)
         |> APIError.result(fn _ -> true end)
       end)
     end
@@ -156,8 +170,8 @@ defmodule Ankole.Pod.Chat.Browser do
       constraints(fields: [profiles: @profiles])
       argument(:uid, PrincipalKey, allow_nil?: false)
 
-      run(fn input, _context ->
-        APIError.result(ModelPreferences.catalog(input.arguments.uid))
+      run(fn input, context ->
+        APIError.result(Conversations.model_profiles(context.actor, input.arguments.uid))
       end)
     end
 
@@ -166,7 +180,7 @@ defmodule Ankole.Pod.Chat.Browser do
       argument(:id, UUIDv7, allow_nil?: false)
 
       run(fn input, context ->
-        Conversations.model_preferences(context.actor.uid, input.arguments.id)
+        Conversations.model_preferences(context.actor, input.arguments.id)
         |> APIError.result(&selection/1)
       end)
     end
@@ -178,7 +192,7 @@ defmodule Ankole.Pod.Chat.Browser do
 
       run(fn input, context ->
         Conversations.set_model_profile(
-          context.actor.uid,
+          context.actor,
           input.arguments.id,
           input.arguments[:profile]
         )

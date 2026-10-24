@@ -3,9 +3,9 @@ defmodule Ankole.Conversations.IdentityAdmission do
   Maps inbound entry authors to Principals and applies the binding's
   unmatched-sender policy.
 
-  Identification is best effort and always automatic: an existing
-  platform-subject binding for any candidate id wins, then the owner of the
-  platform-reported email or mobile number, within the current tenant.
+  An existing stable platform-subject binding identifies the sender in the
+  current tenant. Contact email and mobile observations do not join enterprise
+  subjects. The email channel resolves its own address namespace.
   What an unmatched sender means is the binding's
   `unmatched_sender_policy`: `:create_standalone` creates a standalone account
   and serves them; `:manual_review` records the sender in the console pending

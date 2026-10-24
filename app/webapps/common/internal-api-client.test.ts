@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { client } from './api/generated/client.gen'
-import { createSetupSession, localPasswordLogin } from './api/generated/sdk.gen'
+import { createSetupSession, verifyEmailOtp } from './api/generated/sdk.gen'
 import { podAgents, conversationDetail } from '../pod/api/generated/sdk.gen'
 import { client as podClient } from '../pod/api/generated/client.gen'
 import { InternalAPIError } from './internal-api-client'
@@ -53,9 +53,9 @@ test('generated operations return payloads and read the current CSRF token for e
 })
 
 test.each([
-  [401, { errors: [{ code: 'invalid_credentials' }] }],
+  [401, { errors: [{ code: 'invalid_code' }] }],
   [403, { errors: [{ code: 'not_an_admin' }] }],
-  [429, { errors: [{ code: 'retry_locked', meta: { details: { retryAfterSeconds: 30 } } }] }],
+  [429, { errors: [{ code: 'rate_limited', meta: { details: { retryAfterSeconds: 30 } } }] }],
   [404, { error: { code: 'conversation_not_found', message: 'Conversation not found' } }]
 ])(
   'HTTP %s preserves InternalAPIError status, payload, rejection and product classification',
@@ -88,7 +88,7 @@ test.each([
   globalThis.fetch = (async (_request: Request) =>
     new Response(body, { status: 503, statusText: 'Unavailable' })) as typeof fetch
   await expect(
-    localPasswordLogin({ body: { data: { email: 'user@example.test', password: 'secret', flow: 'login-flow' } } })
+    verifyEmailOtp({ body: { data: { code: '123456', challengeID: 'challenge-id', flow: 'login-flow' } } })
   ).rejects.toMatchObject({
     name: 'InternalAPIError',
     status: 503,

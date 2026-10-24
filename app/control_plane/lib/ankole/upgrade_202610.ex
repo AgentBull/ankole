@@ -37,6 +37,7 @@ defmodule Ankole.Upgrade202610 do
   alias Ankole.WorkerFiles
 
   @tenant_schema_version 20_261_009_120_000
+  @authn_schema_version 20_261_024_010_000
   @commit_batch 500
 
   @type report :: %{
@@ -74,12 +75,120 @@ defmodule Ankole.Upgrade202610 do
 
           with_processes(
             [{Registry, []}, {Phoenix.PubSub.Supervisor, [name: Ankole.PubSub]}, {Cache, []}],
-            &migrate_binding_configurations/0
+            fn ->
+              migrate_binding_configurations()
+
+              if @authn_schema_version in Ecto.Migrator.migrated_versions(Repo),
+                do: migrate_authn_configurations()
+
+              :ok
+            end
           )
         end)
       end)
 
     :ok
+  end
+
+  defp migrate_authn_configurations do
+    {:ok, writes} =
+      Repo.transact_top_level(fn ->
+        rows =
+          Repo.all(
+            from row in SiteConfig,
+              where:
+                row.scope == "global" and
+                  (like(row.key, "saas.email.%") or row.key == "authn.email.mail"),
+              lock: "FOR UPDATE"
+          )
+
+        writes =
+          Enum.flat_map(rows, fn row ->
+            key = String.replace_prefix(row.key, "saas.email.", "authn.email.")
+
+            value =
+              case row.value do
+                %{"type" => "cipher", "value" => cipher} ->
+                  {:ok, value} = Crypto.unseal(cipher, "global", row.key)
+                  value
+
+                %{"type" => "plaintext", "value" => value} ->
+                  value
+              end
+
+            empty_mail? = key == "authn.email.mail" and value == %{}
+            value = if empty_mail?, do: nil, else: value
+
+            if key != row.key or empty_mail? do
+              {:ok, write} = AppConfigure.put_global_by_key_in_tx(key, value)
+              if key != row.key, do: {:ok, _} = Ankole.Ash.destroy(row, :remove)
+              [write]
+            else
+              []
+            end
+          end)
+
+        configs =
+          Repo.across_tenants(fn ->
+            Repo.all(
+              from config in AppConfig,
+                where: config.key == "principals.identity_providers.active"
+            )
+          end)
+
+        local_writes = Enum.flat_map(configs, &remove_local_activation/1)
+
+        {:ok, writes ++ local_writes}
+      end)
+
+    Enum.each(writes, &cache_authn_write/1)
+
+    if not Ankole.Authn.Mailer.configured?() and email_only_tenant?() do
+      IO.puts(
+        "Email login needs SMTP. Configure it with mix ankole.authn.mail.put FILE.json or Ankole.Release.put_authn_mail/1."
+      )
+    end
+
+    :ok
+  end
+
+  defp cache_authn_write({_, "tenant:" <> tenant_id, _} = write),
+    do: Repo.with_tenant(tenant_id, fn -> AppConfigure.cache_committed_write(write) end)
+
+  defp cache_authn_write(write), do: AppConfigure.cache_committed_write(write)
+
+  defp email_only_tenant? do
+    Ankole.Principals.SiteCredential
+    |> Ash.Query.for_read(:read_across_tenants)
+    |> Ankole.Ash.read_across_tenants!()
+    |> Enum.map(& &1.tenant_id)
+    |> Enum.uniq()
+    |> Enum.any?(fn tenant_id ->
+      Repo.with_tenant(tenant_id, fn ->
+        {:ok, providers} = Ankole.IdentityProviders.Login.list_login_providers()
+        providers == []
+      end)
+    end)
+  end
+
+  defp remove_local_activation(%{
+         tenant_id: id,
+         key: key,
+         value: %{"type" => "plaintext", "value" => entries}
+       }) do
+    Repo.with_tenant(id, fn ->
+      if Enum.any?(entries, &(&1["adapter_id"] == "local")) do
+        {:ok, write} =
+          AppConfigure.put_tenant_by_key_in_tx(
+            key,
+            Enum.reject(entries, &(&1["adapter_id"] == "local"))
+          )
+
+        [write]
+      else
+        []
+      end
+    end)
   end
 
   # Stop only the processes this invocation starts. Mix can start the full

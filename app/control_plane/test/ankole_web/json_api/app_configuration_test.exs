@@ -400,7 +400,10 @@ defmodule AnkoleWeb.JSONAPI.AppConfigurationTest do
 
     # Closing the Console path must not close the path the owning API uses.
     assert {:ok, %{"provider_id" => "local-console"}} =
-             IdentityProviders.save_provider("local-console", "local", %{})
+             IdentityProviders.save_provider("local-console", "lark", %{
+               "appID" => "cli_owner",
+               "appSecret" => "secret"
+             })
   end
 
   defp key(prefix, name), do: prefix <> "." <> name

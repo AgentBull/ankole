@@ -115,6 +115,10 @@ cycles, so concurrent opposite moves cannot create a cycle. A move names one
 sibling with `after_id` or `before_id`, and the server makes the key under the
 same lock. A sibling outside the destination returns `position_conflict`.
 Without a sibling, the page goes last.
+The move response includes `undo`, with the original parent, Private owner,
+and adjacent sibling read under that lock. The browser uses this result for
+Undo, including when directory pagination has not loaded that sibling. An
+original location with no siblings needs only its parent and Private owner.
 
 `Ankole.Pod.Access` uses Principal and AuthZ. The actions are `page_view`,
 `page_edit`, and `page_manage`; the roles are `view`, `edit`, and `manage`.
@@ -124,30 +128,64 @@ the space policy once. Reads and scaffold repair do not restore removed grants.
 Tenant initialization seeds default Pod pages only when the tenant has no Pod
 pages and no page grants.
 
-- Active Humans have the space's default role. Space administrators can manage
-  unrestricted space pages even when the default role is `edit`.
-- A Private root belongs to its Human. An unrelated administrator's `**` grant
-  does not grant access to it.
-- Private creation and moves require the current Human's identity before
-  submission. An unavailable identity cannot change the target to the space.
-- Agents need explicit space admission or a page share. A request from a Human
-  does not lend that Human's authority to the Agent.
-- A restricted page stops inherited authority. Direct shares remain effective
-  after a move. A deleted ancestor hides all descendants and their shares.
-- Editors can move a Page when access to the Page and all its subpages remains
-  unchanged. A move that changes access, or whose access cannot be proved
-  unchanged, requires `page_manage`. The same rule applies to Humans and Agents.
-- Lists, search, favorites, recents, embeds, and file reads check current page
-  access. A reference to an inaccessible page does not expose its title or data.
+- Active Human members receive the space's default role. Guests receive
+  explicit shares and have no default space role.
+- A Private root belongs to its Human member. Guests cannot enter Private
+  space. Console grants do not authorize Private access.
+- Agents need explicit space admission or a Page share. Human-derived Agent
+  work also requires the Human's current Page permission, including Workflow,
+  scheduled, and Background Agent Job work. Service autonomous work uses the
+  Agent's Page permissions.
+- A Page with inheritance disabled stops its parent's container grants.
+  Local grants still apply. A deleted ancestor hides all descendants.
+- Editors can move a Page when its subtree keeps the same permissions.
+  Conditional grants or cross-subtree Userset cycles require `page_manage`
+  when the move crosses an ACL boundary. A change between Space and Private,
+  or between Private owners, also requires `page_manage`.
+- Guest collaborator search returns direct-share candidates only when both
+  Principals have effective `page_view` on a common Page in the request
+  snapshot. Conditions and Guest Private restrictions apply to this check.
+- Lists, search, favorites, recents, embeds, and file reads check current
+  access. Inaccessible Userset sources expose an ID and `accessible: false`,
+  with null title and icon.
 
-Navigation uses the SQL tree traversal only when every relevant page grant has
-an unconditional, canonical space, Private, or direct-page pattern. Other CEL
-conditions and resource globs use the same native AuthZ decision as a page read.
-This path loads the page tree and authorization snapshot once. It walks the tree
-once, indexes direct shares, and sends all resource/action checks through one
-native call. It does not rebuild or encode the full snapshot for each page.
-A direct page grant can put a page in Shared when its parent is not visible.
-A conditional direct grant follows the same rule.
+Each Page stores `acl_anchor_id`. Roots, Pages with local grants, Pages with
+inheritance disabled, and trashed Pages are ACL anchors. An anchor points to
+its nearest parent anchor. A pass-through Page points to its nearest anchor.
+A `container` grant applies to the Page and inheriting children. A `self`
+grant applies to the Page only. A Userset adds the audience that has a named
+action on its source Page. These rules combine by positive union.
+
+The Kernel evaluates Principal, group, and request conditions. PostgreSQL
+computes reachable anchor permissions with recursive `UNION`. The result is
+local to one request. Point checks load the target anchor's ancestor and
+reverse Userset dependency graph. List operations load the reachable graph
+once and reuse its permissions for result selection and metadata. A cycle
+without a seed grants no permission. Topology
+writes update pass-through descendants only when their anchor identity changes.
+The recursive update stops at the next anchor and locates target rows by ID.
+Indexes on `tenant_id` with `acl_anchor_id` or `parent_anchor_id` support
+foreign-key checks for live and trashed Pages.
+
+Navigation loads one parent level with a cursor over position and ID. Root
+queries use `parent_id IS NULL`; child queries use equality. Covering indexes
+support both forms and include `private_owner_uid` for the root scope filter.
+Page timestamps use `Ankole.Ash.Types.Timestamptz`, which maps microsecond
+`DateTime` values to the stored `timestamptz` type. Native Ash filters use the
+same type as the live-page index predicate.
+Title search uses substring matching and similarity ranking, and returns at
+most 30 visible Pages. A trigram index supports selective matches. Shared
+Pages can be visible while their parent is hidden.
+Move destination search supplies `exclude_subtree_of`. The server excludes
+that Page and all its descendants before the result limit, including descendants
+whose ancestors do not match the search text.
+List title queries filter the requested scope before the 200-result limit.
+Favorites and recents select visible live Pages before the limit and sort by
+the person's favorite or visit time, with the Page ID as a tie-breaker.
+The Trash list selects top-level deleted Pages in deletion-time order. It
+checks candidate batches before it applies the 200-result limit. Each candidate
+ignores only its own tombstone during the permission check; other deleted
+ancestors remain hidden.
 
 Agent writes check and lock the actual RunRef or Job attempt in the transaction
 that commits the content. The RPC broker passes this authority from the
@@ -162,21 +200,33 @@ The root module `Ankole.Pod` is the Ash domain. Its durable resources are `Page`
 The browser actions validate query operators as finite enums, then convert
 them to the JSON strings consumed by the shared database query contract.
 Each Pod operation that writes, or reads under a row lock, runs in
-`Repo.transact_top_level/2` in its owning module (`Ankole.Pod.Pages`,
+`Repo.transact_top_level/2` in its owning module (`Ankole.Pod.Pages`, `Pages.Sharing`,
 `Documents`, `Files`, `Applets`, `Database`, and `Jobs.PurgePage`). Its first
-step checks and locks the Agent's turn when the operation has write authority.
+step takes the Pod tree lock for topology and sharing writes, then checks and
+locks the Agent's turn. Content and record writes do not take the tree lock.
 The `*_in_tx` functions run the write steps; another Pod operation can call one
 of them in its own transaction, as a Database copy calls `Pages.create_in_tx/1`.
 Broadcasts to the page, access, and table topics run after commit
 (`after_commit`), and only when the transaction succeeds.
 
-The page tree read model is native SQL in `Ankole.Pod.Access` (`path/1`,
-`canonical_navigation/2`, `subtree_preserves_permissions?/4`) and in
-`Ankole.Pod.Jobs.PurgePage.descendants/1`. The recursive queries select only
-the tree and permission columns and give maps, not `Page` records. Other page
-reads use Ash queries. Permission grants belong to AuthZ: the Pod reads them
-through the AuthZ domain and changes them through its in-transaction grant
-functions.
+`Ankole.Pod.Access` owns ancestor paths, reachable anchors, and access
+provenance. Its native SQL read model loads paths and reachable anchors.
+`Ankole.Pod.Pages.Queries` owns directory cursors, title search, list scopes,
+and version snapshots. Each SQL branch binds the tenant.
+`Ankole.Pod.Pages.Sharing` owns sharing changes, collaborator selection, and
+Space access settings. `Pages` owns tree writes, page details, and personal state.
+AuthZ owns Grant persistence and calls anchor maintenance for affected targets.
+
+Pure multi-page reads use `Repo.transact_repeatable_read_only/1`. Its first
+statement sets `REPEATABLE READ, READ ONLY`. SQL Sandbox savepoint tests use
+the outer test transaction. Committed concurrency tests use the full isolation
+contract. Reads that need row locks use `READ COMMITTED`. They acquire the
+Page or table lock before authorization and before loading protected data.
+`Database.query` locks its table for share. `Copy.table` locks source tables
+in ID order for update before it checks source access.
+Page state reads use the same repeatable-read snapshot for authorization and
+state. Favorite and visit writes lock the Page for share before authorization
+and commit the state in that transaction.
 
 Each content table carries `tenant_id`. Composite foreign keys prevent a
 reference to another tenant. `Ankole.Repo` requires an explicit tenant context.
@@ -249,8 +299,9 @@ keep the draft available for export and retry; recovery copies remain until
 the user discards them.
 The log is an OT transport window, not a user-visible version history.
 
-ACL and tree changes recheck topic membership immediately. A reconnect, return
-to a visible tab, or the 60-second version check repairs missed broadcasts.
+ACL, tree, Pod login policy, and Guest access changes recheck topic membership
+immediately. A reconnect, return to a visible tab, or the 60-second version check
+repairs missed broadcasts.
 Acknowledged state is already committed before a broadcast.
 
 The editor host resolves `embed` and `ankole:asset/<full-sha256>/<name>`.
@@ -276,8 +327,10 @@ identity and ownership once. Field and view updates advance their stored
 version with SQL expressions. The locked write journal advances each affected
 table's stored version and counters once per commit. PostgreSQL checks reject
 negative counters, record counts above the limit, nonpositive schema versions,
-and JSON values that are not objects. Database authorization and sorted table
-locks remain in the aggregate write transaction. Record copy, field conversion,
+and JSON values that are not objects. Database authorization follows sorted
+table locks in the aggregate write transaction. `table_access/3` accepts `:read`, `:write_records`, or
+`:manage_schema`. Read intent requires `page_view`; write and schema intent
+require `page_edit` on the host Page. Record copy, field conversion,
 and field-value removal use bounded SQL statements of the Database subsystem.
 Purge uses the same resource destroy actions in batches of 1,000 rows; the
 Database subsystem removes record rows in batches of the same size.
@@ -495,8 +548,11 @@ newer confirmed reads. Creates and deletes show pending state and enter the resu
 after server confirmation, preserving failed input and deletion dialogs. The
 server confirms created records, auto-numbers, formulas and filtered or paged
 result membership. `useChannel` uses `applet:<page-id>:<room>` for temporary messages
-and presence. Presence and channel messages are not saved or replayed. Applets
-can use network fetch. Page and Database authority remains with the server.
+and presence. The server checks each recipient's current authentication, Pod
+policy, and Page access before it sends a message or presence update. A failed
+check ends that recipient's subscription. Presence and channel messages are not
+saved or replayed. Applets can use network fetch. Page and Database authority
+remains with the server.
 
 ### Backend routes
 

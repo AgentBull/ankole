@@ -117,13 +117,15 @@ defmodule AnkoleWeb.JSONAPI.AutomationJobsTest do
     path = "/api/v2/agents/#{agent.uid}/automation-jobs/#{job.id}"
 
     for {pattern, status} <- [
-          {"agent:#{agent.uid}:automation_jobs", 200},
-          {"automation_jobs", 403},
-          {"agent:#{other_agent.uid}:automation_jobs", 403}
+          {"site_console:agent:#{agent.uid}:automation_jobs", 200},
+          {"site_console:automation_jobs", 403},
+          {"site_console:agent:#{other_agent.uid}:automation_jobs", 403}
         ] do
       Repo.delete_all(
         from grant in Grant,
-          where: grant.resource_pattern == "**" or grant.principal_uid == ^admin_uid
+          where:
+            grant.resource_pattern in ["site_console:**", "tenant_console:**"] or
+              grant.principal_uid == ^admin_uid
       )
 
       assert {:ok, _grant} =

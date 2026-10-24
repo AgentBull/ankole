@@ -31,6 +31,7 @@ defmodule AnkoleWeb.SpaController do
   end
 
   def logout_confirmation(conn, _params), do: render_spa(conn, :sessions)
+  def join(conn, _params), do: conn |> WebSession.ensure_browser() |> render_spa(:sessions)
   def logged_out(conn, _params), do: render_spa(conn, :sessions)
   def logout_error(conn, _params), do: render_spa(conn, :sessions)
 
@@ -63,7 +64,8 @@ defmodule AnkoleWeb.SpaController do
             external: origin <> "/sessions/new" <> if(query == "", do: "", else: "?" <> query)
           )
 
-        params["switch"] != "1" and is_map(WebSession.pod_session(conn)) ->
+        params["switch"] != "1" and params["prompt"] != "login" and
+            is_map(WebSession.pod_session(conn)) ->
           redirect(conn, to: "/")
 
         true ->
@@ -129,7 +131,8 @@ defmodule AnkoleWeb.SpaController do
     with :ok <- target,
          {:ok, conn, transaction} <-
            WebSession.begin_login(conn, purpose, %{
-             "return_to" => login_return_to(purpose, params["return_to"])
+             "return_to" => login_return_to(purpose, params["return_to"]),
+             "prompt" => if(params["prompt"] == "login", do: ["login"])
            }) do
       redirect(conn, to: "/sessions/new?flow=" <> transaction.id)
     else
@@ -207,6 +210,11 @@ defmodule AnkoleWeb.SpaController do
       "    <script>try{var t=localStorage.getItem(\"ankole-theme\");" <>
         "if(t===\"dark\"){var d=document.documentElement;" <>
         "d.dataset.theme=\"dark\";d.style.colorScheme=\"dark\"}}catch(e){}</script>\n",
+      [
+        "<meta name=\"ankole-site-origin\" content=\"",
+        html_escape(PodURL.site_origin(conn)),
+        "\">\n"
+      ],
       authentication_meta(conn),
       console_path_meta(entry),
       Assets.entry_tags(conn, entry),

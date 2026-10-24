@@ -110,7 +110,12 @@ defmodule Ankole.Pod.TenantTeardownTest do
           Repo.with_tenant(tenant.id, fn ->
             :ok = Tenants.ensure_scaffold(tenant)
             uid = Ankole.PrincipalsFixtures.human_fixture().principal.uid
-            {:ok, page} = Ankole.Pod.Pages.create(uid, %{type: "applet", private_owner_uid: uid})
+
+            {:ok, page} =
+              Ankole.Pod.Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{
+                type: "applet",
+                private_owner_uid: uid
+              })
 
             manifest =
               Enum.map(
@@ -131,7 +136,14 @@ defmodule Ankole.Pod.TenantTeardownTest do
                 end
               )
 
-            {:ok, _} = Ankole.Pod.Files.publish(uid, page.id, 0, manifest)
+            {:ok, _} =
+              Ankole.Pod.Files.publish(
+                Ankole.PrincipalsFixtures.actor_fixture(uid),
+                page.id,
+                0,
+                manifest
+              )
+
             page
           end)
 
@@ -157,9 +169,12 @@ defmodule Ankole.Pod.TenantTeardownTest do
   defp fill(tenant) do
     Repo.with_tenant(tenant.id, fn ->
       now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+      root_id = Ankole.Ecto.UUIDv7.autogenerate()
 
       page =
         Ankole.Pod.PagesFixtures.create_record!(Page, :create_in_tx, %{
+          id: root_id,
+          acl_anchor_id: root_id,
           type: :doc,
           title: "Sales",
           position: "a0",
@@ -171,6 +186,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
       child =
         Ankole.Pod.PagesFixtures.create_record!(Page, :create_in_tx, %{
           parent_id: page.id,
+          acl_anchor_id: page.acl_anchor_id,
           type: :doc,
           title: "Child",
           position: "a0",
@@ -207,6 +223,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
       database =
         Ankole.Pod.PagesFixtures.create_record!(Page, :create_in_tx, %{
           parent_id: page.id,
+          acl_anchor_id: page.acl_anchor_id,
           type: :database,
           title: "Database",
           position: "a1",

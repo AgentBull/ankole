@@ -14,7 +14,7 @@ defmodule Ankole.Signals do
   alias Ankole.Signals.{Binding, Intake, Signal, WebhookEndpoint}
 
   json_api do
-    authorize?(false)
+    authorize?(true)
     log_errors?(true)
     show_raised_errors?(false)
 

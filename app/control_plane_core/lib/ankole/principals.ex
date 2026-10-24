@@ -16,7 +16,6 @@ defmodule Ankole.Principals do
     ExternalIdentity,
     Humans,
     HumanUser,
-    LocalCredential,
     MappingRequest,
     PlatformSubjects,
     Principal
@@ -25,7 +24,7 @@ defmodule Ankole.Principals do
   alias Ankole.Repo
 
   json_api do
-    authorize?(false)
+    authorize?(true)
     log_errors?(true)
     show_raised_errors?(false)
 
@@ -47,22 +46,20 @@ defmodule Ankole.Principals do
         route(:post, "/:uid/work-cleanup-retries", :retry_cleanup,
           name: "retry_human_work_cleanup"
         )
-
-        route(:post, "/:uid/local-password-resets", :reset_local_password,
-          name: "reset_local_password"
-        )
       end
 
       base_route "/principals", Principal do
         index(:console_list, name: "list_principals", derive_sort?: false)
         get(:read, route: "/:uid", name: "get_principal")
 
-        post(:create_local_user,
-          name: "create_local_user",
-          metadata: &__MODULE__.initial_password_meta/3
-        )
+        route(:post, "/", :create_member, name: "create_member")
 
         patch(:update_human, route: "/:uid", name: "update_human")
+
+        patch(:change_human_membership,
+          route: "/:uid/membership",
+          name: "change_human_membership"
+        )
       end
 
       base_route "/identity-mapping-requests", MappingRequest do
@@ -87,6 +84,7 @@ defmodule Ankole.Principals do
   end
 
   resources do
+    resource(Ankole.Principals.PodAdminOperations)
     resource(Ankole.Principals.Access)
 
     resource Principal do
@@ -111,7 +109,8 @@ defmodule Ankole.Principals do
       define(:list_external_identities, action: :read)
     end
 
-    resource(LocalCredential)
+    resource(Ankole.Principals.SiteCredential)
+    resource(Ankole.Principals.Invitation)
     resource(AccessRestriction)
     resource(AccessEvent)
     resource(MappingRequest)
@@ -154,16 +153,16 @@ defmodule Ankole.Principals do
     |> Ankole.Ash.read_across_tenants!()
   end
 
-  @doc false
-  def initial_password_meta(_input, %Principal{} = principal, _request),
-    do: %{initial_password: principal.__metadata__.initial_password}
-
-  @doc false
-  def describe_refusal(:local_identity_provider_disabled),
-    do: {:conflict, "Local account sign-in is not enabled.", []}
-
   def describe_refusal(:platform_subject_already_bound),
     do: {:conflict, "This provider account is already bound to another user.", []}
+
+  def describe_refusal(:external_guests_disabled),
+    do: {:conflict, "External guests are disabled for this tenant.", []}
+
+  def describe_refusal(:admin_cannot_be_guest),
+    do:
+      {:conflict,
+       "Remove this user from the administrator group before changing membership to guest.", []}
 
   def describe_refusal(_reason), do: nil
 
@@ -171,20 +170,68 @@ defmodule Ankole.Principals do
   defdelegate list_active_principals(), to: Humans
   defdelegate system_principal(), to: Humans
   defdelegate ensure_system_principal_in_tx(), to: Humans
+  defdelegate change_human_membership(uid, membership), to: Humans
+  defdelegate change_human_membership_in_tx(uid, membership), to: Humans
   defdelegate create_human(attrs), to: Humans
   defdelegate create_human_in_tx(attrs), to: Humans
   defdelegate update_human(uid, attrs), to: Humans
   defdelegate update_human_in_tx(changes), to: Humans
-  defdelegate create_local_user(attrs, must_change_password), to: Humans
-  defdelegate create_local_user_in_tx(args), to: Humans
-  defdelegate fetch_local_login(email), to: Humans
-  defdelegate put_local_credential(uid, password_hash, must_change_password), to: Humans
-  defdelegate put_local_password_in_tx(uid, password_hash, must_change_password), to: Humans
-  defdelegate put_local_credential_in_tx(uid, password_hash, must_change_password), to: Humans
-  defdelegate complete_forced_password_change(uid, password_hash, credential_version), to: Humans
+  defdelegate create_member_in_tx(attrs), to: Humans
 
-  defdelegate complete_forced_password_change_in_tx(uid, password_hash, credential_version),
-    to: Humans
+  defdelegate list_site_credentials(provider, identifier),
+    to: Ankole.Principals.SiteCredentials,
+    as: :list
+
+  defdelegate site_credential_bound?(uid, provider, identifier),
+    to: Ankole.Principals.SiteCredentials,
+    as: :bound?
+
+  defdelegate principal_site_credentials(uid),
+    to: Ankole.Principals.SiteCredentials,
+    as: :for_principal
+
+  defdelegate bind_site_credential_in_tx(uid, proof),
+    to: Ankole.Principals.SiteCredentials,
+    as: :bind_in_tx
+
+  defdelegate unbind_site_credential_in_tx(uid, id),
+    to: Ankole.Principals.SiteCredentials,
+    as: :unbind_in_tx
+
+  defdelegate replace_site_credential_in_tx(uid, proof),
+    to: Ankole.Principals.SiteCredentials,
+    as: :replace_in_tx
+
+  defdelegate release_site_credentials_in_tx(principal),
+    to: Ankole.Principals.SiteCredentials,
+    as: :release_in_tx
+
+  defdelegate site_credential_claim_current?(proof),
+    to: Ankole.Principals.SiteCredentials,
+    as: :claim_current?
+
+  defdelegate pending_site_memberships(proof),
+    to: Ankole.Principals.SiteCredentials,
+    as: :pending_memberships
+
+  defdelegate create_invitation(uid, attrs), to: Ankole.Principals.Invitations, as: :create
+  defdelegate list_invitations(), to: Ankole.Principals.Invitations, as: :list
+  defdelegate revoke_invitation(id), to: Ankole.Principals.Invitations, as: :revoke
+  defdelegate locate_invitation(secret), to: Ankole.Principals.Invitations, as: :locate
+  defdelegate invitation_for_login(id), to: Ankole.Principals.Invitations, as: :for_login
+  defdelegate pending_invitations(email), to: Ankole.Principals.Invitations, as: :pending
+
+  defdelegate accept_site_invitation_in_tx(id, proof),
+    to: Ankole.Principals.Invitations,
+    as: :accept_site_in_tx
+
+  defdelegate prepare_oidc_invitation_in_tx(id, login),
+    to: Ankole.Principals.Invitations,
+    as: :prepare_oidc_in_tx
+
+  defdelegate accept_oidc_invitation_in_tx(invitation, observed),
+    to: Ankole.Principals.Invitations,
+    as: :accept_oidc_in_tx
 
   defdelegate lock_principal_in_tx(uid, mode \\ :update), to: Humans
   defdelegate lock_active_human_in_tx(uid), to: Humans

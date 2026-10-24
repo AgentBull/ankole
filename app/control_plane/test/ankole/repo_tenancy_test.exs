@@ -508,6 +508,7 @@ defmodule Ankole.RepoTenancyTest do
         %Principal{
           uid: uid,
           type: :human,
+          membership: :member,
           display_name: "Foreign",
           inserted_at: now,
           updated_at: now
@@ -530,6 +531,7 @@ defmodule Ankole.RepoTenancyTest do
           AshPostgres.DataLayer.to_ecto(%Principal{
             uid: uid,
             type: :human,
+            membership: :member,
             display_name: "Changed",
             inserted_at: now,
             updated_at: now

@@ -7,104 +7,53 @@ identity.
 
 ## Ownership and records
 
-`Ankole.BrowserSessions` owns these records:
+The `Ankole.BrowserSessions` Ash domain owns browser groups, login
+transactions, independent authentications, tenant access proofs, and RP links.
+`AnkoleWeb.Session` owns sealed browser cookies and request selection.
 
-| Record | Facts |
-| --- | --- |
-| `browser_sessions` | Group ID, `revision`, `logout_revision`, expiry, active authentication and tenant. |
-| `browser_authentications` | Browser, provider, opaque subject, purpose, tenant where applicable, revision, authentication time, CSRF state, expiry, and revocation. |
-| `browser_pod_authentications` | Authentication, tenant, Human Principal UID, and the verified `access_version`. |
-| `browser_login_transactions` | Browser, `started_revision`, purpose, fixed target, one-use state, selected provider, expected subject, and CSRF state. |
+A group has an ID, revision, logout revision, default authentication and tenant,
+and expiry. An authentication records its source, subject, tenant when scoped,
+authentication time, challenge start time, authentication methods (`amr`),
+verified email or phone, local `authenticated_at`, expiry, CSRF secret, and Console admission flag.
+`PodAuthentication` binds a proved authentication to one Human and access version.
+A login transaction records a fixed purpose and target, state, nonce, callback,
+request, revision, expiry, and completion state.
 
-`AnkoleWeb.Session` owns cookie transport and selection from proofs that the
-browser holds. IdentityProviders verifies credentials. Principals owns Human
-identity and revocation. AuthZ owns permissions. OIDC owns Client policy, grants,
-RP associations, and logout delivery. These records do not replace
-[Principal](Principal.md) or the matching rules in that owner.
+Top-level operations own a `Repo.transact_top_level/2` transaction. Their
+`*_in_tx` functions run in the caller's transaction. The browser row lock comes
+before authentication, proof, and login changes. The login resource owns its
+`pending`, `authenticated`, `consumed`, and `cancelled` transitions. Terminal
+transactions cannot reopen.
 
-A browser and its authentication records belong to the site. A Pod access proof
-belongs to its tenant and requires an explicit Repo context. A Principal belongs
-to one tenant. Its UID remains globally unique and opaque.
-
-The four records are Ash resources of the root domain `Ankole.BrowserSessions`.
-Each public write (`activate`, `logout`, `begin_login`, `bind_provider`,
-`put_password_ticket`, `complete_login`, `complete_site_login`,
-`select_authorization`, `consume_authorization`, `consume_login`, `revoke`,
-`create_pod_access`, and `connect_pod_access`) owns one top-level transaction
-through `Repo.transact_top_level/2`. Code that already runs in a transaction
-calls the `_in_tx` function of the same step: `activate_in_tx/3`,
-`begin_login_in_tx/4`, `bind_provider_in_tx/5`, `complete_site_login_in_tx/4`,
-`select_authorization_in_tx/3`, `logout_in_tx/2`, and `authorize_in_tx/2`. These
-functions raise `Ankole.Errors.Framework.TransactionRequired` outside a
-transaction. A callback that a caller gives to `complete_login/4`,
-`create_pod_access/2`, `connect_pod_access/4`, `consume_authorization/4`, or
-`consume_login/4` runs in that transaction, so it calls only `_in_tx` functions.
-
-The aggregate keeps the browser row lock before it changes an authentication,
-login proof, or selection. The login resource owns the `pending`,
-`authenticated`, `consumed`, and `cancelled` transitions. Terminal transactions
-cannot reopen. Cancellation uses one atomic update for the matching open
-transactions. Expiry uses atomic deletion, with the retained RP association
-check in the same browser deletion. Ecto migrations own the native keys and
-constraints.
-
-A trusted Pod entry can pass a held authentication reference to `begin_login`
-with `mode: :add`. Under the same browser lock, the owner checks the browser,
-current authentication revision, tenant proof, and Human access before it binds
-the one-use transaction. Account entry and host handoff use this contract;
-neither caller writes a proof directly.
-
-An authentication lives for 24 hours. A login transaction lives for 10 minutes.
-A completed authentication extends the group's expiry to cover that proof.
-Cleanup cannot delete a group while a valid proof references it.
-
-SaaS account, email proof, and email limit records use site-level Ash resources.
-The email proof action fixes its browser transaction, email, and purpose. A
-resend replaces the digest and disables verification until delivery succeeds.
-Activation uses a digest comparison, so an older send cannot activate a newer
-code. Verification atomically consumes the current, unexpired digest. The
-account binding action accepts only a verified, unbound proof; a composite
-foreign key requires that account to have the same email. Native constraints
-also reject a verified proof that retains a code and a nonpositive limit count.
-Email limits use one atomic `ON CONFLICT` statement: a live window increments
-its counter without moving the deadline, and an expired window starts at one.
-Ordered advisory locks serialize the aggregate limit check.
+An authentication lives for 24 hours; a login transaction lives for 10 minutes.
+Completion extends the group's expiry to cover its proof. Cleanup preserves a
+group while a valid proof references it. [Authentication](Authentication.md)
+owns code challenges, delivery, and rate windows.
 
 ## Login purposes and targets
 
-`pod`, `console`, and `oauth` transactions fix the tenant before credential
-verification. Pod entry uses an explicit `tenant_id`, the valid active context,
-or the privileged tenant as the default organization. This default does not
-require administrator membership. Console fixes the privileged tenant and
-requires siteadmin. OAuth fixes the validated Client's tenant.
+`pod`, `console`, and `oauth` transactions fix a tenant before verification.
+Pod entry uses its host or explicit target. Console uses the privileged tenant
+and requires site administration membership. OAuth uses the Client's tenant.
+A callback enters its recorded target. A `site` transaction addresses a proved
+personal credential and selects its available Pods.
 
-A `site` transaction has no tenant. Only a trusted, build-declared site source
-can complete it. Other transactions cannot omit their target tenant. A callback
-enters the recorded tenant; it cannot substitute one from query parameters.
+The site proof's `console_authenticated` flag is set through a successful Console
+login. Console requests also check the privileged tenant, current Human access,
+and `siteadmin`. Pod proofs have independent scope and access versions.
 
-Site authentication also records `console_authenticated`. Only a successful
-`console` login can set it. A site account login through Pod, OAuth, or the
-account center cannot grant Console access. Console requests also check the
-current privileged tenant, Human access proof, and siteadmin membership.
+Pod login uses additive authentication mode. SaaS entry selects the same mode
+for additional credentials. A trusted server entry sets this mode. Each open
+HTML document pins its authentication reference and Pod ID.
 
-Pod login preserves the browser's other work identities. Its account chooser
-selects a proven identity for the fixed target tenant without signing out.
-Console and OAuth apply an identity replacement rule:
-a new identity ends a conflicting Console or OAuth context. Contexts for the
-same Principal can remain, with their original provider and authentication time.
-A native Pod login does not grant Console access, including for an administrator.
+`GET /api/v2/browser/session` returns activated Pod identities, pending Pods,
+and proved site authentications. A zero-Pod site proof is a valid session.
+`POST /api/v2/browser/authentications/current` accepts `authenticationRef` and
+`tenantID`. It checks the proof, current policy, and any pending claim before it
+changes the browser default. The selected document navigates to the target Pod;
+other open documents keep their pinned context.
 
-The core also accepts `mode: :add` to preserve other authentications. A trusted
-HTTP entry can assign `browser_login_mode: :add` before it calls the public
-Router. This applies to public OAuth continuations as well as private login
-routes. Request parameters cannot set this mode. FOSS does not provide a site
-account product or a multi-Pod account center. `GET /api/v2/browser/session`
-lists the Pod identities that this browser group has proved, one for each
-person and tenant. `PUT /api/v2/browser/sessions/active` makes one of them the
-browser default. It does not change an open document's pinned identity.
-
-Setup state remains separate. It cannot complete a normal login or replace a
-missing authentication proof.
+Setup authority is separate from normal authentication.
 
 ## Cookies and request selection
 
@@ -156,6 +105,8 @@ v2 management operations or native Console file transfers. Protected responses c
 Pod query keys include both identity and tenant. Console data selection is local
 to the document's authentication. Switching the browser default does not change
 an open document or cause a failed request to retry as another person.
+Navigation within a Pod document to `/me` or `/settings` keeps that document's
+authentication and tenant.
 
 CSRF state belongs to the selected authentication or a valid login transaction.
 Cancellation, consumption, expiry, and browser logout invalidate a transaction's
@@ -168,9 +119,12 @@ SameSite does not establish that two Pod origins trust each other.
 ## Concurrent completion and revocation
 
 Login completion, single exit, and global exit lock the browser row. Each
-mutation advances `browser.revision` and writes that value to the affected
-authentication. Global exit also writes `logout_revision`. Selection alone does
-not advance either counter.
+mutation advances `browser.revision`. A new or revoked target authentication
+gets that revision. Reverification of a live authentication preserves its
+reference and CSRF state, so pinned tabs and online RP sessions remain usable.
+Console admission is preserved when another ceremony uses the same site proof.
+Global exit also writes `logout_revision`. Selection alone does not advance
+either counter.
 
 A login can complete only when:
 
@@ -185,11 +139,14 @@ uses purpose `site` and no tenant, including when an OAuth transaction invokes
 it. A native source uses its tenant, provider, and Principal UID. The provider's
 verified external ID is retained separately.
 
-A transaction selected for reauthentication also fixes the subject. It cannot
-return another account or overwrite a subject changed after selection. An
-explicit identity selection records the current revision as its comparison
-point. Single exit cancels transactions already bound to that authentication;
-an unknown subject is checked against its retained target record at completion.
+An authentication selected for OAuth reauthentication fixes its provider and
+subject. Personal settings start reauthentication through the current document's
+authenticated member operation, which fixes its Pod and Human. Another permitted
+login source can complete that operation only if it resolves to the same Human.
+Neither flow can overwrite a target changed after selection. Explicit identity
+selection records the current revision as its comparison point. Single exit
+cancels transactions already bound to that authentication; an unknown subject is
+checked against its retained target record at completion.
 
 | Interleaving | Result |
 | --- | --- |
@@ -214,54 +171,43 @@ recovery cannot invalidate another authentication.
 
 ## Site sources and Human recovery
 
-`IdentityProviders.SiteSources` accepts source IDs and modules from the selected
-source build. The module verifies its credential and returns an opaque subject
-and actual authentication time. Tenant provider configuration cannot register
-one of these reserved IDs. The core has no foreign key to a private account table
-and no special knowledge of an account email or a Solid WebID.
+`IdentityProviders.SiteSources` verifies a source's proof and returns its
+subject, actual authentication time, ceremony start, verified contacts, and
+methods. Email OTP uses a consumed durable challenge. The source identifier
+addresses personal credential bindings across tenants.
 
-A site login reads only existing external identity bindings. For each active,
-available Human, it stores the access version verified during that login. It
-does not create members or match contact data across tenants. Each protected
-request checks that the binding and Human version remain current. A disabled
-Human gets no new proof. An unavailable Pod does not stop access to another Pod.
+Every Pod proof requires an active Human, an available tenant, a current
+credential binding and access version, and the current Pod login policy.
+Unavailable membership in one Pod leaves other independently valid Pods usable.
 
-Restoration does not refresh an old proof or an authentication completed during
-disablement. A new real authentication must verify the restored Human. This uses
-HumanAccess's access version and transaction revocation check; it adds
-no restoration clock. One Human's revocation does not end the same account's
-other Pod identities.
+A fresh target-Pod login can claim a unique pending Human. The public chooser
+and Pod switcher can also claim a pending member or directed invitation.
+The ceremony start must be later than the last release of a recyclable
+identifier. An older proof requires another verification.
 
-`create_pod_access/2` locks the site authentication before it invokes the owning
-creation transaction. The callback creates the tenant, Human, and binding; the
-core records initial access and commits them together. It rejects a previously
-revoked Human presented as a newly created identity.
+`create_pod_access/2` locks the site authentication while its callback creates
+the tenant, Human, credential, and administrator membership in one transaction.
+Invitation acceptance locks its quota and records tenant access in that same
+transaction. Enterprise SSO completes only its fixed tenant's proof.
 
-`connect_pod_access/4` requires a second live authentication for the target Human.
-It locks that Human before it invokes the explicit binding operation. Only then
-can it record that verified access version. Both operations preserve the parent
-revision, authentication time, and expiry. Ordinary switching cannot invoke
-these operations to refresh a proof.
-
-`consume_login/4` consumes a pending transaction in its fixed context without
-minting an authentication. A private handoff can use this one-use boundary; it
-still owns its origin, state, and parent-proof checks.
-
-The handoff owner computes and stores its code digest. It uses the login
-transaction's ten-minute expiry and the stored digest format.
-
-`AnkoleWeb.Session` seals each handoff's browser state in a separate host-only
-cookie. Its random name lets concurrent entries keep independent state. A
-successful handoff can write the already verified parent authentication with
-`put_authentication/3`; it cannot extend that authentication's time or expiry.
+Restoration requires fresh verification at the restored Human access version.
+Switching checks evidence; it cannot refresh that evidence.
 
 ## Freshness and logout
 
-Local password verification establishes a new authentication event. A provider
+Email OTP verification establishes a new authentication event. A provider
 adapter must supply evidence for requested freshness. Ordinary Lark login has
 no such evidence and omits `auth_time`; it cannot satisfy `prompt=login`,
 `max_age`, or essential `auth_time`. A profile read or callback time is not a
 new authentication. Reuse and selection preserve the event's actual time.
+
+Personal credential changes and voluntary Pod exit use `authenticated_at`, the
+local completion time of browser verification. Completion must be within the
+past 15 minutes. `challenge_started_at` is the ceremony start used to reject
+proofs from before a recycled identifier was released. Personal settings
+reauthentication requires a new verification ceremony and cannot reuse a stored
+proof. The provider's `auth_time` remains its actual authentication event time.
+OIDC `prompt=login` and `max_age` keep their provider evidence requirements.
 
 Single exit revokes one authentication and its online RP associations. Its
 other Pod proofs fail with the parent. Other authentications remain usable.
@@ -269,7 +215,7 @@ If it was active, the default is cleared; another account is not selected.
 A Pod stream rechecks its original proof before each frame or ping.
 
 Console logout and confirmed RP logout apply browser-wide. They end
-all authentications, pending login and password transactions, and online RP
+all authentications, pending login transactions, and online RP
 associations in one transaction. The response drops the individual proof cookies
 after commit and keeps the group reference. A stale RP logout confirmation cannot
 end a newer browser revision. A late response cannot restore a revoked proof.

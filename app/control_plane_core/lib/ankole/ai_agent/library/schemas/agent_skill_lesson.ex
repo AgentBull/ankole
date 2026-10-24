@@ -1,9 +1,18 @@
 defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
   @moduledoc "Immutable lesson content with a renewable lease and terminal retirement."
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.AIAgent,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:agent_uid, :principal_key)
+    allow(:console_list, resource: "site_console:agent:{agent_uid}:library", action: "read")
+    allow(:console_teach, resource: "site_console:agent:{agent_uid}:library", action: "update")
+    allow(:revoke, resource: "site_console:agent:{agent_uid}:library", action: "update")
+  end
 
   json_api do
     type("agent_skill_lesson")

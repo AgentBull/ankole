@@ -16,13 +16,13 @@ defmodule Ankole.Pod.DbRecord do
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   schema "db_records" do
-    field :table_id, Ankole.Ecto.UUIDv7, primary_key: true
-    field :data, :map, default: %{}
-    field :versions, :map, default: %{}
-    field :created_by, ActorRef
-    field :created_at, :utc_datetime_usec
-    field :updated_by, ActorRef
-    field :updated_at, :utc_datetime_usec
+    field(:table_id, Ankole.Ecto.UUIDv7, primary_key: true)
+    field(:data, :map, default: %{})
+    field(:versions, :map, default: %{})
+    field(:created_by, ActorRef)
+    field(:created_at, :utc_datetime_usec)
+    field(:updated_by, ActorRef)
+    field(:updated_at, :utc_datetime_usec)
   end
 
   @type t :: %__MODULE__{}

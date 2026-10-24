@@ -8,12 +8,13 @@ defmodule Ankole.Pod.Applets do
   @methods ~w(GET POST PUT PATCH DELETE)
 
   @doc "Starts one isolated invocation. The caller owns its cancellation lifetime."
-  def start(uid, page_id, request, opts \\ []) do
+  def start(%Ankole.AuthZ.Actor{} = actor, page_id, request, opts \\ []) do
+    uid = Ankole.AuthZ.Actor.uid(actor)
     Repo.tenant_id!()
 
     with :ok <- valid_request(request),
-         {:ok, published} <- published(uid, page_id, Keyword.get(opts, :revision)),
-         {:ok, principal} <- Access.principal(uid),
+         {:ok, published} <- published(actor, page_id, Keyword.get(opts, :revision)),
+         {:ok, principal} <- Access.principal(actor),
          {:ok, limits} <- Config.applet_limits(),
          {:ok, timezone} <- Ankole.SystemConfig.timezone() do
       context =
@@ -31,24 +32,28 @@ defmodule Ankole.Pod.Applets do
           "timezone" => timezone
         })
 
-      Invocation.start(published.source, context, limits, Keyword.get(opts, :authority))
+      Invocation.start(published.source, context, limits, %{
+        actor
+        | turn_authority: Keyword.get(opts, :authority, actor.turn_authority)
+      })
     end
   end
 
   @doc "Calls a route through the same isolated owner used by HTTP. Agent calls omit revision."
-  def call(uid, page_id, request, opts \\ []) do
-    with {:ok, task} <- start(uid, page_id, request, opts), do: Invocation.await(task)
+  def call(%Ankole.AuthZ.Actor{} = actor, page_id, request, opts \\ []) do
+    with {:ok, task} <- start(actor, page_id, request, opts), do: Invocation.await(task)
   end
 
   # A page lock gives this read one manifest/revision pair even when a publisher commits.
   # Read immutable content before releasing it: file replacement and GC cannot change the package.
-  defp published(uid, page_id, revision),
-    do: Repo.transact_top_level(fn -> published_in_tx(uid, page_id, revision) end)
+  defp published(%Ankole.AuthZ.Actor{} = actor, page_id, revision) do
+    Repo.transact_top_level(fn -> published_in_tx(actor, page_id, revision) end)
+  end
 
   @doc false
-  def published_in_tx(uid, page_id, revision) do
+  def published_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, revision) do
     with {:ok, page} <- Pages.lock(page_id, :share),
-         {:ok, _page} <- Pages.authorize(uid, page.id, "page_view"),
+         {:ok, _page} <- Pages.authorize(actor, page.id, "page_view"),
          :ok <- applet_type(page),
          :ok <- current_revision(page.revision, revision),
          {:ok, source} <- backend_source(page.id) do

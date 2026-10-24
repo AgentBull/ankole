@@ -11,21 +11,22 @@ defmodule Ankole.Pod.Files do
   alias Ankole.Repo
 
   @doc "Lists one page's current file manifest. Paths are relative to the page directory."
-  def manifest(uid, page_id),
-    do: Repo.transact_top_level(fn -> manifest_in_tx(uid, page_id) end)
+  def manifest(%Ankole.AuthZ.Actor{} = actor, page_id) do
+    Repo.transact_top_level(fn -> manifest_in_tx(actor, page_id) end)
+  end
 
   @doc false
-  def manifest_in_tx(uid, page_id) do
+  def manifest_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id) do
     with {:ok, page} <- Pages.lock(page_id, :share),
-         {:ok, _page} <- Pages.authorize(uid, page.id, "page_view"),
+         {:ok, _page} <- Pages.authorize(actor, page.id, "page_view"),
          {:ok, files} <- all_files(page.id) do
       {:ok, %{page_id: page.id, revision: page.revision, files: Enum.map(files, &entry/1)}}
     end
   end
 
   @doc "Reads a page file, optionally requiring its current content digest."
-  def read(uid, page_id, path, digest \\ nil) do
-    with {:ok, _page} <- Pages.authorize(uid, page_id, "page_view"),
+  def read(%Ankole.AuthZ.Actor{} = actor, page_id, path, digest \\ nil) do
+    with {:ok, _page} <- Pages.authorize(actor, page_id, "page_view"),
          {:ok, path} <- page_path(page_id, path),
          {:ok, file, bytes} <- manifest_read(Drive.read(:pod, path), digest),
          :ok <- check_digest(file, digest) do
@@ -34,8 +35,8 @@ defmodule Ankole.Pod.Files do
   end
 
   @doc "Streams a page file through a local file for the WorkerFiles relay."
-  def read_to_file(uid, page_id, path, local_path, digest \\ nil) do
-    with {:ok, _page} <- Pages.authorize(uid, page_id, "page_view"),
+  def read_to_file(%Ankole.AuthZ.Actor{} = actor, page_id, path, local_path, digest \\ nil) do
+    with {:ok, _page} <- Pages.authorize(actor, page_id, "page_view"),
          {:ok, path} <- page_path(page_id, path),
          {:ok, file} <- manifest_read(Drive.read_to_file(:pod, path, local_path), digest),
          :ok <- check_digest(file, digest) do
@@ -51,7 +52,7 @@ defmodule Ankole.Pod.Files do
 
   @doc "Stores an uploaded file, image, or attachment, then commits it through its page owner."
   def upload(
-        uid,
+        %Ankole.AuthZ.Actor{} = actor,
         page_id,
         role,
         base_revision,
@@ -60,11 +61,11 @@ defmodule Ankole.Pod.Files do
         content_type \\ nil,
         authority \\ nil
       ) do
-    with {:ok, page} <- Pages.authorize(uid, page_id, "page_edit"),
+    with {:ok, page} <- Pages.authorize(actor, page_id, "page_edit"),
          :ok <- allowed_role(page, role),
          {:ok, stored} <- Drive.store(source) do
       commit_upload(
-        uid,
+        actor,
         page_id,
         role,
         base_revision,
@@ -77,16 +78,22 @@ defmodule Ankole.Pod.Files do
   end
 
   @doc "Saves an attachment visible in a conversation without granting access to the Agent's drive."
-  def copy_from_message(uid, page_id, base_revision, message_id, source_path) do
+  def copy_from_message(
+        %Ankole.AuthZ.Actor{} = actor,
+        page_id,
+        base_revision,
+        message_id,
+        source_path
+      ) do
     with {:ok, message_id} <- Ecto.UUID.cast(message_id),
          {:ok, %Ankole.Conversations.Message{} = message} <-
            Ankole.Conversations.get_message(message_id),
-         {:ok, _conversation} <- Ankole.Conversations.get(uid, message.conversation_id),
+         {:ok, _conversation} <- Ankole.Conversations.get(actor, message.conversation_id),
          %{"blob_ref" => digest} = attachment <-
            Enum.find(message.attachments, &(Map.get(&1, "path") == source_path)),
-         {:ok, _page} <- Pages.authorize(uid, page_id, "page_edit") do
+         {:ok, _page} <- Pages.authorize(actor, page_id, "page_edit") do
       commit_upload(
-        uid,
+        actor,
         page_id,
         "file",
         base_revision,
@@ -104,9 +111,12 @@ defmodule Ankole.Pod.Files do
   @doc "Publishes a complete applet source and distribution manifest with compare-and-set."
   def publish(uid, page_id, base_revision, files, authority \\ nil)
 
-  def publish(uid, page_id, base_revision, files, authority) when is_list(files) do
+  def publish(%Ankole.AuthZ.Actor{} = actor, page_id, base_revision, files, authority)
+      when is_list(files) do
+    authority = authority || actor.turn_authority
+
     with {:ok, upserts} <- publish_files(page_id, files) do
-      Access.write(authority, fn -> publish_in_tx(uid, page_id, base_revision, upserts) end,
+      Access.write(authority, fn -> publish_in_tx(actor, page_id, base_revision, upserts) end,
         after_commit: &committed/1
       )
     end
@@ -130,11 +140,11 @@ defmodule Ankole.Pod.Files do
   def parse_path(_path), do: {:error, :invalid_path}
 
   @doc false
-  def publish_in_tx(uid, page_id, base_revision, upserts) do
-    edit_in_tx(uid, page_id, fn page ->
+  def publish_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, base_revision, upserts) do
+    edit_in_tx(actor, page_id, fn page ->
       with :ok <- require_type(page, :applet),
            :ok <- revision(page, base_revision),
-           :ok <- own_publish_contents(uid, page.id, upserts),
+           :ok <- own_publish_contents(actor, page.id, upserts),
            {:ok, routes} <- inspect_backend(page.id, upserts),
            {:ok, result} <-
              Drive.commit_in_tx(:pod, upserts, [
@@ -154,7 +164,18 @@ defmodule Ankole.Pod.Files do
     end)
   end
 
-  defp commit_upload(uid, page_id, role, base_revision, name, digest, content_type, authority) do
+  defp commit_upload(
+         %Ankole.AuthZ.Actor{} = actor,
+         page_id,
+         role,
+         base_revision,
+         name,
+         digest,
+         content_type,
+         authority
+       ) do
+    authority = authority || actor.turn_authority
+
     upload = %{
       role: role,
       base_revision: base_revision,
@@ -163,16 +184,16 @@ defmodule Ankole.Pod.Files do
       content_type: content_type
     }
 
-    Access.write(authority, fn -> commit_upload_in_tx(uid, page_id, upload) end,
+    Access.write(authority, fn -> commit_upload_in_tx(actor, page_id, upload) end,
       after_commit: &committed/1
     )
   end
 
   @doc false
-  def commit_upload_in_tx(uid, page_id, upload) do
+  def commit_upload_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, upload) do
     %{role: role, base_revision: base_revision, name: name, digest: digest} = upload
 
-    edit_in_tx(uid, page_id, fn page ->
+    edit_in_tx(actor, page_id, fn page ->
       with :ok <- allowed_role(page, role),
            :ok <- file_revision(page, base_revision),
            {:ok, path} <- upload_path(page.id, role, digest, name),
@@ -204,9 +225,9 @@ defmodule Ankole.Pod.Files do
   @doc "Publishes a committed page file change to the page channel."
   def committed(%{page_id: id}), do: Pages.broadcast(id)
 
-  defp edit_in_tx(uid, page_id, fun) do
+  defp edit_in_tx(%Ankole.AuthZ.Actor{} = actor, page_id, fun) do
     with {:ok, page} <- Pages.lock(page_id),
-         {:ok, _page} <- Pages.authorize(uid, page.id, "page_edit") do
+         {:ok, _page} <- Pages.authorize(actor, page.id, "page_edit") do
       fun.(page)
     end
   end
@@ -280,7 +301,9 @@ defmodule Ankole.Pod.Files do
 
   # A digest alone does not grant access to a site-wide byte content. Public
   # publication can use the writer's drive or this applet's current files.
-  defp own_publish_contents(uid, page_id, upserts) do
+  defp own_publish_contents(%Ankole.AuthZ.Actor{} = actor, page_id, upserts) do
+    uid = Ankole.AuthZ.Actor.uid(actor)
+
     with {:ok, files} <- all_files(page_id) do
       current = MapSet.new(files, &hex(&1.sha256))
 

@@ -1,9 +1,16 @@
 defmodule Ankole.Brain.Schemas.Contradiction do
   @moduledoc "Immutable proposal facts and their one-time review decision."
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.Brain,
-    extensions: [AshStateMachine, AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshStateMachine, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    allow(:console_list, resource: "site_console:brain", action: "read")
+    allow(:decide, resource: "site_console:brain", action: "update")
+  end
 
   # The Console list gives the text of both Claims of a finding.
   json_api do

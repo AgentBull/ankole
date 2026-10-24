@@ -26,6 +26,7 @@ test('a dragged page keeps its new place after reload, undo restores it, and the
     await page.goto(pageRoute(parent))
     const children = page.locator('.pod-tree-row', { has: page.locator(`a[href="${pageRoute(parent)}"]`) })
     await expect(children).toHaveCount(1)
+    await children.getByRole('button', { name: `Drag parent ${suffix}`, exact: true }).click()
     const titles = () =>
       page
         .locator('li', { has: children })
@@ -64,6 +65,48 @@ test('a dragged page keeps its new place after reload, undo restores it, and the
     await page.getByRole('menuitem', { name: '上移', exact: true }).click()
     await expect.poll(titles).toEqual([first, third, `Renamed ${suffix}`])
   } finally {
+    await context.close()
+  }
+})
+
+test('undo at the end of a loaded directory page restores the full sibling order', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 1365, height: 900 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let parent: string | undefined
+  try {
+    await page.goto(pageRoute(state.report_id))
+    const prefix = `Paged move ${Date.now()}`
+    parent = await create(page, prefix)
+    const ids: string[] = []
+    for (let index = 0; index < 201; index++) {
+      ids.push(await create(page, `${prefix} ${index}`, parent))
+    }
+    await page.goto(pageRoute(parent))
+    const parentRow = page.locator('.pod-tree-row', { has: page.locator(`a[href="${pageRoute(parent)}"]`) })
+    await parentRow.getByRole('button', { name: prefix, exact: true }).click()
+    const childRows = page.locator('li', { has: parentRow }).locator('.pod-tree-children > li > .pod-tree-row')
+    await expect(childRows).toHaveCount(200)
+    const source = childRows.filter({ has: page.getByRole('link', { name: `${prefix} 199`, exact: true }) })
+    await source.click({ button: 'right' })
+    const moved = page.waitForResponse(response => response.url().endsWith(`/pages/${ids[199]}/move`) && response.ok())
+    await page.getByRole('menuitem', { name: '上移', exact: true }).click()
+    expect((await (await moved).json()).undo.before_id).toBe(ids[200])
+    await expect(childRows.nth(198).getByRole('link')).toHaveText(`${prefix} 199`)
+
+    await page.getByRole('button', { name: '撤销', exact: true }).click()
+    await expect(childRows.nth(199).getByRole('link')).toHaveText(`${prefix} 199`)
+    const first = await request<{ pages: { id: string }[]; next_cursor: string }>(
+      page,
+      `/pages/children?parent_id=${parent}&limit=200`
+    )
+    const last = await request<{ pages: { id: string }[] }>(
+      page,
+      `/pages/children?parent_id=${parent}&limit=200&cursor=${encodeURIComponent(first.next_cursor)}`
+    )
+    expect([...first.pages, ...last.pages].map(row => row.id)).toEqual(ids)
+  } finally {
+    if (parent) await request(page, `/pages/${parent}`, 'DELETE')
     await context.close()
   }
 })

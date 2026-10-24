@@ -1,9 +1,20 @@
 defmodule Ankole.AppConfigure.SiteOperations do
   @moduledoc "Registry setting operations for the site Console."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: Ankole.AppConfigure.Site,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:key, :string)
+    allow(:console_list, resource: "site_console:app_configurations", action: "read")
+    allow(:console_show, resource: "site_console:app_configuration:{key}", action: "read")
+    allow(:console_update, resource: "site_console:app_configuration:{key}", action: "update")
+    allow(:console_delete, resource: "site_console:app_configuration:{key}", action: "reset")
+    allow(:console_decrypt, resource: "site_console:app_configuration:{key}", action: "decrypt")
+  end
 
   resource do
     require_primary_key?(false)

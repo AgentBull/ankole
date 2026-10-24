@@ -11,7 +11,7 @@ defmodule AnkoleWeb.PodAttachmentController do
         respond(
           conn,
           Native.upload(
-            conn.assigns.current_principal_uid,
+            conn.assigns.authz_actor,
             id,
             file.filename,
             {:file, file.path},
@@ -28,7 +28,7 @@ defmodule AnkoleWeb.PodAttachmentController do
     local = Ankole.Files.temp_path()
 
     try do
-      case Native.read_to_file(conn.assigns.current_principal_uid, id, message_id, path, local) do
+      case Native.read_to_file(conn.assigns.authz_actor, id, message_id, path, local) do
         {:ok, attachment} ->
           send_sandboxed_file(
             conn,

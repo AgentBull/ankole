@@ -54,7 +54,9 @@ defmodule Ankole.Files.RPCBroker do
 
   defp authorize_get(uid, %{pod_drive: true, path: path}) do
     with {:ok, page_id, _relative} <- Ankole.Pod.Files.parse_path(path),
-         {:ok, _page} <- Ankole.Pod.Pages.authorize(uid, page_id, "page_view"),
+         {:ok, principal} <- Ankole.Principals.get_principal(uid),
+         actor = Ankole.AuthZ.Actor.new(principal, authn: %{"surface" => "worker_files"}),
+         {:ok, _page} <- Ankole.Pod.Pages.authorize(actor, page_id, "page_view"),
          do: :ok
   end
 

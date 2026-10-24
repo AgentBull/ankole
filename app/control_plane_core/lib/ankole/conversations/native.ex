@@ -20,13 +20,60 @@ defmodule Ankole.Conversations.Native do
 
   @addressed "conversation.message.addressed"
 
-  def agents do
-    Ankole.Principals.list_principals!(
-      query: [
-        filter: [type: :agent, status: :active],
-        sort: [display_name: :asc, uid: :asc]
-      ]
-    )
+  @doc "Returns trusted browser facts from the work's native input."
+  def request_context(signal), do: request_context(signal, MapSet.new())
+
+  defp request_context(
+         %Signal{
+           producer: :kernel,
+           type: @addressed,
+           conversation_id: id,
+           source: source,
+           session_id: session,
+           data: %{"request_context" => context}
+         },
+         _visited
+       )
+       when is_binary(id) and is_map(context) do
+    if source == Ankole.Sessions.Key.conversation(id) and session == source,
+      do: Map.take(context, ["ip", "authn"]),
+      else: %{}
+  end
+
+  defp request_context(%Signal{producer: :kernel, authorization_kind: "human"} = signal, visited) do
+    if MapSet.member?(visited, signal.id) do
+      %{}
+    else
+      signal
+      |> Ankole.Conversations.Route.authorization_source()
+      |> request_context(MapSet.put(visited, signal.id))
+    end
+  end
+
+  defp request_context(_signal, _visited), do: %{}
+
+  def agents(%Ankole.AuthZ.Actor{} = actor) do
+    if active_human?(actor) do
+      Ankole.Principals.list_principals!(
+        query: [
+          filter: [type: :agent, status: :active],
+          sort: [display_name: :asc, uid: :asc]
+        ]
+      )
+      |> Enum.filter(&(authorize_agent(actor, &1.uid) == :ok))
+    else
+      []
+    end
+  end
+
+  def model_profiles(%Ankole.AuthZ.Actor{} = actor, agent_uid) do
+    with true <- active_human?(actor),
+         :ok <- authorize_agent(actor, agent_uid) do
+      ModelPreferences.catalog(agent_uid)
+    else
+      false -> {:error, :forbidden}
+      error -> error
+    end
   end
 
   @doc """
@@ -35,9 +82,9 @@ defmodule Ankole.Conversations.Native do
   This read takes no lock and opens no transaction, so a caller can use it in
   its own transaction. `get/3` gives the complete detail.
   """
-  def visible_native_conversation(human_uid, id) do
+  def visible_native_conversation(%Ankole.AuthZ.Actor{} = actor, id) do
     with {:ok, id} <- Queries.cast_id(id),
-         %Conversation{} = conversation <- visible_conversation(human_uid, id) do
+         %Conversation{} = conversation <- visible_conversation(actor, id) do
       {:ok, conversation}
     else
       {:error, _} = error -> error
@@ -45,11 +92,11 @@ defmodule Ankole.Conversations.Native do
     end
   end
 
-  def model_preferences(human_uid, id) do
+  def model_preferences(%Ankole.AuthZ.Actor{} = actor, id) do
     with {:ok, id} <- Queries.cast_id(id),
-         %Conversation{} = conversation <- visible_conversation(human_uid, id),
+         %Conversation{} = conversation <- visible_conversation(actor, id),
          %{} = agent <- conversation_agent(id),
-         :ok <- authorize_page(human_uid, conversation.page_id) do
+         :ok <- authorize_page(actor, conversation.page_id) do
       ModelPreferences.selection(conversation, agent.uid)
     else
       {:error, _} = error -> error
@@ -57,27 +104,27 @@ defmodule Ankole.Conversations.Native do
     end
   end
 
-  def set_model_profile(human_uid, id, profile) do
+  def set_model_profile(%Ankole.AuthZ.Actor{} = actor, id, profile) do
     Repo.transact_top_level(fn ->
-      set_model_profile_in_tx(human_uid, id, profile)
+      set_model_profile_in_tx(actor, id, profile)
     end)
   end
 
   @doc false
-  def set_model_profile_in_tx(human_uid, id, profile) do
+  def set_model_profile_in_tx(%Ankole.AuthZ.Actor{} = actor, id, profile) do
     with {:ok, id} <- Queries.cast_id(id),
-         %Conversation{} <- visible_conversation(human_uid, id),
+         %Conversation{} <- visible_conversation(actor, id),
          %{} = selected_agent <- conversation_agent(id) do
-      with :ok <- lock_participants_in_tx(human_uid, selected_agent.uid),
+      with :ok <- lock_participants_in_tx(actor, selected_agent.uid),
            :ok <-
              Signals.lock_target_in_tx(%{
                agent_uid: selected_agent.uid,
                session_id: Ankole.Sessions.Key.conversation(id)
              }),
-           :ok <- check_human_in_tx(human_uid),
+           :ok <- check_human_in_tx(actor),
            {:ok, agent} <- active_agent_in_tx(selected_agent.uid),
-           %Conversation{} = conversation <- visible_conversation(human_uid, id, lock: true),
-           :ok <- authorize_page(human_uid, conversation.page_id),
+           %Conversation{} = conversation <- visible_conversation(actor, id, lock: true),
+           :ok <- authorize_page(actor, conversation.page_id),
            {:ok, profile} <- ModelPreferences.validate(agent.uid, profile),
            {:ok, conversation} <- ModelPreferences.put(conversation, profile) do
         ModelPreferences.selection(conversation, agent.uid)
@@ -91,18 +138,22 @@ defmodule Ankole.Conversations.Native do
     end
   end
 
-  def list(human_uid), do: list_native(human_uid, nil)
+  def list(%Ankole.AuthZ.Actor{} = actor) do
+    list_native(actor, nil)
+  end
 
   @doc "Lists the current Human's conversations attached to an accessible Page."
-  def list_for_page(human_uid, page_id) do
+  def list_for_page(%Ankole.AuthZ.Actor{} = actor, page_id) do
     with {:ok, page_id} <- Queries.cast_id(page_id),
-         :ok <- authorize_page(human_uid, page_id) do
-      {:ok, list_native(human_uid, page_id)}
+         :ok <- authorize_page(actor, page_id) do
+      {:ok, list_native(actor, page_id)}
     end
   end
 
-  defp list_native(human_uid, page_id) do
-    if active_human?(human_uid) do
+  defp list_native(%Ankole.AuthZ.Actor{} = actor, page_id) do
+    human_uid = Ankole.AuthZ.Actor.uid(actor)
+
+    if active_human?(actor) do
       query =
         Ash.Query.filter(
           Conversation,
@@ -129,14 +180,14 @@ defmodule Ankole.Conversations.Native do
     end
   end
 
-  def get(human_uid, id, opts \\ []) do
+  def get(%Ankole.AuthZ.Actor{} = actor, id, opts \\ []) do
     Repo.transact_top_level(fn ->
-      detail_in_tx(human_uid, id, opts)
+      detail_in_tx(actor, id, opts)
     end)
   end
 
   @doc false
-  def detail_in_tx(human_uid, id, opts) do
+  def detail_in_tx(%Ankole.AuthZ.Actor{} = actor, id, opts) do
     before = Keyword.get(opts, :before_seq)
     loaded_first = Keyword.get(opts, :loaded_first_seq)
 
@@ -149,7 +200,7 @@ defmodule Ankole.Conversations.Native do
                agent_uid: agent.uid,
                session_id: Ankole.Sessions.Key.conversation(id)
              }),
-           %Conversation{} = conversation <- visible_conversation(human_uid, id) do
+           %Conversation{} = conversation <- visible_conversation(actor, id) do
         {:ok, detail(conversation, agent, opts)}
       else
         _ -> {:error, :conversation_not_found}
@@ -160,16 +211,18 @@ defmodule Ankole.Conversations.Native do
     end
   end
 
-  def create(human_uid, attrs) do
+  def create(%Ankole.AuthZ.Actor{} = actor, attrs) do
     Repo.transact_top_level(
-      fn -> create_in_tx(human_uid, attrs) end,
+      fn -> create_in_tx(actor, attrs) end,
       after_commit: &publish_native_change/1
     )
-    |> committed(human_uid)
+    |> committed(actor)
   end
 
   @doc "Creates a native conversation and returns publication facts to its transaction owner."
-  def create_in_tx(human_uid, attrs) when is_map(attrs) do
+  def create_in_tx(%Ankole.AuthZ.Actor{} = actor, attrs) when is_map(attrs) do
+    human_uid = Ankole.AuthZ.Actor.uid(actor)
+
     with :ok <- Repo.require_transaction(),
          {:ok, id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :conversation_id)),
          {:ok, message_id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :message_id)),
@@ -179,15 +232,16 @@ defmodule Ankole.Conversations.Native do
            Ankole.Attrs.get(attrs, :agent_uid) do
       session_id = Ankole.Sessions.Key.conversation(id)
 
-      with :ok <- lock_participants_in_tx(human_uid, agent_uid),
-           :ok <- check_human_in_tx(human_uid),
+      with :ok <- lock_participants_in_tx(actor, agent_uid),
+           :ok <- check_human_in_tx(actor),
            {:ok, agent} <- active_agent_in_tx(agent_uid),
+           :ok <- authorize_agent(actor, agent.uid),
            :ok <- Signals.lock_target_in_tx(%{agent_uid: agent_uid, session_id: session_id}),
-           {:ok, text, attachments} <- human_content(human_uid, id, message_id, attrs),
-           :ok <- authorize_page(human_uid, page_id),
+           {:ok, text, attachments} <- human_content(actor, id, message_id, attrs),
+           :ok <- authorize_page(actor, page_id),
            {:ok, conversation} <-
              ensure_conversation_in_tx(
-               human_uid,
+               actor,
                agent,
                id,
                conversation_title(text, attachments),
@@ -209,7 +263,7 @@ defmodule Ankole.Conversations.Native do
              ),
            true <- message.seq == 1,
            :ok <- ModelPreferences.authorize_input(conversation, agent.uid, mode, inserted?),
-           {:ok, event} <- accept_message_in_tx(conversation, agent, message, mode) do
+           {:ok, event} <- accept_message_in_tx(conversation, agent, message, mode, actor) do
         {:ok,
          %{
            id: id,
@@ -230,26 +284,28 @@ defmodule Ankole.Conversations.Native do
 
   def create_in_tx(_human_uid, _attrs), do: {:error, :invalid_request}
 
-  def post(human_uid, id, attrs) do
+  def post(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
     Repo.transact_top_level(
-      fn -> post_in_tx(human_uid, id, attrs) end,
+      fn -> post_in_tx(actor, id, attrs) end,
       after_commit: &publish_native_change/1
     )
-    |> committed(human_uid)
+    |> committed(actor)
   end
 
   @doc "Deletes an idle native conversation owned by the current Human. Pages remain independent."
-  def delete(human_uid, id) do
+  def delete(%Ankole.AuthZ.Actor{} = actor, id) do
     Repo.transact_top_level(
-      fn -> delete_in_tx(human_uid, id) end,
+      fn -> delete_in_tx(actor, id) end,
       after_commit: &Ankole.Conversations.Events.publish_status/1
     )
   end
 
   @doc false
-  def delete_in_tx(human_uid, id) do
+  def delete_in_tx(%Ankole.AuthZ.Actor{} = actor, id) do
+    human_uid = Ankole.AuthZ.Actor.uid(actor)
+
     with {:ok, id} <- Queries.cast_id(id),
-         {:ok, %{agent: agent}} <- detail_in_tx(human_uid, id, []),
+         {:ok, %{agent: agent}} <- detail_in_tx(actor, id, []),
          :ok <-
            Signals.lock_target_in_tx(%{
              agent_uid: agent.uid,
@@ -287,24 +343,27 @@ defmodule Ankole.Conversations.Native do
   end
 
   @doc "Appends human input and returns publication facts to its transaction owner."
-  def post_in_tx(human_uid, id, attrs) when is_map(attrs) do
+  def post_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) when is_map(attrs) do
+    human_uid = Ankole.AuthZ.Actor.uid(actor)
+
     with :ok <- Repo.require_transaction(),
          {:ok, id} <- Queries.cast_id(id),
          {:ok, message_id} <- Queries.cast_id(Ankole.Attrs.get(attrs, :message_id)),
          {:ok, mode} <- delivery_mode(Ankole.Attrs.get(attrs, :delivery_mode)),
-         %Conversation{} <- visible_conversation(human_uid, id),
+         %Conversation{} <- visible_conversation(actor, id),
          %{} = agent <- conversation_agent(id) do
-      with :ok <- lock_participants_in_tx(human_uid, agent.uid),
-           :ok <- check_human_in_tx(human_uid),
+      with :ok <- lock_participants_in_tx(actor, agent.uid),
+           :ok <- check_human_in_tx(actor),
            :ok <-
              Signals.lock_target_in_tx(%{
                agent_uid: agent.uid,
                session_id: Ankole.Sessions.Key.conversation(id)
              }),
-           {:ok, text, attachments} <- human_content(human_uid, id, message_id, attrs),
+           {:ok, text, attachments} <- human_content(actor, id, message_id, attrs),
            {:ok, agent} <- active_agent_in_tx(agent.uid),
-           %Conversation{} = conversation <- visible_conversation(human_uid, id, lock: true),
-           :ok <- authorize_page(human_uid, conversation.page_id),
+           :ok <- authorize_agent(actor, agent.uid),
+           %Conversation{} = conversation <- visible_conversation(actor, id, lock: true),
+           :ok <- authorize_page(actor, conversation.page_id),
            {:ok, message, inserted?} <-
              append_human_message_in_tx(
                conversation,
@@ -314,7 +373,7 @@ defmodule Ankole.Conversations.Native do
                attachments
              ),
            :ok <- ModelPreferences.authorize_input(conversation, agent.uid, mode, inserted?),
-           {:ok, event} <- accept_message_in_tx(conversation, agent, message, mode) do
+           {:ok, event} <- accept_message_in_tx(conversation, agent, message, mode, actor) do
         {:ok,
          %{
            id: id,
@@ -449,7 +508,9 @@ defmodule Ankole.Conversations.Native do
 
   def committed({:error, _} = error, _human_uid), do: error
 
-  defp ensure_conversation_in_tx(human_uid, agent, id, text, page_id) do
+  defp ensure_conversation_in_tx(%Ankole.AuthZ.Actor{} = actor, agent, id, text, page_id) do
+    human_uid = Ankole.AuthZ.Actor.uid(actor)
+
     attrs = %{
       id: id,
       title: text |> String.trim() |> String.split("\n", parts: 2) |> hd() |> String.slice(0, 80),
@@ -513,8 +574,8 @@ defmodule Ankole.Conversations.Native do
   @doc false
   def authorize_page(_uid, nil), do: :ok
 
-  def authorize_page(uid, id) do
-    case Ankole.Pod.Pages.authorize(uid, id, "page_view") do
+  def authorize_page(%Ankole.AuthZ.Actor{} = actor, id) do
+    case Ankole.Pod.Pages.authorize(actor, id, "page_view") do
       {:ok, _} -> :ok
       _ -> {:error, :page_unavailable}
     end
@@ -528,7 +589,9 @@ defmodule Ankole.Conversations.Native do
     end
   end
 
-  defp human_content(uid, conversation_id, message_id, attrs) do
+  defp human_content(%Ankole.AuthZ.Actor{} = actor, conversation_id, message_id, attrs) do
+    uid = Ankole.AuthZ.Actor.uid(actor)
+
     existing =
       Message
       |> Ash.Query.filter(
@@ -615,13 +678,14 @@ defmodule Ankole.Conversations.Native do
     end
   end
 
-  defp accept_message_in_tx(conversation, agent, message, mode) do
+  defp accept_message_in_tx(conversation, agent, message, mode, actor) do
     data = %{
       "conversation_id" => conversation.id,
       "message_id" => message.id,
       "message_ids" => [message.id],
       "author_uid" => message.author_uid,
       "text" => message.text,
+      "request_context" => Ankole.AuthZ.Actor.request_context(actor),
       "model_profile" => ModelPreferences.logical(conversation)
     }
 
@@ -669,16 +733,24 @@ defmodule Ankole.Conversations.Native do
   def message(id), do: Message |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!()
 
   @doc false
-  def lock_participants_in_tx(human_uid, agent_uid) do
+  def lock_participants_in_tx(%Ankole.AuthZ.Actor{} = actor, agent_uid) do
+    human_uid = Ankole.AuthZ.Actor.uid(actor)
     {:ok, _principals} = Ankole.Principals.lock_principals_in_tx([human_uid, agent_uid])
     :ok
   end
 
   @doc false
-  def check_human_in_tx(human_uid) do
-    if active_human?(human_uid),
+  def check_human_in_tx(%Ankole.AuthZ.Actor{} = actor) do
+    human_uid = Ankole.AuthZ.Actor.uid(actor)
+
+    if active_human?(actor),
       do: WorkAccess.check_in_tx(WorkAccess.from_sender(human_uid)),
       else: {:error, :invalid_request}
+  end
+
+  defp authorize_agent(%Ankole.AuthZ.Actor{} = actor, agent_uid) do
+    context = Map.put(Ankole.AuthZ.Actor.request_context(actor), "surface", "conversation")
+    Ankole.AuthZ.authorize(actor, "agent:#{agent_uid}", "chat", context)
   end
 
   defp active_agent_in_tx(agent_uid) do
@@ -688,14 +760,14 @@ defmodule Ankole.Conversations.Native do
     end
   end
 
-  defp active_human?(uid) when is_binary(uid) and uid != "",
-    do: match?(%{type: :human, status: :active}, Ankole.Principals.get_principal_record!(uid))
-
-  defp active_human?(_uid), do: false
+  defp active_human?(%Ankole.AuthZ.Actor{} = actor),
+    do: match?({:ok, %{type: :human}}, Ankole.Pod.principal(actor))
 
   @doc false
-  def visible_conversation(human_uid, id, opts \\ []) do
-    if active_human?(human_uid) do
+  def visible_conversation(%Ankole.AuthZ.Actor{} = actor, id, opts \\ []) do
+    human_uid = Ankole.AuthZ.Actor.uid(actor)
+
+    if active_human?(actor) do
       query =
         Ash.Query.filter(
           Conversation,

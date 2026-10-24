@@ -1,9 +1,20 @@
 defmodule Ankole.Files.ConsoleOperations do
   @moduledoc "Typed Console operations that call the Ankole.Files owner."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: Ankole.Files,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:agent_uid, :principal_key)
+    allow(:console_list, resource: "site_console:agent:{agent_uid}:files", action: "read")
+    allow(:console_move, resource: "site_console:agent:{agent_uid}:files", action: "update")
+    allow(:console_delete, resource: "site_console:agent:{agent_uid}:files", action: "delete")
+    allow(:console_download, resource: "site_console:agent:{agent_uid}:files", action: "read")
+    allow(:console_upload, resource: "site_console:agent:{agent_uid}:files", action: "update")
+  end
 
   resource do
     require_primary_key?(false)
@@ -16,6 +27,25 @@ defmodule Ankole.Files.ConsoleOperations do
   end
 
   actions do
+    action :console_download, :struct do
+      transaction?(false)
+      constraints(instance_of: Ankole.Files.Schemas.DriveFile)
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:path, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+      argument(:local_path, :string, allow_nil?: false)
+      run(Ankole.Files.ConsoleActions)
+    end
+
+    action :console_upload, :struct do
+      transaction?(false)
+      constraints(instance_of: Ankole.Files.Schemas.DriveFile)
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:path, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+      argument(:local_path, :string, allow_nil?: false)
+      argument(:content_type, :string)
+      run(Ankole.Files.ConsoleActions)
+    end
+
     action :console_list, :map do
       transaction?(false)
 

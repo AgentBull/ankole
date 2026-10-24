@@ -17,10 +17,11 @@ defmodule Ankole.ConversationsMemoryTest do
   setup do
     human = human_fixture().principal
     agent = agent_fixture(%{owner_principal_uid: human.uid}).principal
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
     id = Ecto.UUID.generate()
 
     assert {:ok, detail} =
-             Conversations.create(human.uid, %{
+             Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{
                conversation_id: id,
                agent_uid: agent.uid,
                message_id: Ecto.UUID.generate(),
@@ -111,7 +112,10 @@ defmodule Ankole.ConversationsMemoryTest do
 
     assert {:ok, snapshot} = Conversations.context_snapshot(ctx.id, ctx.key, 0, [])
     refute Enum.any?(snapshot.messages, &(&1.id == message.id))
-    assert {:ok, detail} = Conversations.get(ctx.human.uid, ctx.id)
+
+    assert {:ok, detail} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), ctx.id)
+
     refute Enum.any?(detail.messages, &(&1.id == message.id))
 
     # A removed tail must not schedule empty learning work after the remaining
@@ -213,7 +217,7 @@ defmodule Ankole.ConversationsMemoryTest do
     id = Ecto.UUID.generate()
 
     assert {:ok, _} =
-             Conversations.post(ctx.human.uid, ctx.id, %{
+             Conversations.post(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), ctx.id, %{
                message_id: id,
                text: text,
                delivery_mode: "queue"
@@ -223,10 +227,11 @@ defmodule Ankole.ConversationsMemoryTest do
   end
 
   defp queue_command(ctx, attrs) do
-    {:ok, detail} = Conversations.get(ctx.human.uid, ctx.id)
+    {:ok, detail} =
+      Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid), ctx.id)
 
     Conversations.update_queue(
-      ctx.human.uid,
+      Ankole.PrincipalsFixtures.actor_fixture(ctx.human.uid),
       ctx.id,
       Map.put(attrs, :expected_version, detail.queue_version)
     )

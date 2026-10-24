@@ -1,39 +1,45 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
 import { z } from 'zod'
-import type { CreateLocalUserData, UpdateHumanData } from '../api/v2/generated/types.gen'
+import type { CreateMemberData, UpdateHumanData } from '../api/v2/generated/types.gen'
 
-type PrincipalCreateRequest = NonNullable<CreateLocalUserData['body']['data']['attributes']>
+type PrincipalCreateRequest = CreateMemberData['body']['data']
 type PrincipalUpdateRequest = NonNullable<NonNullable<UpdateHumanData['body']>['data']['attributes']>
 
 export type PrincipalEditorDraft = {
   displayName: string
   email: string
+  membership?: 'member' | 'guest'
 }
 
 /** Client-side draft problems; the pages translate the code at render. */
-export type PrincipalDraftError = 'display_name_required' | 'email_required' | 'email_invalid'
+export type PrincipalDraftError = 'display_name_required' | 'email_invalid'
 
 const emailSchema = z.email()
 
-/** Shared draft for the create and edit pages of a local human user. */
+/** Shared draft for the create and edit pages of a Pod human member. */
 export const PrincipalEditorModel = createModel(() => {
   let source = Symbol()
   const sourceKey = signal<string>()
   const displayName = signal('')
   const email = signal('')
-  const mustChangePassword = signal(true)
+  const membership = signal<'member' | 'guest'>('member')
   const initialDraft = signal<PrincipalEditorDraft>()
   const validationError = signal<PrincipalDraftError>()
   const dirty = computed(() => {
     const source = initialDraft.value
-    return Boolean(source && (displayName.value !== source.displayName || email.value !== source.email))
+    return Boolean(
+      source &&
+      (displayName.value !== source.displayName ||
+        email.value !== source.email ||
+        membership.value !== (source.membership ?? 'member'))
+    )
   })
 
   return {
     sourceKey,
     displayName,
     email,
-    mustChangePassword,
+    membership,
     dirty,
     validationError,
     initialize(nextSourceKey: string, draft: PrincipalEditorDraft) {
@@ -43,14 +49,14 @@ export const PrincipalEditorModel = createModel(() => {
         sourceKey.value = nextSourceKey
         displayName.value = draft.displayName
         email.value = draft.email
-        mustChangePassword.value = true
+        membership.value = draft.membership ?? 'member'
         initialDraft.value = { ...draft }
         validationError.value = undefined
       })
     },
     async save(request: () => Promise<unknown>, onSaved: (clean: boolean) => void) {
       const requestedSource = source
-      const sentDraft = { displayName: displayName.value, email: email.value }
+      const sentDraft = { displayName: displayName.value, email: email.value, membership: membership.value }
       await request()
       if (source !== requestedSource) return
       initialDraft.value = sentDraft
@@ -63,10 +69,10 @@ export const PrincipalEditorModel = createModel(() => {
     clearValidation() {
       validationError.value = undefined
     },
-    draftError(emailRequired: boolean): PrincipalDraftError | undefined {
+    draftError(): PrincipalDraftError | undefined {
       if (!displayName.value.trim()) return 'display_name_required'
       const trimmedEmail = email.value.trim()
-      if (!trimmedEmail) return emailRequired ? 'email_required' : undefined
+      if (!trimmedEmail) return undefined
       if (!emailSchema.safeParse(trimmedEmail).success) return 'email_invalid'
       return undefined
     },
@@ -74,7 +80,7 @@ export const PrincipalEditorModel = createModel(() => {
       return {
         display_name: displayName.value.trim(),
         email: email.value.trim(),
-        must_change_password: mustChangePassword.value
+        membership: membership.value
       }
     },
     /** Sends only the fields the operator changed. */

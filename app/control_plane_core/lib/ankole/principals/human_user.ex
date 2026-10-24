@@ -54,13 +54,12 @@ defmodule Ankole.Principals.HumanUser do
   actions do
     defaults([:read])
 
-    create :create_in_tx do
-      accept([:principal_uid, :email, :mobile, :job_title])
+    read :read_across_tenants do
+      multitenancy(:allow_global)
     end
 
-    create :create_local_in_tx do
+    create :create_in_tx do
       accept([:principal_uid, :email, :mobile, :job_title])
-      require_attributes([:email])
     end
 
     update :profile_in_tx do

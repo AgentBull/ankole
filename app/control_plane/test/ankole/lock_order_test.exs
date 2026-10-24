@@ -73,7 +73,7 @@ defmodule Ankole.LockOrderTest do
       check_row_lock(Ankole.OIDC.Session, session_id)
 
       assert_raise ArgumentError,
-                   ~r/work lock order violation.*"principals".*rank 2 after rank 3/,
+                   ~r/work lock order violation.*"principals".*rank 3 after rank 4/,
                    fn ->
                      LockOrder.check_query(
                        from(row in Ankole.Principals.Principal,
@@ -95,7 +95,7 @@ defmodule Ankole.LockOrderTest do
       )
 
       assert_raise ArgumentError,
-                   ~r/work lock order violation.*"browser_sessions".*rank 1 after rank 2/,
+                   ~r/work lock order violation.*"browser_sessions".*rank 1 after rank 3/,
                    fn ->
                      check_row_lock(Ankole.BrowserSessions.Session, browser_id)
                    end

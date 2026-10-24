@@ -36,7 +36,7 @@ defmodule Ankole.AgentWorkers.Providers do
 
   # The site administration API at `/api/v2/site` (`AnkoleWeb.JSONAPI.SiteRouter`).
   json_api do
-    authorize?(false)
+    authorize?(true)
     log_errors?(true)
     show_raised_errors?(false)
 

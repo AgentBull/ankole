@@ -103,7 +103,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
     message_id = Ecto.UUID.generate()
 
     assert {:ok, detail} =
-             Conversations.create(human.uid, %{
+             Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{
                conversation_id: Ecto.UUID.generate(),
                agent_uid: agent.uid,
                message_id: message_id,
@@ -189,7 +189,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
     )
 
     assert {:ok, first_detail} =
-             Conversations.create(human.uid, %{
+             Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{
                conversation_id: id,
                agent_uid: agent.uid,
                message_id: first_id,
@@ -211,7 +211,9 @@ defmodule Ankole.Conversations.NativeDriverTest do
     first_event = event_for(first_id)
     assert wait_for_completion(first_event.id).attempt_count == 1
     assert_receive {:conversation_event, ^id, :message}, 5_000
-    assert {:ok, completed} = Conversations.get(human.uid, id)
+
+    assert {:ok, completed} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id)
 
     assert Ankole.Sessions.status(%{agent_uid: agent.uid, session_id: completed.session_id}).state ==
              :idle
@@ -220,14 +222,19 @@ defmodule Ankole.Conversations.NativeDriverTest do
              [{1, :human, "What is six times seven?"}, {2, :agent, "Six times seven is 42."}]
 
     assert {:ok, continued} =
-             Conversations.post(human.uid, id, %{message_id: second_id, text: "And twice that?"})
+             Conversations.post(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id, %{
+               message_id: second_id,
+               text: "And twice that?"
+             })
 
     second_request = await_request()
     assert Ankole.JSON.encode!(second_request.body["messages"]) =~ "Six times seven is 42."
     assert Ankole.JSON.encode!(second_request.body["messages"]) =~ "And twice that?"
     assert continued.model_conversation_id == model_id
     assert wait_for_completion(event_for(second_id).id).attempt_count == 1
-    assert {:ok, final} = Conversations.get(human.uid, id)
+
+    assert {:ok, final} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id)
 
     assert Enum.map(final.messages, &{&1.seq, &1.author_type, &1.text}) ==
              [
@@ -246,7 +253,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
     assert gateway_row_counts() == baseline
 
     assert {:ok, replayed_first} =
-             Conversations.create(human.uid, %{
+             Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{
                conversation_id: id,
                agent_uid: agent.uid,
                message_id: first_id,
@@ -254,7 +261,10 @@ defmodule Ankole.Conversations.NativeDriverTest do
              })
 
     assert {:ok, replayed_second} =
-             Conversations.post(human.uid, id, %{message_id: second_id, text: "And twice that?"})
+             Conversations.post(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id, %{
+               message_id: second_id,
+               text: "And twice that?"
+             })
 
     assert replayed_first.messages == final.messages
     assert replayed_second.messages == final.messages
@@ -270,7 +280,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
     message_id = Ecto.UUID.generate()
 
     assert {:ok, _} =
-             Conversations.create(human.uid, %{
+             Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{
                conversation_id: id,
                agent_uid: agent.uid,
                message_id: message_id,
@@ -351,7 +361,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
     )
 
     assert {:ok, _} =
-             Conversations.create(human.uid, %{
+             Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{
                conversation_id: id,
                agent_uid: agent.uid,
                message_id: first_id,
@@ -368,7 +378,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
       })
 
     assert {:ok, _} =
-             Conversations.post(human.uid, id, %{
+             Conversations.post(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id, %{
                message_id: followup_id,
                text: "Include the operator runbook."
              })
@@ -391,7 +401,10 @@ defmodule Ankole.Conversations.NativeDriverTest do
     assert first.attempt_count == 1
     assert followup.last_attempt_at
     assert first.completed_at == followup.completed_at
-    assert {:ok, detail} = Conversations.get(human.uid, id)
+
+    assert {:ok, detail} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id)
+
     assert Enum.map(detail.messages, & &1.author_type) == [:human, :human, :agent]
     assert List.last(detail.messages).text == "The report includes the operator runbook."
     assert Agent.get(script, & &1.requests) == 2
@@ -409,7 +422,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
     assert {:ok, {:ok, _}} =
              Repo.transact(fn ->
                {:ok,
-                Conversations.create_in_tx(human.uid, %{
+                Conversations.create_in_tx(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{
                   conversation_id: id,
                   agent_uid: agent.uid,
                   message_id: message_id,
@@ -449,7 +462,10 @@ defmodule Ankole.Conversations.NativeDriverTest do
     assert Ankole.JSON.encode!(retried.body["messages"]) =~ "Recover this committed request."
     completed = wait_for_completion(event.id)
     assert completed.attempt_count == 2
-    assert {:ok, detail} = Conversations.get(human.uid, id)
+
+    assert {:ok, detail} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id)
+
     assert Enum.map(detail.messages, & &1.author_type) == [:human, :agent]
     assert List.last(detail.messages).text == "A committed native answer."
 
@@ -481,7 +497,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
       nonce = Ecto.UUID.generate()
 
       assert {:ok, _} =
-               Conversations.create(human.uid, %{
+               Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{
                  conversation_id: id,
                  agent_uid: agent.uid,
                  message_id: message_id,
@@ -586,7 +602,10 @@ defmodule Ankole.Conversations.NativeDriverTest do
       assert wait_for_completion(signal.id).attempt_count == 1
       assert signal.session_id == source.session_id
       assert signal.conversation_id == id
-      assert {:ok, detail} = Conversations.get(human.uid, id)
+
+      assert {:ok, detail} =
+               Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id)
+
       assert List.last(detail.messages).text == "External report received."
       assert List.last(detail.messages).signal_id == signal.id
 
@@ -599,7 +618,9 @@ defmodule Ankole.Conversations.NativeDriverTest do
                :count
              ) == 1
 
-      assert {:ok, after_replay} = Conversations.get(human.uid, id)
+      assert {:ok, after_replay} =
+               Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id)
+
       assert length(after_replay.messages) == length(detail.messages)
       assert Agent.get(script, & &1.requests) == 2
     end
@@ -627,7 +648,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
     input_id = Ecto.UUID.generate()
 
     assert {:ok, _} =
-             Conversations.create(human.uid, %{
+             Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{
                conversation_id: id,
                message_id: input_id,
                agent_uid: agent.uid,
@@ -662,7 +683,10 @@ defmodule Ankole.Conversations.NativeDriverTest do
     assert cron_model.id != native_model.id
     _ = wait_for_completion(cron.id)
     assert_receive {:conversation_event, ^id, :message}, 5_000
-    assert {:ok, detail} = Conversations.get(human.uid, id)
+
+    assert {:ok, detail} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id)
+
     report = List.last(detail.messages)
     assert report.text == "Cron observed 17 new records."
     assert report.session_id == Ankole.Schedule.Cron.execution_session_id(schedule.id)
@@ -675,7 +699,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
     follow_id = Ecto.UUID.generate()
 
     assert {:ok, _} =
-             Conversations.post(human.uid, id, %{
+             Conversations.post(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id, %{
                message_id: follow_id,
                text: "Interpret the new records."
              })
@@ -706,7 +730,10 @@ defmodule Ankole.Conversations.NativeDriverTest do
 
     _ = await_request()
     _ = wait_for_completion(silent.id)
-    assert {:ok, after_silent} = Conversations.get(human.uid, id)
+
+    assert {:ok, after_silent} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human.uid), id)
+
     assert length(after_silent.messages) == 5
   end
 
@@ -730,7 +757,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
     input_id = Ecto.UUID.generate()
 
     assert {:ok, _} =
-             Conversations.create(human.uid, %{
+             Conversations.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{
                conversation_id: id,
                message_id: input_id,
                agent_uid: agent.uid,

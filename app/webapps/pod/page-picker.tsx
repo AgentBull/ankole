@@ -1,27 +1,39 @@
 import { t } from 'i18next'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@ankole/uikit'
 import { RiFolderLine, RiLockLine } from '@remixicon/react'
-import type { Page } from './content-api'
+import { useDeferredValue, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { pageSearchQuery, type Page } from './content-api'
+import { ContentError } from './content-primitives'
 import { PageIcon } from './page-icon'
 
 type Location = { id: string; title: string; private?: boolean }
 
 /** One searchable list for choosing a saved Page or its destination. */
 export function PagePicker({
-  pages,
+  excludeSubtreeOf,
+  filter,
   roots = [],
   selected,
   onSelect,
   label,
   disabled = false
 }: {
-  pages: Page[]
+  excludeSubtreeOf?: Page['id']
+  filter?(pages: Page[]): Page[]
   roots?: Location[]
   selected?: string
-  onSelect(id: string): void
+  onSelect(id: string, page?: Page): void
   label: string
   disabled?: boolean
 }) {
+  const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
+  const remote = useQuery(pageSearchQuery(deferredQuery, excludeSubtreeOf))
+  const searching = query !== deferredQuery || remote.isFetching
+  const candidates = query === deferredQuery ? (remote.data?.pages ?? []) : []
+  const visibleRoots = roots.filter(root => root.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+  const pages = filter ? filter(candidates) : candidates
   const byID = new Map(pages.map(page => [page.id, page]))
   const parentTitle = (page: Page) => {
     const visited = new Set([page.id])
@@ -35,13 +47,20 @@ export function PagePicker({
     return titles.join(' / ')
   }
   return (
-    <Command className="pod-page-picker" label={label} loop>
-      <CommandInput aria-label={label} placeholder={t('pod.content.search')} disabled={disabled} autoFocus />
+    <Command className="pod-page-picker" label={label} loop shouldFilter={false}>
+      <CommandInput
+        aria-label={label}
+        placeholder={t('pod.content.search')}
+        value={query}
+        onValueChange={setQuery}
+        disabled={disabled}
+        autoFocus
+      />
       <CommandList label={label}>
-        <CommandEmpty>{t('pod.content.no_matches')}</CommandEmpty>
-        {roots.length > 0 && (
+        <CommandEmpty>{searching ? t('pod.content.loading') : t('pod.content.no_matches')}</CommandEmpty>
+        {visibleRoots.length > 0 && (
           <CommandGroup>
-            {roots.map(root => {
+            {visibleRoots.map(root => {
               const Icon = root.private ? RiLockLine : RiFolderLine
               return (
                 <CommandItem
@@ -69,7 +88,7 @@ export function PagePicker({
                 keywords={[title, parent]}
                 data-checked={page.id === selected}
                 disabled={disabled}
-                onSelect={() => onSelect(page.id)}>
+                onSelect={() => onSelect(page.id, page)}>
                 <PageIcon page={page} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate">{title}</span>
@@ -80,6 +99,7 @@ export function PagePicker({
           })}
         </CommandGroup>
       </CommandList>
+      <ContentError error={remote.error} retry={() => void remote.refetch()} />
     </Command>
   )
 }

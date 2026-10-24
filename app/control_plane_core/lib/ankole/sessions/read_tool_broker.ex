@@ -16,6 +16,7 @@ defmodule Ankole.Sessions.ReadToolBroker do
     with {:ok, owner, declaration} <- declaration(request.name),
          {:ok, args} <- Ankole.JSON.decode(request.arguments_json),
          {:ok, args} <- ToolArguments.validate(declaration["parameters"], args),
+         :ok <- Tools.authorize_call(turn, declaration["name"], args),
          {:ok, result} <- execute(owner, turn, request, args) do
       {:ok, project(result)}
     else

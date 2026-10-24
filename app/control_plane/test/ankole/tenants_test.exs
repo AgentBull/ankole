@@ -52,6 +52,22 @@ defmodule Ankole.TenantsTest do
     assert Repo.get!(Tenants.Tenant, tenant.id).display_name == tenant.display_name
   end
 
+  test "tenant deletion revokes its final Pod administrator and finishes" do
+    tenant = new_tenant()
+
+    Repo.with_tenant(tenant.id, fn ->
+      admin = human_fixture().principal
+      assert {:ok, _} = AuthZ.add_principal_to_group(admin.uid, "pod_admin")
+
+      assert {:error, :last_active_human_admin} =
+               HumanAccess.disable(admin.uid, "suspend", nil, Ecto.UUID.generate(), :suspended)
+    end)
+
+    assert {:ok, _} = Tenants.delete(tenant)
+    drain_delete(tenant.id)
+    assert {:error, :not_found} = Tenants.get(tenant.id)
+  end
+
   test "active slug lookup follows durable lifecycle state without selecting a tenant", %{
     tenant: selected
   } do
@@ -342,6 +358,7 @@ defmodule Ankole.TenantsTest do
     refute Repo.get_by(Group, name: "siteadmin")
     refute AuthZ.site_admin?(administrator.uid)
     assert AuthZ.site_admin?(next_administrator.uid)
+    assert Repo.with_tenant(target.id, fn -> AuthZ.pod_admin?(next_administrator.uid) end)
     assert {:ok, _} = Tenants.delete(renamed)
   end
 

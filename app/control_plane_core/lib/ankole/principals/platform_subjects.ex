@@ -38,7 +38,7 @@ defmodule Ankole.Principals.PlatformSubjects do
     mobile = normalized_mobile_attr(attrs)
 
     with {:ok, provider} <- required_provider(attrs, :provider),
-         {:ok, external_id} <- Humans.required_text(attrs, :external_id),
+         {:ok, _external_id} <- Humans.required_text(attrs, :external_id),
          {:ok, external_ids} <- candidate_external_ids(attrs),
          {:ok, metadata} <- metadata_attrs(attrs),
          :ok <- lock_platform_subjects(provider, external_ids),
@@ -48,20 +48,38 @@ defmodule Ankole.Principals.PlatformSubjects do
          :ok <- maybe_lock_human_contact("principal_human_mobile", mobile),
          existing_identity <- fetch_platform_subject_by_ids(provider, external_ids),
          {:ok, selection} <-
-           platform_subject_principal_uid(existing_identity, attrs, external_id, email, mobile),
+           platform_subject_principal_uid(existing_identity, attrs, email),
          {:ok, principal} <- upsert_human_principal(selection, attrs),
          profile_attrs <-
-           drop_conflicting_contacts(
-             provider,
-             principal.uid,
-             Humans.take_attrs(attrs, Humans.human_profile_fields())
-           ),
+           contact_profile(principal, provider, attrs),
          {:ok, human_user} <- Humans.upsert_human_user(principal.uid, profile_attrs),
          {:ok, identities} <-
            upsert_platform_subject_identities(principal, provider, external_ids, metadata),
          :ok <- delete_pending_mapping_requests(provider, external_ids) do
       identity = hd(identities)
-      {:ok, %{principal: principal, human_user: human_user, identity: identity}}
+
+      {:ok,
+       %{
+         principal: principal,
+         human_user: human_user,
+         identity: identity,
+         created?: elem(selection, 0) == :new
+       }}
+    end
+  end
+
+  defp contact_profile(principal, provider, attrs) do
+    profile = Humans.take_attrs(attrs, Humans.human_profile_fields())
+
+    if Humans.fetch_attr(attrs, :access_observation) in [
+         {:ok, "departure"},
+         {:ok, "enterprise_exit"},
+         {:ok, "directory_removal"}
+       ] or
+         Ankole.Principals.HumanAccess.offboarded_in_current_cycle?(principal) do
+      Map.drop(profile, [:email, :mobile])
+    else
+      drop_conflicting_contacts(provider, principal.uid, profile)
     end
   end
 
@@ -76,13 +94,13 @@ defmodule Ankole.Principals.PlatformSubjects do
   def match_platform_subject_human(attrs) when is_map(attrs) do
     with {:ok, provider} <- required_provider(attrs, :provider),
          {:ok, external_ids} <- candidate_external_ids(attrs) do
-      email = normalized_email_attr(attrs)
-      mobile = normalized_mobile_attr(attrs)
-
       case provider_subject_principal_by_ids(provider, external_ids) do
-        nil ->
-          (contact_owner_principal(:email, email) || contact_owner_principal(:mobile, mobile))
+        nil when provider == "email" ->
+          contact_owner_principal(:email, Principals.normalize_email(hd(external_ids)))
           |> active_human_result()
+
+        nil ->
+          {:error, :not_found}
 
         provider_match ->
           active_human_result(provider_match)
@@ -210,38 +228,72 @@ defmodule Ankole.Principals.PlatformSubjects do
     end
   end
 
-  # Provider bindings, contact matches, and explicit reviewer selections only
-  # select existing humans. A new external subject gets an opaque UUID.
+  # Stable provider subjects take priority. A first binding can join an active
+  # member by an unambiguous email; a released identity cannot rejoin by email.
   defp platform_subject_principal_uid(
          %ExternalIdentity{principal_uid: principal_uid},
          _attrs,
-         _external_id,
-         _email,
-         _mobile
+         _email
        ) do
     {:ok, {:selected, principal_uid}}
   end
 
-  defp platform_subject_principal_uid(nil, attrs, external_id, email, mobile) do
-    case contact_owner_uid(:email, email) || contact_owner_uid(:mobile, mobile) do
-      nil ->
-        case Humans.fetch_attr(attrs, :uid) do
-          {:ok, uid} ->
-            with {:ok, uid} <- Principals.normalize_uid(uid), do: {:ok, {:selected, uid}}
+  defp platform_subject_principal_uid(nil, attrs, email) do
+    case Humans.fetch_attr(attrs, :uid) do
+      {:ok, uid} ->
+        with {:ok, uid} <- Principals.normalize_uid(uid), do: {:ok, {:selected, uid}}
 
-          :error ->
+      :error ->
+        {:ok, provider} = required_provider(attrs, :provider)
+        contacts = [email | Enum.map(Map.get(attrs, :contact_emails, []), & &1.email)]
+
+        uids =
+          contacts
+          |> Enum.map(&Principals.normalize_email/1)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.flat_map(&email_owner_uids/1)
+          |> Enum.uniq()
+
+        case uids do
+          [uid] ->
+            with {:ok, %Principal{type: :human, status: :active} = principal} <-
+                   Principals.get_principal(uid),
+                 false <- Principals.HumanAccess.offboarded_in_current_cycle?(principal),
+                 false <-
+                   ExternalIdentity
+                   |> Ash.Query.filter(principal_uid == ^uid and provider == ^provider)
+                   |> Ankole.Ash.exists?() do
+              {:ok, {:selected, uid}}
+            else
+              _ -> {:ok, {:new, Ash.UUIDv7.generate()}}
+            end
+
+          [] ->
             {:ok, {:new, Ash.UUIDv7.generate()}}
+
+          _ ->
+            {:error, :ambiguous_contact_identity}
         end
-
-      owner_uid ->
-        Logging.info(
-          "principals.platform_subject.contact_join",
-          "Platform subject joined an existing principal by email or mobile",
-          %{principal_uid: owner_uid, external_id: external_id}
-        )
-
-        {:ok, {:selected, owner_uid}}
     end
+  end
+
+  defp email_owner_uids(email) do
+    contact = List.wrap(contact_owner_uid(:email, email))
+
+    identities =
+      ExternalIdentity
+      |> Ash.Query.filter(
+        provider == "email" and external_id == ^email and
+          fragment("?->>'origin' = 'directory'", metadata)
+      )
+      |> Ankole.Ash.read!()
+
+    credentials =
+      Ankole.Principals.SiteCredential
+      |> Ash.Query.filter(provider == "email_otp" and identifier == ^email)
+      |> Ankole.Ash.read!()
+
+    contact ++ Enum.map(identities ++ credentials, & &1.principal_uid)
   end
 
   defp normalized_email_attr(attrs) do

@@ -59,12 +59,17 @@ defmodule AnkoleWeb.BrainControllerTest do
 
   test "manual Dreaming requires Brain update permission", %{conn: conn} do
     {conn, principal_uid} = console_conn_with_principal(conn)
-    Repo.delete_all(from(grant in Ankole.AuthZ.Grant, where: grant.resource_pattern == "**"))
+
+    Repo.delete_all(
+      from(grant in Ankole.AuthZ.Grant,
+        where: grant.resource_pattern in ["site_console:**", "tenant_console:**"]
+      )
+    )
 
     assert {:ok, _grant} =
              Ankole.AuthZ.create_permission_grant(%{
                principal_uid: principal_uid,
-               resource_pattern: "brain",
+               resource_pattern: "site_console:brain",
                action: "read",
                condition: "true",
                metadata: %{}

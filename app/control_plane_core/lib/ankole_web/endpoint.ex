@@ -12,6 +12,10 @@ defmodule AnkoleWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :ankole
 
   @http_entry Application.compile_env(:ankole, :http_entry, AnkoleWeb.Router)
+  @rewrite_on if(Application.compile_env(:ankole, :edition) == :saas,
+                do: [:x_forwarded_proto, :x_forwarded_for],
+                else: [:x_forwarded_proto]
+              )
 
   # The session payload is stored in the cookie and sealed with Ankole Kernel
   # AEAD. The browser carries the payload but cannot read or tamper with it.
@@ -20,15 +24,11 @@ defmodule AnkoleWeb.Endpoint do
 
   # An OIDC callback URL must carry the scheme the browser used. This trusts
   # `x-forwarded-proto` from every caller. SaaS also uses the ingress-supplied
-  # client IP for email protection. The ingress must remove incoming forwarded
+  # client IP. The ingress must remove incoming forwarded
   # headers, set its own values, and be the only public path to this process.
   plug :reset_tenant
 
-  plug Plug.RewriteOn,
-       if(Application.compile_env(:ankole, :edition) == :saas,
-         do: [:x_forwarded_proto, :x_forwarded_for],
-         else: [:x_forwarded_proto]
-       )
+  plug Plug.RewriteOn, @rewrite_on
 
   # One WebSocket per Agent Computer Worker. The worker auth key arrives as
   # the Phoenix auth token; binary frames carry protobuf envelopes and one
@@ -46,7 +46,7 @@ defmodule AnkoleWeb.Endpoint do
   socket "/pod/socket", AnkoleWeb.PodSocket,
     websocket: [
       check_origin: :conn,
-      connect_info: [:uri],
+      connect_info: [:uri, :peer_data, :x_headers],
       max_frame_size: Ankole.Pod.DocumentWire.max_bytes(),
       timeout: 60_000
     ],
@@ -94,6 +94,11 @@ defmodule AnkoleWeb.Endpoint do
   plug :session_cookies
   plug :site_admin_console
   plug :dispatch_http_entry
+
+  def client_ip(address, headers) do
+    conn = Plug.RewriteOn.call(%Plug.Conn{remote_ip: address, req_headers: headers}, @rewrite_on)
+    conn.remote_ip
+  end
 
   # Keep business plug implementations out of the endpoint's compile dependencies.
   # Standard library plugs keep their normal compile-time initialization.

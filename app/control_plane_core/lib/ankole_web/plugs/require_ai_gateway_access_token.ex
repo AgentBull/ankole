@@ -60,6 +60,17 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
          :active <- principal.status,
          :ok <- authorize_non_client_origin(conn, source) do
       conn
+      |> assign(
+        :authz_actor,
+        Ankole.AuthZ.Actor.new(principal,
+          authn: %{
+            "surface" => "agent_api_key",
+            "amr" => ["api_key"],
+            "ip" => to_string(:inet.ntoa(conn.remote_ip))
+          }
+        )
+      )
+      |> then(fn conn -> Ash.PlugHelpers.set_actor(conn, conn.assigns.authz_actor) end)
       |> assign(:current_agent_uid, principal.uid)
       |> assign(:current_ai_gateway_subject_uid, principal.uid)
       |> assign(:current_ai_gateway_subject_type, "agent")
@@ -71,10 +82,14 @@ defmodule AnkoleWeb.Plugs.RequireAIGatewayAccessToken do
   end
 
   defp authenticate_oidc_claims(conn, token, claims, source) do
-    with {:ok, _principal} <- put_subject_tenant(claims["sub"]),
+    with {:ok, principal} <- put_subject_tenant(claims["sub"]),
          {:ok, grant} <- Grant.authorize_claims(token, claims, conn.body_params["model"]),
-         :ok <- authorize_client_origin(conn, source, grant.client) do
+         :ok <- authorize_client_origin(conn, source, grant.client),
+         {:ok, actor} <-
+           OIDC.actor_for_session(claims["sid"], principal, to_string(:inet.ntoa(conn.remote_ip))) do
       conn
+      |> assign(:authz_actor, actor)
+      |> Ash.PlugHelpers.set_actor(actor)
       |> assign(:current_principal_uid, grant.principal_uid)
       |> assign(:current_ai_gateway_subject_uid, grant.principal_uid)
       |> assign(:current_ai_gateway_subject_type, "oidc_human")

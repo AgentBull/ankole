@@ -8,6 +8,8 @@ defmodule Ankole.Conversations.TargetTest do
     %{principal: human} = human_fixture()
     %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
 
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
+
     {:ok, native} =
       Ankole.ConversationsFixtures.create(human.uid, %{
         conversation_id: Ecto.UUID.generate(),

@@ -7,6 +7,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
   import Ecto.Query
   import Ankole.E2E.PodContentStory
 
+  alias Ankole.AuthZ.Actor
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.E2E.PodContentBrowser, as: Browser
   alias Ankole.E2E.PodContentEvidence, as: Evidence
@@ -91,11 +92,11 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
 
       assert page.created_by.uid == ctx.agent.uid
       assert page.created_by.tenant_id == Repo.tenant_id!()
-      assert {:ok, _} = Pages.authorize(owner, page.id, "page_view")
-      assert {:ok, _} = Pages.authorize(ctx.agent.uid, page.id, "page_edit")
+      assert {:ok, _} = Pages.authorize(ctx.owner_actor, page.id, "page_view")
+      assert {:ok, _} = Pages.authorize(Actor.new(ctx.agent), page.id, "page_edit")
     end
 
-    {:ok, %{tables: tables}} = Database.list_tables(owner, ledger.id)
+    {:ok, %{tables: tables}} = Database.list_tables(ctx.owner_actor, ledger.id)
     table = Enum.find(tables, &(&1.name == "October sales"))
     assert table, "Agent did not save the requested business table"
     definitions = Database.fields(table.id)
@@ -129,7 +130,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
       assert actual == expected
     end
 
-    assert {:ok, %{records: records}} = Database.query(owner, table.id, %{})
+    assert {:ok, %{records: records}} = Database.query(ctx.owner_actor, table.id, %{})
     assert length(records) == 2
 
     assert Map.new(records, fn record ->
@@ -141,7 +142,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
            }
 
     assert {:ok, %{groups: [%{metrics: %{"sales" => 465}}]}} =
-             Database.aggregate(owner, table.id, %{
+             Database.aggregate(ctx.owner_actor, table.id, %{
                metrics: [%{operation: "sum", field_id: total.id, alias: "sales"}]
              })
 
@@ -155,7 +156,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     assert_database_reference(content.content, ledger.id)
     assert Regex.match?(~r/<embed\b[^>]*\bref="#{applet.id}"/, content.content)
 
-    assert {:ok, manifest} = PageFiles.manifest(owner, applet.id)
+    assert {:ok, manifest} = PageFiles.manifest(ctx.owner_actor, applet.id)
     paths = Enum.map(manifest.files, & &1.path)
     assert "src/main.tsx" in paths
     assert "dist/index.html" in paths
@@ -165,15 +166,17 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
       manifest.files
       |> Enum.filter(&String.starts_with?(&1.path, "src/"))
       |> Enum.map_join("\n", fn file ->
-        {:ok, _, bytes} = PageFiles.read(owner, applet.id, file.path)
+        {:ok, _, bytes} = PageFiles.read(ctx.owner_actor, applet.id, file.path)
         bytes
       end)
 
     assert source =~ "@ankole/applet-sdk"
-    assert {:ok, _, artifact} = PageFiles.read(owner, applet.id, "dist/app.js")
+    assert {:ok, _, artifact} = PageFiles.read(ctx.owner_actor, applet.id, "dist/app.js")
     refute artifact =~ "jsxDEV"
 
-    detail = await_delivery(owner, conversation_id, message_id, ctx.agent.uid, report.id)
+    detail =
+      await_delivery(ctx.owner_actor, conversation_id, message_id, ctx.agent.uid, report.id)
+
     delivered? = delivered_after?(detail, message_id, ctx.agent.uid, report.id)
 
     delivery_evidence(ctx, Repo.reload!(completion), detail, delivered?)
@@ -186,7 +189,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
            """
 
     assert {:ok, %{source_conversation: %{id: ^conversation_id, deleted: false}}} =
-             Pages.get(owner, report.id)
+             Pages.get(ctx.owner_actor, report.id)
 
     refute Enum.any?(Evidence.record_writes(record_observer, table.id, :before_human), fn write ->
              write["data"][primary.id] == "Cedar"
@@ -194,7 +197,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
            "The Agent wrote Cedar before the Human's first click, even if it later removed or renamed the record"
 
     Browser.report!(ctx, owner, conversation_id, report.id, applet.id, :add)
-    assert {:ok, %{records: after_human}} = Database.query(owner, table.id, %{})
+    assert {:ok, %{records: after_human}} = Database.query(ctx.owner_actor, table.id, %{})
     assert length(after_human) == 3
     cedar = Enum.find(after_human, &(&1["data"][primary.id] == "Cedar"))
     assert cedar["data"][primary.id] == "Cedar"
@@ -215,7 +218,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     assert cedar_actor == "ankole:#{Repo.tenant_id!()}:principal/#{owner}"
 
     assert {:ok, %{groups: [%{metrics: %{"sales" => 485}}]}} =
-             Database.aggregate(owner, table.id, %{
+             Database.aggregate(ctx.owner_actor, table.id, %{
                metrics: [%{operation: "sum", field_id: total.id, alias: "sales"}]
              })
 
@@ -236,7 +239,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     refute followup_request["text"] =~ report.id
 
     assert {:ok, %{conversation: %{page_id: page_id}}} =
-             Conversations.get(owner, followup_conversation_id)
+             Conversations.get(ctx.owner_actor, followup_conversation_id)
 
     assert page_id == report.id
 
@@ -244,7 +247,13 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     followup = complete_request!(ctx, followup_input)
 
     followup_detail =
-      await_delivery(owner, followup_conversation_id, followup_id, ctx.agent.uid, report.id)
+      await_delivery(
+        ctx.owner_actor,
+        followup_conversation_id,
+        followup_id,
+        ctx.agent.uid,
+        report.id
+      )
 
     followup_delivered? = delivered_after?(followup_detail, followup_id, ctx.agent.uid, report.id)
     delivery_evidence(ctx, followup, followup_detail, followup_delivered?)
@@ -270,21 +279,21 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     assert Repo.get!(Page, report.id).revision > report.revision
     assert_database_reference(updated.content, ledger.id)
     assert Regex.match?(~r/<embed\b[^>]*\bref="#{applet.id}"/, updated.content)
-    assert {:ok, %{records: ^after_human}} = Database.query(owner, table.id, %{})
+    assert {:ok, %{records: ^after_human}} = Database.query(ctx.owner_actor, table.id, %{})
     Browser.report!(ctx, owner, followup_conversation_id, report.id, applet.id, :read)
 
-    assert {:ok, _} = Pages.remove_space_agent(owner, ctx.agent.uid)
-    assert {:error, :forbidden} = Pages.authorize(ctx.agent.uid, report.id, "page_view")
-    assert {:error, :forbidden} = Database.query(ctx.agent.uid, table.id, %{})
-    assert {:ok, _} = Database.query(owner, table.id, %{})
+    assert {:ok, _} = Pages.remove_space_agent(ctx.owner_actor, ctx.agent.uid)
+    assert {:error, :forbidden} = Pages.authorize(Actor.new(ctx.agent), report.id, "page_view")
+    assert {:error, :forbidden} = Database.query(Actor.new(ctx.agent), table.id, %{})
+    assert {:ok, _} = Database.query(ctx.owner_actor, table.id, %{})
 
-    assert {:ok, ^conversation_id} = Conversations.delete(owner, conversation_id)
+    assert {:ok, ^conversation_id} = Conversations.delete(ctx.owner_actor, conversation_id)
 
     assert {:ok, %{source_conversation: %{deleted: true}, content: remaining}} =
-             Pages.get(owner, report.id)
+             Pages.get(ctx.owner_actor, report.id)
 
     assert remaining.content == updated.content
-    assert {:ok, %{records: remaining_records}} = Database.query(owner, table.id, %{})
+    assert {:ok, %{records: remaining_records}} = Database.query(ctx.owner_actor, table.id, %{})
     assert remaining_records == after_human
     refute Repo.exists?(from m in Message, where: m.conversation_id == ^conversation_id)
 
@@ -343,7 +352,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
 
       detail =
         await_delivery(
-          owner,
+          ctx.owner_actor,
           request["conversation_id"],
           request["message_id"],
           ctx.agent.uid,
@@ -353,26 +362,26 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
       assert delivered_after?(detail, request["message_id"], ctx.agent.uid, page.id)
     end
 
-    assert {:ok, manifest} = PageFiles.manifest(owner, applet.id)
+    assert {:ok, manifest} = PageFiles.manifest(ctx.owner_actor, applet.id)
 
     for path <- ["src/main.tsx", "dist/index.html", "dist/app.js"],
         do: assert(Enum.any?(manifest.files, &(&1.path == path)))
 
-    assert {:ok, _, artifact} = PageFiles.read(owner, applet.id, "dist/app.js")
+    assert {:ok, _, artifact} = PageFiles.read(ctx.owner_actor, applet.id, "dist/app.js")
     refute artifact =~ "jsxDEV"
     Browser.counter!(ctx, owner, request["conversation_id"], applet.id)
 
-    assert {:ok, _} = Pages.authorize(ctx.agent.uid, note.id, "page_edit")
-    assert {:error, :forbidden} = Pages.authorize(ctx.agent.uid, note.id, "page_manage")
-    assert {:ok, %{agents: initial_agents}} = Pages.space(owner)
+    assert {:ok, _} = Pages.authorize(Actor.new(ctx.agent), note.id, "page_edit")
+    assert {:error, :forbidden} = Pages.authorize(Actor.new(ctx.agent), note.id, "page_manage")
+    assert {:ok, %{agents: initial_agents}} = Pages.space(ctx.owner_actor)
     assert %{role: "edit"} = Enum.find(initial_agents, &(&1.principal_uid == ctx.agent.uid))
 
     IO.puts(
       "Pod move permission observed: source=#{note.id} page_edit=true page_manage=false space_role=edit"
     )
 
-    assert {:ok, _} = Pages.authorize(ctx.agent.uid, shelf.id, "page_edit")
-    assert {:error, :forbidden} = Pages.authorize(ctx.agent.uid, shelf.id, "page_manage")
+    assert {:ok, _} = Pages.authorize(Actor.new(ctx.agent), shelf.id, "page_edit")
+    assert {:error, :forbidden} = Pages.authorize(Actor.new(ctx.agent), shelf.id, "page_manage")
     assert is_nil(Repo.get!(Page, note.id).parent_id)
     assert Repo.get!(PageContent, note.id).content == original.content
 
@@ -391,9 +400,9 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     moved = Repo.get!(Page, note.id)
     assert moved.parent_id == shelf.id
     assert Repo.get!(PageContent, note.id).content == original.content
-    assert {:ok, _} = Pages.authorize(ctx.agent.uid, note.id, "page_edit")
-    assert {:error, :forbidden} = Pages.authorize(ctx.agent.uid, note.id, "page_manage")
-    assert {:ok, %{agents: moved_agents}} = Pages.space(owner)
+    assert {:ok, _} = Pages.authorize(Actor.new(ctx.agent), note.id, "page_edit")
+    assert {:error, :forbidden} = Pages.authorize(Actor.new(ctx.agent), note.id, "page_manage")
+    assert {:ok, %{agents: moved_agents}} = Pages.space(ctx.owner_actor)
     assert %{role: "edit"} = Enum.find(moved_agents, &(&1.principal_uid == ctx.agent.uid))
     assert Repo.aggregate(from(p in Page, where: p.type == :doc), :count) == 2
     assert Repo.aggregate(from(p in Page, where: p.type == :applet), :count) == 1
@@ -402,7 +411,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
 
     detail =
       await_delivery(
-        owner,
+        ctx.owner_actor,
         request["conversation_id"],
         move_request["message_id"],
         ctx.agent.uid,
@@ -465,12 +474,18 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     assert content.content =~ source
 
     assert {:ok, %{source_conversation: %{id: conversation_id, deleted: false}}} =
-             Pages.get(owner, report.id)
+             Pages.get(ctx.owner_actor, report.id)
 
     assert conversation_id == request["conversation_id"]
 
     detail =
-      await_delivery(owner, conversation_id, request["message_id"], ctx.agent.uid, report.id)
+      await_delivery(
+        ctx.owner_actor,
+        conversation_id,
+        request["message_id"],
+        ctx.agent.uid,
+        report.id
+      )
 
     assert delivered_after?(detail, request["message_id"], ctx.agent.uid, report.id)
     delivery_evidence(ctx, completion, detail, true)
@@ -529,11 +544,11 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     report = Repo.get_by!(Page, title: title, type: :doc)
     database = Repo.get_by!(Page, parent_id: report.id, type: :database)
     applet = Repo.get_by!(Page, parent_id: report.id, type: :applet)
-    {:ok, %{tables: [table]}} = Database.list_tables(owner, database.id)
+    {:ok, %{tables: [table]}} = Database.list_tables(ctx.owner_actor, database.id)
     fields = Database.fields(table.id)
     stock = Enum.find(fields, &(&1.name == "Available"))
     assert stock && stock.type == :number
-    assert {:ok, %{records: [record]}} = Database.query(owner, table.id, %{})
+    assert {:ok, %{records: [record]}} = Database.query(ctx.owner_actor, table.id, %{})
     assert record["data"][stock.id] == 5
 
     assert Enum.all?(Evidence.record_writes(observer, table.id, :before_human), fn write ->
@@ -541,9 +556,9 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
            end),
            "The Agent consumed stock before the Human's first reservation"
 
-    assert {:ok, manifest} = PageFiles.manifest(owner, applet.id)
+    assert {:ok, manifest} = PageFiles.manifest(ctx.owner_actor, applet.id)
     assert Enum.any?(manifest.files, &(&1.path == "server/main.js"))
-    assert {:ok, _, server} = PageFiles.read(owner, applet.id, "server/main.js")
+    assert {:ok, _, server} = PageFiles.read(ctx.owner_actor, applet.id, "server/main.js")
     assert server =~ "AnkoleRuntime"
 
     assert Regex.match?(
@@ -558,7 +573,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
 
     detail =
       await_delivery(
-        owner,
+        ctx.owner_actor,
         request["conversation_id"],
         request["message_id"],
         ctx.agent.uid,
@@ -570,7 +585,7 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
 
     Browser.inventory!(ctx, owner, request["conversation_id"], report.id, applet.id, :reserve)
 
-    assert {:ok, %{records: [reserved]}} = Database.query(owner, table.id, %{})
+    assert {:ok, %{records: [reserved]}} = Database.query(ctx.owner_actor, table.id, %{})
     assert reserved["id"] == record["id"]
     assert reserved["data"][stock.id] == 3
     assert Repo.get_by!(DbRecord, table_id: table.id, id: record["id"]).updated_by.uid == owner
@@ -602,13 +617,13 @@ defmodule Ankole.E2E.PodContentRealLLMTest do
     followup_completion = complete_request!(ctx, followup_input, require_job: false)
     assert Repo.get!(Page, applet.id).revision > published_revision
     assert Repo.aggregate(from(p in Page, where: p.type == :applet), :count) == 1
-    assert {:ok, %{records: [retained]}} = Database.query(owner, table.id, %{})
+    assert {:ok, %{records: [retained]}} = Database.query(ctx.owner_actor, table.id, %{})
     assert retained["id"] == record["id"]
     assert retained["data"][stock.id] == 3
 
     followup_detail =
       await_delivery(
-        owner,
+        ctx.owner_actor,
         followup["conversation_id"],
         followup["message_id"],
         ctx.agent.uid,

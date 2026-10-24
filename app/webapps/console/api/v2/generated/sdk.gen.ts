@@ -42,6 +42,9 @@ import type {
   CancelWebhookEndpointData,
   CancelWebhookEndpointErrors,
   CancelWebhookEndpointResponses,
+  ChangeHumanMembershipData,
+  ChangeHumanMembershipErrors,
+  ChangeHumanMembershipResponses,
   ClassifyWorkAccessData,
   ClassifyWorkAccessErrors,
   ClassifyWorkAccessResponses,
@@ -69,9 +72,9 @@ import type {
   CreateIdentityMappingData,
   CreateIdentityMappingErrors,
   CreateIdentityMappingResponses,
-  CreateLocalUserData,
-  CreateLocalUserErrors,
-  CreateLocalUserResponses,
+  CreateMemberData,
+  CreateMemberErrors,
+  CreateMemberResponses,
   CreateOidcClientData,
   CreateOidcClientErrors,
   CreateOidcClientResponses,
@@ -393,9 +396,6 @@ import type {
   ResetAppConfigurationData,
   ResetAppConfigurationErrors,
   ResetAppConfigurationResponses,
-  ResetLocalPasswordData,
-  ResetLocalPasswordErrors,
-  ResetLocalPasswordResponses,
   ResolveBrainTakeData,
   ResolveBrainTakeErrors,
   ResolveBrainTakeResponses,
@@ -974,22 +974,6 @@ export const updatePrincipalGroup = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * reset_local_password operation on human_access resource
- */
-export const resetLocalPassword = <ThrowOnError extends boolean = false>(
-  options: Options<ResetLocalPasswordData, ThrowOnError>
-): RequestResult<ResetLocalPasswordResponses, ResetLocalPasswordErrors, ThrowOnError> =>
-  (options.client ?? client).post<ResetLocalPasswordResponses, ResetLocalPasswordErrors, ThrowOnError>({
-    security: [{ name: 'Cookie', type: 'apiKey' }],
-    url: '/api/v2/principals/{uid}/local-password-resets',
-    ...options,
-    headers: {
-      'Content-Type': 'application/vnd.api+json',
-      ...options.headers
-    }
-  })
-
-/**
  * background_activity_jobs operation on background_activities_operation resource
  */
 export const backgroundActivityJobs = <ThrowOnError extends boolean = false>(
@@ -1322,7 +1306,7 @@ export const getPrincipal = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * Updates the display name or the email of a Human with local sign-in.
+ * Updates the display name or directory email of a Human.
  */
 export const updateHuman = <ThrowOnError extends boolean = false>(
   options: Options<UpdateHumanData, ThrowOnError>
@@ -1431,6 +1415,22 @@ export const listPrincipalGroupGrants = <ThrowOnError extends boolean = false>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/principal-groups/{name}/grants',
     ...options
+  })
+
+/**
+ * Changes Human membership and revokes prior access versions.
+ */
+export const changeHumanMembership = <ThrowOnError extends boolean = false>(
+  options: Options<ChangeHumanMembershipData, ThrowOnError>
+): RequestResult<ChangeHumanMembershipResponses, ChangeHumanMembershipErrors, ThrowOnError> =>
+  (options.client ?? client).patch<ChangeHumanMembershipResponses, ChangeHumanMembershipErrors, ThrowOnError>({
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/principals/{uid}/membership',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -1746,12 +1746,12 @@ export const listPrincipals = <ThrowOnError extends boolean = false>(
   })
 
 /**
- * Creates a Human with an email and a generated one-time local password.
+ * Creates a Pod member profile. Personal login requires email verification.
  */
-export const createLocalUser = <ThrowOnError extends boolean = false>(
-  options: Options<CreateLocalUserData, ThrowOnError>
-): RequestResult<CreateLocalUserResponses, CreateLocalUserErrors, ThrowOnError> =>
-  (options.client ?? client).post<CreateLocalUserResponses, CreateLocalUserErrors, ThrowOnError>({
+export const createMember = <ThrowOnError extends boolean = false>(
+  options: Options<CreateMemberData, ThrowOnError>
+): RequestResult<CreateMemberResponses, CreateMemberErrors, ThrowOnError> =>
+  (options.client ?? client).post<CreateMemberResponses, CreateMemberErrors, ThrowOnError>({
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/principals',
     ...options,

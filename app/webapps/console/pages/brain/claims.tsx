@@ -40,13 +40,7 @@ import type { ListBrainClaimsResponse } from '../../api/v2/generated/types.gen'
 import { nextPageParams, fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
-import {
-  FilterSwitch,
-  LoadMore,
-  ResourceListPage,
-  ResourceSearch,
-  useResourceSearchDraft
-} from '../../console-list-page'
+import { FilterSwitch, ResourceListPage, ResourceSearch, useResourceSearchDraft } from '../../console-list-page'
 import { BrainSubNav, brainObjectPath } from './brain-nav'
 
 const RESOLUTION_QUALITIES = ['correct', 'incorrect', 'partial', 'unresolvable'] as const
@@ -116,8 +110,7 @@ export function BrainClaimsPage() {
         emptyTitle={t('console.brain.claims_empty_title')}
         emptyDescription={t('console.brain.claims_empty_description')}
         emptyIcon={<RiChatQuoteLine aria-hidden />}
-        error={claims.error}
-        footer={<LoadMore query={claims} />}
+        pagination={claims}
         isFiltered={Boolean(query.trim() || objectSlug.trim() || claimType !== 'all' || !currentOnly)}
         onClearFilters={() => {
           setQuery('')

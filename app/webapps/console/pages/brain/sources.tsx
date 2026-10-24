@@ -34,7 +34,7 @@ import { nextPageParams, fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
 import { DiscardConfirmDialog, LabeledField, focusFirstInvalidControl, useDialogDiscardGuard } from '../../console-form'
-import { LoadMore, ResourceListPage } from '../../console-list-page'
+import { ResourceListPage } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
 
 const SOURCE_KINDS = ['file', 'url'] as const
@@ -132,8 +132,7 @@ export function BrainSourcesPage() {
         emptyTitle={t('console.brain.sources_empty_title')}
         emptyDescription={t('console.brain.sources_empty_description')}
         emptyIcon={<RiInboxArchiveLine aria-hidden />}
-        error={sources.error}
-        footer={<LoadMore query={sources} />}
+        pagination={sources}
         createAction={
           <Button size="sm" type="button" onClick={openRegister}>
             {t('console.brain.register_source')}

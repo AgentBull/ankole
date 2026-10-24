@@ -8,6 +8,7 @@ defmodule Ankole.Sessions.PendingCall do
     :args,
     :wait,
     :worker_name,
+    :worker_args,
     :continue,
     :mode,
     status: :queued,
@@ -56,7 +57,7 @@ defmodule Ankole.Sessions.PendingCall do
         &%{
           &1
           | worker_name: name,
-            args: args,
+            worker_args: args,
             continue: continue,
             tool: %{&1.tool | retry_safe: true}
         }

@@ -9,7 +9,6 @@ import { externalServicesCommand } from './commands/external-services'
 import { generateCommand, runGenerate } from './commands/generate'
 import { isCICommand } from './commands/is-ci'
 import { isDevCommand } from './commands/is-dev'
-import { localPasswordCommand } from './commands/local-password'
 import { logsCommand } from './commands/logs'
 import { pinBaseImageCommand } from './commands/pin-base-image'
 import { showCommand } from './commands/show'
@@ -35,7 +34,6 @@ const app = new Crust('bun kit', { description: 'Ankole Agent repository develop
     agentComputerTestCommand(),
     pinBaseImageCommand(),
     devCommand(),
-    localPasswordCommand(),
     logsCommand(),
     showCommand(),
     analyzeCommand()

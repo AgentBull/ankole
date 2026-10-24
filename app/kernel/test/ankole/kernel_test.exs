@@ -157,18 +157,6 @@ defmodule Ankole.KernelTest do
     assert NativeKernel.aead_decrypt(@aead_ciphertext, @aead_key) == "secret"
   end
 
-  test "argon2id helpers hash and verify passwords" do
-    hash = NativeKernel.argon2id_hash("correct horse battery staple")
-
-    assert String.starts_with?(hash, "$argon2id$v=19$")
-    assert NativeKernel.argon2id_verify("correct horse battery staple", hash)
-    refute NativeKernel.argon2id_verify("wrong password", hash)
-    assert NativeKernel.argon2id_hash("correct horse battery staple") != hash
-
-    assert {:error, reason} = NativeKernel.argon2id_verify("password", "not a phc string")
-    assert reason =~ "invalid password hash"
-  end
-
   # RS256 token signed by a throwaway test key whose public JWK is below;
   # claims: iss api.botframework.com, aud 11111111-…, exp 2100-01-01.
   @rs256_token "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InRlc3Qta2V5LTEifQ.eyJpc3MiOiJodHRwczovL2FwaS5ib3RmcmFtZXdvcmsuY29tIiwiYXVkIjoiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1Iiwic2VydmljZVVybCI6Imh0dHBzOi8vc21iYS50cmFmZmljbWFuYWdlci5uZXQvdGVhbXMvIiwiZXhwIjo0MTAyNDQ0ODAwfQ.ZIR18QFxalBM4yQuG2cH1M30wm3gYEdPeQyjxiJMe008iJ-r2-bE8HUMmhlZHqdnUMpH8YvKfKz_M4yCVuDD6oNJXBBZHHN6PGW5peuaE5yRf9u6o0R1xArV-LTxkW3te2RgHSEbvaQrUUozASQbbP5UjpCzpB172Q5V2tyc2YvXsjZug0gRAtY3DdONrijJm4wxusyYT4Yaf2b_wJSKQJ-g6vlzq5LENdWCWP-cq_aHRdnWcmsMepH3oE2z0g38YDlumNN9gZV6L3JQpUFnKv_e46jIAnixV-Dl1ZXoSdnB7psVACgnaVkn4FtB5ToEms3UuYyPfIaYPlQpXm-JJg"

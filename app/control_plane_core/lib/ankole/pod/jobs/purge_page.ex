@@ -139,7 +139,9 @@ defmodule Ankole.Pod.Jobs.PurgePage do
     Pages.lock_tree()
 
     with {:ok, _} <- Files.commit_in_tx(:pod, [], [Ankole.Pod.Files.prefix(page_id)]) do
-      Access.page_grants(page_id) |> Access.remove_grants()
+      Access.grants(or: [[target_page_id: page_id], [source_page_id: page_id]])
+      |> Access.remove_grants()
+
       {:ok, :cleaned}
     end
   end

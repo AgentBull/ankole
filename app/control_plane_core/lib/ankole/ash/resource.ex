@@ -8,7 +8,26 @@ defmodule Ankole.Ash.Resource do
   `after_commit/1`.
   """
 
+  # Authorizers are runtime behaviours. Their declaration has no compile-time
+  # DSL dependency; each authorization DSL extension is listed separately.
+  def runtime_authorizers(opts, env) do
+    Keyword.update(opts, :authorizers, [], fn authorizers ->
+      Macro.expand_literals(authorizers, %{env | function: {:__ash_authorizers__, 0}})
+    end)
+  end
+
+  @doc """
+  Builds `:struct` constraints for a generic action's return value.
+
+  The target module is read when Ash casts the result or builds an API schema.
+  It is a runtime dependency; nested field types keep their compile dependencies.
+  """
+  defmacro struct_constraints(module) do
+    [instance_of: Spark.Dsl.Extension.expand_alias(module, __CALLER__)]
+  end
+
   defmacro __using__(opts) do
+    opts = runtime_authorizers(opts, __CALLER__)
     {tenancy, opts} = Keyword.pop!(opts, :tenancy)
     {tenant_in_primary_key, opts} = Keyword.pop(opts, :tenant_in_primary_key, false)
 
@@ -31,7 +50,8 @@ defmodule Ankole.Ash.Resource do
         only: [
           create_if_absent: 2,
           create_if_absent: 3,
-          after_commit: 1
+          after_commit: 1,
+          struct_constraints: 1
         ]
 
       def __tenancy__, do: unquote(tenancy)

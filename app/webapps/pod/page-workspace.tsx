@@ -845,30 +845,21 @@ function ReferencePageDialog({
   onClose(): void
   returnFocus: RefObject<HTMLElement | null>
 }) {
-  const pages = useQuery(pagesQuery('all'))
   return (
     <Dialog open onOpenChange={open => !open && onClose()}>
       <DialogContent className="pod-dialog pod-picker-dialog" closeLabel={t('common.close')} finalFocus={returnFocus}>
         <DialogTitle>{t('pod.content.reference_page')}</DialogTitle>
-        {pages.isPending ? (
-          <p role="status">{t('pod.content.loading')}</p>
-        ) : (
-          <Suspense fallback={<p role="status">{t('pod.content.loading')}</p>}>
-            <PagePicker
-              label={t('pod.content.choose_a_page')}
-              pages={pages.data?.pages ?? []}
-              disabled={pages.isPending}
-              onSelect={id => {
-                const page = pages.data?.pages.find(page => page.id === id)
-                if (page) {
-                  onSelect(page)
-                  onClose()
-                }
-              }}
-            />
-          </Suspense>
-        )}
-        <ContentError error={pages.error} />
+        <Suspense fallback={<p role="status">{t('pod.content.loading')}</p>}>
+          <PagePicker
+            label={t('pod.content.choose_a_page')}
+            onSelect={(_id, page) => {
+              if (page) {
+                onSelect(page)
+                onClose()
+              }
+            }}
+          />
+        </Suspense>
       </DialogContent>
     </Dialog>
   )

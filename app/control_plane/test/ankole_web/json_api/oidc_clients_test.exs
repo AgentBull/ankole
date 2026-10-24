@@ -155,7 +155,9 @@ defmodule AnkoleWeb.JSONAPI.OIDCClientsTest do
 
     Repo.delete_all(
       from grant in Grant,
-        where: grant.resource_pattern == "**" or grant.principal_uid == ^admin_uid
+        where:
+          grant.resource_pattern in ["site_console:**", "tenant_console:**"] or
+            grant.principal_uid == ^admin_uid
     )
 
     assert %{"errors" => [%{"code" => "forbidden"}]} =
@@ -171,7 +173,7 @@ defmodule AnkoleWeb.JSONAPI.OIDCClientsTest do
     assert {:ok, _grant} =
              AuthZ.create_permission_grant(%{
                principal_uid: admin_uid,
-               resource_pattern: "oidc_client:#{client.id}",
+               resource_pattern: "site_console:oidc_client:#{client.id}",
                action: "read",
                condition: "true",
                metadata: %{}

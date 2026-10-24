@@ -15,8 +15,19 @@ defmodule Ankole.Principals.Principal.Actions do
     |> Ankole.Errors.wrap(&Ankole.Principals.describe_refusal/1)
   end
 
-  defp action(:create_local_user, input, _context) do
-    Ankole.Principals.create_local_user_in_tx(input.arguments)
+  defp action(:change_human_membership, input, _context) do
+    Ankole.Principals.change_human_membership_in_tx(
+      input.arguments.uid,
+      input.arguments.membership
+    )
+    |> Ankole.Errors.wrap(&Ankole.Principals.describe_refusal/1)
+  end
+
+  defp action(:create_member, input, _context) do
+    with(
+      {:ok, principal} <- Ankole.Principals.create_member_in_tx(input.arguments),
+      do: {:ok, %{uid: principal.uid, email: principal.human_user.email}}
+    )
     |> Ankole.Errors.wrap(&Ankole.Principals.describe_refusal/1)
   end
 end

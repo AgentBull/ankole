@@ -14,8 +14,9 @@ defmodule Ankole.Pod.Database.Write do
     reverse_fields: %{}
   ]
 
-  def open(uid, id) do
-    with {:ok, table} <- Database.table_access(uid, id, "page_edit"),
+  def open(%Ankole.AuthZ.Actor{} = actor, id, intent \\ :write_records)
+      when intent in [:write_records, :manage_schema] do
+    with {:ok, table} <- Database.fetch_table(id),
          {:ok, limits} <- Config.limits() do
       tables =
         DbTable
@@ -30,13 +31,15 @@ defmodule Ankole.Pod.Database.Write do
           {:error, :not_found}
 
         locked ->
-          {:ok,
-           %__MODULE__{
-             uid: uid,
-             table: locked,
-             tables: tables,
-             limits: limits
-           }}
+          with {:ok, _} <- Database.table_access(actor, locked, intent) do
+            {:ok,
+             %__MODULE__{
+               uid: Ankole.AuthZ.Actor.uid(actor),
+               table: locked,
+               tables: tables,
+               limits: limits
+             }}
+          end
       end
     end
   end

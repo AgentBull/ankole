@@ -21,7 +21,7 @@ import { contentKeys, pageAPI, type Page } from './content-api'
 import { useContent } from './content-context'
 import { contentError } from './content-errors'
 import { useCopyPageLink } from './page-sharing'
-import { currentPlace, stepRequest } from './state/page-move'
+import { stepRequest } from './state/page-move'
 
 const title = (page: Page) => page.title || t('pod.content.untitled')
 
@@ -31,20 +31,20 @@ export type PageActions = ReturnType<typeof usePageActions>
  * Page changes from navigation run at once, and their toasts undo them. Keep this hook in a
  * component that outlives the menu, so an undo still runs after the menu closes.
  */
-export function usePageActions(pages: Page[]) {
-  return { move: usePageMove(pages), trash: usePageTrash(), favorite: usePageFavorite() }
+export function usePageActions() {
+  return { move: usePageMove(), trash: usePageTrash(), favorite: usePageFavorite() }
 }
 
-function usePageMove(pages: Page[]) {
+function usePageMove() {
   const client = useQueryClient()
   const move = useMutation({
-    mutationFn: ({ page, request }: { page: Page; request: PodPageMove; undo?: PodPageMove }) =>
+    mutationFn: ({ page, request }: { page: Page; request: PodPageMove; showUndo?: boolean }) =>
       pageAPI.move(page.id, request),
-    onSuccess: async (_result, { page, undo }) => {
+    onSuccess: async (result, { page, showUndo }) => {
       await client.invalidateQueries({ queryKey: contentKeys.all })
-      if (!undo) return
+      if (!showUndo) return
       toast.success(t('pod.sidebar.page_moved', { title: title(page) }), {
-        action: { label: t('pod.sidebar.undo'), onClick: () => move.mutate({ page, request: undo }) }
+        action: { label: t('pod.sidebar.undo'), onClick: () => move.mutate({ page, request: result.undo }) }
       })
     },
     onError: error => {
@@ -52,7 +52,7 @@ function usePageMove(pages: Page[]) {
       void client.invalidateQueries({ queryKey: contentKeys.lists })
     }
   })
-  return (page: Page, request: PodPageMove) => move.mutate({ page, request, undo: currentPlace(pages, page) })
+  return (page: Page, request: PodPageMove) => move.mutate({ page, request, showUndo: true })
 }
 
 /** Trash runs at once; the toast restores the page. */

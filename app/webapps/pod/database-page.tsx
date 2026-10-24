@@ -18,7 +18,7 @@ import { DatabaseViewContent, RecordForm } from './database-views'
 import { QueryControls } from './database-query-controls'
 import { FieldEditorButton } from './database-fields'
 import { podDatabaseCopy } from './api/generated/sdk.gen'
-import { pageAPI } from './content-api'
+import { pageSearchQuery, pageQuery, type Page } from './content-api'
 import { DatabaseSummary } from './database-summary'
 import './database.css'
 
@@ -554,14 +554,19 @@ function CopyTableButton({ tableID, parentID, filter }: { tableID: string; paren
     [createdPage, setCreatedPage] = useState<string>()
   const client = useQueryClient()
   const saving = useRef(false)
-  const destinations = useQuery({
-    queryKey: [...contentKeys.all, 'copy-targets'],
-    enabled: open,
-    queryFn: () => pageAPI.list('all')
-  })
-  const targets = (destinations.data?.pages ?? []).filter(
-    page => page.type === 'doc' && (page.role === 'edit' || page.role === 'manage')
-  )
+  const [destinationQuery, setDestinationQuery] = useState('')
+  const [selectedTarget, setSelectedTarget] = useState<Page>()
+  const destinations = useQuery({ ...pageSearchQuery(destinationQuery), enabled: open })
+  const initialTarget = useQuery({ ...pageQuery(parentID ?? ''), enabled: open && Boolean(parentID) })
+  const targets = [
+    ...new Map(
+      [
+        ...(destinations.data?.pages ?? []),
+        ...(initialTarget.data ? [{ ...initialTarget.data.page, role: initialTarget.data.role }] : []),
+        ...(selectedTarget ? [selectedTarget] : [])
+      ].map(page => [page.id, page])
+    ).values()
+  ].filter(page => page.type === 'doc' && (page.role === 'edit' || page.role === 'manage'))
   const invalidTarget = !!parent && !targets.some(page => page.id === parent)
   const copy = useMutation({
     mutationFn: () =>
@@ -615,10 +620,19 @@ function CopyTableButton({ tableID, parentID, filter }: { tableID: string; paren
             {t('pod.content.the_copied_data_is_saved_independently_changes_to_the_source')}
           </p>
           <TextField label={t('pod.content.page_title')} value={title} onChange={setTitle} disabled={copy.isPending} />
+          <TextField
+            label={t('pod.content.search_pages')}
+            value={destinationQuery}
+            onChange={setDestinationQuery}
+            disabled={copy.isPending}
+          />
           <Choice
             label={t('pod.content.save_to')}
             value={parent}
-            onChange={setParent}
+            onChange={id => {
+              setParent(id)
+              setSelectedTarget(targets.find(page => page.id === id))
+            }}
             disabled={copy.isPending || destinations.isPending}
             options={{
               '': t('pod.content.space'),

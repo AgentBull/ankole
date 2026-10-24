@@ -1225,8 +1225,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     end
 
     permissions = [
-      {"agent:#{source.uid}:signal_bindings", "delete"},
-      {"agent:#{target.uid}:signal_bindings", "update"}
+      {"site_console:agent:#{source.uid}:signal_bindings", "delete"},
+      {"site_console:agent:#{target.uid}:signal_bindings", "update"}
     ]
 
     for {resource, action} <- permissions do
@@ -1277,7 +1277,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert {:ok, _grant} =
              Ankole.AuthZ.create_permission_grant(%{
                principal_uid: uid,
-               resource_pattern: "agent:#{source.uid}:signal_bindings",
+               resource_pattern: "site_console:agent:#{source.uid}:signal_bindings",
                action: "update",
                condition: "true"
              })

@@ -41,6 +41,7 @@ defmodule AnkoleWeb.ConsoleErrors do
   def fallback(conn, failure, local_error \\ nil, opts \\ [])
 
   def fallback(conn, {:error, :forbidden}, _local_error, _opts), do: forbidden(conn)
+  def fallback(conn, {:error, %Ash.Error.Forbidden{}}, _local_error, _opts), do: forbidden(conn)
 
   def fallback(conn, {:error, %Ash.Changeset{} = changeset}, local_error, opts),
     do: fallback(conn, {:error, Ash.Error.to_error_class(changeset)}, local_error, opts)

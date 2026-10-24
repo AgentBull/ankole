@@ -23,6 +23,13 @@ defmodule Ankole.Sessions.PresentationTest do
       %{agent: agent, event: event} =
         admit_event("cron-delivery-fanout")
 
+      assert {:ok, _} =
+               Ankole.AuthZ.create_permission_grant(%{
+                 principal_uid: event.human_uid,
+                 resource_pattern: "agent:#{agent.uid}:tool:finish_scheduled",
+                 action: "invoke"
+               })
+
       secondary_provider_id = "mock:chat:cron-delivery-secondary"
       secondary_channel_id = Ecto.UUID.generate()
 

@@ -3,6 +3,9 @@ defmodule AnkoleWeb.PodChannel do
   import Phoenix.Channel
   alias Ankole.Pod.Pages
 
+  def with_tenant(socket, fun),
+    do: Ankole.Repo.with_tenant(socket.assigns.tenant_id, fun)
+
   def subscribe(socket) do
     Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-access:" <> socket.assigns.tenant_id)
     Process.send_after(self(), :periodic_access, 60_000)
@@ -11,8 +14,13 @@ defmodule AnkoleWeb.PodChannel do
 
   def allowed?(socket),
     do:
-      AnkoleWeb.PodSocket.active?(socket.assigns) and
-        match?({:ok, _}, Pages.authorize(socket.assigns.uid, socket.assigns.page_id, "page_view"))
+      with_tenant(socket, fn ->
+        AnkoleWeb.PodSocket.active?(socket.assigns) and
+          match?(
+            {:ok, _},
+            Pages.authorize(socket.assigns.actor, socket.assigns.page_id, "page_view")
+          )
+      end)
 
   def recheck(socket) do
     if allowed?(socket) do

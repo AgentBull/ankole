@@ -418,7 +418,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
                )
     end
 
-    test "directory upsert joins the existing Slack principal by email" do
+    test "directory subjects share the active member with an equal Slack contact email" do
       assert {:ok, slack} =
                Principals.upsert_platform_subject_human(%{
                  provider: "slack-main",
@@ -435,12 +435,19 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
                })
 
       assert observed.principal.uid == slack.principal.uid
+      assert observed.human_user.email == "ada.join@example.com"
       assert observed.identity.provider == "google-workspace-main"
 
       assert {:ok, resolved} =
                Principals.resolve_platform_subject_uid("slack-main", "U7000")
 
-      assert resolved == observed.principal.uid
+      assert resolved == slack.principal.uid
+
+      assert {:ok, ^resolved} =
+               Principals.resolve_platform_subject_uid(
+                 "google-workspace-main",
+                 "103999999999999999999"
+               )
     end
   end
 

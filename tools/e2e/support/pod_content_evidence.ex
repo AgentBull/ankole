@@ -534,7 +534,7 @@ defmodule Ankole.E2E.PodContentEvidence do
         Ankole.JSON.encode!(Ankole.JSON.plain(evidence))
     )
 
-    with {:ok, detail} <- Conversations.get(input.human_uid, input.conversation_id),
+    with {:ok, detail} <- Conversations.get(ctx.owner_actor, input.conversation_id),
          %Signal{} = latest <-
            Repo.one(
              from signal in Signal,

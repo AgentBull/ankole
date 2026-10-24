@@ -17,13 +17,24 @@ defmodule AnkoleWeb.PodMovePermissionsControllerTest do
     Ankole.Repo.put_tenant_id(tenant.id)
     owner = Ankole.PrincipalsFixtures.human_fixture().principal
     viewer = Ankole.PrincipalsFixtures.human_fixture().principal
-    {:ok, left} = Pages.create(owner.uid, %{private_owner_uid: owner.uid})
-    {:ok, right} = Pages.create(owner.uid, %{private_owner_uid: owner.uid})
+
+    {:ok, left} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+        private_owner_uid: owner.uid
+      })
+
+    {:ok, right} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+        private_owner_uid: owner.uid
+      })
+
     grants = [%{principal_uid: uid, role: "edit"}]
     with_viewer = grants ++ [%{principal_uid: viewer.uid, role: "view"}]
     {:ok, _} = Ankole.Pod.PagesFixtures.set_sharing(owner.uid, left.id, %{grants: with_viewer})
     {:ok, _} = Ankole.Pod.PagesFixtures.set_sharing(owner.uid, right.id, %{grants: grants})
-    {:ok, page} = Pages.create(owner.uid, %{parent_id: left.id})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{parent_id: left.id})
 
     rejected = api_post(conn, "/api/v2/pod/pages/#{page.id}/move", %{parent_id: right.id})
     assert %{"errors" => [%{"code" => "move_requires_manage"}]} = api_response(rejected, 403)
@@ -40,6 +51,8 @@ defmodule AnkoleWeb.PodMovePermissionsControllerTest do
     assert %{"page" => %{"id" => id, "parent_id" => destination}} = api_response(moved, 200)
     assert id == page.id
     assert destination == right.id
-    assert {:error, :forbidden} = Pages.authorize(uid, page.id, "page_manage")
+
+    assert {:error, :forbidden} =
+             Pages.authorize(Ankole.PrincipalsFixtures.actor_fixture(uid), page.id, "page_manage")
   end
 end

@@ -1,9 +1,16 @@
 defmodule Ankole.AIGateway.Schemas.Message do
   @moduledoc "Response facts, checkpoints, and tool journals with one terminal-state owner."
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.AIGateway,
-    extensions: [AshStateMachine, AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshStateMachine, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    allow(:console_list, resource: "site_console:ai_gateway_conversations", action: "read")
+    allow(:read, resource: "site_console:ai_gateway_conversations", action: "read")
+  end
 
   require Ash.Expr
   import Ash.Expr, only: [arg: 1]

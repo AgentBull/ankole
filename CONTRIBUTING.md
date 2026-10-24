@@ -62,6 +62,8 @@ checkout. It checks FOSS isolation, SaaS compilation and resources, private test
 discovery, empty and upgraded databases, rollback, and a detached release.
 It does not implement or certify a SaaS account product.
 
+The control-plane image uses Cargo to build the Kernel and Torque native libraries.
+
 A SaaS source image uses the public Dockerfile with a named private context:
 
 ```bash
@@ -620,10 +622,15 @@ dependencies; tests do not retain dead production code.
 
 The build applies the pinned Ash 3.36.1, AshPostgres 2.15.1, AshJsonApi
 1.7.1, and attesto 2.6.1 patches before dependency compilation. The build needs `patch`; the
-Docker build installs it. A failed patch stops the build. The fixes prevent
+Docker build installs it. The host, core, and standalone plugins share the patch
+loader. Each build tree checks its own stamp for the patch and loader contents
+before it loads dependencies. When the stamp changes, Mix rebuilds the patched
+dependencies and their consumers, and clears the current application's Elixir
+compilation cache. A failed patch stops the build. The fixes prevent
 false notification warnings, handle skipped upserts whose row is not visible in
 the selected tenant, and describe timestamps, embedded IDs, nullable array items,
-and DELETE responses in native OpenAPI. The attesto patch accepts the existing
+and DELETE responses in native OpenAPI. The JSON:API router respects a halted
+`before_dispatch` response. The attesto patch accepts the existing
 opaque Principal UID namespace for both human and Agent subjects. The Ash and
 AshJsonApi resource-reference DSL fields record runtime module dependencies;
 resource and route verifiers still validate their declarations.
@@ -670,7 +677,7 @@ the commands later in this guide.
 `bun run agent-computer:test` runs Agent Computer unit tests on the host. The
 host needs Bun, Bash, GNU `timeout`, and Python 3. In `app/agent_computer`,
 `bun run test:integration` runs portable integration tests on the host with
-Codex 0.163.0, MCPorter 0.14.3 running with Bun, native `apply_patch`, and GNU
+Codex 0.164.0, MCPorter 0.16.0 running with Bun, native `apply_patch`, and GNU
 `stat` (`gstat` on macOS). `ANKOLE_CODEX_BINARY` can select a local Codex binary.
 The command sets `TMPDIR=/tmp` to keep Unix socket paths short.
 
@@ -781,8 +788,8 @@ partition. The GitHub sync file has the `external` tag and makes a read-only
 request to the public GitHub API; run it explicitly when network access is
 available.
 
-The real-browser check uses the production Pod and SDK with three authenticated
-identities. In separate terminals, run:
+The real-browser check uses the production Pod, SDK, and site Console with
+three Pod identities and one site administrator. In separate terminals, run:
 
 ```bash
 # Build the production frontend assets.
@@ -815,8 +822,15 @@ before starting it. Each fixture start
 creates a new tenant and writes test identities to the state file with mode
 `0600`. Treat that file as credentials and remove it after the check. The browser database
 uses the normal connection pool so channel processes do not keep SQL Sandbox
-checkouts. The test does not bypass endpoint or page authorization. It covers
+checkouts. The site administrator belongs to the privileged tenant and uses a
+fixed fixture email. Each restart reuses this Principal and checks the same
+Root claim. The test does not bypass endpoint or page authorization. It covers
 live edits, tables, Applet publication, access revocation, and Office previews.
+Console cases create members and guests in a selected data tenant, change
+membership, and verify the stored access version after a reload.
+The fixture sends login codes through a local TLS SMTP server. Its companion
+`.mail.json` file lets browser cases read the delivered code without bypassing
+the login challenge.
 Its independent sample-reservation workspace uses the production native Applet
 backend and committed records. The backend story checks pending submission,
 retained inputs after rejection, viewer write denial, competing reservations,
@@ -841,23 +855,23 @@ with `wrap_in_result?: false` returns its declared typed result directly. Read
 the generated operation type before you consume its response. File upload and
 download use native multipart and byte responses under `/api/v2/agents`.
 OIDC, OpenAI-compatible APIs, webhooks, and internal runtime transport use their
-own protocol handlers. Setup, password login, and browser session operations use
+own protocol handlers. Setup, email-code login, and browser session operations use
 the Browser JSON:API router.
 
 Each Console and Site JSON:API route has these properties:
 
 - A unique `name`. The name is the OpenAPI `operationId` and gives the function
   name in the generated client.
-- One rule in the `@rules` table of `AnkoleWeb.JSONAPI.Policy`. The rule gives
-  the AuthZ resource and action that `AnkoleWeb.ConsolePolicy` checks. A route
-  without a rule returns 403. Principal/AuthZ owns authorization; Ash policies
-  stay disabled.
+- One native authorization rule on the owning resource's `authz` declaration.
+  `Ankole.AuthZ.Authorizer` checks the explicit Actor through Principal/AuthZ.
+  Compile-time verifiers require routed action coverage, target resolvers, and
+  `json_api.authorize?(true)` on protected domains.
 - List inputs are declared on their read actions. Index and relationship routes
   disable derived filters and sorts; generic actions expose their typed arguments
   directly. AshJsonApi 1.7.1 ignores the resource option `derive_sort?`, so each
   `index` and `related` route also sets `derive_sort?: false`.
 
-`test/ankole_web/json_api/router_test.exs` and `policy_test.exs` check these
+`test/ankole_web/json_api/router_test.exs` and `native_authorization_routes_test.exs` check these
 properties. HTTP tests also check the domain result, permissions, and tenant
 isolation.
 
@@ -934,6 +948,17 @@ the current control-plane image. To use an image already built from the
 current source and resolved Worker image, set `ANKOLE_E2E_CONTROL_PLANE_IMAGE`.
 This is required for the Compose scenario with `--no-build`. To run only that
 scenario, use `tools/e2e/run --gate --only=compose_upgrade`.
+
+Use `tools/e2e/run --gate --only=authn_compose` for fresh SMTP setup and the
+pinned password-release migration to email login. It checks the same Human UID,
+encrypted mail configuration, administrator roles, and login after restart.
+The focused authentication integration checks use real PostgreSQL and TLS SMTP:
+
+```bash
+cd app/control_plane
+MIX_TEST_PARTITION=authn mix test integration/authn_email_transport_test.exs \
+  integration/authn_membership_stories_test.exs integration/authn_otp_concurrency_test.exs
+```
 
 The chaos suite's idle and image replacement scenarios use real database
 transactions and wait for the five-minute Worker demand window to end. Do

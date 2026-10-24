@@ -18,7 +18,13 @@ defmodule Ankole.Principals.Access.Actions do
   defp action(:unresolved_work, _args, _context), do: {:ok, %{work: WorkAccess.list_unresolved()}}
 
   defp action(:disable, args, context) do
-    HumanAccess.disable(args.uid, args.reason, actor(context), args.operation_id)
+    HumanAccess.disable(
+      args.uid,
+      args.reason,
+      actor(context),
+      args.operation_id,
+      args.disposition
+    )
     |> changed(args.uid)
   end
 
@@ -71,28 +77,10 @@ defmodule Ankole.Principals.Access.Actions do
     end
   end
 
-  defp action(:reset_local_password, args, _context) do
-    with true <- Ankole.IdentityProviders.LocalPassword.enabled?(),
-         {:ok, password} <-
-           Ankole.IdentityProviders.LocalPassword.reset_local_password(
-             args.uid,
-             args.must_change_password != false
-           ) do
-      {:ok, %{initial_password: password}}
-    else
-      false -> {:error, :local_identity_provider_disabled}
-      error -> error
-    end
-  end
-
-  defp actor(context), do: Ankole.ActorRef.from_principal(context.actor)
+  defp actor(context), do: Ankole.ActorRef.from_actor(context.actor)
   defp changed({:ok, _}, uid), do: HumanAccess.console_view(uid)
   defp changed(error, _uid), do: error
 
-  defp describe(:local_identity_provider_disabled),
-    do: Principals.describe_refusal(:local_identity_provider_disabled)
-
-  defp describe(:email_missing), do: {"This user needs an email address for local sign-in.", []}
   defp describe(:not_human), do: {"This operation applies to Human users only.", []}
 
   defp describe(:last_active_human_admin),

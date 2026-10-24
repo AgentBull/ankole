@@ -30,7 +30,7 @@ import type { ListBrainContradictionsResponse } from '../../api/v2/generated/typ
 import { nextPageParams, fromDocument, type Flat } from '../../api/json-api'
 import { requestErrorMessage } from '../../../common/request-errors'
 import { formatConsoleDate } from '../../console-primitives'
-import { LoadMore, ResourceListPage } from '../../console-list-page'
+import { ResourceListPage } from '../../console-list-page'
 import { BrainSubNav } from './brain-nav'
 
 const CONTRADICTION_STATUSES = ['open', 'resolved', 'dismissed'] as const
@@ -87,8 +87,7 @@ export function BrainContradictionsPage() {
         emptyTitle={t('console.brain.contradictions_empty_title')}
         emptyDescription={t('console.brain.contradictions_empty_description')}
         emptyIcon={<RiScales3Line aria-hidden />}
-        error={contradictions.error}
-        footer={<LoadMore query={contradictions} />}
+        pagination={contradictions}
         isFiltered={status !== 'open'}
         onClearFilters={() => setStatus('open')}
         toolbarCanRevealRows

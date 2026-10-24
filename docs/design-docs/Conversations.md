@@ -104,9 +104,10 @@ sources do not need this message representation or these revision rules.
 
 ## Accept a Human Message
 
-The current Human must participate in the conversation. Every active Agent in
-that Human's tenant is available for a new conversation. Native conversations
-do not require a configured provider binding or a separate enable flag.
+The current Human must participate in the conversation. Creation and each
+new Human message require `chat` permission on `agent:<agent_uid>`. The Agent
+must be active and belong to the Human's tenant. Native conversations do not
+require a configured provider binding or a separate enable flag.
 
 Creation commits these facts in one transaction:
 
@@ -127,13 +128,19 @@ transaction. The signal has these values:
 | Subject | Conversation ID |
 | Target | Agent UID and execution session `conversation:<conversation_id>` |
 | Sender | The authenticated Human UID |
-| Data | Conversation ID, message ID, author UID, and exact message text |
+| Data | Conversation ID, message IDs, author UID, model profile, exact message text, and trusted request IP |
 
 `Ankole.Signals.accept_in_tx/1` stores the input in `signals`, allocates its
 Agent/Session queue position, and commits an EnsureDriver job in the same
 transaction. Native conversations create no Signal Binding, external reference,
 or Delivery intent. WorkAccess freezes the Human UID and access version;
 admission checks those facts again when execution starts.
+The Signal stores the trusted input IP in `data.request_context`. Tool and
+Pod RPC authorization use that IP when execution resumes. The runtime checks
+the Signal producer, native type, conversation source, and session key before
+it reads the context. Derived work follows its stored owner to this input and
+keeps the same Agent and WorkAccess identity. See [AuthZ](AuthZ.md) for condition
+inputs and Human-derived tool and Pod checks.
 
 The browser generates the conversation and message UUIDs. A retry with the
 same IDs and facts reuses the stored message and signal. Reusing an ID for
@@ -197,10 +204,13 @@ File transfer, Applet HTTP routes, and SSE use their native media and transport.
 The authenticated Principal determines the tenant. A Console data tenant
 selection cannot change the Pod tenant. Read, write, and SSE operations
 check that the current Human participates in the conversation.
+All Pod requests require Guest admission under `pod.allow_external_guests`.
+The Agent directory lists only active Agents for which the Human has `chat`
+permission. Model profile lookup uses the same Agent permission check.
 
 | Method and path | Contract |
 | --- | --- |
-| `GET /agents` | `{agents: [{uid, displayName}]}` for active Agents |
+| `GET /agents` | `{agents: [{uid, displayName}]}` for active Agents with current `chat` permission |
 | `GET /conversations` | `{conversations: [...]}` with the latest 100 participating conversations, ordered by recent activity; optional `pageID` filters to an accessible Page |
 | `POST /conversations` | Accepts `conversationID`, `agentUID`, `messageID`, `text`, and optional `pageID`; returns the committed conversation detail |
 | `GET /conversations/:id` | Returns conversation detail, the latest 500 messages in sequence order, and execution status |
@@ -273,7 +283,9 @@ The SSE endpoint checks access before it subscribes. It subscribes to
 `Sessions.Events` for that Agent's execution state and activity, and AIGateway
 for model events. All topics are tenant-scoped. The connection establishes these
 subscriptions before it reads the current Driver snapshot. It sends a `: ping`
-comment every 15 seconds and removes all subscriptions when it closes.
+comment every 15 seconds and removes all subscriptions when it closes. Before
+each frame or ping, it checks current Pod admission and Conversation access.
+A failed check closes the stream.
 
 | Event | JSON data | Meaning |
 | --- | --- | --- |

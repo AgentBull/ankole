@@ -181,7 +181,10 @@ defmodule AnkoleWeb.NativeActivityTest do
     assert settled["tools"] == []
     assert settled["phase"] == nil
     refute Activity.valid?(waiting)
-    assert {:ok, detail} = Conversations.get(human_uid, id)
+
+    assert {:ok, detail} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human_uid), id)
+
     assert length(detail.messages) == 1
 
     # The old process is still alive, but PostgreSQL has closed its Run.
@@ -209,7 +212,10 @@ defmodule AnkoleWeb.NativeActivityTest do
              )
 
     assert sse_snapshot(conn, id)["state"] == "settled"
-    assert {:ok, after_stale} = Conversations.get(human_uid, id)
+
+    assert {:ok, after_stale} =
+             Conversations.get(Ankole.PrincipalsFixtures.actor_fixture(human_uid), id)
+
     assert after_stale.messages == detail.messages
     refute_receive {:actor_lane, %Proto.Envelope{body: {:tool_call, _}}}, 100
   end

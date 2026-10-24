@@ -24,7 +24,7 @@ defmodule Ankole.Brain do
   # contain `/`, so an Object operation takes the slug in the query or in the
   # body, not in the path.
   json_api do
-    authorize?(false)
+    authorize?(true)
     log_errors?(true)
     show_raised_errors?(false)
 

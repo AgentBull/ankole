@@ -17,7 +17,12 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
     Repo.put_tenant_id(tenant.id)
     %{principal: person} = human_fixture()
     uid = person.uid
-    body = %{reason: "Confirmed departure", operation_id: "console-disable"}
+
+    body = %{
+      reason: "Confirmed departure",
+      operation_id: "console-disable",
+      disposition: "offboarded"
+    }
 
     disabled =
       conn
@@ -77,6 +82,18 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
         action: "read"
       })
 
+    actor = actor_fixture(admin_uid)
+    assert {:ok, source} = Ankole.Pod.Pages.create(actor, %{private_owner_uid: admin_uid})
+    assert {:ok, target} = Ankole.Pod.Pages.create(actor, %{private_owner_uid: admin_uid})
+
+    assert {:ok, userset} =
+             AuthZ.create_permission_grant(%{
+               source_page_id: source.id,
+               source_action: "page_view",
+               resource_pattern: "pod:**:#{target.id}:**",
+               action: "page_view"
+             })
+
     assert conn
            |> recycle_api()
            |> v2_post(~p"/api/v2/principals/#{uid}/access-restorations", restore)
@@ -87,6 +104,20 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
       conn |> recycle_api() |> v2_get(~p"/api/v2/principals/#{uid}/access") |> json_response(200)
 
     assert state["permission_review"]["permissions"]["grants"] != []
+
+    assert state["permission_review"]["permissions"]["userset_grants"] == [
+             %{
+               "id" => userset.id,
+               "source_page_id" => source.id,
+               "source_action" => "page_view",
+               "target_page_id" => target.id,
+               "target_scope" => "container",
+               "resource_pattern" => "pod:**:#{target.id}:**",
+               "action" => "page_view",
+               "condition" => "true"
+             }
+           ]
+
     restore = %{restore | review_fingerprint: state["permission_review"]["fingerprint"]}
 
     restored =
@@ -103,7 +134,9 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
              restored["history"],
              &(&1["action"] == "restore" and
                  &1["actor"] == %{"tenant_id" => tenant.id, "uid" => admin_uid} and
-                 &1["details"]["identity_verified"] == true)
+                 &1["details"]["identity_verified"] == true and
+                 &1["details"]["approved_permissions"]["userset_grants"] ==
+                   state["permission_review"]["permissions"]["userset_grants"])
            )
 
     assert conn
@@ -120,6 +153,7 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
     assert admin
            |> recycle_api()
            |> v2_post(~p"/api/v2/principals/#{admin_uid}/access-disables", %{
+             disposition: "suspended",
              reason: "self",
              operation_id: "self"
            })
@@ -206,6 +240,7 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
     assert conn
            |> recycle_api()
            |> v2_post("/api/v2/principals/#{person.uid}/access-disables", %{
+             disposition: "suspended",
              reason: "Wrong data tenant",
              operation_id: "wrong-tenant"
            })
@@ -219,11 +254,16 @@ defmodule AnkoleWeb.JSONAPI.HumanAccessOperationsTest do
     import Ecto.Query
     conn = console_conn(conn)
     %{principal: person} = human_fixture()
-    Repo.delete_all(from grant in Ankole.AuthZ.Grant, where: grant.resource_pattern == "**")
+
+    Repo.delete_all(
+      from grant in Ankole.AuthZ.Grant,
+        where: grant.resource_pattern in ["site_console:**", "tenant_console:**"]
+    )
 
     assert conn
            |> recycle_api()
            |> v2_post("/api/v2/principals/#{person.uid}/access-disables", %{
+             disposition: "suspended",
              reason: "Unauthorized",
              operation_id: "refused"
            })

@@ -111,10 +111,10 @@ Current Control Plane Plugins under `plugins/` provide the Lark, DingTalk,
 Slack, Microsoft 365, Google Workspace, WeCom, Telegram, Discord, LINE,
 WhatsApp, and Email adapters. Telegram, Discord, LINE, and WhatsApp are
 consumer IM adapters: they connect a bot to one Agent and map each sender to a
-Principal by hand, by a known mobile number, or as a standalone account. The
+Principal by explicit mapping or as a standalone account. The
 Email adapter connects a dedicated mailbox and admits a sender only through an
-explicit `email` identity binding. The local password identity provider is
-part of the control plane.
+explicit `email` identity binding. Site email verification uses the core
+[Authentication](design-docs/Authentication.md) subsystem and its SMTP settings.
 The China-market provider plugin contributes AIGateway providers.
 
 ## Control-Plane Boot Order
@@ -126,7 +126,7 @@ It starts the children in this order:
 2. AppConfigure registry and cache
 3. Observability, I18n catalog, and setup bootstrap
 4. Worker provider configuration and seed, then Oban
-5. Plugin cohort and local-password retry guard
+5. Plugin cohort and authentication rate limiter
 6. AIGateway credential pool, task and response-stream supervisors, and WorkerFiles supervisor
 7. Sessions and Workflow supervisors
 8. Optional identity startup sync
@@ -266,7 +266,8 @@ credentials.
 | [Automation Jobs](design-docs/AutomationJobs.md) | Agent-owned scripts that consume a trigger without a model turn |
 | [Workflow](design-docs/Workflow.md) | One fixed program that runs bounded subagent tasks |
 | [Principal](design-docs/Principal.md) | Human and Agent identities, including linked provider accounts |
-| [Local Password Identity Provider](design-docs/LocalPasswordIdentityProvider.md) | Built-in email and password sign-in without an external service |
+| [Authentication](design-docs/Authentication.md) | Shared email OTP, enterprise SSO, personal credentials, and Pod login policy |
+| [Passwordless authentication upgrade](upgrades/passwordless-authentication.md) | Credential conflict repair, offline OIDC evidence, and administrator recovery |
 | [Human Offboarding](design-docs/HumanOffboarding.md) | Human disablement, authentication revocation, and task start checks |
 | [Browser Sessions](design-docs/BrowserSessions.md) | Browser identity, authentication freshness, concurrent login, and logout |
 | [OIDC Server](design-docs/OIDCServer.md) | OIDC protocol ownership, Client policy, tokens, and logout |

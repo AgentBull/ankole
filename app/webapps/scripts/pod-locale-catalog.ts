@@ -4,7 +4,7 @@ import type { Plugin } from 'vite'
 export function podLocaleCatalog(catalog: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(catalog).filter(([namespace]) =>
-      ['__meta__', 'common', 'pod', 'conversations', 'saas'].includes(namespace)
+      ['__meta__', 'common', 'auth', 'setup', 'pod', 'conversations', 'saas'].includes(namespace)
     )
   )
 }

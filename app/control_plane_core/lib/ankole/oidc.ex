@@ -22,7 +22,7 @@ defmodule Ankole.OIDC do
   alias Ankole.Repo
 
   json_api do
-    authorize?(false)
+    authorize?(true)
     log_errors?(true)
     show_raised_errors?(false)
 
@@ -47,6 +47,8 @@ defmodule Ankole.OIDC do
       end
     end
   end
+
+  defdelegate actor_for_session(id, principal, ip), to: Ankole.OIDC.Sessions
 
   resources do
     resource(Ankole.OIDC.Client)

@@ -700,7 +700,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
 
       %{principal: human} = human_fixture(%{email: "carol@example.com"})
 
-      assert {:ok, [%{status: :held_unmapped_sender}]} =
+      assert {:ok, [%{status: :accepted}]} =
                Inbound.handle_message_receive(
                  "message",
                  event(
@@ -730,13 +730,13 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert matched.uid == human.uid
     end
 
-    test "standalone email admission never treats the sender address as a local account identity" do
+    test "a recorded contact address attributes mail to its Human without granting a site login" do
       %{principal: agent} = agent_fixture()
 
-      {:ok, _provider} = Ankole.IdentityProviders.save_provider("local-main", "local", %{}, true)
-
       assert {:ok, %{principal: local}} =
-               Principals.create_local_user(%{email: "owner@corp.example"}, false)
+               Repo.transact(fn ->
+                 Principals.create_human_in_tx(%{email: "owner@corp.example"})
+               end)
 
       consumer = bound_consumer(agent.uid, "mail", "create_standalone")
 
@@ -753,14 +753,14 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert {:ok, external} =
                Principals.resolve_platform_subject("email", "owner@corp.example")
 
-      refute external.uid == local.uid
+      assert external.uid == local.uid
 
       assert %{author: %{"principal_uid" => uid}} =
                message_snapshot(provider_message_id: "owner1@corp.example")
 
       assert uid == external.uid
       assert Repo.get!(Ankole.Principals.HumanUser, local.uid).email == "owner@corp.example"
-      assert Repo.get!(Ankole.Principals.HumanUser, external.uid).email == nil
+      assert Principals.principal_site_credentials(local.uid) == []
       assert MappingRequests.list_requests() == []
     end
 

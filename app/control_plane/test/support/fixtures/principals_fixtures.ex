@@ -8,6 +8,16 @@ defmodule Ankole.PrincipalsFixtures do
   alias Ankole.AgentWorkers.Providers.Provider
   alias Ankole.AgentWorkers.AgentWorker
 
+  def actor_fixture(%Ankole.AuthZ.Actor{} = actor), do: actor
+
+  def actor_fixture(%Ankole.Principals.Principal{} = principal),
+    do: Ankole.AuthZ.Actor.new(principal)
+
+  def actor_fixture(uid) when is_binary(uid) do
+    {:ok, principal} = Principals.get_principal(uid)
+    Ankole.AuthZ.Actor.new(principal)
+  end
+
   def first_site_admin_fixture(uid) do
     Ankole.Repo.transact(fn ->
       with {:ok, _} <- Ankole.AuthZ.Root.ensure_all_humans_group(),

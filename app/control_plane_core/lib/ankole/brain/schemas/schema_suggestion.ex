@@ -1,9 +1,17 @@
 defmodule Ankole.Brain.Schemas.SchemaSuggestion do
   @moduledoc "Immutable proposal facts and their one-time review decision."
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.Brain,
-    extensions: [AshStateMachine, AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshStateMachine, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    allow(:console_list, resource: "site_console:brain", action: "read")
+    allow(:console_approve, resource: "site_console:brain", action: "update")
+    allow(:console_reject, resource: "site_console:brain", action: "update")
+  end
 
   json_api do
     type("brain_schema_suggestion")

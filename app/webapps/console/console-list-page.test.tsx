@@ -1,11 +1,12 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { InfiniteQueryObserver, QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { TableCell, TableRow } from '@ankole/uikit'
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { loadLocale } from '../common/i18n'
 import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
-import { RowActions, RowViewAction, SubNav } from './console-list-page'
+import { ResourceListPage, RowActions, RowViewAction, SubNav } from './console-list-page'
 import { brainObjectPath } from './pages/brain/brain-nav'
 import { BrainObjectDrawer } from './pages/brain/objects'
 
@@ -42,6 +43,87 @@ describe('SubNav', () => {
     )
 
     expect(html).toContain('<nav aria-label="Access sections"')
+  })
+})
+
+describe('ResourceListPage pagination', () => {
+  test('a failed continuation keeps loaded rows and a retry appends the next rows', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+    const requests: (string | undefined)[] = []
+    const query = new InfiniteQueryObserver(client, {
+      queryKey: ['list-pagination'],
+      initialPageParam: undefined as string | undefined,
+      queryFn: async ({ pageParam }) => {
+        requests.push(pageParam)
+        if (requests.length === 2) throw new Error('The next page is unavailable')
+        return { rows: [pageParam ? 'Second object' : 'First object'], next: pageParam ? undefined : 'next' }
+      },
+      getNextPageParam: page => page.next
+    })
+    const render = () => {
+      const result = query.getCurrentResult()
+      const rows = result.data?.pages.flatMap(page => page.rows) ?? []
+      return renderWithRouter(
+        <QueryClientProvider client={client}>
+          <ResourceListPage
+            title="Objects"
+            columns={['Name']}
+            isLoading={result.isPending}
+            isEmpty={rows.length === 0}
+            pagination={result}>
+            {rows.map(row => (
+              <TableRow key={row}>
+                <TableCell>{row}</TableCell>
+              </TableRow>
+            ))}
+          </ResourceListPage>
+        </QueryClientProvider>
+      )
+    }
+    try {
+      await query.fetchNextPage()
+      expect(await render()).toContain('First object')
+
+      await query.fetchNextPage()
+      expect(query.getCurrentResult().isFetchNextPageError).toBe(true)
+      const failed = await render()
+      expect(failed).toContain('First object')
+      expect(failed.match(/The next page is unavailable/g)).toHaveLength(1)
+      expect(failed.indexOf('</table>')).toBeLessThan(failed.indexOf('The next page is unavailable'))
+      expect(failed).toMatch(/<button\b[^>]*>Retry<\/button>/)
+
+      await query.fetchNextPage()
+      const retried = await render()
+      expect(retried).toContain('First object')
+      expect(retried).toContain('Second object')
+      expect(retried).not.toContain('The next page is unavailable')
+      expect(retried).not.toMatch(/<button\b[^>]*>Retry<\/button>/)
+      expect(requests).toEqual([undefined, 'next', 'next'])
+    } finally {
+      client.clear()
+    }
+  })
+
+  test('an initial error shows the error without a data table or a continuation control', async () => {
+    const client = new QueryClient()
+    try {
+      const html = await renderWithRouter(
+        <QueryClientProvider client={client}>
+          <ResourceListPage
+            title="Objects"
+            columns={['Name']}
+            isLoading={false}
+            isEmpty
+            error={new Error('Unavailable')}>
+            {null}
+          </ResourceListPage>
+        </QueryClientProvider>
+      )
+      expect(html).toContain('Unavailable')
+      expect(html).not.toContain('<table')
+    } finally {
+      client.clear()
+    }
   })
 })
 

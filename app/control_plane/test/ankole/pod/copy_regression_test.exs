@@ -5,8 +5,18 @@ defmodule Ankole.Pod.CopyRegressionTest do
 
   setup do
     uid = human_fixture().principal.uid
-    {:ok, page} = Pages.create(uid, %{type: "database", title: "Copy source"})
-    {:ok, table} = Database.create_table(uid, page.id, %{name: "Source"})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{
+        type: "database",
+        title: "Copy source"
+      })
+
+    {:ok, table} =
+      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(uid), page.id, %{
+        name: "Source"
+      })
+
     primary = Enum.find(Database.fields(table.id), & &1.is_primary)
     %{uid: uid, page: page, table: table, primary: primary}
   end
@@ -15,7 +25,7 @@ defmodule Ankole.Pod.CopyRegressionTest do
     {:ok, echo} = field(ctx, "Echo", "formula", %{"source" => "[Name] & \"#{ctx.primary.id}\""})
 
     {:ok, _} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [%{data: %{ctx.primary.id => ctx.primary.id}}]
       })
 
@@ -32,10 +42,22 @@ defmodule Ankole.Pod.CopyRegressionTest do
     }
 
     {:ok, _} =
-      Database.create_view(ctx.uid, ctx.table.id, %{name: "Exact", type: "grid", config: config})
+      Database.create_view(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        name: "Exact",
+        type: "grid",
+        config: config
+      })
 
-    assert {:ok, copied} = Database.copy_table(ctx.uid, ctx.table.id, %{})
-    assert {:ok, schema} = Database.get_table(ctx.uid, copied.table.id)
+    assert {:ok, copied} =
+             Database.copy_table(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{}
+             )
+
+    assert {:ok, schema} =
+             Database.get_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), copied.table.id)
+
     fields = Map.new(schema.fields, &{&1.name, &1})
     view = Enum.find(schema.views, &(&1.name == "Exact"))
     new_id = fields["Name"].id
@@ -49,7 +71,9 @@ defmodule Ankole.Pod.CopyRegressionTest do
            ]
 
     assert {:ok, %{records: [row]}} =
-             Database.query(ctx.uid, copied.table.id, %{filter: view.config["filter"]})
+             Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), copied.table.id, %{
+               filter: view.config["filter"]
+             })
 
     assert row["data"][fields["Echo"].id] == ctx.primary.id <> ctx.primary.id
     refute Map.has_key?(Repo.get_by!(DbRecord, id: row["id"]).data, fields["Echo"].id)
@@ -72,7 +96,7 @@ defmodule Ankole.Pod.CopyRegressionTest do
 
     {:ok, uploaded} =
       Ankole.Pod.Files.upload(
-        ctx.uid,
+        Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
         ctx.page.id,
         "attachment",
         nil,
@@ -91,7 +115,7 @@ defmodule Ankole.Pod.CopyRegressionTest do
     ]
 
     {:ok, %{records: [original]}} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [
           %{
             data: %{
@@ -104,38 +128,71 @@ defmodule Ankole.Pod.CopyRegressionTest do
         ]
       })
 
-    assert {:ok, copied} = Database.copy_table(ctx.uid, ctx.table.id, %{})
+    assert {:ok, copied} =
+             Database.copy_table(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{}
+             )
+
     fields = Map.new(Database.fields(copied.table.id), &{&1.name, &1})
-    assert {:ok, %{records: [row]}} = Database.query(ctx.uid, copied.table.id, %{})
+
+    assert {:ok, %{records: [row]}} =
+             Database.query(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               copied.table.id,
+               %{}
+             )
+
     assert row["data"][fields["Mixed"].id] == [ctx.uid]
     assert row["data"][fields["Selected"].id] == ["tag"]
 
     assert {:ok, _} =
-             Database.write_records(ctx.uid, ctx.table.id, %{
-               updates: [
-                 %{
-                   id: original.id,
-                   data: %{owners.id => nil},
-                   expected_versions: %{owners.id => 1}
-                 }
-               ]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 updates: [
+                   %{
+                     id: original.id,
+                     data: %{owners.id => nil},
+                     expected_versions: %{owners.id => 1}
+                   }
+                 ]
+               }
+             )
 
-    assert {:ok, %{records: [row]}} = Database.query(ctx.uid, copied.table.id, %{})
+    assert {:ok, %{records: [row]}} =
+             Database.query(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               copied.table.id,
+               %{}
+             )
+
     assert row["data"][fields["Mixed"].id] == [ctx.uid]
 
     assert {:ok, _} =
-             Database.write_records(ctx.uid, copied.table.id, %{
-               updates: [
-                 %{
-                   id: row["id"],
-                   data: %{fields["Flag"].id => false},
-                   expected_versions: %{fields["Flag"].id => 1}
-                 }
-               ]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               copied.table.id,
+               %{
+                 updates: [
+                   %{
+                     id: row["id"],
+                     data: %{fields["Flag"].id => false},
+                     expected_versions: %{fields["Flag"].id => 1}
+                   }
+                 ]
+               }
+             )
 
-    assert {:ok, %{records: [row]}} = Database.query(ctx.uid, copied.table.id, %{})
+    assert {:ok, %{records: [row]}} =
+             Database.query(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               copied.table.id,
+               %{}
+             )
+
     assert row["data"][fields["Mixed"].id] == row["data"][fields["Files"].id]
     path = hd(row["data"][fields["Mixed"].id])["path"]
     assert String.starts_with?(path, "pages/#{copied.page.id}/attachments/")
@@ -144,11 +201,15 @@ defmodule Ankole.Pod.CopyRegressionTest do
 
   test "links become independent multi-select snapshots without changing array formula values",
        ctx do
-    {:ok, related} = Database.create_table(ctx.uid, ctx.page.id, %{name: "Related"})
+    {:ok, related} =
+      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.page.id, %{
+        name: "Related"
+      })
+
     related_name = Enum.find(Database.fields(related.id), & &1.is_primary)
 
     {:ok, %{records: [a, b]}} =
-      Database.write_records(ctx.uid, related.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), related.id, %{
         creates: [%{data: %{related_name.id => "Alpha"}}, %{data: %{}}]
       })
 
@@ -161,16 +222,26 @@ defmodule Ankole.Pod.CopyRegressionTest do
         "bidirectional" => true
       })
 
-    {:ok, empty} = Database.create_table(ctx.uid, ctx.page.id, %{name: "Empty"})
+    {:ok, empty} =
+      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.page.id, %{
+        name: "Empty"
+      })
+
     {:ok, _} = field(ctx, "Empty", "link", %{"table_id" => empty.id})
     {:ok, _} = field(ctx, "Selected", "formula", %{"source" => "[Many]"})
 
     {:ok, _} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [%{data: %{one.id => [a.id], many.id => [a.id, b.id]}}, %{data: %{}}]
       })
 
-    assert {:ok, copied} = Database.copy_table(ctx.uid, ctx.table.id, %{})
+    assert {:ok, copied} =
+             Database.copy_table(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{}
+             )
+
     fields = Map.new(Database.fields(copied.table.id), &{&1.name, &1})
     assert fields["Empty"].type == :select
     assert fields["Empty"].config == %{"multiple" => true, "options" => []}
@@ -187,18 +258,28 @@ defmodule Ankole.Pod.CopyRegressionTest do
     b = Repo.get_by!(DbRecord, id: b.id)
 
     assert {:ok, _} =
-             Database.write_records(ctx.uid, related.id, %{
-               updates: [
-                 %{
-                   id: a.id,
-                   data: %{related_name.id => "Changed"},
-                   expected_versions: %{related_name.id => 1}
-                 }
-               ],
-               deletes: [%{id: b.id, expected_versions: b.versions}]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               related.id,
+               %{
+                 updates: [
+                   %{
+                     id: a.id,
+                     data: %{related_name.id => "Changed"},
+                     expected_versions: %{related_name.id => 1}
+                   }
+                 ],
+                 deletes: [%{id: b.id, expected_versions: b.versions}]
+               }
+             )
 
-    assert {:ok, %{records: rows}} = Database.query(ctx.uid, copied.table.id, %{})
+    assert {:ok, %{records: rows}} =
+             Database.query(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               copied.table.id,
+               %{}
+             )
+
     full = Enum.find(rows, & &1["data"][fields["One"].id])
     assert full["data"][fields["One"].id] == [a.id]
     assert full["data"][fields["Many"].id] == [a.id, b.id]
@@ -206,17 +287,26 @@ defmodule Ankole.Pod.CopyRegressionTest do
     assert Enum.any?(rows, &is_nil(&1["data"][fields["Many"].id]))
 
     assert {:ok, _} =
-             Database.write_records(ctx.uid, copied.table.id, %{
-               updates: [
-                 %{
-                   id: full["id"],
-                   data: %{fields["Many"].id => [b.id]},
-                   expected_versions: %{fields["Many"].id => 1}
-                 }
-               ]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               copied.table.id,
+               %{
+                 updates: [
+                   %{
+                     id: full["id"],
+                     data: %{fields["Many"].id => [b.id]},
+                     expected_versions: %{fields["Many"].id => 1}
+                   }
+                 ]
+               }
+             )
   end
 
   defp field(ctx, name, type, config \\ %{}),
-    do: Database.create_field(ctx.uid, ctx.table.id, %{name: name, type: type, config: config})
+    do:
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        name: name,
+        type: type,
+        config: config
+      })
 end

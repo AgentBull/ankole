@@ -31,5 +31,9 @@ end
 
 defmodule Ankole.Ash.DomainExtension do
   @moduledoc false
-  use Spark.Dsl.Extension, transformers: [Ankole.Ash.Transformers.DomainDefaults]
+  use Spark.Dsl.Extension,
+    transformers: [
+      Ankole.Ash.Transformers.DomainDefaults
+    ],
+    verifiers: [Ankole.AuthZ.Verifiers.VerifyDomainAuthz]
 end

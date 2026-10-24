@@ -11,7 +11,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job.Actions do
     Ankole.Errors.wrap(
       Ankole.BackgroundAgentJobs.Control.console_cancel_in_tx(
         input.arguments.id,
-        context.actor
+        context.actor.principal
       ),
       &Ankole.BackgroundAgentJobs.Control.console_rejection/1
     )
@@ -22,7 +22,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job.Actions do
       Ankole.BackgroundAgentJobs.Control.console_complete_in_tx(
         input.arguments.id,
         input.arguments.result_summary,
-        context.actor
+        context.actor.principal
       ),
       &Ankole.BackgroundAgentJobs.Control.console_rejection/1
     )

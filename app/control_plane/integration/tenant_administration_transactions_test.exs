@@ -8,6 +8,7 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
   alias Ankole.{AppConfigure, AuthZ, Tenants}
   alias Ankole.AppConfigure.SiteConfig
   alias Ankole.AuthZ.{Grant, Group, Membership}
+  alias Ankole.Pod.{Page, Pages}
   alias Ecto.Adapters.SQL.Sandbox
 
   @assignment_key "tenants.privileged_tenant_id"
@@ -77,8 +78,8 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
       assert_blocked_by(second, first)
       assert_privileged(context.source)
       assert AuthZ.site_admin?(context.source_admin.uid)
-      assert_no_admin_state(context.middle, context.initial_grants[context.middle.id])
-      assert_no_admin_state(context.final, context.initial_grants[context.final.id])
+      assert_no_site_admin_state(context.middle, context.initial_grants[context.middle.id])
+      assert_no_site_admin_state(context.final, context.initial_grants[context.final.id])
 
       send(first.task.pid, :continue)
       assert {:ok, %{id: middle_id}} = Task.await(first.task, 5_000)
@@ -90,8 +91,14 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
       refute AuthZ.site_admin?(context.source_admin.uid)
       assert AuthZ.site_admin?(context.middle_admin.uid)
       refute AuthZ.site_admin?(context.final_admin.uid)
-      assert_no_admin_state(context.source, context.initial_grants[context.source.id])
-      assert_no_admin_state(context.final, context.initial_grants[context.final.id])
+
+      assert_no_site_admin_state(
+        context.source,
+        context.initial_grants[context.source.id],
+        context.source_admin.uid
+      )
+
+      assert_no_site_admin_state(context.final, context.initial_grants[context.final.id])
 
       middle_group =
         Repo.with_tenant(context.middle.id, fn -> Repo.get_by!(Group, name: "siteadmin") end)
@@ -103,8 +110,18 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
       refute AuthZ.site_admin?(context.source_admin.uid)
       refute AuthZ.site_admin?(context.middle_admin.uid)
       assert AuthZ.site_admin?(context.final_admin.uid)
-      assert_no_admin_state(context.source, context.initial_grants[context.source.id])
-      assert_no_admin_state(context.middle, context.initial_grants[context.middle.id])
+
+      assert_no_site_admin_state(
+        context.source,
+        context.initial_grants[context.source.id],
+        context.source_admin.uid
+      )
+
+      assert_no_site_admin_state(
+        context.middle,
+        context.initial_grants[context.middle.id],
+        context.middle_admin.uid
+      )
 
       for {tenant, group} <- [
             {context.source, context.source_group},
@@ -125,18 +142,70 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
                    select: member.principal_uid
                ) == [context.final_admin.uid]
 
+        expected_rules =
+          for pattern <- ["site_console:**", "tenant_console:**"],
+              action <- ~w(decrypt delete read reset sync update),
+              do: {pattern, action}
+
         assert Repo.all(
                  from grant in Grant,
-                   where: grant.group_id == ^group.id and grant.resource_pattern == "**",
-                   order_by: grant.action,
-                   select: grant.action
-               ) == ~w(decrypt delete read reset sync update)
+                   where: grant.group_id == ^group.id,
+                   order_by: [grant.resource_pattern, grant.action],
+                   select: {grant.resource_pattern, grant.action}
+               ) == expected_rules
+
+        assert AuthZ.pod_admin?(context.final_admin.uid)
       end)
     after
       send(first.task.pid, :continue)
       send(second.task.pid, :continue)
       Task.shutdown(first.task, :brutal_kill)
       Task.shutdown(second.task, :brutal_kill)
+    end
+  end
+
+  test "transferring administration refreshes deleted group grants and inherited Page anchors",
+       context do
+    owner = actor_fixture(context.source_admin.uid)
+    viewer = human_fixture().principal
+    assert {:ok, parent} = Pages.create(owner, %{private_owner_uid: context.source_admin.uid})
+    assert {:ok, child} = Pages.create(owner, %{parent_id: parent.id})
+    assert {:ok, grandchild} = Pages.create(owner, %{parent_id: child.id})
+
+    assert {:ok, _} =
+             AuthZ.create_permission_grant(%{
+               principal_uid: viewer.uid,
+               resource_pattern: "pod:**:#{parent.id}:**",
+               action: "page_view"
+             })
+
+    assert {:ok, grant} =
+             AuthZ.create_permission_grant(%{
+               group_id: context.source_group.id,
+               resource_pattern: "pod:**:#{child.id}:**",
+               action: "page_view"
+             })
+
+    assert %{has_local_acl: true, is_acl_anchor: true, acl_anchor_id: child_anchor} =
+             Repo.get!(Page, child.id)
+
+    assert child_anchor == child.id
+
+    assert %{has_local_acl: false, is_acl_anchor: false, acl_anchor_id: ^child_anchor} =
+             Repo.get!(Page, grandchild.id)
+
+    assert {:ok, _} =
+             Tenants.transfer_site_administration(context.middle, context.middle_admin.uid)
+
+    refute Repo.get(Grant, grant.id)
+    refute Repo.get(Group, context.source_group.id)
+
+    for page <- [child, grandchild] do
+      assert %{has_local_acl: false, is_acl_anchor: false, acl_anchor_id: parent_anchor} =
+               Repo.get!(Page, page.id)
+
+      assert parent_anchor == parent.id
+      assert {:ok, _} = Pages.authorize(actor_fixture(viewer.uid), page.id, "page_view")
     end
   end
 
@@ -202,11 +271,25 @@ defmodule Ankole.TenantAdministrationTransactionsIntegrationTest do
     assert id == tenant.id
   end
 
-  defp assert_no_admin_state(tenant, initial_grants) do
+  defp assert_no_site_admin_state(tenant, initial_grants, pod_admin_uid \\ nil) do
     Repo.with_tenant(tenant.id, fn ->
       refute Repo.get_by(Group, name: "siteadmin")
-      assert Repo.all(from g in Grant, order_by: g.id) == initial_grants
-      refute Repo.exists?(Membership)
+      current_grants = Repo.all(from g in Grant, order_by: g.id)
+      rule_fields = Grant.__schema__(:fields) -- [:updated_at]
+
+      assert Enum.map(current_grants, &Map.take(&1, rule_fields)) ==
+               Enum.map(initial_grants, &Map.take(&1, rule_fields))
+
+      if pod_admin_uid do
+        pod_admin = Repo.get_by!(Group, name: "pod_admin", built_in: true)
+
+        assert Repo.all(from m in Membership, select: {m.group_id, m.principal_uid}) ==
+                 [{pod_admin.id, pod_admin_uid}]
+
+        assert AuthZ.pod_admin?(pod_admin_uid)
+      else
+        refute Repo.exists?(Membership)
+      end
     end)
   end
 

@@ -174,7 +174,8 @@ defmodule AnkoleWeb.SetupControllerTest do
     Repo.delete_all(
       from grant in Grant,
         where:
-          grant.resource_pattern == "**" and grant.action == "read" and grant.condition == "true"
+          grant.resource_pattern == "site_console:**" and grant.action == "read" and
+            grant.condition == "true"
     )
 
     {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
@@ -184,7 +185,7 @@ defmodule AnkoleWeb.SetupControllerTest do
     assert Repo.exists?(
              from grant in Grant,
                where:
-                 grant.resource_pattern == "**" and grant.action == "read" and
+                 grant.resource_pattern == "site_console:**" and grant.action == "read" and
                    grant.condition == "true"
            )
   end
@@ -258,113 +259,5 @@ defmodule AnkoleWeb.SetupControllerTest do
       |> api_put(~p"/api/v2/browser/setup/plugins/enabled", %{"pluginIDs" => ["missing-plugin"]})
 
     assert api_error(conn, 400)["code"] =~ "unknown_plugin_ids"
-  end
-
-  describe "POST /api/v2/browser/setup/local-admin" do
-    test "creates the administrator, completes setup, and signs the browser in", %{
-      conn: conn,
-      tenant: tenant
-    } do
-      setup_conn =
-        conn
-        |> init_test_session(%{})
-        |> WebSession.put_setup_session()
-
-      put_conn =
-        api_put(setup_conn, ~p"/api/v2/browser/setup/identity-providers/local-main", %{
-          "adapterID" => "local",
-          "config" => %{"retry_protection" => %{"enabled" => true}},
-          "enabled" => true
-        })
-
-      assert api_response(put_conn, 200)["adapter_id"] == "local"
-
-      conn =
-        api_post(recycle(put_conn), ~p"/api/v2/browser/setup/local-admin", %{
-          "email" => "Admin@Example.com",
-          "password" => "hunter2-long"
-        })
-
-      assert %{"returnTo" => "/site-admin-console"} =
-               api_response(conn, 200)
-
-      assert {:ok, true} = SetupConfig.completed?()
-      assert get_session(conn, :setup_session) == nil
-
-      conn = api_get(recycle(conn), ~p"/api/v2/browser/session")
-
-      assert %{
-               "authenticated" => true,
-               "principalUID" => uid,
-               "providerID" => "local-main"
-             } = api_response(conn, 200)
-
-      assert {:ok, _} = Ecto.UUID.cast(uid)
-      assert Ankole.AuthZ.site_admin?(uid)
-
-      assert {:ok, %{must_change_password: false}} =
-               Ankole.Repo.with_tenant(tenant.id, fn ->
-                 Ankole.IdentityProviders.LocalPassword.authenticate(
-                   "admin@example.com",
-                   "hunter2-long"
-                 )
-               end)
-    end
-
-    test "requires the local provider, a valid email, and a six-character password", %{
-      conn: conn
-    } do
-      setup_conn =
-        conn
-        |> init_test_session(%{})
-        |> WebSession.put_setup_session()
-
-      conn =
-        api_post(setup_conn, ~p"/api/v2/browser/setup/local-admin", %{
-          "email" => "admin@example.com",
-          "password" => "hunter2-long"
-        })
-
-      assert api_error(conn, 409)["code"] ==
-               "local identity provider is not configured"
-
-      {:ok, _provider} = IdentityProviders.save_provider("local-main", "local", %{}, true)
-
-      conn =
-        api_post(setup_conn, ~p"/api/v2/browser/setup/local-admin", %{
-          "email" => "not-an-email",
-          "password" => "hunter2-long"
-        })
-
-      assert api_error(conn, 422)["code"] == "email is invalid"
-
-      conn =
-        api_post(setup_conn, ~p"/api/v2/browser/setup/local-admin", %{
-          "email" => "admin@example.com",
-          "password" => "short"
-        })
-
-      assert api_error(conn, 422)["code"] ==
-               "password must be at least 6 characters"
-    end
-
-    test "cannot run again after setup completes", %{conn: conn} do
-      {:ok, _provider} = IdentityProviders.save_provider("local-main", "local", %{}, true)
-
-      {:ok, true} =
-        Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
-
-      conn =
-        conn
-        |> init_test_session(%{})
-        |> WebSession.put_setup_session()
-        |> api_post(~p"/api/v2/browser/setup/local-admin", %{
-          "email" => "admin@example.com",
-          "password" => "hunter2-long"
-        })
-
-      assert api_error(conn, 409)["code"] ==
-               "setup already completed"
-    end
   end
 end

@@ -294,7 +294,7 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
           aria-invalid={serverFieldError('resource_pattern') ? true : undefined}
           required
           className="font-mono text-xs"
-          placeholder="workspace:**"
+          placeholder="site_console:**"
           spellCheck={false}
           value={model.resourcePattern.value}
           onChange={event => (model.resourcePattern.value = event.target.value)}

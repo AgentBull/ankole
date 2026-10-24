@@ -5,6 +5,12 @@ export function authenticationRef(): string | undefined {
   return meta('ankole-authentication')
 }
 
+/** A verified credential change replaces only this document's proof. */
+export function replaceAuthentication(reference: string, csrfToken: string): void {
+  document.querySelector<HTMLMetaElement>('meta[name="ankole-authentication"]')!.content = reference
+  document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')!.content = csrfToken
+}
+
 export function podID(): string | undefined {
   return meta('ankole-pod')
 }

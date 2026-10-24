@@ -47,7 +47,7 @@ console.log(JSON.stringify({
       appID: 'cli_worker',
       rawToken: null,
       exitCode: 0,
-      stdout: 'lark-cli version 1.0.93\n',
+      stdout: 'lark-cli version 1.0.98\n',
       stderr: ''
     })
     expect(output.tokenFile).toStartWith(`${fixture.config.agentHomeRoot}/runtime-materials/credentials/`)

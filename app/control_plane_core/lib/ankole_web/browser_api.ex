@@ -1,18 +1,30 @@
 defmodule AnkoleWeb.BrowserAPI do
   @moduledoc "The setup and authentication boundary shared by the browser applications."
-  use Ash.Domain, validate_config_inclusion?: false, extensions: [AshJsonApi.Domain]
+  use Ankole.Ash.Domain, validate_config_inclusion?: false, extensions: [AshJsonApi.Domain]
 
   resources do
     resource(AnkoleWeb.BrowserSetup)
     resource(AnkoleWeb.BrowserAuth)
+    resource(AnkoleWeb.BrowserInvitation)
   end
 
   json_api do
-    authorize?(false)
+    authorize?(true)
     show_raised_errors?(false)
     log_errors?(true)
 
     routes do
+      base_route "/invitations", AnkoleWeb.BrowserInvitation do
+        route(:get, "/:token", :preview, name: "previewInvitation")
+
+        route(:post, "/:token/sessions", :begin_login,
+          name: "beginInvitationLogin",
+          modify_conn: &__MODULE__.apply_cookies/4
+        )
+
+        route(:post, "/:token/acceptances", :accept, name: "acceptInvitation")
+      end
+
       base_route "/", AnkoleWeb.BrowserSetup do
         route(:get, "/setup/state", :state, name: "setupState")
 
@@ -66,13 +78,19 @@ defmodule AnkoleWeb.BrowserAPI do
           modify_conn: &__MODULE__.apply_cookies/4
         )
 
-        route(:post, "/setup/local-admin", :create_local_admin,
-          name: "createSetupLocalAdmin",
+        route(:post, "/setup/email-otp/challenges", :request_email_setup,
+          name: "requestSetupEmailOTP",
+          modify_conn: &__MODULE__.apply_cookies/4
+        )
+
+        route(:post, "/setup/email-otp/verifications", :verify_email_setup,
+          name: "verifySetupEmailOTP",
           modify_conn: &__MODULE__.apply_cookies/4
         )
       end
 
       base_route "/", AnkoleWeb.BrowserAuth do
+        route(:post, "/pod-logins", :resolve_pod_login, name: "resolvePodLogin")
         route(:get, "/session", :session, name: "browserSession")
 
         route(:delete, "/session", :delete_session,
@@ -80,7 +98,9 @@ defmodule AnkoleWeb.BrowserAPI do
           modify_conn: &__MODULE__.apply_cookies/4
         )
 
-        route(:put, "/sessions/active", :activate_account, name: "activateBrowserAccount")
+        route(:post, "/authentications/current", :activate_account,
+          name: "activateBrowserAccount"
+        )
 
         route(:get, "/identity-providers", :identity_providers,
           name: "loginProviders",
@@ -96,16 +116,12 @@ defmodule AnkoleWeb.BrowserAPI do
           modify_conn: &__MODULE__.apply_cookies/4
         )
 
-        route(:post, "/sessions/local-password", :local_password_login,
-          name: "localPasswordLogin",
-          modify_conn: &__MODULE__.apply_cookies/4
+        route(:post, "/sessions/email-otp/challenges", :request_email_otp,
+          name: "requestEmailOTP"
         )
 
-        route(
-          :post,
-          "/sessions/local-password/change",
-          :local_password_change,
-          name: "localPasswordChange",
+        route(:post, "/sessions/email-otp/verifications", :verify_email_otp,
+          name: "verifyEmailOTP",
           modify_conn: &__MODULE__.apply_cookies/4
         )
 

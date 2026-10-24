@@ -1,6 +1,18 @@
 defmodule Ankole.Pod.Page do
   @moduledoc "One page tree node, its document revision, and its trash state."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod, extensions: [AshJsonApi.Resource]
+  use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
+    tenancy: :tenant,
+    domain: Ankole.Pod,
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:pod)
+    allow(:read, check: :pod_filter)
+    allow(:list_children, check: :pod_filter)
+    allow(:list_roots, check: :pod_filter)
+    allow(:search, check: :pod_filter)
+  end
 
   json_api do
     type("pod_page")
@@ -12,11 +24,18 @@ defmodule Ankole.Pod.Page do
     table("pages")
     repo(Ankole.Repo)
     migrate?(false)
-    foreign_key_names([{:parent_id, "pages_tenant_id_parent_id_fkey"}])
+
+    foreign_key_names([
+      {:parent_id, "pages_tenant_id_parent_id_fkey"},
+      {:acl_anchor_id, "pages_tenant_acl_anchor_fkey"},
+      {:parent_anchor_id, "pages_tenant_parent_anchor_fkey"}
+    ])
+
     unique_index_names([{[:id], "pages_pkey"}])
 
     check_constraints do
       check_constraint(:type, "pages_type_check")
+      check_constraint(:acl_anchor_id, "pages_acl_anchor_shape")
       check_constraint(:parent_id, "pages_private_owner")
       check_constraint(:purge_started_at, "pages_purge_state")
     end
@@ -24,7 +43,8 @@ defmodule Ankole.Pod.Page do
 
   attributes do
     attribute(:id, Ankole.Ash.Types.UUIDv7,
-      public?: true, primary_key?: true,
+      public?: true,
+      primary_key?: true,
       allow_nil?: false,
       default: &Ankole.Ecto.UUIDv7.autogenerate/0
     )
@@ -33,12 +53,14 @@ defmodule Ankole.Pod.Page do
     attribute(:private_owner_uid, Ankole.Ash.Types.PrincipalKey, public?: true)
 
     attribute(:type, :atom,
-      public?: true, allow_nil?: false,
+      public?: true,
+      allow_nil?: false,
       constraints: [one_of: [:doc, :database, :applet, :file]]
     )
 
     attribute(:title, :string,
-      public?: true, allow_nil?: false,
+      public?: true,
+      allow_nil?: false,
       default: "",
       constraints: [trim?: false, allow_empty?: true]
     )
@@ -46,17 +68,31 @@ defmodule Ankole.Pod.Page do
     attribute(:icon, :string, public?: true, constraints: [trim?: false, allow_empty?: true])
     attribute(:position, :string, public?: true, allow_nil?: false, constraints: [trim?: false])
     attribute(:inherit_permissions, :boolean, public?: true, allow_nil?: false, default: true)
-    attribute(:revision, :integer, public?: true, allow_nil?: false, default: 0, constraints: [min: 0])
+    attribute(:has_local_acl, :boolean, allow_nil?: false, default: false)
+    attribute(:is_acl_anchor, :boolean, writable?: false)
+    attribute(:acl_anchor_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+    attribute(:parent_anchor_id, Ankole.Ash.Types.UUIDv7)
+
+    attribute(:revision, :integer,
+      public?: true,
+      allow_nil?: false,
+      default: 0,
+      constraints: [min: 0]
+    )
+
     attribute(:saved_from_message_id, Ankole.Ash.Types.UUIDv7, public?: true)
     attribute(:created_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
-    attribute(:deleted_at, :utc_datetime_usec, public?: true)
-    attribute(:purge_started_at, :utc_datetime_usec, public?: true)
-    attribute(:created_at, :utc_datetime_usec, public?: true, allow_nil?: false)
-    attribute(:updated_at, :utc_datetime_usec, public?: true, allow_nil?: false)
+    attribute(:deleted_at, Ankole.Ash.Types.Timestamptz, public?: true)
+    attribute(:purge_started_at, Ankole.Ash.Types.Timestamptz, public?: true)
+    attribute(:created_at, Ankole.Ash.Types.Timestamptz, public?: true, allow_nil?: false)
+    attribute(:updated_at, Ankole.Ash.Types.Timestamptz, public?: true, allow_nil?: false)
   end
 
   calculations do
-    calculate(:role, :atom, expr(nil), public?: true, constraints: [one_of: [:view, :edit, :manage]])
+    calculate(:role, :atom, expr(nil),
+      public?: true,
+      constraints: [one_of: [:view, :edit, :manage]]
+    )
   end
 
   relationships do
@@ -73,6 +109,9 @@ defmodule Ankole.Pod.Page do
 
   actions do
     defaults([:read])
+    read(:list_children)
+    read(:list_roots)
+    read(:search)
 
     create :create_in_tx do
       accept([
@@ -84,6 +123,9 @@ defmodule Ankole.Pod.Page do
         :icon,
         :position,
         :inherit_permissions,
+        :has_local_acl,
+        :acl_anchor_id,
+        :parent_anchor_id,
         :revision,
         :saved_from_message_id,
         :created_by,
@@ -101,7 +143,15 @@ defmodule Ankole.Pod.Page do
     end
 
     update :move do
-      accept([:parent_id, :private_owner_uid, :position, :updated_at])
+      accept([
+        :parent_id,
+        :private_owner_uid,
+        :position,
+        :updated_at,
+        :acl_anchor_id,
+        :parent_anchor_id
+      ])
+
       validate(Ankole.Pod.Validations.PageState)
     end
 
@@ -112,19 +162,23 @@ defmodule Ankole.Pod.Page do
 
     update :sharing do
       require_atomic?(true)
-      accept([:inherit_permissions])
+      accept([:inherit_permissions, :acl_anchor_id, :parent_anchor_id])
+    end
+
+    update :anchor do
+      require_atomic?(true)
+      accept([:has_local_acl, :acl_anchor_id, :parent_anchor_id])
     end
 
     update :trash do
       require_atomic?(true)
-      accept([])
-      change(set_attribute(:deleted_at, &DateTime.utc_now/0))
+      accept([:deleted_at, :acl_anchor_id, :parent_anchor_id])
     end
 
     update :restore do
       require_atomic?(true)
       change(filter(expr(not is_nil(deleted_at) and is_nil(purge_started_at))))
-      accept([])
+      accept([:acl_anchor_id, :parent_anchor_id])
       change(set_attribute(:deleted_at, nil))
     end
 

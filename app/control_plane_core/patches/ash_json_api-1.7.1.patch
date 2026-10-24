@@ -171,3 +171,38 @@
        query_params: conn.query_params,
        req_headers: conn.req_headers,
        actor: get_actor(conn),
+--- a/lib/ash_json_api/controllers/router.ex
++++ b/lib/ash_json_api/controllers/router.ex
+@@ -188,16 +188,22 @@
+                   raise "Invalid before_dispatch option: #{inspect(other)}"
+               end
+             end)
+-            |> route.controller.call(
+-              domain: domain,
+-              resource: resource,
+-              all_domains: domains,
+-              prefix: prefix,
+-              action_type: route.action_type,
+-              route: route,
+-              relationship: route.relationship,
+-              action: Ash.Resource.Info.action(resource, route.action)
+-            )
++            |> then(fn conn ->
++              if conn.halted do
++                conn
++              else
++                route.controller.call(conn,
++                  domain: domain,
++                  resource: resource,
++                  all_domains: domains,
++                  prefix: prefix,
++                  action_type: route.action_type,
++                  route: route,
++                  relationship: route.relationship,
++                  action: Ash.Resource.Info.action(resource, route.action)
++                )
++              end
++            end)
+         end
+     end
+   end

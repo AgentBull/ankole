@@ -1,3 +1,4 @@
+import type { QueryClient } from '@tanstack/react-query'
 import { authenticationRef, podID } from '../common/browser-context'
 import { createClientConfig } from '../common/internal-api-client'
 
@@ -5,6 +6,7 @@ import type {
   PodPageType,
   PodPageReadResponse,
   PodPageListData,
+  PodPageChildrenResponse,
   PodPageSharingWriteData,
   PodPageCreateData,
   PodPageUpdateData,
@@ -13,6 +15,8 @@ import type {
 } from './api/generated/types.gen'
 import {
   podPageList,
+  podPageChildren,
+  podPageSearch,
   podPageRead,
   podPageCreate,
   podPageUpdate,
@@ -26,7 +30,8 @@ import {
   podDocumentWrite
 } from './api/generated/sdk.gen'
 
-export type Page = PodPageType
+export type Page = Omit<PodPageType, 'created_at' | 'updated_at' | 'revision'> &
+  Partial<Pick<PodPageType, 'created_at' | 'updated_at' | 'revision'>>
 export type PageType = Page['type']
 export type PageRole = PodPageReadResponse['role']
 export type PageScope = NonNullable<NonNullable<PodPageListData['query']>['scope']>
@@ -41,7 +46,11 @@ export const contentKeys = {
   get lists() {
     return [...contentKeys.all, 'pages'] as const
   },
-  list: (scope: PageScope, query = '') => [...contentKeys.lists, scope, query] as const,
+  list: (scope: PageScope) => [...contentKeys.lists, scope] as const,
+  children: (scope: 'space' | 'private', parentID?: string) =>
+    [...contentKeys.lists, 'children', scope, parentID ?? null] as const,
+  search: (query: string, excludeSubtreeOf?: string) =>
+    [...contentKeys.lists, 'search', query, excludeSubtreeOf ?? null] as const,
   page: (id: string) => [...contentKeys.all, 'page', id] as const,
   sharing: (id: string) => [...contentKeys.all, 'sharing', id] as const
 }
@@ -66,8 +75,14 @@ export async function podRequest<T>(path: string, method = 'GET', body?: unknown
 
 const pagePath = (id: string) => `/pages/${encodeURIComponent(id)}`
 export const pageAPI = {
-  list: (scope: PageScope, query = '', signal?: AbortSignal) =>
-    podPageList({ query: { scope, ...(query ? { query } : {}) }, signal }),
+  list: (scope: PageScope, signal?: AbortSignal) => podPageList({ query: { scope }, signal }),
+  children: (scope: 'space' | 'private', parentID?: string, cursor?: string, signal?: AbortSignal) =>
+    podPageChildren({
+      query: { ...(parentID ? { parent_id: parentID } : { scope }), ...(cursor ? { cursor } : {}), limit: 200 },
+      signal
+    }),
+  search: (query: string, excludeSubtreeOf?: string, signal?: AbortSignal) =>
+    podPageSearch({ query: { query: query.trim(), exclude_subtree_of: excludeSubtreeOf }, signal }),
   read: (id: string, signal?: AbortSignal) => podPageRead({ path: { id }, signal }),
   create: (body: NonNullable<PodPageCreateData['body']>['data']) => podPageCreate({ body: { data: body } }),
   update: (id: string, body: NonNullable<PodPageUpdateData['body']>['data']) =>
@@ -84,15 +99,39 @@ export const pageAPI = {
   share: (id: string, body: PageSharing) => podPageSharingWrite({ path: { id }, body: { data: body } })
 }
 
-export const pagesQuery = (scope: PageScope, query = '') => ({
-  queryKey: contentKeys.list(scope, query),
-  queryFn: ({ signal }: { signal: AbortSignal }) => pageAPI.list(scope, query, signal)
+export const pagesQuery = (scope: PageScope) => ({
+  queryKey: contentKeys.list(scope),
+  queryFn: ({ signal }: { signal: AbortSignal }) => pageAPI.list(scope, signal)
 })
+export const pageSearchQuery = (query: string, excludeSubtreeOf?: string) => ({
+  queryKey: contentKeys.search(query.trim(), excludeSubtreeOf),
+  queryFn: ({ signal }: { signal: AbortSignal }) => pageAPI.search(query, excludeSubtreeOf, signal)
+})
+export const pageChildrenQuery = (scope: 'space' | 'private', parentID?: string) => ({
+  queryKey: contentKeys.children(scope, parentID),
+  initialPageParam: undefined as string | undefined,
+  queryFn: ({ pageParam, signal }: { pageParam: string | undefined; signal: AbortSignal }) =>
+    pageAPI.children(scope, parentID, pageParam, signal),
+  getNextPageParam: (last: PodPageChildrenResponse) => last.next_cursor ?? undefined
+})
+
 export const pageQuery = (id: string) => ({
   queryKey: contentKeys.page(id),
   queryFn: ({ signal }: { signal: AbortSignal }) => pageAPI.read(id, signal),
   retry: false
 })
+
+export function cachedPages(client: QueryClient): Page[] {
+  const pages = new Map<string, Page>()
+  for (const [, data] of client.getQueriesData<{ pages: Page[] | { pages: Page[] }[] }>({
+    queryKey: contentKeys.lists
+  })) {
+    for (const item of data?.pages ?? []) {
+      for (const page of 'pages' in item ? item.pages : [item]) pages.set(page.id, page)
+    }
+  }
+  return [...pages.values()]
+}
 
 export function fileURL(id: string, path: string, sha256?: string): string {
   const params = new URLSearchParams({ path, ...(sha256 ? { sha256 } : {}), ...identityQuery() })

@@ -440,7 +440,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       assert matched.uid == human.uid
     end
 
-    test "a Principal whose mobile is that number is matched without any mapping" do
+    test "a mobile contact alone cannot claim a WhatsApp subject" do
       %{principal: agent} = agent_fixture()
       %{principal: human} = human_fixture(%{mobile: "+#{@wa_id}"})
 
@@ -449,14 +449,15 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
                  "unmatched_sender_policy" => "manual_review"
                })
 
-      assert {:ok, [%{status: :accepted}]} =
+      assert {:ok, [%{status: :held_unmapped_sender}]} =
                Inbound.handle_message_receive("message", envelope(text_message("hello")), [
                  consumer(agent.uid, "wa-mobile")
                ])
 
-      assert MappingRequests.list_requests() == []
-      assert {:ok, matched} = Principals.resolve_platform_subject("whatsapp", @wa_id)
-      assert matched.uid == human.uid
+      assert [%{external_id: @wa_id}] = MappingRequests.list_requests()
+      assert {:error, :not_found} = Principals.resolve_platform_subject("whatsapp", @wa_id)
+      assert {:ok, %{uid: uid}} = Principals.get_principal(human.uid)
+      assert uid == human.uid
     end
 
     test "create_standalone names the new account from the webhook contact profile" do

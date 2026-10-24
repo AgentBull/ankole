@@ -3,7 +3,11 @@ defmodule Ankole.E2E.PodContentBrowser do
 
   import ExUnit.Assertions
   import ExUnit.Callbacks
+  import Plug.Conn
+  import Phoenix.ConnTest, only: [dispatch: 5, html_response: 2, redirected_to: 1]
+  import AnkoleWeb.PodAPI, only: [api_post: 3, api_response: 2]
   alias Ankole.Repo
+  alias AnkoleWeb.Session, as: WebSession
 
   def send_message!(ctx, uid, options) do
     run!(ctx, uid, Map.new(options) |> Map.put(:action, "send_message"))
@@ -102,18 +106,48 @@ defmodule Ankole.E2E.PodContentBrowser do
     end
   end
 
-  defp browser_cookies!(human, origin) do
-    options =
-      Plug.Session.init(AnkoleWeb.SessionCookies.session_options())
+  @doc false
+  def browser_cookies!(human, origin) do
+    key = {__MODULE__, :cookies, human.uid, origin}
+
+    case Process.get(key) do
+      nil ->
+        cookies = login_cookies!(human, origin)
+        Process.put(key, cookies)
+        cookies
+
+      cookies ->
+        cookies
+    end
+  end
+
+  defp login_cookies!(human, origin) do
+    {:ok, %{human_user: %{email: email}}} =
+      Ankole.Principals.get_principal_record(human.uid, load: [:human_user])
+
+    assert is_binary(email), "The E2E Human must have a registered contact email"
+    smtp = Ankole.Authn.SMTPFixture.start(self())
+    {:ok, previous_mail} = Ankole.Authn.Config.get("mail")
+
+    on_exit(fn ->
+      Ankole.Authn.SMTPFixture.stop(smtp)
+      assert {:ok, _} = Ankole.Authn.Config.put_mail(previous_mail)
+    end)
+
+    assert {:ok, _} =
+             Ankole.Authn.Config.put_mail(%{
+               "server" => "127.0.0.1",
+               "port" => smtp.port,
+               "ssl" => true,
+               "from" => "login@ankole.test",
+               "cacertfile" => smtp.ca_path
+             })
 
     conn =
-      Plug.Test.conn(:get, origin <> "/")
-      |> Map.put(:secret_key_base, AnkoleWeb.Endpoint.config(:secret_key_base))
-      |> Plug.Session.call(options)
-      |> Plug.Conn.fetch_session()
+      Phoenix.ConnTest.build_conn()
+      |> dispatch(AnkoleWeb.Endpoint, :get, origin <> "/sessions/new", nil)
 
-    {:ok, conn, transaction} = AnkoleWeb.Session.begin_login(conn, :pod, %{})
-    reference = AnkoleWeb.Session.browser_reference(conn)
+    reference = WebSession.browser_reference(conn)
 
     on_exit(
       Repo.bind_tenant(fn ->
@@ -123,28 +157,60 @@ defmodule Ankole.E2E.PodContentBrowser do
       end)
     )
 
-    assert {:ok, _} =
-             Ankole.BrowserSessions.bind_provider(reference, transaction.id, "pod-real-llm")
+    login = redirected_to(conn)
+    flow = login |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.fetch!("flow")
 
-    assert {:ok, conn, _} =
-             AnkoleWeb.Session.complete_login(conn, transaction.id, %{
-               "principal_uid" => human.uid,
-               "access_version" => human.access_version,
-               "provider_id" => "pod-real-llm",
-               "external_id" => human.uid
-             })
+    shell =
+      conn
+      |> AnkoleWeb.ConnCase.recycle()
+      |> dispatch(AnkoleWeb.Endpoint, :get, URI.merge(origin, login) |> URI.to_string(), nil)
 
-    conn = Plug.Conn.send_resp(conn, 200, "test session")
+    [_, csrf] =
+      Regex.run(~r/<meta name="csrf-token" content="([^"]+)"/, html_response(shell, 200))
 
-    Enum.map(conn.resp_cookies, fn {name, cookie} ->
+    sent =
+      shell
+      |> AnkoleWeb.ConnCase.recycle()
+      |> put_private(:plug_skip_csrf_protection, false)
+      |> put_req_header("origin", origin)
+      |> put_req_header("x-csrf-token", csrf)
+      |> api_post("/api/v2/browser/sessions/email-otp/challenges", %{flow: flow, email: email})
+
+    challenge = api_response(sent, 201)["challengeID"]
+    assert_receive {:smtp_message, _, [^email], message}, 5_000
+    [_, code] = Regex.run(~r/code is (\d{6})/, Ankole.Authn.SMTPFixture.text(message))
+
+    verified =
+      sent
+      |> AnkoleWeb.ConnCase.recycle()
+      |> put_private(:plug_skip_csrf_protection, false)
+      |> put_req_header("origin", origin)
+      |> put_req_header("x-csrf-token", csrf)
+      |> api_post("/api/v2/browser/sessions/email-otp/verifications", %{
+        flow: flow,
+        challengeID: challenge,
+        code: code
+      })
+
+    assert %{"status" => "ok"} = api_response(verified, 201)
+    assert %{"principal_uid" => uid} = WebSession.pod_session(verified)
+    assert uid == human.uid
+
+    cookies =
+      Map.merge(
+        verified.req_cookies,
+        Map.new(verified.resp_cookies, fn {k, v} -> {k, v.value} end)
+      )
+
+    Enum.map(cookies, fn {name, value} ->
       scope =
-        if domain = cookie[:domain],
+        if domain = AnkoleWeb.SessionCookies.domain(),
           do: %{domain: "." <> String.trim_leading(domain, "."), path: "/"},
           else: %{url: origin}
 
       %{
         name: name,
-        value: cookie.value,
+        value: value,
         httpOnly: true,
         secure: false,
         sameSite: "Lax"

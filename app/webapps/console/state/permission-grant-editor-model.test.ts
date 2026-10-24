@@ -72,3 +72,12 @@ describe('PermissionGrantEditorModel', () => {
     model[Symbol.dispose]()
   })
 })
+
+test('a grant requires a resource namespace instead of an installation wide bare wildcard', () => {
+  const model = new PermissionGrantEditorModel()
+  model.initialize('new', { resourcePattern: '**', action: 'read', condition: 'true', description: '' })
+  expect(model.draftError()).toBe('resource_pattern_bare_wildcard')
+  model.resourcePattern.value = 'site_console:**'
+  expect(model.draftError()).toBeUndefined()
+  model[Symbol.dispose]()
+})

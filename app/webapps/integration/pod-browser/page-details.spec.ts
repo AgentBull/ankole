@@ -336,7 +336,20 @@ test('move destinations respect the visible tree and sharing cannot discard a pe
         popup.getByRole('option').filter({ has: owner.getByText(`${prefix} ${suffix}`, { exact: true }) })
       ).toHaveCount(0)
     }
+    const searched = owner.waitForResponse(response => {
+      const url = new URL(response.url())
+      return url.pathname === '/api/v2/pod/pages/search' && url.searchParams.get('query') === `${prefix} Grandchild`
+    })
+    await trigger.fill(`${prefix} Grandchild`)
+    const grandchildSearch = await searched
+    expect(grandchildSearch.ok()).toBe(true)
+    expect(new URL(grandchildSearch.url()).searchParams.get('exclude_subtree_of')).toBe(source)
+    expect((await grandchildSearch.json()).pages).toEqual([])
+    await expect(popup.getByRole('option')).toHaveCount(0)
     await trigger.fill(`${prefix} Target`)
+    await expect(
+      popup.getByRole('option').filter({ has: owner.getByText(`${prefix} Target`, { exact: true }) })
+    ).toBeVisible()
     await trigger.press('Enter')
     await expect(dialog.locator('.pod-selected-destination')).toContainText(`${prefix} Target`)
     await dialog.getByRole('button', { name: '移动', exact: true }).click()

@@ -1,9 +1,19 @@
 defmodule Ankole.Brain.Schemas.Source do
   @moduledoc "A stable learning source with explicit archive, sync, and extraction writes."
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.Brain,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    allow(:console_list, resource: "site_console:brain", action: "read")
+    allow(:console_register, resource: "site_console:brain", action: "update")
+    allow(:update_default_scope, resource: "site_console:brain", action: "update")
+    allow(:console_learn, resource: "site_console:brain", action: "update")
+    allow(:archive_source, resource: "site_console:brain", action: "update")
+  end
 
   json_api do
     type("brain_source")

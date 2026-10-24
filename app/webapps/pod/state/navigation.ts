@@ -1,7 +1,7 @@
 import { createModel, signal } from '@preact/signals-react'
 
 export type NavigationScope = 'space' | 'private'
-type Preferences = { rootOpen: Record<NavigationScope, boolean>; collapsed: Set<string> }
+type Preferences = { rootOpen: Record<NavigationScope, boolean>; expanded: Set<string> }
 type PreferenceStorage = Pick<Storage, 'getItem' | 'setItem'>
 
 function browserStorage(): PreferenceStorage | undefined {
@@ -17,12 +17,12 @@ function decode(raw: string | null): Preferences {
     const saved = JSON.parse(raw ?? 'null')
     return {
       rootOpen: { space: saved?.rootOpen?.space !== false, private: saved?.rootOpen?.private !== false },
-      collapsed: new Set<string>(
-        Array.isArray(saved?.collapsed) ? saved.collapsed.filter((id: unknown) => typeof id === 'string' && id) : []
+      expanded: new Set<string>(
+        Array.isArray(saved?.expanded) ? saved.expanded.filter((id: unknown) => typeof id === 'string' && id) : []
       )
     }
   } catch {
-    return { rootOpen: { space: true, private: true }, collapsed: new Set() }
+    return { rootOpen: { space: true, private: true }, expanded: new Set() }
   }
 }
 
@@ -41,7 +41,7 @@ export const NavigationModel = createModel(
       preferences.value = next
       try {
         if (storageKey) {
-          storage?.setItem(storageKey, JSON.stringify({ rootOpen: next.rootOpen, collapsed: [...next.collapsed] }))
+          storage?.setItem(storageKey, JSON.stringify({ rootOpen: next.rootOpen, expanded: [...next.expanded] }))
         }
       } catch {
         // A failed preference write must not undo the user's local choice.
@@ -61,10 +61,10 @@ export const NavigationModel = createModel(
       },
       togglePage(id: string) {
         const current = preferences.peek()
-        const collapsed = new Set(current.collapsed)
-        if (collapsed.has(id)) collapsed.delete(id)
-        else collapsed.add(id)
-        save({ ...current, collapsed })
+        const expanded = new Set(current.expanded)
+        if (expanded.has(id)) expanded.delete(id)
+        else expanded.add(id)
+        save({ ...current, expanded })
       }
     }
   }

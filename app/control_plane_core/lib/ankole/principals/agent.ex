@@ -7,9 +7,21 @@ defmodule Ankole.Principals.Agent do
   action that changes the Principal and the Agent rows in one transaction.
   """
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.Principals,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:uid, :principal_key)
+    allow(:console_list, resource: "site_console:agents", action: "read")
+    allow(:read, resource: "site_console:agent:{uid}", action: "read")
+    allow(:console_create, resource: "site_console:agents", action: "update")
+    allow(:console_update, resource: "site_console:agent:{uid}", action: "update")
+    allow(:console_delete, resource: "site_console:agent:{uid}", action: "delete")
+    allow(:console_enable, resource: "site_console:agent:{uid}", action: "update")
+  end
 
   alias Ankole.Principals.AgentConsole
 

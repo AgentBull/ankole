@@ -12,7 +12,7 @@ defmodule Ankole.OIDC.LoginPolicy do
   def can_reuse?(auth, params) when is_map(auth) do
     with age when is_nil(age) or is_integer(age) <- params["max_age"] do
       cond do
-        requires_login?(params) or selection_required?(params) -> false
+        reauthentication_required?(params) or selection_required?(params) -> false
         requires_auth_time?(params) and not is_integer(auth["auth_time"]) -> false
         is_integer(age) -> System.system_time(:second) - auth["auth_time"] <= age
         true -> true
@@ -71,7 +71,7 @@ defmodule Ankole.OIDC.LoginPolicy do
       allowed =
         Enum.filter(providers, fn provider ->
           source_allowed?(client, provider["provider_id"]) and
-            (not requires_auth_time?(params) or provider["kind"] == "password" or
+            (not requires_auth_time?(params) or
                provider["fresh_authentication"] == true)
         end)
 
@@ -118,6 +118,9 @@ defmodule Ankole.OIDC.LoginPolicy do
 
   def requires_login?(params), do: "login" in prompt_values(params) or params["max_age"] == 0
 
+  def reauthentication_required?(params),
+    do: params["reauthenticate"] == true or requires_login?(params)
+
   def upstream_options(transaction) do
     request = transaction.request
 
@@ -143,7 +146,13 @@ defmodule Ankole.OIDC.LoginPolicy do
 
   def login_providers do
     with {:ok, providers} <- Login.list_login_providers(),
-         do: {:ok, providers ++ Ankole.IdentityProviders.SiteSources.providers()}
+         {:ok, policy} <- Ankole.Principals.PodLoginPolicy.get() do
+      site =
+        Ankole.IdentityProviders.SiteSources.providers()
+        |> Enum.reject(&(&1["provider_id"] == "email_otp" and not policy["allow_email_otp"]))
+
+      {:ok, providers ++ site}
+    end
   end
 
   defp prompt_values(params), do: params["prompt"] || []

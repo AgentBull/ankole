@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 ARG BASE_IMAGE
-ARG OFFICECLI_VERSION=v1.0.157
+ARG OFFICECLI_VERSION=v1.0.158
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0.402 AS officecli-build
 
@@ -9,9 +9,9 @@ ARG OFFICECLI_VERSION
 ARG TARGETARCH
 
 WORKDIR /src
-ADD --checksum=sha256:078528b3c4e978abc1b072d1e89d02d7c50b3e94f5e6b78cb08a9805f330c31c \
-  https://github.com/iOfficeAI/OfficeCLI/archive/b65272a18aef891941451705ff93e8a287f3eb72.tar.gz /tmp/officecli.tar.gz
-COPY app/agent_computer/scripts/officecli-v1.0.157-screenshot.patch /tmp/officecli-screenshot.patch
+ADD --checksum=sha256:ef610ee83e81a13f39edaa1b7fa6eaa2697d90c2c1ed8e2c30f994a86bb7c1d7 \
+  https://github.com/iOfficeAI/OfficeCLI/archive/2900a4a20f49d6a94384d6ea7fb8cc0120999825.tar.gz /tmp/officecli.tar.gz
+COPY app/agent_computer/scripts/officecli-v1.0.158-screenshot.patch /tmp/officecli-screenshot.patch
 
 RUN --mount=type=cache,target=/root/.nuget/packages \
   set -eux; \
@@ -86,7 +86,7 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
 
 FROM ${BASE_IMAGE}
 
-ARG LARK_CLI_VERSION=v1.0.93
+ARG LARK_CLI_VERSION=v1.0.98
 ARG TARGETARCH
 ARG ANKOLE_RELEASE_REVISION=development
 
@@ -155,12 +155,12 @@ RUN set -eux; \
 # Release CLIs stay in this image. A version change rebuilds the Worker image
 # on the current Agent OS base. The base keeps the compiled toolchain, the
 # Python stack, fonts, and database clients.
-ARG CODEX_VERSION=0.163.0
-ARG MCPORTER_VERSION=0.14.3
+ARG CODEX_VERSION=0.164.0
+ARG MCPORTER_VERSION=0.16.0
 ARG OFFICECLI_VERSION
 ARG TYPST_VERSION=v0.15.1
-ARG KUBECTL_VERSION=v1.36.3
-ARG AWS_CLI_VERSION=2.36.38
+ARG KUBECTL_VERSION=v1.37.1
+ARG AWS_CLI_VERSION=2.38.5
 
 RUN set -eux; \
   mcporter_package="/tmp/mcporter-${MCPORTER_VERSION}.tgz"; \

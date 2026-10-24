@@ -1,9 +1,25 @@
 defmodule Ankole.AIGateway.ProviderConfigs.Console do
   @moduledoc "The HTTP actions for provider catalogs and ChatGPT sign-in."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     domain: Ankole.AIGateway.ProviderConfigs,
     data_layer: Ash.DataLayer.Simple,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:provider_id, :provider_id)
+    allow(:models, resource: "site_console:ai_gateway_providers", action: "read")
+    allow(:provider_kinds, resource: "site_console:ai_gateway_provider_kinds", action: "read")
+    allow(:start, resource: "site_console:ai_gateway_provider:{provider_id}", action: "update")
+    allow(:poll, resource: "site_console:ai_gateway_provider:{provider_id}", action: "update")
+    allow(:complete, resource: "site_console:ai_gateway_provider:{provider_id}", action: "update")
+
+    allow(:enterprise,
+      resource: "site_console:ai_gateway_provider:{provider_id}",
+      action: "update"
+    )
+  end
 
   @model_fields [
     provider_id: [type: :string, allow_nil?: false],

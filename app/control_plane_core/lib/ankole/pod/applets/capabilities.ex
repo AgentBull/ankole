@@ -4,15 +4,15 @@ defmodule Ankole.Pod.Applets.Capabilities do
   alias Ankole.Pod.{Database, Files, Pages, Serialization}
   alias Ankole.Pod.Applets.AI
 
-  def call(context, authority, operation, args) do
-    uid = context["principal"]["uid"]
+  def call(context, %Ankole.AuthZ.Actor{} = actor, operation, args) do
+    authority = actor.turn_authority
 
     if context["method"] == "GET" and operation in ["db.write", "file.write"] do
       error(:read_only_route)
     else
       outcome =
-        with {:ok, _page} <- Pages.authorize(uid, context["applet"]["pageId"], "page_view"),
-             do: dispatch(uid, authority, operation, args)
+        with {:ok, _page} <- Pages.authorize(actor, context["applet"]["pageId"], "page_view"),
+             do: dispatch(actor, authority, operation, args)
 
       result(outcome)
     end
@@ -39,44 +39,44 @@ defmodule Ankole.Pod.Applets.Capabilities do
       error(:handler_error)
   end
 
-  defp dispatch(uid, _authority, "db.schema", [id]), do: Database.get_table(uid, id)
+  defp dispatch(actor, _authority, "db.schema", [id]), do: Database.get_table(actor, id)
 
   defp dispatch(_uid, _authority, "db.query", [_id, %{"local" => _}]),
     do: {:error, :invalid_request}
 
-  defp dispatch(uid, _authority, "db.query", [id, query]) when is_map(query),
-    do: Database.query(uid, id, query)
+  defp dispatch(actor, _authority, "db.query", [id, query]) when is_map(query),
+    do: Database.query(actor, id, query)
 
-  defp dispatch(uid, _authority, "db.aggregate", [id, query]) when is_map(query),
-    do: Database.aggregate(uid, id, query)
+  defp dispatch(actor, _authority, "db.aggregate", [id, query]) when is_map(query),
+    do: Database.aggregate(actor, id, query)
 
-  defp dispatch(uid, authority, "db.write", [id, changes]) when is_map(changes),
-    do: Database.write_records(uid, id, changes, authority)
+  defp dispatch(actor, authority, "db.write", [id, changes]) when is_map(changes),
+    do: Database.write_records(actor, id, changes, authority)
 
-  defp dispatch(uid, _authority, "file.list", [id]) do
-    with {:ok, manifest} <- Files.manifest(uid, id) do
+  defp dispatch(actor, _authority, "file.list", [id]) do
+    with {:ok, manifest} <- Files.manifest(actor, id) do
       {:ok, %{revision: manifest.revision, files: Enum.map(manifest.files, &file_entry(id, &1))}}
     end
   end
 
-  defp dispatch(uid, _authority, "file.read", [path]) do
+  defp dispatch(actor, _authority, "file.read", [path]) do
     with {:ok, id, relative} <- Files.parse_path(path),
-         {:ok, entry, bytes} <- Files.read(uid, id, relative) do
+         {:ok, entry, bytes} <- Files.read(actor, id, relative) do
       {:ok, Map.put(file_entry(id, entry), :bytes, %{"__ankole_bytes" => Base.encode64(bytes)})}
     end
   end
 
-  defp dispatch(uid, authority, "file.write", [
+  defp dispatch(actor, authority, "file.write", [
          id,
          %{"name" => name, "bytes" => %{"__ankole_bytes" => encoded}} = file
        ]) do
     with {:ok, bytes} <- Base.decode64(encoded),
          true <- byte_size(bytes) <= Ankole.WorkerFiles.max_transfer_bytes(),
-         {:ok, page} <- Pages.authorize(uid, id, "page_edit"),
+         {:ok, page} <- Pages.authorize(actor, id, "page_edit"),
          {:ok, role} <- upload_role(page.type),
          {:ok, result} <-
            Files.upload(
-             uid,
+             actor,
              id,
              role,
              file["baseRevision"],

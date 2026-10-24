@@ -995,6 +995,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   test "a native conversation can dispatch a Job and receive its authorized result stimulus" do
     %{principal: agent} = background_agent_fixture()
     %{principal: human} = human_fixture()
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
     id = Ecto.UUID.generate()
 
     assert {:ok, detail} =

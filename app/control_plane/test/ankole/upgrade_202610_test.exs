@@ -680,6 +680,79 @@ defmodule Ankole.Upgrade202610Test do
     %{job | drive_prefix: prefix}
   end
 
+  test "site mail settings decrypt with the old key and seal with the authentication key" do
+    mail = %{
+      "server" => "smtp.example.test",
+      "from" => "login@example.test",
+      "username" => "mailer",
+      "password" => "old-mail-secret"
+    }
+
+    old = seed_config("saas.email.mail", mail)
+    assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
+    refute Repo.get_by(SiteConfig, scope: "global", key: "saas.email.mail")
+    row = Repo.get_by!(SiteConfig, scope: "global", key: "authn.email.mail")
+    assert row.value["type"] == "cipher"
+    refute row.value["value"] == old["value"]
+    assert {:ok, ^mail} = Crypto.unseal(row.value["value"], "global", "authn.email.mail")
+    assert {:error, _} = Crypto.unseal(row.value["value"], "global", "saas.email.mail")
+    assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
+    assert Repo.get_by!(SiteConfig, scope: "global", key: "authn.email.mail").value == row.value
+  end
+
+  test "legacy empty mail configuration becomes an unconfigured nil value" do
+    for key <- ["saas.email.mail", "authn.email.mail"] do
+      Repo.delete_all(
+        from row in SiteConfig, where: row.scope == "global" and row.key == "authn.email.mail"
+      )
+
+      seed_config(key, %{})
+      assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
+      row = Repo.get_by!(SiteConfig, scope: "global", key: "authn.email.mail")
+      assert {:ok, nil} = Crypto.unseal(row.value["value"], "global", "authn.email.mail")
+      assert {:ok, nil} = Ankole.Authn.Config.get("mail")
+      refute Ankole.Authn.Mailer.configured?()
+    end
+  end
+
+  test "retired local activations refresh each tenant's configuration in its own context", %{
+    tenant: first
+  } do
+    second = Ankole.DataCase.create_tenant()
+    key = "principals.identity_providers.active"
+
+    for tenant <- [first, second] do
+      Repo.with_tenant(tenant.id, fn ->
+        Repo.insert!(%AppConfig{
+          tenant_id: tenant.id,
+          scope: "tenant:" <> tenant.id,
+          key: key,
+          value: %{
+            "type" => "plaintext",
+            "value" => [
+              %{
+                "provider_id" => "local-main",
+                "adapter_id" => "local",
+                "plugin_id" => "core",
+                "config_key" => "principals.identity_providers.local-main",
+                "enabled" => true
+              }
+            ]
+          }
+        })
+      end)
+    end
+
+    assert :ok = Repo.without_tenant(&Upgrade202610.run/0)
+
+    for tenant <- [first, second] do
+      Repo.with_tenant(tenant.id, fn ->
+        assert Repo.get_by!(AppConfig, key: key).value["value"] == []
+        assert {:ok, []} = Ankole.AppConfigure.get_by_key(key)
+      end)
+    end
+  end
+
   defp seed_config(key, config) do
     {:ok, ciphertext} = Crypto.seal(config, "global", key)
     value = %{"type" => "cipher", "value" => ciphertext}

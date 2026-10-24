@@ -1,9 +1,21 @@
 defmodule Ankole.Brain.Schemas.Object do
   @moduledoc "A current knowledge page with explicit content, ownership, and projection writes."
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.Brain,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    allow(:console_list, resource: "site_console:brain", action: "read")
+    allow(:console_create, resource: "site_console:brain", action: "update")
+    allow(:console_update, resource: "site_console:brain", action: "update")
+    allow(:fork_library_page, resource: "site_console:brain", action: "update")
+    allow(:console_rollback, resource: "site_console:brain", action: "update")
+    allow(:console_forget, resource: "site_console:brain", action: "update")
+    allow(:restore_object, resource: "site_console:brain", action: "update")
+  end
 
   # The resource gives summary fields. `GET /api/v2/brain/objects/show` gives
   # the page body, Claims, and links.

@@ -17,6 +17,23 @@ defmodule Ankole.Ash do
   """
   def default_options, do: [tenant: Ankole.Repo.tenant_id()]
 
+  def read_authorized(query, %Ankole.AuthZ.Actor{} = actor, opts \\ []),
+    do: read(query, Keyword.merge(opts, actor: actor, authorize?: true))
+
+  def read_one_authorized(query, %Ankole.AuthZ.Actor{} = actor, opts \\ []),
+    do: read_one(query, Keyword.merge(opts, actor: actor, authorize?: true))
+
+  def run_action_authorized(
+        %Ash.ActionInput{} = input,
+        %Ankole.AuthZ.Actor{} = actor,
+        opts \\ []
+      ),
+      do:
+        Ash.run_action(
+          input,
+          Keyword.merge(opts, actor: actor, authorize?: true, tenant: Ankole.Repo.tenant_id())
+        )
+
   def for_create(resource, action, attrs, opts \\ []),
     do: Ash.Changeset.for_create(resource, action, attrs, options(resource, opts))
 
@@ -147,7 +164,12 @@ defmodule Ankole.Ash do
   end
 
   def run_action(resource, action, args, opts \\ []) do
-    options = options(resource, opts)
+    tenant = Ankole.Repo.tenant_id()
+
+    if Keyword.get(opts, :tenant, tenant) != tenant,
+      do: raise(ArgumentError, "action tenant does not match the selected resource scope")
+
+    options = Keyword.merge([tenant: tenant, authorize?: false], opts)
 
     resource
     |> Ash.ActionInput.for_action(action, args, options)

@@ -111,7 +111,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(result).toBeUndefined()
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
       expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
-        codex_user_agent: 'codex-cli 0.163.0',
+        codex_user_agent: 'codex-cli 0.164.0',
         job_project_cwd: jobProjectFor(fixture.root),
         job_workspace: jobProjectFor(fixture.root),
         projected_tool_names: ['web_search', 'web_fetch', 'skill_view', 'request_parent_input'],
@@ -1543,7 +1543,7 @@ function writeFakeCodex(path: string, firstResponse: string, behavior: FakeCodex
     `#!/usr/bin/env bun
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 if (process.argv.includes('--version')) {
-  console.log('codex-cli 0.163.0')
+  console.log('codex-cli 0.164.0')
   process.exit(0)
 }
 let buffer = ''
@@ -1584,7 +1584,7 @@ function handle(message) {
   }
   if (message.method === 'initialize') {
     writeFileSync(process.env.CODEX_HOME + '/initialize-started.txt', 'started')
-    const response = { id: message.id, result: { userAgent: 'codex-cli 0.163.0' } }
+    const response = { id: message.id, result: { userAgent: 'codex-cli 0.164.0' } }
     if (initializeDelayMs) return setTimeout(() => write(response), initializeDelayMs)
     return write(response)
   }

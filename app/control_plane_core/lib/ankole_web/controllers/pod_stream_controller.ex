@@ -3,7 +3,7 @@ defmodule AnkoleWeb.PodStreamController do
   use AnkoleWeb, :controller
 
   def events(conn, %{"id" => id}) do
-    with {:ok, detail} <- Ankole.Conversations.get(conn.assigns.current_principal_uid, id),
+    with {:ok, detail} <- Ankole.Conversations.get(conn.assigns.authz_actor, id),
          {:ok, conn} <- AnkoleWeb.PodStream.open(conn, detail) do
       conn
     else

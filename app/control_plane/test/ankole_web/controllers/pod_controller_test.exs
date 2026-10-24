@@ -96,9 +96,11 @@ defmodule AnkoleWeb.PodControllerTest do
 
     Repo.put_tenant_id(tenant.id)
 
+    {conn, human_uid} = console_conn_with_principal(conn)
+    Ankole.ConversationsFixtures.grant_chat(human_uid, local.uid)
+
     conn =
       conn
-      |> console_conn()
       |> put_req_header("x-ankole-tenant", other_tenant.id)
       |> api_get(~p"/api/v2/pod/agents")
 
@@ -113,6 +115,7 @@ defmodule AnkoleWeb.PodControllerTest do
   } do
     {conn, human_uid} = console_conn_with_principal(conn)
     agent = agent_fixture(%{display_name: "Pod Agent"}).principal
+    Ankole.ConversationsFixtures.grant_chat(human_uid, agent.uid)
     attrs = create_request(agent.uid, "  First question\nsecond line  ")
     pause_session(agent.uid, attrs["conversationID"])
 
@@ -217,7 +220,13 @@ defmodule AnkoleWeb.PodControllerTest do
   test "page chat uses the same conversation API and can be recovered by page", %{conn: conn} do
     {conn, human_uid} = console_conn_with_principal(conn)
     agent = agent_fixture().principal
-    {:ok, page} = Ankole.Pod.Pages.create(human_uid, %{title: "Current page"})
+    Ankole.ConversationsFixtures.grant_chat(human_uid, agent.uid)
+
+    {:ok, page} =
+      Ankole.Pod.Pages.create(Ankole.PrincipalsFixtures.actor_fixture(human_uid), %{
+        title: "Current page"
+      })
+
     attrs = Map.put(create_request(agent.uid), "pageID", page.id)
     pause_session(agent.uid, attrs["conversationID"])
     created = api_post(conn, ~p"/api/v2/pod/conversations", attrs)
@@ -245,6 +254,7 @@ defmodule AnkoleWeb.PodControllerTest do
   } do
     {conn, uid} = console_conn_with_principal(conn)
     agent = agent_fixture().principal
+    Ankole.ConversationsFixtures.grant_chat(uid, agent.uid)
     attrs = create_request(agent.uid)
 
     for body <- [
@@ -257,7 +267,11 @@ defmodule AnkoleWeb.PodControllerTest do
       rejected = conn |> recycle_api() |> api_post(~p"/api/v2/pod/conversations", body)
       assert rejected.status in [400, 422]
       assert %{"errors" => [_ | _]} = api_response(rejected, rejected.status)
-      refute Enum.any?(Conversations.list(uid), &(&1.id == attrs["conversationID"]))
+
+      refute Enum.any?(
+               Conversations.list(Ankole.PrincipalsFixtures.actor_fixture(uid)),
+               &(&1.id == attrs["conversationID"])
+             )
     end
 
     shown = conn |> recycle_api() |> api_get(~p"/api/v2/pod/conversations/invalid")
@@ -265,8 +279,9 @@ defmodule AnkoleWeb.PodControllerTest do
   end
 
   test "a reused ID with different facts is a conflict", %{conn: conn} do
-    conn = console_conn(conn)
+    {conn, human_uid} = console_conn_with_principal(conn)
     agent = agent_fixture().principal
+    Ankole.ConversationsFixtures.grant_chat(human_uid, agent.uid)
     attrs = create_request(agent.uid)
     pause_session(agent.uid, attrs["conversationID"])
     created = api_post(conn, ~p"/api/v2/pod/conversations", attrs)
@@ -282,8 +297,9 @@ defmodule AnkoleWeb.PodControllerTest do
   end
 
   test "disabled Agent histories stay readable and new messages are rejected", %{conn: conn} do
-    conn = console_conn(conn)
+    {conn, human_uid} = console_conn_with_principal(conn)
     agent = agent_fixture().principal
+    Ankole.ConversationsFixtures.grant_chat(human_uid, agent.uid)
     attrs = create_request(agent.uid)
     pause_session(agent.uid, attrs["conversationID"])
     created = api_post(conn, ~p"/api/v2/pod/conversations", attrs)
@@ -322,7 +338,14 @@ defmodule AnkoleWeb.PodControllerTest do
     {conn, _uid} = console_conn_with_principal(conn)
     %{principal: other_human} = human_fixture()
     agent = agent_fixture().principal
-    {:ok, detail} = Conversations.create(other_human.uid, domain_request(agent.uid))
+    Ankole.ConversationsFixtures.grant_chat(other_human.uid, agent.uid)
+
+    {:ok, detail} =
+      Conversations.create(
+        Ankole.PrincipalsFixtures.actor_fixture(other_human.uid),
+        domain_request(agent.uid)
+      )
+
     id = detail.conversation.id
 
     shown = api_get(conn, ~p"/api/v2/pod/conversations/#{id}")
@@ -371,7 +394,14 @@ defmodule AnkoleWeb.PodControllerTest do
        } do
     {conn, human_uid} = active_admin_conn_with_principal(conn)
     agent = agent_fixture().principal
-    {:ok, detail} = Conversations.create(human_uid, domain_request(agent.uid))
+    Ankole.ConversationsFixtures.grant_chat(human_uid, agent.uid)
+
+    {:ok, detail} =
+      Conversations.create(
+        Ankole.PrincipalsFixtures.actor_fixture(human_uid),
+        domain_request(agent.uid)
+      )
+
     id = detail.conversation.id
     model_id = detail.model_conversation_id
     native_message = {:conversation_event, id, :message}
@@ -497,7 +527,14 @@ defmodule AnkoleWeb.PodControllerTest do
         })
 
       agent = agent_fixture().principal
-      {:ok, detail} = Conversations.create(human_uid, domain_request(agent.uid))
+      Ankole.ConversationsFixtures.grant_chat(human_uid, agent.uid)
+
+      {:ok, detail} =
+        Conversations.create(
+          Ankole.PrincipalsFixtures.actor_fixture(human_uid),
+          domain_request(agent.uid)
+        )
+
       signal = Repo.get_by!(Ankole.Signals.Signal, session_id: detail.session_id)
 
       gateway = %{
@@ -545,7 +582,14 @@ defmodule AnkoleWeb.PodControllerTest do
   } do
     {authenticated_conn, human_uid} = active_admin_conn_with_principal(conn)
     agent = agent_fixture().principal
-    {:ok, detail} = Conversations.create(human_uid, domain_request(agent.uid))
+    Ankole.ConversationsFixtures.grant_chat(human_uid, agent.uid)
+
+    {:ok, detail} =
+      Conversations.create(
+        Ankole.PrincipalsFixtures.actor_fixture(human_uid),
+        domain_request(agent.uid)
+      )
+
     signal = Repo.get_by!(Ankole.Signals.Signal, session_id: detail.session_id)
     response_id = "resp_" <> Ecto.UUID.generate()
 
@@ -590,7 +634,13 @@ defmodule AnkoleWeb.PodControllerTest do
   } do
     {authenticated_conn, human_uid} = active_admin_conn_with_principal(conn)
     agent = agent_fixture().principal
-    {:ok, detail} = Conversations.create(human_uid, domain_request(agent.uid))
+    Ankole.ConversationsFixtures.grant_chat(human_uid, agent.uid)
+
+    {:ok, detail} =
+      Conversations.create(
+        Ankole.PrincipalsFixtures.actor_fixture(human_uid),
+        domain_request(agent.uid)
+      )
 
     conn = %{
       stream_request(authenticated_conn, detail.conversation.id)

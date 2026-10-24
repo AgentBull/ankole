@@ -7,9 +7,17 @@ defmodule Ankole.Signals.WebhookEndpoint do
   """
 
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.Signals,
-    extensions: [AshStateMachine, AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshStateMachine, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    allow(:console_list, resource: "site_console:webhooks", action: "read")
+    allow(:create_operator_endpoint, resource: "site_console:webhooks", action: "update")
+    allow(:cancel_operator_endpoint, resource: "site_console:webhooks", action: "delete")
+  end
 
   @modes ~w(one_shot standing)
   @type t :: %__MODULE__{}

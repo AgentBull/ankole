@@ -4,9 +4,17 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
   """
 
   use Ankole.Ash.Resource,
-    extensions: [AshStateMachine, AshJsonApi.Resource],
+    authorizers: [Ankole.AuthZ.Authorizer],
+    extensions: [Ankole.AuthZ.Extension, AshStateMachine, AshJsonApi.Resource],
     tenancy: :tenant,
     domain: Ankole.AutomationJobs
+
+  authz do
+    scope(:site_console)
+    resolve_param(:agent_uid, :principal_key)
+    allow(:console_list, resource: "site_console:automation_jobs", action: "read")
+    allow(:read, resource: "site_console:agent:{agent_uid}:automation_jobs", action: "read")
+  end
 
   use Ankole.Work.Provenance,
     owner_session?: true,

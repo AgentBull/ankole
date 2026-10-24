@@ -1,9 +1,53 @@
 defmodule Ankole.AIAgent.Console do
   @moduledoc "The Console actions for Agent model profiles and token quotas."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     domain: Ankole.AIAgent,
     data_layer: Ash.DataLayer.Simple,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:agent_uid, :principal_key)
+    resolve_param(:profile, :model_profile)
+
+    allow(:model_profiles,
+      resource: "site_console:agent:{agent_uid}:model_profiles",
+      action: "read"
+    )
+
+    allow(:put_model_profile,
+      resource: "site_console:agent:{agent_uid}:model_profile:{profile}",
+      action: "update"
+    )
+
+    allow(:delete_model_profile,
+      resource: "site_console:agent:{agent_uid}:model_profile:{profile}",
+      action: "delete"
+    )
+
+    allow(:put_provider_hosted,
+      resource: "site_console:agent:{agent_uid}:model_profiles",
+      action: "update"
+    )
+
+    allow(:token_quota, resource: "site_console:agent:{agent_uid}:token_quota", action: "read")
+
+    allow(:put_token_quota,
+      resource: "site_console:agent:{agent_uid}:token_quota",
+      action: "update"
+    )
+
+    allow(:delete_token_quota,
+      resource: "site_console:agent:{agent_uid}:token_quota",
+      action: "delete"
+    )
+
+    allow(:reset_token_quota,
+      resource: "site_console:agent:{agent_uid}:token_quota",
+      action: "update"
+    )
+  end
 
   @provider_hosted_fields [
     web_search: [type: :boolean, allow_nil?: false],

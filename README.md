@@ -117,7 +117,7 @@ With `ankole.localhost`, Caddy signs the certificate with its own local authorit
 docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./ankole-local-ca.crt
 ```
 
-Open `https://<ANKOLE_HOST>/setup` and enter the code. Choose the plugins that you need, such as the one for your chat platform. Set up how administrators sign in: through an identity provider such as Slack or Microsoft Entra ID, or with a local password. Then, in the Console, the web interface for administrators, add a model provider, create an Agent, and connect a chat platform to it. Keep provider API keys in the Console, not in `.env`. Send the Agent a message in that chat; its reply shows that the setup works.
+Open `https://<ANKOLE_HOST>/setup` and enter the code. Choose the plugins that you need, such as the one for your chat platform. Set up how administrators sign in: through an identity provider such as Slack or Microsoft Entra ID, or with a 6-digit email code sent through your SMTP service. Then, in the Console, the web interface for administrators, add a model provider, create an Agent, and connect a chat platform to it. Keep provider API keys in the Console, not in `.env`. Send the Agent a message in that chat; its reply shows that the setup works.
 
 A coding agent such as Claude Code or Codex can do the whole setup with you. Give it this prompt:
 

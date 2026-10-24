@@ -75,7 +75,7 @@ test('Setup freezes pending choices and back navigation restores the acknowledge
   }
 })
 
-test('an in-flight login freezes account inputs and a late lockout cannot follow an edited account', async ({
+test('an in-flight code request freezes the email and a late lockout clears when the email changes', async ({
   page
 }) => {
   let release!: () => void
@@ -86,7 +86,7 @@ test('an in-flight login freezes account inputs and a late lockout cannot follow
   const gate = new Promise<void>(resolve => {
     release = resolve
   })
-  await page.route('**/api/v2/browser/sessions/local-password', async route => {
+  await page.route('**/api/v2/browser/sessions/email-otp/challenges', async route => {
     expect(route.request().postDataJSON().data.email).toBe('account-a@example.test')
     started()
     await gate
@@ -94,27 +94,24 @@ test('an in-flight login freezes account inputs and a late lockout cannot follow
       status: 429,
       json: {
         errors: [
-          { status: '429', code: 'retry_locked', detail: 'retry_locked', meta: { details: { retryAfterSeconds: 60 } } }
+          { status: '429', code: 'rate_limited', detail: 'rate_limited', meta: { details: { retryAfterSeconds: 60 } } }
         ]
       }
     })
   })
   try {
     await page.goto('/login-repair')
-    const email = page.getByRole('textbox', { name: 'Email', exact: true })
-    const password = page.getByLabel('Password', { exact: true })
+    const email = page.getByRole('textbox', { name: 'Email address', exact: true })
     await email.fill('account-a@example.test')
-    await password.fill('test-password')
-    await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+    await page.getByRole('button', { name: 'Send code', exact: true }).click()
     await pending
     await expect(email).toBeDisabled()
-    await expect(password).toBeDisabled()
     release()
     await expect(email).toBeEnabled()
     await expect(page.getByRole('alert')).toBeVisible()
     await email.fill('account-b@example.test')
     await expect(page.getByRole('alert')).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeEnabled()
+    await expect(page.getByRole('button', { name: 'Send code', exact: true })).toBeEnabled()
   } finally {
     release()
   }

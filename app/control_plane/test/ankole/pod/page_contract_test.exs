@@ -6,11 +6,19 @@ defmodule Ankole.Pod.PageContractTest do
   setup do
     owner = human_fixture().principal
     agent = agent_fixture(%{owner_principal_uid: owner.uid}).principal
+
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: owner.uid,
+        resource_pattern: "agent:#{agent.uid}",
+        action: "chat"
+      })
+
     %{owner: owner, agent: agent}
   end
 
   test "a new blank page is editable and retransmission applies each OT batch once", ctx do
-    {:ok, page} = Pages.create(ctx.owner.uid, %{})
+    {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
     assert page.title == ""
     assert Repo.get!(PageContent, page.id).content == "<page />"
 
@@ -26,22 +34,33 @@ defmodule Ankole.Pod.PageContractTest do
     }
 
     assert {:ok, %{revision: 1, acknowledged_revision: 1}} =
-             Documents.apply(ctx.owner.uid, page.id, batch)
+             Documents.apply(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               page.id,
+               batch
+             )
 
     assert {:ok, %{revision: 1, acknowledged_revision: 1}} =
-             Documents.apply(ctx.owner.uid, page.id, batch)
+             Documents.apply(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               page.id,
+               batch
+             )
 
     assert Repo.get!(PageContent, page.id).content == "<page><p>Hello</p></page>"
     assert Repo.aggregate(PageChange, :count) == 1
 
     assert {:ok, %{revision: 1, changes: [%{client_seq: 1}]}} =
-             Documents.apply(ctx.owner.uid, page.id, %{batch | client_seq: 2})
+             Documents.apply(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, %{
+               batch
+               | client_seq: 2
+             })
 
     assert Repo.get!(Page, page.id).revision == 1
   end
 
   test "a reused client sequence with another payload rejects the new edit", ctx do
-    {:ok, page} = Pages.create(ctx.owner.uid, %{})
+    {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
 
     batch = %{
       base_revision: 0,
@@ -54,10 +73,15 @@ defmodule Ankole.Pod.PageContractTest do
       ]
     }
 
-    assert {:ok, %{revision: 1}} = Documents.apply(ctx.owner.uid, page.id, batch)
+    assert {:ok, %{revision: 1}} =
+             Documents.apply(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               page.id,
+               batch
+             )
 
     assert {:error, :client_sequence_conflict} =
-             Documents.apply(ctx.owner.uid, page.id, %{
+             Documents.apply(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, %{
                batch
                | changes: [[0, [%{"type" => "Text", "param" => "Different"}]], 1]
              })
@@ -67,7 +91,7 @@ defmodule Ankole.Pod.PageContractTest do
 
   test "replay asks for a snapshot before loading a log larger than the socket message budget",
        ctx do
-    {:ok, page} = Pages.create(ctx.owner.uid, %{})
+    {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
     now = DateTime.utc_now(:microsecond)
     author = Ankole.ActorRef.from_principal(ctx.owner)
     # Each stored batch fits the message budget; their replay together does not.
@@ -97,15 +121,18 @@ defmodule Ankole.Pod.PageContractTest do
     )
 
     assert {:ok, %{revision: 2, changes: [], reset_required: true, reload_required: true}} =
-             Documents.since(ctx.owner.uid, page.id, 0)
+             Documents.since(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, 0)
 
     assert {:ok, %{revision: 2, changes: [_], reset_required: false}} =
-             Documents.since(ctx.owner.uid, page.id, 1)
+             Documents.since(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, 1)
   end
 
   test "an Agent reset is visible to stale clients and rejected Agent writes leave content intact",
        ctx do
-    {:ok, page} = Pages.create(ctx.owner.uid, %{private_owner_uid: ctx.owner.uid})
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
+        private_owner_uid: ctx.owner.uid
+      })
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{
@@ -113,33 +140,57 @@ defmodule Ankole.Pod.PageContractTest do
       })
 
     assert {:ok, %{page: %{revision: 1}}} =
-             Documents.write(ctx.agent.uid, page.id, 0, "<page><p>Agent</p></page>")
+             Documents.write(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
+               page.id,
+               0,
+               "<page><p>Agent</p></page>"
+             )
 
     assert {:error, {:revision_conflict, 1}} =
-             Documents.write(ctx.agent.uid, page.id, 0, "<page />")
+             Documents.write(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
+               page.id,
+               0,
+               "<page />"
+             )
 
     assert {:error, _} =
-             Documents.write(ctx.agent.uid, page.id, 1, "<page><p><table /></p></page>")
+             Documents.write(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
+               page.id,
+               1,
+               "<page><p><table /></p></page>"
+             )
 
     assert Repo.get!(PageContent, page.id).content == "<page><p>Agent</p></page>"
 
     assert {:ok, %{changes: [%{kind: :reset}], reset_required: false}} =
-             Documents.since(ctx.owner.uid, page.id, 0)
+             Documents.since(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, 0)
 
     Repo.delete_all(PageChange)
 
     assert {:ok, %{changes: [], reset_required: true}} =
-             Documents.since(ctx.owner.uid, page.id, 0)
+             Documents.since(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, 0)
 
     {:ok, _} = Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, page.id, %{grants: []})
-    assert {:error, :forbidden} = Documents.since(ctx.agent.uid, page.id, 0)
-    assert {:error, :forbidden} = Documents.write(ctx.agent.uid, page.id, 1, "<page />")
+
+    assert {:error, :forbidden} =
+             Documents.since(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid), page.id, 0)
+
+    assert {:error, :forbidden} =
+             Documents.write(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
+               page.id,
+               1,
+               "<page />"
+             )
   end
 
   test "trash retention defaults to 30 days and is checked again when a job runs", ctx do
     assert {:ok, 30} = Ankole.Pod.Config.trash_retention_days()
-    {:ok, page} = Pages.create(ctx.owner.uid, %{})
-    {:ok, _} = Pages.delete(ctx.owner.uid, page.id)
+    {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
+    {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id)
 
     assert_enqueued(
       worker: Ankole.Pod.Jobs.PurgePage,
@@ -167,7 +218,7 @@ defmodule Ankole.Pod.PageContractTest do
        ctx do
     assert {:ok, 1000} = Ankole.Pod.Config.ot_replay_window()
     assert {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.ot_replay_window", 3)
-    {:ok, page} = Pages.create(ctx.owner.uid, %{})
+    {:ok, page} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{})
 
     batch = %{
       base_revision: 0,
@@ -181,22 +232,41 @@ defmodule Ankole.Pod.PageContractTest do
     }
 
     assert {:ok, %{revision: 1, acknowledged_revision: 1}} =
-             Documents.apply(ctx.owner.uid, page.id, batch)
+             Documents.apply(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               page.id,
+               batch
+             )
 
     for revision <- 1..2,
         do:
           assert(
             {:ok, _} =
-              Documents.write(ctx.owner.uid, page.id, revision, "<page><p>latest</p></page>")
+              Documents.write(
+                Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+                page.id,
+                revision,
+                "<page><p>latest</p></page>"
+              )
           )
 
     assert {:ok, %{revision: 3, acknowledged_revision: 1, reset_required: false}} =
-             Documents.apply(ctx.owner.uid, page.id, batch)
+             Documents.apply(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               page.id,
+               batch
+             )
 
-    assert {:ok, _} = Documents.write(ctx.owner.uid, page.id, 3, "<page><p>newer</p></page>")
+    assert {:ok, _} =
+             Documents.write(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               page.id,
+               3,
+               "<page><p>newer</p></page>"
+             )
 
     assert {:ok, %{revision: 5, acknowledged_revision: 5}} =
-             Documents.apply(ctx.owner.uid, page.id, %{
+             Documents.apply(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, %{
                base_revision: 4,
                client_id: "current-editor",
                client_seq: 1,
@@ -207,13 +277,20 @@ defmodule Ankole.Pod.PageContractTest do
 
     assert {:ok,
             %{changes: [%{revision: 3}, %{revision: 4}, %{revision: 5}], reset_required: false}} =
-             Documents.since(ctx.owner.uid, page.id, 2)
+             Documents.since(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, 2)
 
-    assert {:ok, %{reset_required: true}} = Documents.since(ctx.owner.uid, page.id, 1)
-    assert {:ok, %{reset_required: true}} = Documents.since(ctx.owner.uid, page.id, 0)
+    assert {:ok, %{reset_required: true}} =
+             Documents.since(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, 1)
+
+    assert {:ok, %{reset_required: true}} =
+             Documents.since(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id, 0)
 
     assert {:ok, %{revision: 5, reset_required: true} = retry} =
-             Documents.apply(ctx.owner.uid, page.id, batch)
+             Documents.apply(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               page.id,
+               batch
+             )
 
     refute Map.has_key?(retry, :acknowledged_revision)
     assert Repo.get!(Page, page.id).revision == 5
@@ -223,8 +300,13 @@ defmodule Ankole.Pod.PageContractTest do
 
   test "direct and group roles take the highest permission and stop at a restricted boundary",
        ctx do
-    {:ok, root} = Pages.create(ctx.owner.uid, %{private_owner_uid: ctx.owner.uid})
-    {:ok, child} = Pages.create(ctx.owner.uid, %{parent_id: root.id})
+    {:ok, root} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
+        private_owner_uid: ctx.owner.uid
+      })
+
+    {:ok, child} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{parent_id: root.id})
 
     {:ok, group} =
       Ankole.AuthZ.create_principal_group(%{name: "page-editors", display_name: "Editors"})
@@ -239,14 +321,31 @@ defmodule Ankole.Pod.PageContractTest do
         ]
       })
 
-    assert {:ok, _} = Pages.authorize(ctx.agent.uid, child.id, "page_edit")
-    assert {:error, :forbidden} = Pages.authorize(ctx.agent.uid, child.id, "page_manage")
+    assert {:ok, _} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
+               child.id,
+               "page_edit"
+             )
+
+    assert {:error, :forbidden} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
+               child.id,
+               "page_manage"
+             )
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner.uid, child.id, %{inherit_permissions: false})
 
-    assert {:error, :forbidden} = Pages.authorize(ctx.agent.uid, child.id, "page_view")
-    assert {:ok, visible} = Pages.list(ctx.agent.uid)
+    assert {:error, :forbidden} =
+             Pages.authorize(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid),
+               child.id,
+               "page_view"
+             )
+
+    assert {:ok, visible} = Pages.list(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid))
     assert Enum.map(visible, & &1.id) == [root.id]
   end
 
@@ -260,10 +359,14 @@ defmodule Ankole.Pod.PageContractTest do
     }
 
     {:ok, detail} = Ankole.ConversationsFixtures.create(ctx.owner.uid, attrs)
-    {:ok, page} = Pages.create(ctx.owner.uid, %{saved_from_message_id: attrs.message_id})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), %{
+        saved_from_message_id: attrs.message_id
+      })
 
     assert {:ok, %{source_conversation: %{id: source, deleted: false}}} =
-             Pages.get(ctx.owner.uid, page.id)
+             Pages.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id)
 
     assert source == detail.conversation.id
 
@@ -273,18 +376,26 @@ defmodule Ankole.Pod.PageContractTest do
       })
 
     assert {:ok, generated} =
-             Pages.create(ctx.agent.uid, %{
+             Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid), %{
                parent_id: page.id,
                saved_from_message_id: attrs.message_id
              })
 
-    assert {:ok, %{source_conversation: %{id: ^source}}} = Pages.get(ctx.agent.uid, generated.id)
+    assert {:ok, %{source_conversation: %{id: ^source}}} =
+             Pages.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.agent.uid), generated.id)
+
     outsider = human_fixture().principal
-    assert {:ok, %{source_conversation: nil}} = Pages.get(outsider.uid, page.id)
+
+    assert {:ok, %{source_conversation: nil}} =
+             Pages.get(Ankole.PrincipalsFixtures.actor_fixture(outsider.uid), page.id)
+
     event = Repo.get_by!(Ankole.Signals.Signal, conversation_id: detail.conversation.id)
 
     assert {:error, :conversation_busy} =
-             Ankole.Conversations.delete(ctx.owner.uid, detail.conversation.id)
+             Ankole.Conversations.delete(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               detail.conversation.id
+             )
 
     assert {:ok, _} =
              Repo.transact(fn ->
@@ -294,8 +405,39 @@ defmodule Ankole.Pod.PageContractTest do
                )
              end)
 
-    assert {:ok, _} = Ankole.Conversations.delete(ctx.owner.uid, detail.conversation.id)
-    assert {:ok, %{source_conversation: %{deleted: true}}} = Pages.get(ctx.owner.uid, page.id)
+    assert {:ok, _} =
+             Ankole.Conversations.delete(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid),
+               detail.conversation.id
+             )
+
+    assert {:ok, %{source_conversation: %{deleted: true}}} =
+             Pages.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner.uid), page.id)
+
     assert Repo.get(Page, page.id)
+  end
+
+  test "directory pagination uses bytewise C ordering and returns one covered projection" do
+    principal = Ankole.PrincipalsFixtures.human_fixture().principal
+    actor = Ankole.AuthZ.Actor.new(principal)
+
+    for position <- ["A0", "a0", "Z0", "z0", "B0"] do
+      assert {:ok, _} = Ankole.Pod.Pages.create(actor, %{title: position, position: position})
+    end
+
+    assert {:ok, first} = Ankole.Pod.Pages.list_children(actor, nil, %{limit: 2})
+    assert Enum.map(first.pages, & &1.position) == ["A0", "B0"]
+
+    assert {:ok, second} =
+             Ankole.Pod.Pages.list_children(actor, nil, %{limit: 2, cursor: first.next_cursor})
+
+    assert Enum.map(second.pages, & &1.position) == ["Z0", "a0"]
+
+    assert {:ok, third} =
+             Ankole.Pod.Pages.list_children(actor, nil, %{limit: 2, cursor: second.next_cursor})
+
+    assert Enum.map(third.pages, & &1.position) == ["z0"]
+    assert third.next_cursor == nil
+    assert Enum.all?(first.pages ++ second.pages ++ third.pages, &(&1.role == "manage"))
   end
 end

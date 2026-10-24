@@ -1,9 +1,23 @@
 defmodule Ankole.AIAgent.Library.Console do
   @moduledoc "Console operations for Agent Library capabilities and documents."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     domain: Ankole.AIAgent,
     data_layer: Ash.DataLayer.Simple,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:agent_uid, :principal_key)
+    allow(:global_capabilities, resource: "site_console:agent_library", action: "read")
+    allow(:set_global_plugin, resource: "site_console:agent_library", action: "update")
+    allow(:set_global_skill, resource: "site_console:agent_library", action: "update")
+    allow(:agent_capabilities, resource: "site_console:agent:{agent_uid}:library", action: "read")
+    allow(:set_agent_plugin, resource: "site_console:agent:{agent_uid}:library", action: "update")
+    allow(:set_agent_skill, resource: "site_console:agent:{agent_uid}:library", action: "update")
+    allow(:documents, resource: "site_console:agent:{agent_uid}:library", action: "read")
+    allow(:replace_document, resource: "site_console:agent:{agent_uid}:library", action: "update")
+  end
 
   resource do
     require_primary_key?(false)

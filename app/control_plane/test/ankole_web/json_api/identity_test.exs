@@ -40,11 +40,6 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
 
   defp error_code({_status, %{"errors" => [%{"code" => code} | _]}}), do: code
 
-  defp enable_local_provider do
-    {:ok, _provider} = Ankole.IdentityProviders.save_provider("local-main", "local", %{}, true)
-    :ok
-  end
-
   describe "authorization" do
     test "a request without a session gets the session failure" do
       response = build_conn() |> get("/api/v2/principals")
@@ -53,7 +48,11 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
 
     test "a session without grants is refused before the action runs", %{conn: conn} do
       %{principal: human} = human_fixture()
-      Repo.delete_all(from grant in AuthZ.Grant, where: grant.resource_pattern == "**")
+
+      Repo.delete_all(
+        from grant in AuthZ.Grant,
+          where: grant.resource_pattern in ["site_console:**", "tenant_console:**"]
+      )
 
       assert {403, %{"errors" => [%{"code" => "forbidden"}]}} =
                request(conn, :get, "/api/v2/principals")
@@ -77,7 +76,6 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
 
   describe "missing targets" do
     test "a missing target answers 404 not_found", %{conn: conn} do
-      enable_local_provider()
       %{principal: human} = human_fixture()
       principal_patch = %{data: %{type: "principal", attributes: %{display_name: "Missing"}}}
 
@@ -92,15 +90,13 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
             {:patch, "/api/v2/permission-grants/#{Ecto.UUID.generate()}",
              %{data: %{type: "permission_grant", attributes: %{description: "x"}}}},
             {:delete, "/api/v2/permission-grants/#{Ecto.UUID.generate()}", nil},
-            {:get, "/api/v2/permission-grants/not-a-uuid", nil},
-            {:delete, "/api/v2/permission-grants/not-a-uuid", nil},
             {:delete, "/api/v2/identity-mapping-requests/not-a-uuid", nil},
             {:post, "/api/v2/identity-mapping-requests/not-a-uuid/bind",
              %{data: %{principal_uid: human.uid}}},
             {:post, "/api/v2/permission-grants",
              resource("permission_grant", %{
                group_name: "missing-group",
-               resource_pattern: "**",
+               resource_pattern: "site_console:**",
                action: "read"
              })},
             {:delete, "/api/v2/identity-mapping-requests/#{Ecto.UUID.generate()}", nil},
@@ -112,6 +108,17 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
         response = request(conn, method, path, body)
         assert {404, _} = response, "#{method} #{path}: #{inspect(response)}"
         assert error_code(response) == "not_found"
+      end
+    end
+
+    test "a malformed permission-grant UUID answers 400 before execution", %{conn: conn} do
+      for {method, path, body} <- [
+            {:get, "/api/v2/permission-grants/not-a-uuid", nil},
+            {:delete, "/api/v2/permission-grants/not-a-uuid", nil}
+          ] do
+        response = request(conn, method, path, body)
+        assert {400, _} = response, "#{method} #{path}: #{inspect(response)}"
+        assert error_code(response) == "invalid_target"
       end
     end
   end
@@ -138,8 +145,7 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
                "status" => "active",
                "display_name" => "V2 Human",
                "email" => email,
-               "has_external_identity" => false,
-               "local_credential_status" => nil
+               "has_external_identity" => false
              } = human_row["attributes"]
 
       assert email == human.human_user.email
@@ -189,73 +195,31 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
       assert {404, _} = request(conn, :get, "/api/v2/principals/missing-principal")
     end
 
-    test "a local-account write needs an enabled local identity provider", %{conn: conn} do
-      %{principal: human} = human_fixture()
-
-      response =
-        request(
-          conn,
-          :post,
-          "/api/v2/principals",
-          resource("principal", %{email: "someone@example.com"})
-        )
-
-      assert {409, _} = response
-      assert error_code(response) == "local_identity_provider_disabled"
-
-      response =
-        request(conn, :patch, "/api/v2/principals/#{human.uid}", %{
-          data: %{type: "principal", attributes: %{display_name: "Renamed"}}
-        })
-
-      assert {409, _} = response
-      assert error_code(response) == "local_identity_provider_disabled"
-    end
-
-    test "creates a local user and gives its one-time password once", %{conn: conn} do
-      enable_local_provider()
-
-      assert {201, %{"data" => created, "meta" => %{"initial_password" => password}}} =
-               request(
-                 conn,
-                 :post,
-                 "/api/v2/principals",
-                 resource("principal", %{
+    test "creates a pending member without issuing an unverified login credential", %{conn: conn} do
+      assert {201, %{"uid" => uid, "email" => "new.user@example.com"}} =
+               request(conn, :post, "/api/v2/principals", %{
+                 data: %{
+                   membership: "member",
                    email: "New.User@Example.com",
-                   display_name: "New User",
-                   must_change_password: true
-                 })
-               )
+                   display_name: "New User"
+                 }
+               })
 
-      assert {:ok, _} = Ecto.UUID.cast(created["id"])
-      assert String.length(password) == 16
+      assert {:ok, _} = Ecto.UUID.cast(uid)
+      assert [] == Principals.principal_site_credentials(uid)
 
-      assert %{
-               "email" => "new.user@example.com",
-               "display_name" => "New User",
-               "local_credential_status" => "must_change"
-             } = created["attributes"]
+      assert {400, %{"errors" => [_ | _]}} =
+               request(conn, :post, "/api/v2/principals", %{
+                 data: %{membership: "member", email: "new.user@example.com"}
+               })
 
-      assert {:ok, %{must_change_password: true}} =
-               Ankole.IdentityProviders.LocalPassword.authenticate(
-                 "new.user@example.com",
-                 password
-               )
-
-      assert {400, %{"errors" => [%{"source" => %{"pointer" => "/data/attributes/email"}} | _]}} =
-               request(
-                 conn,
-                 :post,
-                 "/api/v2/principals",
-                 resource("principal", %{email: "new.user@example.com"})
-               )
-
-      assert {400, %{"errors" => [%{"source" => %{"pointer" => "/data/attributes/email"}} | _]}} =
-               request(conn, :post, "/api/v2/principals", resource("principal", %{}))
+      assert {201, %{"uid" => _}} =
+               request(conn, :post, "/api/v2/principals", %{
+                 data: %{membership: "member", display_name: "No email yet"}
+               })
     end
 
     test "updates the display name and the email of a Human", %{conn: conn} do
-      enable_local_provider()
       %{principal: human} = human_fixture()
 
       assert {200, %{"data" => %{"attributes" => attributes}}} =
@@ -269,9 +233,9 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
       assert attributes["display_name"] == "Renamed User"
       assert attributes["email"] == "renamed@example.com"
 
-      assert {400, %{"errors" => [%{"source" => %{"pointer" => "/data/attributes/email"}} | _]}} =
+      assert {200, %{"data" => %{"attributes" => %{"email" => nil}}}} =
                request(conn, :patch, "/api/v2/principals/#{human.uid}", %{
-                 data: %{type: "principal", attributes: %{email: ""}}
+                 data: %{type: "principal", attributes: %{email: nil}}
                })
 
       %{principal: agent} = agent_fixture()
@@ -491,9 +455,17 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
                request(conn, :get, "/api/v2/permission-grants/#{id}")
 
       assert {200,
-              %{"data" => %{"attributes" => %{"resource_pattern" => "**", "action" => "read"}}}} =
+              %{
+                "data" => %{
+                  "attributes" => %{"resource_pattern" => "site_console:**", "action" => "read"}
+                }
+              }} =
                request(conn, :patch, "/api/v2/permission-grants/#{id}", %{
-                 data: %{type: "permission_grant", id: id, attributes: %{resource_pattern: "**"}}
+                 data: %{
+                   type: "permission_grant",
+                   id: id,
+                   attributes: %{resource_pattern: "site_console:**"}
+                 }
                })
 
       assert {200, %{"data" => %{"id" => ^id}}} =
@@ -505,6 +477,11 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
 
     test "the Console cannot write or delete a Pod page grant", %{conn: conn} do
       %{principal: owner} = human_fixture()
+
+      {:ok, page} =
+        Ankole.Pod.Pages.create(Ankole.PrincipalsFixtures.actor_fixture(owner.uid), %{
+          title: "Shared page"
+        })
 
       for action <- Ankole.Pod.Access.page_actions() do
         assert {400, %{"errors" => [%{"source" => %{"pointer" => "/data/attributes/action"}}]}} =
@@ -523,15 +500,17 @@ defmodule AnkoleWeb.JSONAPI.IdentityTest do
       assert {:ok, grant} =
                AuthZ.create_permission_grant(%{
                  principal_uid: owner.uid,
-                 resource_pattern: "space:engineering/**",
+                 resource_pattern: "pod:**:#{page.id}:**",
+                 target_page_id: page.id,
+                 target_scope: "container",
                  action: "page_view",
                  description: "shared space"
                })
 
       for attributes <- [
-            %{resource_pattern: "**"},
+            %{resource_pattern: "site_console:**"},
             %{condition: "false"},
-            %{action: "read", resource_pattern: "**"}
+            %{action: "read", resource_pattern: "site_console:**"}
           ] do
         assert {400, %{"errors" => [_ | _]}} =
                  request(conn, :patch, "/api/v2/permission-grants/#{grant.id}", %{

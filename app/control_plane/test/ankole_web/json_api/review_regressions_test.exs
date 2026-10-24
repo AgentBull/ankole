@@ -10,7 +10,6 @@ defmodule AnkoleWeb.JSONAPI.ReviewRegressionsTest do
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Grant
   alias Ankole.Brain.Schemas.Source
-  alias Ankole.IdentityProviders
   alias Ankole.Principals
   alias Ankole.Principals.Humans
   alias Ankole.Repo
@@ -32,9 +31,9 @@ defmodule AnkoleWeb.JSONAPI.ReviewRegressionsTest do
     {:ok, _} =
       AuthZ.create_permission_grant(%{
         principal_uid: operator,
-        resource_pattern: "principal_group:*:members",
+        resource_pattern: "site_console:principal_group:*:members",
         action: "update",
-        condition: ~s(resource != "principal_group:siteadmin:members")
+        condition: ~s(resource != "site_console:principal_group:siteadmin:members")
       })
 
     for selector <- [
@@ -106,7 +105,6 @@ defmodule AnkoleWeb.JSONAPI.ReviewRegressionsTest do
   end
 
   test "opaque identifiers containing literal percent signs decode once end to end", %{conn: conn} do
-    {:ok, _provider} = IdentityProviders.save_provider("local-main", "local", %{}, true)
     {conn, operator} = console_conn_with_principal(conn)
     literal_percent = human_with_uid_fixture("ops%41", "Literal")
     plain_a = human_with_uid_fixture("opsa", "Plain A")
@@ -118,9 +116,9 @@ defmodule AnkoleWeb.JSONAPI.ReviewRegressionsTest do
     {:ok, deny_literal_grant} =
       AuthZ.create_permission_grant(%{
         principal_uid: operator,
-        resource_pattern: "principal:*",
+        resource_pattern: "site_console:principal:*",
         action: "update",
-        condition: ~s(resource != "principal:ops%41")
+        condition: ~s(resource != "site_console:principal:ops%41")
       })
 
     conn
@@ -137,9 +135,9 @@ defmodule AnkoleWeb.JSONAPI.ReviewRegressionsTest do
     {:ok, _} =
       AuthZ.create_permission_grant(%{
         principal_uid: operator,
-        resource_pattern: "principal:*",
+        resource_pattern: "site_console:principal:*",
         action: "update",
-        condition: ~s(resource != "principal:opsa")
+        condition: ~s(resource != "site_console:principal:opsa")
       })
 
     # Wire "ops%41" decodes once to "opsA" -> canonical "opsa", which is denied.
@@ -188,29 +186,31 @@ defmodule AnkoleWeb.JSONAPI.ReviewRegressionsTest do
     {:ok, denied_grant} =
       AuthZ.create_permission_grant(%{
         principal_uid: allowed_agent.uid,
-        resource_pattern: "conversations",
+        resource_pattern: "site_console:conversations",
         action: "read"
       })
 
     {:ok, allowed_grant} =
       AuthZ.create_permission_grant(%{
         principal_uid: allowed_agent.uid,
-        resource_pattern: "webhooks",
+        resource_pattern: "site_console:webhooks",
         action: "read"
       })
 
     Repo.delete_all(from_grants_except([denied_grant.id, allowed_grant.id]))
 
     for {pattern, action, condition} <- [
-          {"permission_grant:*", "delete", ~s(resource != "permission_grant:#{denied_grant.id}")},
-          {"ai_gateway_provider:*", "delete",
-           ~s(resource != "ai_gateway_provider:openrouter-denied")},
-          {"identity_provider:*", "update", ~s(resource != "identity_provider:lark-denied")},
-          {"agent:#{source_agent.uid}:model_profile:*", "update",
-           ~s(resource != "agent:#{source_agent.uid}:model_profile:primary")},
-          {"agent:#{source_agent.uid}:signal_bindings", "delete", "true"},
-          {"agent:*:signal_bindings", "update",
-           ~s(resource != "agent:#{denied_agent.uid}:signal_bindings")}
+          {"site_console:permission_grant:*", "delete",
+           ~s(resource != "site_console:permission_grant:#{denied_grant.id}")},
+          {"site_console:ai_gateway_provider:*", "delete",
+           ~s(resource != "site_console:ai_gateway_provider:openrouter-denied")},
+          {"site_console:identity_provider:*", "update",
+           ~s(resource != "site_console:identity_provider:lark-denied")},
+          {"site_console:agent:#{source_agent.uid}:model_profile:*", "update",
+           ~s(resource != "site_console:agent:#{source_agent.uid}:model_profile:primary")},
+          {"site_console:agent:#{source_agent.uid}:signal_bindings", "delete", "true"},
+          {"site_console:agent:*:signal_bindings", "update",
+           ~s(resource != "site_console:agent:#{denied_agent.uid}:signal_bindings")}
         ] do
       {:ok, _} =
         AuthZ.create_permission_grant(%{
@@ -264,8 +264,7 @@ defmodule AnkoleWeb.JSONAPI.ReviewRegressionsTest do
     for profile <- ["PRIMARY", "%70rimary", "%20PRIMARY%20"] do
       conn
       |> api(:put, "/api/v2/agents/#{source_agent.uid}/model-profiles/#{profile}", %{
-        provider_id: provider.provider_id,
-        model: "anthropic/claude-opus-4.6"
+        attrs: %{provider_id: provider.provider_id, model: "anthropic/claude-opus-4.6"}
       })
       |> json_response(403)
 

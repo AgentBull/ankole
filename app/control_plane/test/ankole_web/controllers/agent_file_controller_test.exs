@@ -256,12 +256,16 @@ defmodule AnkoleWeb.AgentFileControllerTest do
   test "requires the Agent's files permission", %{conn: conn, agent_uid: agent_uid} do
     %{principal: other_agent} = agent_fixture()
     {conn, admin_uid} = console_conn_with_principal(conn)
-    Repo.delete_all(from grant in Grant, where: grant.resource_pattern == "**")
+
+    Repo.delete_all(
+      from grant in Grant,
+        where: grant.resource_pattern in ["site_console:**", "tenant_console:**"]
+    )
 
     assert {:ok, _grant} =
              AuthZ.create_permission_grant(%{
                principal_uid: admin_uid,
-               resource_pattern: "agent:#{other_agent.uid}:files",
+               resource_pattern: "site_console:agent:#{other_agent.uid}:files",
                action: "read",
                condition: "true",
                metadata: %{}

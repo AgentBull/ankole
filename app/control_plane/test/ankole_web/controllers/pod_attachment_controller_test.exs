@@ -18,6 +18,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
        %{conn: conn} do
     {conn, uid} = console_conn_with_principal(conn)
     agent = Ankole.PrincipalsFixtures.agent_fixture(%{owner_principal_uid: uid}).principal
+    Ankole.ConversationsFixtures.grant_chat(uid, agent.uid)
     bytes = "Human's file contents"
     local = Files.temp_path()
     File.write!(local, bytes)
@@ -82,6 +83,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
   } do
     {conn, uid} = console_conn_with_principal(conn)
     agent = Ankole.PrincipalsFixtures.agent_fixture(%{owner_principal_uid: uid}).principal
+    Ankole.ConversationsFixtures.grant_chat(uid, agent.uid)
     local = Files.temp_path()
     File.write!(local, "<script>throw new Error('must not execute')</script>")
     on_exit(fn -> File.rm(local) end)
@@ -153,7 +155,10 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     {_conn, uid} = console_conn_with_principal(conn)
     reader = Ankole.PrincipalsFixtures.human_fixture().principal
     agent = Ankole.PrincipalsFixtures.agent_fixture(%{owner_principal_uid: reader.uid}).principal
-    {:ok, page} = Pages.create(uid, %{title: "Shared doc"})
+    Ankole.ConversationsFixtures.grant_chat(reader.uid, agent.uid)
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{title: "Shared doc"})
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(uid, page.id, %{
@@ -167,7 +172,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
 
     {:ok, upload} =
       Ankole.Conversations.Attachments.Native.upload(
-        reader.uid,
+        Ankole.PrincipalsFixtures.actor_fixture(reader.uid),
         Ecto.UUID.generate(),
         "saved.txt",
         {:file, local},
@@ -188,11 +193,15 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     attachment = hd(message.attachments)
 
     {:ok, saved} =
-      Pages.create(reader.uid, %{type: "file", title: "Saved", private_owner_uid: reader.uid})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(reader.uid), %{
+        type: "file",
+        title: "Saved",
+        private_owner_uid: reader.uid
+      })
 
     assert {:ok, _} =
              Ankole.Pod.Files.copy_from_message(
-               reader.uid,
+               Ankole.PrincipalsFixtures.actor_fixture(reader.uid),
                saved.id,
                0,
                message.id,
@@ -200,12 +209,17 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
              )
 
     assert {:ok, _, "Durable saved contents"} =
-             Ankole.Pod.Files.read(reader.uid, saved.id, "saved.txt")
+             Ankole.Pod.Files.read(
+               Ankole.PrincipalsFixtures.actor_fixture(reader.uid),
+               saved.id,
+               "saved.txt"
+             )
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(uid, page.id, %{inherit_permissions: false, grants: []})
 
-    assert {:error, :forbidden} = Pages.get(reader.uid, page.id)
+    assert {:error, :forbidden} =
+             Pages.get(Ankole.PrincipalsFixtures.actor_fixture(reader.uid), page.id)
 
     assert {:error, :page_unavailable} =
              Ankole.ConversationsFixtures.post(reader.uid, detail.conversation.id, %{
@@ -215,7 +229,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
 
     assert {:ok, ^attachment} =
              Ankole.Conversations.Attachments.Native.read_to_file(
-               reader.uid,
+               Ankole.PrincipalsFixtures.actor_fixture(reader.uid),
                detail.conversation.id,
                message.id,
                attachment["path"],
@@ -229,7 +243,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
 
     assert {:error, :not_found} =
              Ankole.Conversations.Attachments.Native.read_to_file(
-               reader.uid,
+               Ankole.PrincipalsFixtures.actor_fixture(reader.uid),
                detail.conversation.id,
                message.id,
                attachment["path"],
@@ -237,7 +251,11 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
              )
 
     assert {:ok, _, "Durable saved contents"} =
-             Ankole.Pod.Files.read(reader.uid, saved.id, "saved.txt")
+             Ankole.Pod.Files.read(
+               Ankole.PrincipalsFixtures.actor_fixture(reader.uid),
+               saved.id,
+               "saved.txt"
+             )
 
     assert Repo.get_by!(Message, id: message.id).attachments == [attachment]
   end
@@ -261,6 +279,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     other = Ankole.PrincipalsFixtures.human_fixture().principal
     foreign = Ankole.PrincipalsFixtures.human_fixture().principal
     agent = Ankole.PrincipalsFixtures.agent_fixture(%{owner_principal_uid: owner.uid}).principal
+    Ankole.ConversationsFixtures.grant_chat(owner.uid, agent.uid)
     local = Files.temp_path()
     bytes = "The selected account's frozen file"
     File.write!(local, bytes)
@@ -268,7 +287,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
 
     assert {:ok, upload} =
              Ankole.Conversations.Attachments.Native.upload(
-               owner.uid,
+               Ankole.PrincipalsFixtures.actor_fixture(owner.uid),
                Ecto.UUID.generate(),
                "selected.txt",
                {:file, local},

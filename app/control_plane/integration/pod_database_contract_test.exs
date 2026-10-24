@@ -18,8 +18,14 @@ defmodule Ankole.Pod.DatabaseContractTest do
     Ankole.AppConfigure.Cache.clear_for_test()
     {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("pod.database.limits", @limits)
     human = human_fixture().principal
-    {:ok, page} = Pages.create(human.uid, %{type: "database"})
-    {:ok, table} = Database.create_table(human.uid, page.id, %{name: "Orders"})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(human.uid), %{type: "database"})
+
+    {:ok, table} =
+      Database.create_table(Ankole.PrincipalsFixtures.actor_fixture(human.uid), page.id, %{
+        name: "Orders"
+      })
 
     on_exit(fn ->
       Repo.with_tenant(tenant.id, fn ->
@@ -41,12 +47,19 @@ defmodule Ankole.Pod.DatabaseContractTest do
   test "independent writers merge different fields and one stale same-field writer is rejected",
        ctx do
     {:ok, amount} =
-      Database.create_field(ctx.uid, ctx.table.id, %{name: "Amount", type: "number"})
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        name: "Amount",
+        type: "number"
+      })
 
-    {:ok, note} = Database.create_field(ctx.uid, ctx.table.id, %{name: "Note", type: "text"})
+    {:ok, note} =
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        name: "Note",
+        type: "text"
+      })
 
     {:ok, %{records: [record]}} =
-      Database.write_records(ctx.uid, ctx.table.id, %{
+      Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         creates: [%{data: %{amount.id => 1, note.id => "before"}}]
       })
 
@@ -54,7 +67,7 @@ defmodule Ankole.Pod.DatabaseContractTest do
 
     results =
       concurrent(ctx.tenant.id, patches, fn patch ->
-        Database.write_records(ctx.uid, ctx.table.id, %{
+        Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
           updates: [
             %{
               id: record.id,
@@ -71,7 +84,7 @@ defmodule Ankole.Pod.DatabaseContractTest do
 
     results =
       concurrent(ctx.tenant.id, [3, 4], fn value ->
-        Database.write_records(ctx.uid, ctx.table.id, %{
+        Database.write_records(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
           updates: [
             %{id: record.id, data: %{amount.id => value}, expected_versions: %{amount.id => 2}}
           ]
@@ -111,12 +124,20 @@ defmodule Ankole.Pod.DatabaseContractTest do
 
                            case operation do
                              :query ->
-                               Database.query(ctx.uid, ctx.table.id, %{})
+                               Database.query(
+                                 Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+                                 ctx.table.id,
+                                 %{}
+                               )
 
                              :write ->
-                               Database.write_records(ctx.uid, ctx.table.id, %{
-                                 creates: [%{data: %{}}]
-                               })
+                               Database.write_records(
+                                 Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+                                 ctx.table.id,
+                                 %{
+                                   creates: [%{data: %{}}]
+                                 }
+                               )
                            end
                          end)
                        end)
@@ -146,17 +167,20 @@ defmodule Ankole.Pod.DatabaseContractTest do
   test "100000 rows use bounded SQL filter, sort, group, and aggregate and row 100001 rolls back",
        ctx do
     {:ok, amount} =
-      Database.create_field(ctx.uid, ctx.table.id, %{name: "Amount", type: "number"})
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
+        name: "Amount",
+        type: "number"
+      })
 
     {:ok, tag} =
-      Database.create_field(ctx.uid, ctx.table.id, %{
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         name: "Group",
         type: "select",
         config: %{"options" => Enum.map(0..9, &%{"id" => "g#{&1}", "name" => "Group #{&1}"})}
       })
 
     {:ok, total} =
-      Database.create_field(ctx.uid, ctx.table.id, %{
+      Database.create_field(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
         name: "Total",
         type: "formula",
         config: %{"source" => "[Amount] * 2"}
@@ -191,7 +215,7 @@ defmodule Ankole.Pod.DatabaseContractTest do
 
     {filter_us, {:ok, filtered}} =
       :timer.tc(fn ->
-        Database.query(ctx.uid, ctx.table.id, %{
+        Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
           filter: %{conditions: [%{field_id: tag.id, operator: "is", value: "g2"}]},
           page_size: 200
         })
@@ -201,7 +225,7 @@ defmodule Ankole.Pod.DatabaseContractTest do
 
     {sort_us, {:ok, sorted}} =
       :timer.tc(fn ->
-        Database.query(ctx.uid, ctx.table.id, %{
+        Database.query(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
           sort: [%{field_id: amount.id, direction: "desc"}],
           page_size: 200
         })
@@ -211,7 +235,7 @@ defmodule Ankole.Pod.DatabaseContractTest do
 
     {aggregate_us, {:ok, aggregate}} =
       :timer.tc(fn ->
-        Database.aggregate(ctx.uid, ctx.table.id, %{
+        Database.aggregate(Ankole.PrincipalsFixtures.actor_fixture(ctx.uid), ctx.table.id, %{
           group_by: [%{field_id: tag.id}],
           metrics: [
             %{operation: "count", alias: "count"},
@@ -225,9 +249,13 @@ defmodule Ankole.Pod.DatabaseContractTest do
     assert Enum.sum(Enum.map(aggregate.groups, & &1.metrics["total"])) == 10_000_100_000
 
     assert {:error, :record_limit} =
-             Database.write_records(ctx.uid, ctx.table.id, %{
-               creates: [%{data: %{amount.id => 1}}]
-             })
+             Database.write_records(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.uid),
+               ctx.table.id,
+               %{
+                 creates: [%{data: %{amount.id => 1}}]
+               }
+             )
 
     assert Repo.aggregate(from(r in DbRecord, where: r.table_id == ^ctx.table.id), :count) ==
              100_000

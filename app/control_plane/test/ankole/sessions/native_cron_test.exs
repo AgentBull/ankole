@@ -8,6 +8,7 @@ defmodule Ankole.Sessions.NativeCronTest do
   setup do
     %{principal: human} = human_fixture()
     %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
     first = create_conversation(human.uid, agent.uid)
     second = create_conversation(human.uid, agent.uid)
     %{human: human, agent: agent, first: first, second: second}
@@ -39,6 +40,7 @@ defmodule Ankole.Sessions.NativeCronTest do
 
   test "a native target must contain the producing Agent", context do
     %{principal: other} = agent_fixture(%{owner_principal_uid: context.human.uid})
+    Ankole.ConversationsFixtures.grant_chat(context.human.uid, other.uid)
     foreign = create_conversation(context.human.uid, other.uid)
 
     assert {:error, :conversation_not_found} =
@@ -89,7 +91,12 @@ defmodule Ankole.Sessions.NativeCronTest do
                })
              end)
 
-    assert {:ok, first} = Conversations.get(context.human.uid, context.first.id)
+    assert {:ok, first} =
+             Conversations.get(
+               Ankole.PrincipalsFixtures.actor_fixture(context.human.uid),
+               context.first.id
+             )
+
     assert Enum.map(first.messages, & &1.text) == ["Initial question", "Shared report"]
   end
 

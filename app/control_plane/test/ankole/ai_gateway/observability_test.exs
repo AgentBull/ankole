@@ -1079,6 +1079,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
   test "bounded stages correlate both inputs with the committed native reply without exporting their data" do
     %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
     %{principal: agent} = Ankole.SessionsCase.agent_fixture(%{owner_principal_uid: human.uid})
+    Ankole.ConversationsFixtures.grant_chat(human.uid, agent.uid)
     enable_export(self(), "opentelemetry")
     id = Ecto.UUID.generate()
 

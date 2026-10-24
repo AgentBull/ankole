@@ -3,15 +3,42 @@
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client'
 import { client } from './client.gen'
 import type {
+  ChangePodMembershipData,
+  ChangePodMembershipErrors,
+  ChangePodMembershipResponses,
   ConversationDetailData,
   ConversationDetailErrors,
   ConversationDetailResponses,
   CreateConversationData,
   CreateConversationErrors,
   CreateConversationResponses,
+  CreatePodInvitationData,
+  CreatePodInvitationErrors,
+  CreatePodInvitationResponses,
+  CreatePodMemberData,
+  CreatePodMemberErrors,
+  CreatePodMemberResponses,
   DeleteConversationData,
   DeleteConversationErrors,
   DeleteConversationResponses,
+  DisablePodMemberData,
+  DisablePodMemberErrors,
+  DisablePodMemberResponses,
+  ExitPodData,
+  ExitPodErrors,
+  ExitPodResponses,
+  PodAdminIdentityProvidersData,
+  PodAdminIdentityProvidersErrors,
+  PodAdminIdentityProvidersResponses,
+  PodAdminInvitationsData,
+  PodAdminInvitationsErrors,
+  PodAdminInvitationsResponses,
+  PodAdminMembersData,
+  PodAdminMembersErrors,
+  PodAdminMembersResponses,
+  PodAdminSettingsData,
+  PodAdminSettingsErrors,
+  PodAdminSettingsResponses,
   PodAgentsData,
   PodAgentsErrors,
   PodAgentsResponses,
@@ -69,12 +96,21 @@ import type {
   PodFilesData,
   PodFilesErrors,
   PodFilesResponses,
+  PodMeData,
+  PodMeErrors,
+  PodMemberAccessReviewData,
+  PodMemberAccessReviewErrors,
+  PodMemberAccessReviewResponses,
+  PodMeResponses,
   PodModelProfilesData,
   PodModelProfilesErrors,
   PodModelProfilesResponses,
   PodModelSelectionData,
   PodModelSelectionErrors,
   PodModelSelectionResponses,
+  PodPageChildrenData,
+  PodPageChildrenErrors,
+  PodPageChildrenResponses,
   PodPageCreateData,
   PodPageCreateErrors,
   PodPageCreateResponses,
@@ -93,6 +129,9 @@ import type {
   PodPageRestoreData,
   PodPageRestoreErrors,
   PodPageRestoreResponses,
+  PodPageSearchData,
+  PodPageSearchErrors,
+  PodPageSearchResponses,
   PodPageSharingData,
   PodPageSharingErrors,
   PodPageSharingResponses,
@@ -132,12 +171,45 @@ import type {
   PostConversationMessageData,
   PostConversationMessageErrors,
   PostConversationMessageResponses,
+  ReauthenticatePodMemberData,
+  ReauthenticatePodMemberErrors,
+  ReauthenticatePodMemberResponses,
+  RequestPodEmailBindingData,
+  RequestPodEmailBindingErrors,
+  RequestPodEmailBindingResponses,
+  RestorePodMemberData,
+  RestorePodMemberErrors,
+  RestorePodMemberResponses,
+  RevokePodInvitationData,
+  RevokePodInvitationErrors,
+  RevokePodInvitationResponses,
+  SavePodIdentityProviderData,
+  SavePodIdentityProviderErrors,
+  SavePodIdentityProviderResponses,
+  SetPodAdministratorData,
+  SetPodAdministratorErrors,
+  SetPodAdministratorResponses,
   SetPodModelSelectionData,
   SetPodModelSelectionErrors,
   SetPodModelSelectionResponses,
+  SyncPodDirectoryData,
+  SyncPodDirectoryErrors,
+  SyncPodDirectoryResponses,
+  UnbindPodCredentialData,
+  UnbindPodCredentialErrors,
+  UnbindPodCredentialResponses,
+  UnbindPodMemberCredentialData,
+  UnbindPodMemberCredentialErrors,
+  UnbindPodMemberCredentialResponses,
   UpdateConversationQueueData,
   UpdateConversationQueueErrors,
-  UpdateConversationQueueResponses
+  UpdateConversationQueueResponses,
+  UpdatePodAdminSettingsData,
+  UpdatePodAdminSettingsErrors,
+  UpdatePodAdminSettingsResponses,
+  VerifyPodEmailBindingData,
+  VerifyPodEmailBindingErrors,
+  VerifyPodEmailBindingResponses
 } from './types.gen'
 
 export type Options<
@@ -208,6 +280,24 @@ export const podPageMove = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * podAdminIdentityProviders operation on pod_admin_operation resource
+ */
+export const podAdminIdentityProviders = <ThrowOnError extends boolean = true>(
+  options?: Options<PodAdminIdentityProvidersData, ThrowOnError>
+): RequestResult<PodAdminIdentityProvidersResponses, PodAdminIdentityProvidersErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<
+    PodAdminIdentityProvidersResponses,
+    PodAdminIdentityProvidersErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/identity-providers',
+    ...options
   })
 
 /**
@@ -327,6 +417,23 @@ export const conversationDetail = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * changePodMembership operation on pod_admin_operation resource
+ */
+export const changePodMembership = <ThrowOnError extends boolean = true>(
+  options: Options<ChangePodMembershipData, ThrowOnError>
+): RequestResult<ChangePodMembershipResponses, ChangePodMembershipErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).patch<ChangePodMembershipResponses, ChangePodMembershipErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members/{uid}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podDatabaseCopy operation on pod_database_operation resource
  */
 export const podDatabaseCopy = <ThrowOnError extends boolean = true>(
@@ -344,6 +451,49 @@ export const podDatabaseCopy = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * restorePodMember operation on pod_admin_operation resource
+ */
+export const restorePodMember = <ThrowOnError extends boolean = true>(
+  options: Options<RestorePodMemberData, ThrowOnError>
+): RequestResult<RestorePodMemberResponses, RestorePodMemberErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<RestorePodMemberResponses, RestorePodMemberErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members/{uid}/restorations',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * syncPodDirectory operation on pod_admin_operation resource
+ */
+export const syncPodDirectory = <ThrowOnError extends boolean = true>(
+  options: Options<SyncPodDirectoryData, ThrowOnError>
+): RequestResult<SyncPodDirectoryResponses, SyncPodDirectoryErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<SyncPodDirectoryResponses, SyncPodDirectoryErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/identity-providers/{provider_id}/syncs',
+    ...options
+  })
+
+/**
+ * podMemberAccessReview operation on pod_admin_operation resource
+ */
+export const podMemberAccessReview = <ThrowOnError extends boolean = true>(
+  options: Options<PodMemberAccessReviewData, ThrowOnError>
+): RequestResult<PodMemberAccessReviewResponses, PodMemberAccessReviewErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodMemberAccessReviewResponses, PodMemberAccessReviewErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members/{uid}/access',
+    ...options
+  })
+
+/**
  * podFiles operation on pod_file_operation resource
  */
 export const podFiles = <ThrowOnError extends boolean = true>(
@@ -354,6 +504,23 @@ export const podFiles = <ThrowOnError extends boolean = true>(
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/pages/{id}/files',
     ...options
+  })
+
+/**
+ * verifyPodEmailBinding operation on pod_member_account resource
+ */
+export const verifyPodEmailBinding = <ThrowOnError extends boolean = true>(
+  options: Options<VerifyPodEmailBindingData, ThrowOnError>
+): RequestResult<VerifyPodEmailBindingResponses, VerifyPodEmailBindingErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<VerifyPodEmailBindingResponses, VerifyPodEmailBindingErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/me/email/verifications',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
   })
 
 /**
@@ -404,6 +571,23 @@ export const podDatabaseAggregate = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * disablePodMember operation on pod_admin_operation resource
+ */
+export const disablePodMember = <ThrowOnError extends boolean = true>(
+  options: Options<DisablePodMemberData, ThrowOnError>
+): RequestResult<DisablePodMemberResponses, DisablePodMemberErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<DisablePodMemberResponses, DisablePodMemberErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members/{uid}/restrictions',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podDatabaseFieldCreate operation on pod_database_operation resource
  */
 export const podDatabaseFieldCreate = <ThrowOnError extends boolean = true>(
@@ -413,6 +597,23 @@ export const podDatabaseFieldCreate = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/tables/{id}/fields',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * requestPodEmailBinding operation on pod_member_account resource
+ */
+export const requestPodEmailBinding = <ThrowOnError extends boolean = true>(
+  options: Options<RequestPodEmailBindingData, ThrowOnError>
+): RequestResult<RequestPodEmailBindingResponses, RequestPodEmailBindingErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<RequestPodEmailBindingResponses, RequestPodEmailBindingErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/me/email/challenges',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -434,6 +635,32 @@ export const podPageRestore = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * revokePodInvitation operation on pod_admin_operation resource
+ */
+export const revokePodInvitation = <ThrowOnError extends boolean = true>(
+  options: Options<RevokePodInvitationData, ThrowOnError>
+): RequestResult<RevokePodInvitationResponses, RevokePodInvitationErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<RevokePodInvitationResponses, RevokePodInvitationErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/invitations/{id}',
+    ...options
+  })
+
+/**
+ * podPageChildren operation on pod_page_operation resource
+ */
+export const podPageChildren = <ThrowOnError extends boolean = true>(
+  options?: Options<PodPageChildrenData, ThrowOnError>
+): RequestResult<PodPageChildrenResponses, PodPageChildrenErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodPageChildrenResponses, PodPageChildrenErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/children',
+    ...options
+  })
+
+/**
  * podPageUserState operation on pod_page_operation resource
  */
 export const podPageUserState = <ThrowOnError extends boolean = true>(
@@ -451,6 +678,19 @@ export const podPageUserState = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * exitPod operation on pod_member_account resource
+ */
+export const exitPod = <ThrowOnError extends boolean = true>(
+  options?: Options<ExitPodData, ThrowOnError>
+): RequestResult<ExitPodResponses, ExitPodErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).delete<ExitPodResponses, ExitPodErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/me/membership',
+    ...options
+  })
+
+/**
  * postConversationMessage operation on pod_chat_operation resource
  */
 export const postConversationMessage = <ThrowOnError extends boolean = true>(
@@ -465,6 +705,49 @@ export const postConversationMessage = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/conversations/{id}/messages',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * unbindPodCredential operation on pod_member_account resource
+ */
+export const unbindPodCredential = <ThrowOnError extends boolean = true>(
+  options: Options<UnbindPodCredentialData, ThrowOnError>
+): RequestResult<UnbindPodCredentialResponses, UnbindPodCredentialErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<UnbindPodCredentialResponses, UnbindPodCredentialErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/me/credentials/{id}',
+    ...options
+  })
+
+/**
+ * podAdminMembers operation on pod_admin_operation resource
+ */
+export const podAdminMembers = <ThrowOnError extends boolean = true>(
+  options?: Options<PodAdminMembersData, ThrowOnError>
+): RequestResult<PodAdminMembersResponses, PodAdminMembersErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodAdminMembersResponses, PodAdminMembersErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members',
+    ...options
+  })
+
+/**
+ * createPodMember operation on pod_admin_operation resource
+ */
+export const createPodMember = <ThrowOnError extends boolean = true>(
+  options: Options<CreatePodMemberData, ThrowOnError>
+): RequestResult<CreatePodMemberResponses, CreatePodMemberErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<CreatePodMemberResponses, CreatePodMemberErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -523,6 +806,25 @@ export const podDatabaseFieldUpdate = <ThrowOnError extends boolean = true>(
   )
 
 /**
+ * savePodIdentityProvider operation on pod_admin_operation resource
+ */
+export const savePodIdentityProvider = <ThrowOnError extends boolean = true>(
+  options: Options<SavePodIdentityProviderData, ThrowOnError>
+): RequestResult<SavePodIdentityProviderResponses, SavePodIdentityProviderErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<SavePodIdentityProviderResponses, SavePodIdentityProviderErrors, ThrowOnError, 'data'>(
+    {
+      responseStyle: 'data',
+      security: [{ name: 'Cookie', type: 'apiKey' }],
+      url: '/api/v2/pod/admin/identity-providers/{provider_id}',
+      ...options,
+      headers: {
+        'Content-Type': 'application/vnd.api+json',
+        ...options.headers
+      }
+    }
+  )
+
+/**
  * podPageDelete operation on pod_page_operation resource
  */
 export const podPageDelete = <ThrowOnError extends boolean = true>(
@@ -566,6 +868,23 @@ export const podPageUpdate = <ThrowOnError extends boolean = true>(
   })
 
 /**
+ * setPodAdministrator operation on pod_admin_operation resource
+ */
+export const setPodAdministrator = <ThrowOnError extends boolean = true>(
+  options: Options<SetPodAdministratorData, ThrowOnError>
+): RequestResult<SetPodAdministratorResponses, SetPodAdministratorErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<SetPodAdministratorResponses, SetPodAdministratorErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members/{uid}/administrator',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
  * podPageList operation on pod_page_operation resource
  */
 export const podPageList = <ThrowOnError extends boolean = true>(
@@ -592,6 +911,54 @@ export const podPageCreate = <ThrowOnError extends boolean = true>(
     headers: {
       'Content-Type': 'application/vnd.api+json',
       ...options?.headers
+    }
+  })
+
+/**
+ * unbindPodMemberCredential operation on pod_admin_operation resource
+ */
+export const unbindPodMemberCredential = <ThrowOnError extends boolean = true>(
+  options: Options<UnbindPodMemberCredentialData, ThrowOnError>
+): RequestResult<UnbindPodMemberCredentialResponses, UnbindPodMemberCredentialErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).delete<
+    UnbindPodMemberCredentialResponses,
+    UnbindPodMemberCredentialErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/members/{uid}/credentials/{credential_id}',
+    ...options
+  })
+
+/**
+ * podAdminSettings operation on pod_admin_operation resource
+ */
+export const podAdminSettings = <ThrowOnError extends boolean = true>(
+  options?: Options<PodAdminSettingsData, ThrowOnError>
+): RequestResult<PodAdminSettingsResponses, PodAdminSettingsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodAdminSettingsResponses, PodAdminSettingsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/settings',
+    ...options
+  })
+
+/**
+ * updatePodAdminSettings operation on pod_admin_operation resource
+ */
+export const updatePodAdminSettings = <ThrowOnError extends boolean = true>(
+  options: Options<UpdatePodAdminSettingsData, ThrowOnError>
+): RequestResult<UpdatePodAdminSettingsResponses, UpdatePodAdminSettingsErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).put<UpdatePodAdminSettingsResponses, UpdatePodAdminSettingsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/settings',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
     }
   })
 
@@ -631,6 +998,36 @@ export const podDatabaseViewCreate = <ThrowOnError extends boolean = true>(
     responseStyle: 'data',
     security: [{ name: 'Cookie', type: 'apiKey' }],
     url: '/api/v2/pod/tables/{id}/views',
+    ...options,
+    headers: {
+      'Content-Type': 'application/vnd.api+json',
+      ...options.headers
+    }
+  })
+
+/**
+ * podAdminInvitations operation on pod_admin_operation resource
+ */
+export const podAdminInvitations = <ThrowOnError extends boolean = true>(
+  options?: Options<PodAdminInvitationsData, ThrowOnError>
+): RequestResult<PodAdminInvitationsResponses, PodAdminInvitationsErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodAdminInvitationsResponses, PodAdminInvitationsErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/invitations',
+    ...options
+  })
+
+/**
+ * createPodInvitation operation on pod_admin_operation resource
+ */
+export const createPodInvitation = <ThrowOnError extends boolean = true>(
+  options: Options<CreatePodInvitationData, ThrowOnError>
+): RequestResult<CreatePodInvitationResponses, CreatePodInvitationErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).post<CreatePodInvitationResponses, CreatePodInvitationErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/admin/invitations',
     ...options,
     headers: {
       'Content-Type': 'application/vnd.api+json',
@@ -807,6 +1204,50 @@ export const setPodModelSelection = <ThrowOnError extends boolean = true>(
       'Content-Type': 'application/vnd.api+json',
       ...options.headers
     }
+  })
+
+/**
+ * podMe operation on pod_member_account resource
+ */
+export const podMe = <ThrowOnError extends boolean = true>(
+  options?: Options<PodMeData, ThrowOnError>
+): RequestResult<PodMeResponses, PodMeErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).get<PodMeResponses, PodMeErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/me',
+    ...options
+  })
+
+/**
+ * reauthenticatePodMember operation on pod_member_account resource
+ */
+export const reauthenticatePodMember = <ThrowOnError extends boolean = true>(
+  options?: Options<ReauthenticatePodMemberData, ThrowOnError>
+): RequestResult<ReauthenticatePodMemberResponses, ReauthenticatePodMemberErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).post<
+    ReauthenticatePodMemberResponses,
+    ReauthenticatePodMemberErrors,
+    ThrowOnError,
+    'data'
+  >({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/me/reauthentication',
+    ...options
+  })
+
+/**
+ * podPageSearch operation on pod_page_operation resource
+ */
+export const podPageSearch = <ThrowOnError extends boolean = true>(
+  options: Options<PodPageSearchData, ThrowOnError>
+): RequestResult<PodPageSearchResponses, PodPageSearchErrors, ThrowOnError, 'data'> =>
+  (options.client ?? client).get<PodPageSearchResponses, PodPageSearchErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    security: [{ name: 'Cookie', type: 'apiKey' }],
+    url: '/api/v2/pod/pages/search',
+    ...options
   })
 
 /**

@@ -9,7 +9,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson.Actions do
 
   defp action(:console_teach, input, context) do
     input.arguments
-    |> Map.put(:author, Ankole.ActorRef.from_principal(context.actor))
+    |> Map.put(:author, Ankole.ActorRef.from_actor(context.actor))
     |> Ankole.AIAgent.Library.console_teach()
     |> Ankole.Errors.wrap(&Ankole.AIAgent.Library.SkillLessons.rejection/1)
   end

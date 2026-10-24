@@ -17,6 +17,7 @@ import {
   cancelBackgroundAgentJob,
   cancelCheckback,
   cancelWebhookEndpoint,
+  changeHumanMembership,
   classifyWorkAccess,
   clearHumanAccessRestriction,
   completeBackgroundAgentJob,
@@ -26,7 +27,7 @@ import {
   createBrainSource,
   createCronSchedule,
   createIdentityMapping,
-  createLocalUser,
+  createMember,
   createOidcClient,
   createPermissionGrant,
   createPrincipalGroup,
@@ -135,7 +136,6 @@ import {
   requeueSignalDelivery,
   resetAgentTokenQuota,
   resetAppConfiguration,
-  resetLocalPassword,
   resolveBrainTake,
   restoreBrainObject,
   restoreHumanAccess,
@@ -208,6 +208,9 @@ import type {
   CancelWebhookEndpointData,
   CancelWebhookEndpointError,
   CancelWebhookEndpointResponse,
+  ChangeHumanMembershipData,
+  ChangeHumanMembershipError,
+  ChangeHumanMembershipResponse,
   ClassifyWorkAccessData,
   ClassifyWorkAccessError,
   ClassifyWorkAccessResponse,
@@ -235,9 +238,9 @@ import type {
   CreateIdentityMappingData,
   CreateIdentityMappingError,
   CreateIdentityMappingResponse,
-  CreateLocalUserData,
-  CreateLocalUserError,
-  CreateLocalUserResponse,
+  CreateMemberData,
+  CreateMemberError,
+  CreateMemberResponse,
   CreateOidcClientData,
   CreateOidcClientError,
   CreateOidcClientResponse,
@@ -559,9 +562,6 @@ import type {
   ResetAppConfigurationData,
   ResetAppConfigurationError,
   ResetAppConfigurationResponse,
-  ResetLocalPasswordData,
-  ResetLocalPasswordError,
-  ResetLocalPasswordResponse,
   ResolveBrainTakeData,
   ResolveBrainTakeError,
   ResolveBrainTakeResponse,
@@ -1745,29 +1745,6 @@ export const updatePrincipalGroupMutation = (
   return mutationOptions
 }
 
-/**
- * reset_local_password operation on human_access resource
- */
-export const resetLocalPasswordMutation = (
-  options?: Partial<Options<ResetLocalPasswordData>>
-): UseMutationOptions<ResetLocalPasswordResponse, ResetLocalPasswordError, Options<ResetLocalPasswordData>> => {
-  const mutationOptions: UseMutationOptions<
-    ResetLocalPasswordResponse,
-    ResetLocalPasswordError,
-    Options<ResetLocalPasswordData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await resetLocalPassword({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
 export const backgroundActivityJobsQueryKey = (options: Options<BackgroundActivityJobsData>) =>
   createQueryKey('backgroundActivityJobs', options)
 
@@ -2499,7 +2476,7 @@ export const getPrincipalOptions = (options: Options<GetPrincipalData>) =>
   })
 
 /**
- * Updates the display name or the email of a Human with local sign-in.
+ * Updates the display name or directory email of a Human.
  */
 export const updateHumanMutation = (
   options?: Partial<Options<UpdateHumanData>>
@@ -2736,6 +2713,33 @@ export const listPrincipalGroupGrantsOptions = (options: Options<ListPrincipalGr
     },
     queryKey: listPrincipalGroupGrantsQueryKey(options)
   })
+
+/**
+ * Changes Human membership and revokes prior access versions.
+ */
+export const changeHumanMembershipMutation = (
+  options?: Partial<Options<ChangeHumanMembershipData>>
+): UseMutationOptions<
+  ChangeHumanMembershipResponse,
+  ChangeHumanMembershipError,
+  Options<ChangeHumanMembershipData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    ChangeHumanMembershipResponse,
+    ChangeHumanMembershipError,
+    Options<ChangeHumanMembershipData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await changeHumanMembership({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 export const backgroundActivityAutomationRunsQueryKey = (options: Options<BackgroundActivityAutomationRunsData>) =>
   createQueryKey('backgroundActivityAutomationRuns', options)
@@ -3443,18 +3447,14 @@ export const listPrincipalsOptions = (options?: Options<ListPrincipalsData>) =>
   })
 
 /**
- * Creates a Human with an email and a generated one-time local password.
+ * Creates a Pod member profile. Personal login requires email verification.
  */
-export const createLocalUserMutation = (
-  options?: Partial<Options<CreateLocalUserData>>
-): UseMutationOptions<CreateLocalUserResponse, CreateLocalUserError, Options<CreateLocalUserData>> => {
-  const mutationOptions: UseMutationOptions<
-    CreateLocalUserResponse,
-    CreateLocalUserError,
-    Options<CreateLocalUserData>
-  > = {
+export const createMemberMutation = (
+  options?: Partial<Options<CreateMemberData>>
+): UseMutationOptions<CreateMemberResponse, CreateMemberError, Options<CreateMemberData>> => {
+  const mutationOptions: UseMutationOptions<CreateMemberResponse, CreateMemberError, Options<CreateMemberData>> = {
     mutationFn: async fnOptions => {
-      const { data } = await createLocalUser({
+      const { data } = await createMember({
         ...options,
         ...fnOptions,
         throwOnError: true

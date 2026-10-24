@@ -155,7 +155,7 @@ defmodule AnkoleWeb.AgentLibraryControllerTest do
     {:ok, _} =
       Ankole.AuthZ.create_permission_grant(%{
         principal_uid: principal_uid,
-        resource_pattern: "agent:#{agent.uid}:library",
+        resource_pattern: "site_console:agent:#{agent.uid}:library",
         action: "read",
         condition: "true",
         metadata: %{}
@@ -166,7 +166,7 @@ defmodule AnkoleWeb.AgentLibraryControllerTest do
              |> api(:get, ~p"/api/v2/agents/#{agent.uid}/library-documents")
              |> json_response(200)
 
-    assert %{"errors" => [%{"detail" => "access denied"}]} =
+    assert %{"errors" => [%{"code" => "forbidden"}]} =
              conn
              |> api(:put, ~p"/api/v2/agents/#{agent.uid}/library-documents/mission", %{
                content: "Unauthorized replacement",
@@ -187,7 +187,7 @@ defmodule AnkoleWeb.AgentLibraryControllerTest do
     {:ok, _} =
       Ankole.AuthZ.create_permission_grant(%{
         principal_uid: principal_uid,
-        resource_pattern: "agent:#{foreign.uid}:library",
+        resource_pattern: "site_console:agent:#{foreign.uid}:library",
         action: "read",
         condition: "true",
         metadata: %{}

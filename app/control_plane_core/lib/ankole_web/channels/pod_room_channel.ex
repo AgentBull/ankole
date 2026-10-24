@@ -1,24 +1,28 @@
 defmodule AnkoleWeb.PodRoomChannel do
   @moduledoc false
   use AnkoleWeb, :channel
-  import AnkoleWeb.PodChannel, only: [allowed?: 1, recheck: 1, revoke: 1]
-  alias Ankole.Pod.{DbTable, Pages}
+  import AnkoleWeb.PodChannel, only: [allowed?: 1, recheck: 1, revoke: 1, with_tenant: 2]
+  alias Ankole.Pod.{Database, Pages}
   alias Ankole.Repo
+
+  intercept(["broadcast", "presence_diff"])
 
   @impl true
   def join(topic, _params, socket) do
     Repo.put_tenant_id(socket.assigns.tenant_id)
 
-    with true <- AnkoleWeb.PodSocket.active?(socket.assigns),
-         {:ok, page_id} <- page_id(topic),
-         {:ok, _} <- Pages.authorize(socket.assigns.uid, page_id, "page_view") do
-      AnkoleWeb.PodChannel.subscribe(socket)
-      Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-room:" <> topic)
-      if String.starts_with?(topic, "applet:"), do: send(self(), :track_presence)
-      {:ok, assign(socket, %{page_id: page_id, room_topic: topic})}
-    else
-      _ -> {:error, %{reason: "not_found"}}
-    end
+    with_tenant(socket, fn ->
+      with true <- AnkoleWeb.PodSocket.active?(socket.assigns),
+           {:ok, page_id} <- page_id(topic, socket.assigns.actor),
+           {:ok, _} <- Pages.authorize(socket.assigns.actor, page_id, "page_view") do
+        AnkoleWeb.PodChannel.subscribe(socket)
+        Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-room:" <> topic)
+        if String.starts_with?(topic, "applet:"), do: send(self(), :track_presence)
+        {:ok, assign(socket, %{page_id: page_id, room_topic: topic})}
+      else
+        _ -> {:error, %{reason: "not_found"}}
+      end
+    end)
   end
 
   @impl true
@@ -48,8 +52,7 @@ defmodule AnkoleWeb.PodRoomChannel do
         joined_at: System.system_time(:second)
       })
 
-    push(socket, "presence_state", AnkoleWeb.PodPresence.list(socket))
-    {:noreply, socket}
+    handle_out("presence_state", AnkoleWeb.PodPresence.list(socket), socket)
   end
 
   def handle_info(:periodic_access, socket) do
@@ -59,7 +62,10 @@ defmodule AnkoleWeb.PodRoomChannel do
 
   def handle_info(:recheck_access, socket), do: recheck(socket)
 
-  def handle_info({:room_event, event, payload}, socket) do
+  def handle_info({:room_event, event, payload}, socket), do: handle_out(event, payload, socket)
+
+  @impl true
+  def handle_out(event, payload, socket) do
     if allowed?(socket),
       do:
         (
@@ -69,14 +75,14 @@ defmodule AnkoleWeb.PodRoomChannel do
       else: revoke(socket)
   end
 
-  defp page_id("table:" <> id) do
+  defp page_id("table:" <> id, uid) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         {:ok, %DbTable{} = table} <- Ankole.Pod.get_db_table(id),
+         {:ok, table} <- Database.table_access(uid, id, :read),
          do: {:ok, table.page_id},
          else: (_ -> {:error, :not_found})
   end
 
-  defp page_id("applet:" <> rest) do
+  defp page_id("applet:" <> rest, _uid) do
     case String.split(rest, ":", parts: 2) do
       [id, room] when byte_size(room) in 1..128 ->
         with {:ok, %{type: :applet}} <- Pages.fetch(id),

@@ -5,8 +5,6 @@ defmodule Ankole.Release do
 
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.IdentityProviders.LocalPassword
-  alias Ankole.Principals.LocalPasswordResetText
   alias Ankole.Repo
 
   @app :ankole
@@ -20,34 +18,23 @@ defmodule Ankole.Release do
     :ok
   end
 
-  @doc "Resets the local sign-in password for one email and prints the new one-time password."
-  @spec reset_local_password(String.t()) :: :ok
-  def reset_local_password(email) when is_binary(email) do
+  @doc "Updates the encrypted site SMTP configuration from a JSON object."
+  def put_authn_mail(json) when is_binary(json) do
     load_app()
     {:ok, _apps} = Application.ensure_all_started(:ankole_kernel)
+    {:ok, settings} = Ankole.JSON.decode(json)
 
     with_repo(fn _repo ->
       start_child!(Registry)
       start_pubsub!()
       start_child!(Cache)
 
-      {:ok, tenant} = Ankole.Tenants.privileged()
-      Repo.put_tenant_id(tenant.id)
-
-      case LocalPassword.reset_local_password_by_email(email) do
-        {:ok, %{initial_password: initial_password}} ->
-          IO.puts(LocalPasswordResetText.success(initial_password))
-
-          case LocalPassword.enabled?() do
-            true -> :ok
-            false -> IO.puts(LocalPasswordResetText.provider_disabled_warning())
-          end
-
-        {:error, :not_found} ->
-          raise LocalPasswordResetText.no_account_message(email)
+      case Ankole.Authn.Config.put_mail(settings) do
+        {:ok, _} ->
+          IO.puts("Site authentication mail configuration saved.")
 
         {:error, reason} ->
-          raise "failed to reset the local password: #{inspect(reason)}"
+          raise "Cannot save site authentication mail configuration: #{inspect(reason)}"
       end
     end)
 
@@ -56,7 +43,8 @@ defmodule Ankole.Release do
 
   @doc "Records administrator recovery after the operator independently verifies the active Human."
   @spec recover_admin(String.t(), String.t(), String.t()) :: :ok
-  def recover_admin(uid, operator, reason) do
+  @spec recover_admin(String.t(), String.t(), String.t(), String.t() | nil) :: :ok
+  def recover_admin(uid, operator, reason, tenant_slug \\ nil) do
     load_app()
     {:ok, _apps} = Application.ensure_all_started(:ankole_kernel)
 
@@ -65,7 +53,18 @@ defmodule Ankole.Release do
       start_pubsub!()
       start_child!(Cache)
 
-      case Ankole.Principals.HumanAccess.recover_admin(uid, operator, reason) do
+      result =
+        if tenant_slug do
+          start_child!(Ankole.Plugins.Registry, name: Ankole.Plugins.Registry)
+
+          with {:ok, tenant} <- Ankole.Tenants.active_by_slug(tenant_slug),
+               do:
+                 Ankole.Principals.HumanAccess.recover_pod_admin(tenant.id, uid, operator, reason)
+        else
+          Ankole.Principals.HumanAccess.recover_admin(uid, operator, reason)
+        end
+
+      case result do
         {:ok, principal} -> IO.puts("Administrator access restored for #{principal.uid}.")
         {:error, error} -> raise "Administrator recovery failed: #{inspect(error)}"
       end
@@ -97,8 +96,8 @@ defmodule Ankole.Release do
     end)
   end
 
-  defp start_child!(module) do
-    case module.start_link([]) do
+  defp start_child!(module, opts \\ []) do
+    case module.start_link(opts) do
       {:ok, _pid} -> :ok
       {:error, {:already_started, _pid}} -> :ok
       {:error, reason} -> raise "failed to start #{inspect(module)}: #{inspect(reason)}"

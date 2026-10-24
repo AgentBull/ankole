@@ -1,9 +1,15 @@
 defmodule Ankole.Brain.Schemas.ObjectVersion do
   @moduledoc "One immutable body snapshot taken in the transaction that updates its object."
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.Brain,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    allow(:console_list, resource: "site_console:brain", action: "read")
+  end
 
   json_api do
     type("brain_object_version")

@@ -8,7 +8,6 @@ defmodule Ankole.IdentityProviders.Config do
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Registry
   alias Ankole.AppConfigure.Schema
-  alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Repo
 
   @active_key "principals.identity_providers.active"
@@ -105,7 +104,8 @@ defmodule Ankole.IdentityProviders.Config do
 
   @doc false
   def save_provider_in_tx(next, config, application) do
-    with :ok <-
+    with :ok <- validate_login_removal_in_tx(next, config),
+         :ok <-
            Ankole.Signals.Bindings.validate_platform_application_in_tx(application),
          :ok <-
            Ankole.IdentityProviders.DirectoryAccess.configuration_changed_in_tx(
@@ -126,6 +126,12 @@ defmodule Ankole.IdentityProviders.Config do
     end
   end
 
+  defp validate_login_removal_in_tx(next, config) do
+    if next["enabled"] == false or get_in(config, ["oidc", "enabled"]) == false,
+      do: Ankole.Principals.PodLoginPolicy.validate_provider_removal_in_tx(next["provider_id"]),
+      else: :ok
+  end
+
   @doc false
   def publish_saved_configuration({activation_write, config_write}) do
     {:ok, _config} = AppConfigure.cache_committed_write(config_write)
@@ -143,8 +149,7 @@ defmodule Ankole.IdentityProviders.Config do
     values
     |> Enum.reduce_while({:ok, MapSet.new(), []}, fn value, {:ok, seen, acc} ->
       with {:ok, activation} <- validate_activation(value),
-           :ok <- unique_provider_id(activation, seen),
-           :ok <- unique_local_provider(activation, acc) do
+           :ok <- unique_provider_id(activation, seen) do
         {:cont, {:ok, MapSet.put(seen, activation["provider_id"]), [activation | acc]}}
       else
         {:error, reason} -> {:halt, {:error, reason}}
@@ -199,18 +204,6 @@ defmodule Ankole.IdentityProviders.Config do
 
   defp upsert(providers, %{"provider_id" => provider_id} = next) do
     Enum.reject(providers, &match?(%{"provider_id" => ^provider_id}, &1)) ++ [next]
-  end
-
-  # Local providers share one credential table and one retry policy.
-  defp unique_local_provider(%{"adapter_id" => adapter_id}, providers) do
-    if adapter_id == LocalPassword.adapter_id() do
-      case Enum.find(providers, &(&1["adapter_id"] == adapter_id)) do
-        nil -> :ok
-        %{"provider_id" => existing_id} -> {:error, {:local_provider_exists, existing_id}}
-      end
-    else
-      :ok
-    end
   end
 
   @doc """

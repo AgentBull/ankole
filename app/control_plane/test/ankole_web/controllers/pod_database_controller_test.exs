@@ -107,7 +107,7 @@ defmodule AnkoleWeb.PodDatabaseControllerTest do
              api_response(stale, 409)
 
     Repo.put_tenant_id(tenant.id)
-    {:ok, report} = Pages.create(uid, %{title: "Report"})
+    {:ok, report} = Pages.create(Ankole.PrincipalsFixtures.actor_fixture(uid), %{title: "Report"})
 
     copied =
       stale

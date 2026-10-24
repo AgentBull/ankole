@@ -15,7 +15,7 @@ defmodule Ankole.Sessions.ConsoleActions do
   end
 
   defp execute(%{action: %{name: :console_put_standing_orders}, arguments: attrs}, context) do
-    actor = to_string(Ankole.ActorRef.from_principal(context.actor))
+    actor = to_string(Ankole.ActorRef.from_actor(context.actor))
 
     with {:ok, orders} <-
            AmbientCuration.put_conversation_standing_orders(

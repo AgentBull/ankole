@@ -86,18 +86,21 @@ defmodule Ankole.Sessions.Worker do
   @spec send_call(Run.t(), map(), Ankole.Sessions.PendingCall.t()) ::
           {:ok, term()} | {:error, term()}
   def send_call(run, row, pending) do
-    WorkerRoute.send_mandatory(
-      AgentWorkers.target(row),
-      envelope(:tool_call, %Proto.ToolCall{
-        run: ref(run),
-        response_id: Run.response_id(run.model_response),
-        call_id: Run.call_id(pending.call),
-        namespace: pending.call["namespace"] || "",
-        name: pending.worker_name || pending.call["name"],
-        arguments_json: Ankole.JSON.encode!(pending.args),
-        mode: pending.mode
-      })
-    )
+    with :ok <-
+           Tools.authorize_call(run, pending.tool.name, pending.args) do
+      WorkerRoute.send_mandatory(
+        AgentWorkers.target(row),
+        envelope(:tool_call, %Proto.ToolCall{
+          run: ref(run),
+          response_id: Run.response_id(run.model_response),
+          call_id: Run.call_id(pending.call),
+          namespace: pending.call["namespace"] || "",
+          name: pending.worker_name || pending.call["name"],
+          arguments_json: Ankole.JSON.encode!(pending.worker_args || pending.args),
+          mode: pending.mode
+        })
+      )
+    end
   end
 
   @spec decode(atom(), map()) ::

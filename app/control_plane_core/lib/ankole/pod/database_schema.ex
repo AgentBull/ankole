@@ -12,23 +12,35 @@ defmodule Ankole.Pod.Database.Schema do
   alias Ankole.Pod.{Access, Database, DbField, DbRecord, DbTable, DbView, Formula, Values}
   alias Ankole.Pod.Database.{Records, Write}
 
-  def create_field(uid, id, attrs, authority \\ nil),
-    do: write(authority, fn -> create_field_in_tx(uid, id, attrs) end)
+  def create_field(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority \\ nil) do
+    authority = authority || actor.turn_authority
+    write(authority, fn -> create_field_in_tx(actor, id, attrs) end)
+  end
 
-  def update_field(uid, id, attrs, authority \\ nil),
-    do: write(authority, fn -> update_field_in_tx(uid, id, attrs) end)
+  def update_field(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority \\ nil) do
+    authority = authority || actor.turn_authority
+    write(authority, fn -> update_field_in_tx(actor, id, attrs) end)
+  end
 
-  def delete_field(uid, id, version, authority \\ nil),
-    do: write(authority, fn -> delete_field_in_tx(uid, id, version) end)
+  def delete_field(%Ankole.AuthZ.Actor{} = actor, id, version, authority \\ nil) do
+    authority = authority || actor.turn_authority
+    write(authority, fn -> delete_field_in_tx(actor, id, version) end)
+  end
 
-  def create_view(uid, id, attrs, authority \\ nil),
-    do: write(authority, fn -> create_view_in_tx(uid, id, attrs) end)
+  def create_view(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority \\ nil) do
+    authority = authority || actor.turn_authority
+    write(authority, fn -> create_view_in_tx(actor, id, attrs) end)
+  end
 
-  def update_view(uid, id, attrs, authority \\ nil),
-    do: write(authority, fn -> update_view_in_tx(uid, id, attrs) end)
+  def update_view(%Ankole.AuthZ.Actor{} = actor, id, attrs, authority \\ nil) do
+    authority = authority || actor.turn_authority
+    write(authority, fn -> update_view_in_tx(actor, id, attrs) end)
+  end
 
-  def delete_view(uid, id, version, authority \\ nil),
-    do: write(authority, fn -> delete_view_in_tx(uid, id, version) end)
+  def delete_view(%Ankole.AuthZ.Actor{} = actor, id, version, authority \\ nil) do
+    authority = authority || actor.turn_authority
+    write(authority, fn -> delete_view_in_tx(actor, id, version) end)
+  end
 
   defp write(authority, fun) do
     with {:ok, %{written: written}} <-
@@ -37,8 +49,8 @@ defmodule Ankole.Pod.Database.Schema do
   end
 
   @doc false
-  def create_field_in_tx(uid, id, attrs) do
-    schema_write(uid, id, fn write ->
+  def create_field_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
+    schema_write(actor, id, fn write ->
       table = write.table
 
       attrs =
@@ -75,9 +87,11 @@ defmodule Ankole.Pod.Database.Schema do
   end
 
   @doc false
-  def update_field_in_tx(uid, id, attrs) do
+  def update_field_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
+    uid = Ankole.AuthZ.Actor.uid(actor)
+
     with {:ok, field} <- field_by_id(id) do
-      schema_write(uid, field.table_id, fn write ->
+      schema_write(actor, field.table_id, fn write ->
         table = write.table
         definitions = fields(table.id)
 
@@ -125,9 +139,9 @@ defmodule Ankole.Pod.Database.Schema do
   end
 
   @doc false
-  def delete_field_in_tx(uid, id, version) do
+  def delete_field_in_tx(%Ankole.AuthZ.Actor{} = actor, id, version) do
     with {:ok, field} <- field_by_id(id) do
-      schema_write(uid, field.table_id, fn write ->
+      schema_write(actor, field.table_id, fn write ->
         table = write.table
         field = Ankole.Ash.read_one!(Ash.Query.filter(DbField, id == ^id))
 
@@ -151,8 +165,8 @@ defmodule Ankole.Pod.Database.Schema do
   end
 
   @doc false
-  def create_view_in_tx(uid, id, attrs) do
-    schema_write(uid, id, fn write ->
+  def create_view_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
+    schema_write(actor, id, fn write ->
       attrs =
         atom_attrs(attrs, [:name, :type, :config, :position])
         |> Map.put(:table_id, id)
@@ -165,9 +179,9 @@ defmodule Ankole.Pod.Database.Schema do
   end
 
   @doc false
-  def update_view_in_tx(uid, id, attrs) do
+  def update_view_in_tx(%Ankole.AuthZ.Actor{} = actor, id, attrs) do
     with {:ok, view} <- view_by_id(id) do
-      schema_write(uid, view.table_id, fn write ->
+      schema_write(actor, view.table_id, fn write ->
         view = Ankole.Ash.read_one!(Ash.Query.filter(DbView, id == ^id))
 
         with %DbView{} <- view,
@@ -193,9 +207,9 @@ defmodule Ankole.Pod.Database.Schema do
   end
 
   @doc false
-  def delete_view_in_tx(uid, id, version) do
+  def delete_view_in_tx(%Ankole.AuthZ.Actor{} = actor, id, version) do
     with {:ok, view} <- view_by_id(id) do
-      schema_write(uid, view.table_id, fn write ->
+      schema_write(actor, view.table_id, fn write ->
         view = Ankole.Ash.read_one!(Ash.Query.filter(DbView, id == ^id))
 
         cond do
@@ -570,8 +584,8 @@ defmodule Ankole.Pod.Database.Schema do
 
   defp valid_view_config(_, _), do: {:error, :invalid_view}
 
-  defp schema_write(uid, id, fun) do
-    with {:ok, write} <- Write.open(uid, id),
+  defp schema_write(%Ankole.AuthZ.Actor{} = actor, id, fun) do
+    with {:ok, write} <- Write.open(actor, id, :manage_schema),
          {:ok, written, write} <- fun.(write),
          {:ok, changed} <- Write.finish(Write.touch(write, write.table.id)) do
       {:ok, %{written: written, changed: changed}}

@@ -1,11 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { expect, type BrowserContext, type Page } from '@playwright/test'
 
-export type Login = { uid: string; email: string; password: string }
+export type Login = { uid: string; email: string }
 type Identity = Login & { cookies: Parameters<BrowserContext['addCookies']>[0] }
 
 type State = {
   base_url: string
+  mailbox_path: string
+  console_url: string
   tenant_id: string
   tenant_slug: string
   original_site_locale: string
@@ -39,6 +41,7 @@ type State = {
   owner: Identity
   member: Identity
   viewer: Identity
+  site_admin: Identity & { tenant_id: string }
   other_pod: Login & { base_url: string; page_id: string }
   agent_uid: string
 }
@@ -47,15 +50,40 @@ const statePath = process.env.POD_BROWSER_STATE_PATH
 if (!statePath) throw new Error('Start the dedicated real Pod browser fixture and set POD_BROWSER_STATE_PATH')
 export const state = JSON.parse(readFileSync(statePath, 'utf8')) as State
 
+export async function continuePodEntry(page: Page, uid: string) {
+  await page.getByRole('button', { name: new RegExp(uid) }).click()
+}
+
 export async function login(page: Page, credentials: Login) {
-  await page.getByRole('textbox', { name: '邮箱', exact: true }).fill(credentials.email)
-  await page.getByLabel('密码', { exact: true }).fill(credentials.password)
+  const email = page.getByRole('textbox', { name: '邮箱地址', exact: true })
+  await expect(email).toBeVisible()
+  await email.fill(credentials.email)
+  const previous =
+    (JSON.parse(readFileSync(state.mailbox_path, 'utf8')) as Record<string, { code: string; revision: number }>)[
+      credentials.email
+    ]?.revision ?? 0
+  const sent = page.waitForResponse(
+    response =>
+      response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/email-otp/challenges')
+  )
+  await page.getByRole('button', { name: '发送验证码', exact: true }).click()
+  expect((await sent).status()).toBe(201)
+  let code = ''
+  await expect
+    .poll(() => {
+      const delivered = (
+        JSON.parse(readFileSync(state.mailbox_path, 'utf8')) as Record<string, { code: string; revision: number }>
+      )[credentials.email]
+      code = delivered?.code ?? ''
+      return delivered?.revision ?? 0
+    })
+    .toBeGreaterThan(previous)
+  await page.getByRole('textbox', { name: '6 位邮箱验证码', exact: true }).fill(code)
   const completed = page.waitForResponse(
     response =>
-      response.request().method() === 'POST' &&
-      new URL(response.url()).pathname === '/api/v2/browser/sessions/local-password'
+      response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/email-otp/verifications')
   )
-  await page.getByRole('button', { name: '登录', exact: true }).click()
+  await page.getByRole('button', { name: '验证并继续', exact: true }).click()
   expect((await completed).status()).toBe(201)
 }
 

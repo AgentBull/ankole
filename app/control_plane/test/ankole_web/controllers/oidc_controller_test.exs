@@ -18,7 +18,27 @@ defmodule AnkoleWeb.OIDCControllerTest do
   setup do
     Ankole.AppConfigure.Registry.clear_for_test()
     Ankole.AppConfigure.Cache.clear_for_test()
-    {:ok, _} = Ankole.IdentityProviders.save_provider("local", "local", %{}, true)
+
+    {:ok, _} =
+      Ankole.IdentityProviders.save_provider(
+        "lark-main",
+        "lark",
+        %{"appID" => "cli_oidc_fixture", "appSecret" => "secret"},
+        true
+      )
+
+    smtp = Ankole.Authn.SMTPFixture.start(self())
+    on_exit(fn -> Ankole.Authn.SMTPFixture.stop(smtp) end)
+
+    {:ok, _} =
+      Ankole.Authn.Config.put_mail(%{
+        "server" => "127.0.0.1",
+        "port" => smtp.port,
+        "ssl" => true,
+        "from" => "login@ankole.test",
+        "cacertfile" => smtp.ca_path
+      })
+
     :ok
   end
 
@@ -1112,11 +1132,11 @@ defmodule AnkoleWeb.OIDCControllerTest do
     assert expected == a_ref["id"]
     Repo.put_tenant_id(tenant.id)
     browser = WebSession.browser_reference(selected)
-    {:ok, _} = Ankole.BrowserSessions.bind_provider(browser, flow, "local")
+    {:ok, _} = Ankole.BrowserSessions.bind_provider(browser, flow, "lark-main")
 
     wrong = %{
       "principal_uid" => b.principal.uid,
-      "provider_id" => "local",
+      "provider_id" => "lark-main",
       "access_version" => b.principal.access_version,
       "auth_time" => System.system_time(:second)
     }
@@ -1287,13 +1307,13 @@ defmodule AnkoleWeb.OIDCControllerTest do
       Ankole.BrowserSessions.bind_provider(
         WebSession.browser_reference(conn),
         transaction.id,
-        "local"
+        "lark-main"
       )
 
     {:ok, conn, _} =
       WebSession.complete_login(conn, transaction.id, %{
         "principal_uid" => principal.uid,
-        "provider_id" => "local",
+        "provider_id" => "lark-main",
         "external_id" => principal.uid,
         "access_version" => principal.access_version,
         "auth_time" => System.system_time(:second)
@@ -1429,7 +1449,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
       Ankole.BrowserSessions.bind_provider(
         WebSession.browser_reference(conn),
         transaction.id,
-        "local"
+        "lark-main"
       )
 
     {:ok, version} = Ankole.Principals.HumanAccess.current_version(principal_uid)
@@ -1437,7 +1457,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
     {:ok, conn, _} =
       WebSession.complete_login(conn, transaction.id, %{
         "principal_uid" => principal_uid,
-        "provider_id" => "local",
+        "provider_id" => "lark-main",
         "external_id" => principal_uid,
         "access_version" => version,
         "auth_time" => auth_time

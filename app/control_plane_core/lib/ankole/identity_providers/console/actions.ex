@@ -85,7 +85,7 @@ defmodule Ankole.IdentityProviders.Console.Actions do
     end
   end
 
-  defp actor(context), do: Ankole.ActorRef.from_principal(context.actor)
+  defp actor(context), do: Ankole.ActorRef.from_actor(context.actor)
 
   defp describe(reason) when reason in [:not_found, :unknown_identity_provider_adapter],
     do: Ankole.Errors.Invalid.NotFound.exception(resource: IdentityProviders)
@@ -107,9 +107,6 @@ defmodule Ankole.IdentityProviders.Console.Actions do
 
   defp describe(:sync_disabled), do: {"Directory sync is disabled for this provider.", []}
   defp describe(:sync_unsupported), do: {"This provider does not support directory sync.", []}
-
-  defp describe({:local_provider_exists, id}),
-    do: {"A local password provider already exists. Edit it instead.", [%{provider_id: id}]}
 
   defp describe(:directory_review_changed),
     do:

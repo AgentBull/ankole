@@ -163,6 +163,8 @@ test('one command menu restores focus, protects IME and keeps the native new-cha
 
     await page.getByRole('button', { name: '搜索或跳转', exact: true }).click()
     await expect(input).toBeFocused()
+    const report = await request<{ page: { title: string } }>(page, `/pages/${state.report_id}`)
+    await input.fill(report.page.title)
     await menu.locator(`[cmdk-item][data-value="page:${state.report_id}"]`).click()
     await expect(page).toHaveURL(state.base_url + pageRoute(state.report_id))
     await expect(page.getByRole('tab', { name: '主页', exact: true })).toHaveAttribute('aria-selected', 'true')

@@ -193,11 +193,14 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
       |> put_req_header("x-ankole-authentication", pinned)
       |> put_req_header("x-csrf-token", csrf)
       |> put_req_header("origin", ctx.site_origin)
-      |> api_put(ctx.site_origin <> "/api/v2/browser/sessions/active", %{authenticationRef: ref})
+      |> api_post(ctx.site_origin <> "/api/v2/browser/authentications/current", %{
+        authenticationRef: ref,
+        tenantID: foreign.id
+      })
     end
 
     activated = activate.(foreign_account["authenticationRef"])
-    assert json_response(activated, 200) == %{"podURL" => foreign_account["podURL"]}
+    assert api_response(activated, 200) == %{"podURL" => foreign_account["podURL"]}
     assert BrowserSessions.current_reference(WebSession.browser_reference(activated)) == c_ref
 
     unknown =

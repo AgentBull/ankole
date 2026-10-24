@@ -13,7 +13,7 @@ defmodule Ankole.Pod.FilesTest do
     {:ok, _} =
       Ankole.AuthZ.create_permission_grant(%{
         principal_uid: owner.uid,
-        resource_pattern: "**",
+        resource_pattern: "tenant_console:**",
         action: "update"
       })
 
@@ -22,11 +22,15 @@ defmodule Ankole.Pod.FilesTest do
 
   test "file replacement commits its revision with the bytes and refuses stale writers", ctx do
     {:ok, page} =
-      Pages.create(ctx.owner, %{type: "file", title: "Report", private_owner_uid: ctx.owner})
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
+        type: "file",
+        title: "Report",
+        private_owner_uid: ctx.owner
+      })
 
     assert {:ok, first} =
              Files.upload(
-               ctx.owner,
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
                page.id,
                "file",
                0,
@@ -38,26 +42,49 @@ defmodule Ankole.Pod.FilesTest do
     assert first.revision == 1
 
     assert {:error, {:revision_conflict, 1}} =
-             Files.upload(ctx.owner, page.id, "file", 0, "report.pdf", "stale")
+             Files.upload(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               "file",
+               0,
+               "report.pdf",
+               "stale"
+             )
 
-    assert {:ok, _, "%PDF first"} = Files.read(ctx.owner, page.id, "report.pdf")
-    assert {:error, :forbidden} = Files.read(ctx.reader, page.id, "report.pdf")
+    assert {:ok, _, "%PDF first"} =
+             Files.read(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id, "report.pdf")
+
+    assert {:error, :forbidden} =
+             Files.read(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
+               page.id,
+               "report.pdf"
+             )
 
     assert {:ok, _} =
-             Files.upload(ctx.owner, page.id, "file", 1, "replacement.pdf", "%PDF second")
+             Files.upload(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               "file",
+               1,
+               "replacement.pdf",
+               "%PDF second"
+             )
 
-    assert {:error, :not_found} = Files.read(ctx.owner, page.id, "report.pdf")
+    assert {:error, :not_found} =
+             Files.read(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id, "report.pdf")
 
     assert {:ok, %{revision: 2, files: [%{path: "replacement.pdf"}]}} =
-             Files.manifest(ctx.owner, page.id)
+             Files.manifest(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
   end
 
   test "document assets use their full digest and do not consume document revisions", ctx do
-    {:ok, page} = Pages.create(ctx.owner, %{title: "Images"})
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{title: "Images"})
 
     assert {:ok, %{revision: 0, src: src, file: file}} =
              Files.upload(
-               ctx.owner,
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
                page.id,
                "asset",
                nil,
@@ -70,13 +97,29 @@ defmodule Ankole.Pod.FilesTest do
     assert file.path == "assets/#{file.sha256}/photo.png"
 
     assert {:error, :invalid_file_role} =
-             Files.upload(ctx.owner, page.id, "file", 0, "bad", "bad")
+             Files.upload(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               "file",
+               0,
+               "bad",
+               "bad"
+             )
 
-    assert {:error, _} = Files.read(ctx.owner, page.id, "../elsewhere")
+    assert {:error, _} =
+             Files.read(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               "../elsewhere"
+             )
   end
 
   test "publication is a single authorized manifest with CAS and digest reads", ctx do
-    {:ok, page} = Pages.create(ctx.owner, %{type: "applet", title: "Tracker"})
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
+        type: "applet",
+        title: "Tracker"
+      })
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, page.id, %{
@@ -98,50 +141,141 @@ defmodule Ankole.Pod.FilesTest do
       %{path: "dist/app.js", sha256: js.sha256}
     ]
 
-    assert {:ok, %{revision: 1, files: files}} = Files.publish(ctx.agent, page.id, 0, manifest)
+    assert {:ok, %{revision: 1, files: files}} =
+             Files.publish(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent),
+               page.id,
+               0,
+               manifest
+             )
+
     assert length(files) == 3
-    assert {:error, {:revision_conflict, 1}} = Files.publish(ctx.agent, page.id, 0, manifest)
+
+    assert {:error, {:revision_conflict, 1}} =
+             Files.publish(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent),
+               page.id,
+               0,
+               manifest
+             )
 
     assert {:ok, _, "exports.provider = {}"} =
-             Files.read(ctx.reader, page.id, "dist/app.js", js.sha256)
+             Files.read(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
+               page.id,
+               "dist/app.js",
+               js.sha256
+             )
 
     assert {:error, :manifest_changed} =
-             Files.read(ctx.reader, page.id, "dist/app.js", html.sha256)
+             Files.read(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
+               page.id,
+               "dist/app.js",
+               html.sha256
+             )
 
     {:ok, hidden} = Drive.store("another tenant's unshared bytes")
     refute Drive.drive_has_content?(ctx.agent, hidden.sha256)
-    {:ok, before_rejection} = Files.manifest(ctx.owner, page.id)
+
+    {:ok, before_rejection} =
+      Files.manifest(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
 
     bad_manifest = [
       %{path: "src/main.tsx", sha256: js.sha256},
       %{path: "dist/index.html", sha256: hidden.sha256}
     ]
 
-    assert {:error, :unavailable_content} = Files.publish(ctx.agent, page.id, 1, bad_manifest)
-    assert {:ok, ^before_rejection} = Files.manifest(ctx.owner, page.id)
+    assert {:error, :unavailable_content} =
+             Files.publish(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent),
+               page.id,
+               1,
+               bad_manifest
+             )
+
+    assert {:ok, ^before_rejection} =
+             Files.manifest(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
 
     replacement = Enum.reject(manifest, &(&1.path == "dist/app.js"))
-    assert {:ok, %{revision: 2}} = Files.publish(ctx.agent, page.id, 1, replacement)
-    assert {:error, :manifest_changed} = Files.read(ctx.reader, page.id, "dist/app.js", js.sha256)
-    assert {:error, :not_found} = Files.read(ctx.reader, page.id, "dist/app.js")
+
+    assert {:ok, %{revision: 2}} =
+             Files.publish(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.agent),
+               page.id,
+               1,
+               replacement
+             )
+
+    assert {:error, :manifest_changed} =
+             Files.read(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
+               page.id,
+               "dist/app.js",
+               js.sha256
+             )
+
+    assert {:error, :not_found} =
+             Files.read(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
+               page.id,
+               "dist/app.js"
+             )
 
     local_path = Path.join(System.tmp_dir!(), "missing-applet-#{page.id}")
 
     assert {:error, :manifest_changed} =
-             Files.read_to_file(ctx.reader, page.id, "dist/app.js", local_path, js.sha256)
+             Files.read_to_file(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
+               page.id,
+               "dist/app.js",
+               local_path,
+               js.sha256
+             )
 
-    {:ok, _} = Pages.delete(ctx.owner, page.id)
-    assert {:error, :not_found} = Files.read(ctx.reader, page.id, "dist/app.js", js.sha256)
+    {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
+
+    assert {:error, :not_found} =
+             Files.read(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
+               page.id,
+               "dist/app.js",
+               js.sha256
+             )
   end
 
   test "removing references and trashing keep bytes until the page is purged", ctx do
-    {:ok, page} = Pages.create(ctx.owner, %{title: "Report"})
-    {:ok, result} = Files.upload(ctx.owner, page.id, "asset", nil, "image.png", "persistent")
-    {:ok, _} = Pages.delete(ctx.owner, page.id)
-    assert {:error, :not_found} = Files.read(ctx.owner, page.id, result.file.path)
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{title: "Report"})
+
+    {:ok, result} =
+      Files.upload(
+        Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+        page.id,
+        "asset",
+        nil,
+        "image.png",
+        "persistent"
+      )
+
+    {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
+
+    assert {:error, :not_found} =
+             Files.read(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               result.file.path
+             )
+
     assert {:ok, _file} = Drive.fetch(:pod, "pages/#{page.id}/#{result.file.path}")
-    {:ok, _} = Pages.restore(ctx.owner, page.id)
-    assert {:ok, _, "persistent"} = Files.read(ctx.owner, page.id, result.file.path)
+    {:ok, _} = Pages.restore(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
+
+    assert {:ok, _, "persistent"} =
+             Files.read(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               page.id,
+               result.file.path
+             )
   end
 
   test "a Human saves their actual Agent reply attachment without permission to read the Agent drive",
@@ -149,27 +283,54 @@ defmodule Ankole.Pod.FilesTest do
     {agent, message, attachment} = native_attachment(ctx.reader)
     resource = "agent:#{agent}:files"
     refute Ankole.AuthZ.allowed?(ctx.reader, resource, "read")
-    {:ok, page} = Pages.create(ctx.reader, %{type: "file", private_owner_uid: ctx.reader})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader), %{
+        type: "file",
+        private_owner_uid: ctx.reader
+      })
 
     assert {:ok, %{revision: 1, file: file}} =
-             Files.copy_from_message(ctx.reader, page.id, 0, message.id, attachment["path"])
+             Files.copy_from_message(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
+               page.id,
+               0,
+               message.id,
+               attachment["path"]
+             )
 
     assert file.sha256 == attachment["blob_ref"]
-    assert {:ok, _, "committed report bytes"} = Files.read(ctx.reader, page.id, file.path)
+
+    assert {:ok, _, "committed report bytes"} =
+             Files.read(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader), page.id, file.path)
+
     refute Ankole.AuthZ.allowed?(ctx.reader, resource, "read")
 
     Ankole.FilesFixtures.drive_file_fixture(agent, "private/unshared.txt", "private notes")
 
     assert {:error, :not_found} =
-             Files.copy_from_message(ctx.reader, page.id, 1, message.id, "private/unshared.txt")
+             Files.copy_from_message(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
+               page.id,
+               1,
+               message.id,
+               "private/unshared.txt"
+             )
 
-    assert {:ok, %{revision: 1, files: [_]}} = Files.manifest(ctx.reader, page.id)
+    assert {:ok, %{revision: 1, files: [_]}} =
+             Files.manifest(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader), page.id)
   end
 
   test "saved message content survives deletion and replacement of its original Agent drive path",
        ctx do
     {agent, message, attachment} = native_attachment(ctx.reader)
-    {:ok, page} = Pages.create(ctx.reader, %{type: "file", private_owner_uid: ctx.reader})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader), %{
+        type: "file",
+        private_owner_uid: ctx.reader
+      })
+
     assert {:ok, 1} = Drive.delete(agent, attachment["path"])
     assert {:error, :not_found} = Drive.fetch(agent, attachment["path"])
     digest = Base.decode16!(attachment["blob_ref"], case: :lower)
@@ -183,21 +344,41 @@ defmodule Ankole.Pod.FilesTest do
     assert {:ok, "committed report bytes"} = Drive.read_content(attachment["blob_ref"])
 
     assert {:ok, %{revision: 1, file: first}} =
-             Files.copy_from_message(ctx.reader, page.id, 0, message.id, attachment["path"])
+             Files.copy_from_message(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
+               page.id,
+               0,
+               message.id,
+               attachment["path"]
+             )
 
-    assert {:ok, _, "committed report bytes"} = Files.read(ctx.reader, page.id, first.path)
+    assert {:ok, _, "committed report bytes"} =
+             Files.read(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader), page.id, first.path)
 
     Ankole.FilesFixtures.drive_file_fixture(agent, attachment["path"], "changed after reply")
     assert {:ok, _, "changed after reply"} = Drive.read(agent, attachment["path"])
 
     assert {:ok, %{revision: 2, file: second}} =
-             Files.copy_from_message(ctx.reader, page.id, 1, message.id, attachment["path"])
+             Files.copy_from_message(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
+               page.id,
+               1,
+               message.id,
+               attachment["path"]
+             )
 
     assert first.sha256 == attachment["blob_ref"]
     assert second.sha256 == first.sha256
-    assert {:ok, _, "committed report bytes"} = Files.read(ctx.reader, page.id, second.path)
 
-    assert {:ok, _} = Ankole.Conversations.delete(ctx.reader, message.conversation_id)
+    assert {:ok, _, "committed report bytes"} =
+             Files.read(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader), page.id, second.path)
+
+    assert {:ok, _} =
+             Ankole.Conversations.delete(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
+               message.conversation_id
+             )
+
     Repo.update_all(blob, set: [last_referenced_at: old])
     assert {:ok, 0} = Ankole.Files.Jobs.CollectUnreferenced.mark_unreferenced()
     assert Ankole.Files.Jobs.CollectUnreferenced.remove_marked(0) == 0
@@ -210,20 +391,39 @@ defmodule Ankole.Pod.FilesTest do
 
   test "an unreadable conversation cannot supply an attachment to a writable Page", ctx do
     {_agent, message, attachment} = native_attachment(ctx.owner)
-    {:ok, page} = Pages.create(ctx.reader, %{type: "file", private_owner_uid: ctx.reader})
+
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader), %{
+        type: "file",
+        private_owner_uid: ctx.reader
+      })
 
     assert {:error, :conversation_not_found} =
-             Ankole.Conversations.get(ctx.reader, message.conversation_id)
+             Ankole.Conversations.get(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
+               message.conversation_id
+             )
 
     assert {:error, :conversation_not_found} =
-             Files.copy_from_message(ctx.reader, page.id, 0, message.id, attachment["path"])
+             Files.copy_from_message(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.reader),
+               page.id,
+               0,
+               message.id,
+               attachment["path"]
+             )
 
-    assert {:ok, %{revision: 0, files: []}} = Files.manifest(ctx.reader, page.id)
+    assert {:ok, %{revision: 0, files: []}} =
+             Files.manifest(Ankole.PrincipalsFixtures.actor_fixture(ctx.reader), page.id)
   end
 
   test "purging an Applet removes published backend references with its frontend and source",
        ctx do
-    {:ok, page} = Pages.create(ctx.owner, %{type: "applet", private_owner_uid: ctx.owner})
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
+        type: "applet",
+        private_owner_uid: ctx.owner
+      })
 
     manifest =
       Enum.map(
@@ -244,9 +444,11 @@ defmodule Ankole.Pod.FilesTest do
         end
       )
 
-    {:ok, _} = Files.publish(ctx.owner, page.id, 0, manifest)
+    {:ok, _} =
+      Files.publish(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id, 0, manifest)
+
     assert {:ok, _} = Drive.fetch(:pod, "pages/#{page.id}/server/main.js")
-    {:ok, _} = Pages.delete(ctx.owner, page.id)
+    {:ok, _} = Pages.delete(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
     page = Repo.get!(Ankole.Pod.Page, page.id)
 
     Ankole.Pod.PagesFixtures.update_record!(page, :begin_purge)
@@ -263,6 +465,13 @@ defmodule Ankole.Pod.FilesTest do
   defp native_attachment(human) do
     %{principal: agent} = Ankole.SessionsCase.agent_fixture(%{owner_principal_uid: human})
     conversation_id = Ankole.Kernel.gen_uuid_v7()
+
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: human,
+        resource_pattern: "agent:#{agent.uid}",
+        action: "chat"
+      })
 
     {:ok, _} =
       Ankole.ConversationsFixtures.create(human, %{

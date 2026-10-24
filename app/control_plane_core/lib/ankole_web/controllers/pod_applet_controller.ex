@@ -18,7 +18,7 @@ defmodule AnkoleWeb.PodAppletController do
     with {:ok, revision} <- revision(conn),
          {:ok, request} <- request(conn),
          {:ok, task} <-
-           Applets.start(conn.assigns.current_principal_uid, id, request, revision: revision) do
+           Applets.start(conn.assigns.authz_actor, id, request, revision: revision) do
       {conn, result} = AnkoleWeb.AppletRequest.await(conn, task)
 
       case result do

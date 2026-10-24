@@ -4,9 +4,27 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
   """
 
   use Ankole.Ash.Resource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     tenancy: :tenant,
     domain: Ankole.Schedule,
-    extensions: [AshStateMachine, AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshStateMachine, AshJsonApi.Resource]
+
+  authz do
+    scope(:site_console)
+    resolve_param(:agent_uid, :principal_key)
+
+    allow(:console_cron_runs,
+      resource: "site_console:agent:{agent_uid}:schedules",
+      action: "read"
+    )
+
+    allow(:console_checkbacks, resource: "site_console:schedules", action: "read")
+
+    allow(:console_cancel_checkback,
+      resource: "site_console:agent:{agent_uid}:schedules",
+      action: "delete"
+    )
+  end
 
   use Ankole.Work.Provenance,
     owner_session?: false,

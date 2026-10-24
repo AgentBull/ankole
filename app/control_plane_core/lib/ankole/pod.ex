@@ -12,7 +12,10 @@ defmodule Ankole.Pod do
   """
   use Ankole.Ash.Domain, extensions: [AshJsonApi.Domain]
 
+  defdelegate principal(uid), to: Ankole.Pod.Access
+
   resources do
+    resource(Ankole.Principals.PodAdminOperations)
     resource(Ankole.Pod.Pages.Browser)
     resource(Ankole.Pod.Database.Browser)
     resource(Ankole.Pod.Files.Browser)
@@ -32,11 +35,40 @@ defmodule Ankole.Pod do
   end
 
   json_api do
-    authorize?(false)
+    authorize?(true)
     log_errors?(true)
     show_raised_errors?(false)
 
     routes do
+      base_route "/admin", Ankole.Principals.PodAdminOperations do
+        route(:get, "/settings", :settings, name: "podAdminSettings")
+        route(:put, "/settings", :update_settings, name: "updatePodAdminSettings")
+        route(:get, "/members", :members, name: "podAdminMembers")
+        route(:post, "/members", :create_member, name: "createPodMember")
+        route(:patch, "/members/:uid", :change_membership, name: "changePodMembership")
+        route(:put, "/members/:uid/administrator", :set_admin, name: "setPodAdministrator")
+        route(:post, "/members/:uid/restrictions", :disable_member, name: "disablePodMember")
+        route(:get, "/members/:uid/access", :access_review, name: "podMemberAccessReview")
+        route(:post, "/members/:uid/restorations", :restore_member, name: "restorePodMember")
+
+        route(:delete, "/members/:uid/credentials/:credential_id", :unbind_credential,
+          name: "unbindPodMemberCredential"
+        )
+
+        route(:get, "/invitations", :invitations, name: "podAdminInvitations")
+        route(:post, "/invitations", :create_invitation, name: "createPodInvitation")
+        route(:delete, "/invitations/:id", :revoke_invitation, name: "revokePodInvitation")
+        route(:get, "/identity-providers", :providers, name: "podAdminIdentityProviders")
+
+        route(:put, "/identity-providers/:provider_id", :save_provider,
+          name: "savePodIdentityProvider"
+        )
+
+        route(:post, "/identity-providers/:provider_id/syncs", :sync_directory,
+          name: "syncPodDirectory"
+        )
+      end
+
       base_route "/", Ankole.Pod.Chat.Browser do
         route(:get, "/agents", :agents, name: "podAgents")
         route(:get, "/conversations", :list, name: "podConversations", query_params: [:pageID])
@@ -106,6 +138,16 @@ defmodule Ankole.Pod do
           name("podPageList")
           query_params([:scope, :query])
         end
+
+        route(:get, "/pages/children", :children,
+          name: "podPageChildren",
+          query_params: [:parent_id, :scope, :cursor, :limit]
+        )
+
+        route(:get, "/pages/search", :search,
+          name: "podPageSearch",
+          query_params: [:query, :exclude_subtree_of]
+        )
 
         route :post, "/pages", :create do
           name("podPageCreate")

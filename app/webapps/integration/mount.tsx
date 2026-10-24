@@ -16,8 +16,7 @@ import {
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { SetupApp } from '../setup/app'
-import { LocalPasswordForm } from '../auth/local-password-form'
-import { LoginModel } from '../auth/state/login-model'
+import { EmailOtpForm } from '../auth/email-otp-form'
 import { AppProviders, createQueryClient } from '../common/providers'
 import { loadLocale } from '../common/i18n'
 import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
@@ -203,6 +202,5 @@ function BrainTestNavigation() {
 }
 
 function LoginTestPage() {
-  const model = useModel(LoginModel)
-  return <LocalPasswordForm model={model} />
+  return <EmailOtpForm flow="login-test-flow" />
 }

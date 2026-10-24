@@ -428,12 +428,33 @@ pub fn authz_authorize_checks_nif(snapshot: Term<'_>) -> NIFResult<String> {
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
+pub fn authz_evaluate_pod_context_nif(snapshot: Term<'_>) -> NIFResult<String> {
+    let snapshot = decode_json(snapshot, "snapshot")?;
+    let decision = with_cel_stack(|| authz::evaluate_pod_context_value(snapshot)).map_err(error)?;
+    encode_json(decision)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
 pub fn authz_validate_condition(condition: Term<'_>) -> NIFResult<bool> {
     let condition = decode_string(condition, "condition")?;
 
     with_cel_stack(|| authz::validate_condition_source(&condition))
         .map(|_| true)
         .map_err(error)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn authz_validate_pod_condition(condition: Term<'_>) -> NIFResult<bool> {
+    let condition = decode_string(condition, "condition")?;
+    with_cel_stack(|| authz::validate_pod_condition_source(&condition))
+        .map(|_| true)
+        .map_err(error)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn authz_condition_free_variables(condition: Term<'_>) -> NIFResult<Vec<String>> {
+    let condition = decode_string(condition, "condition")?;
+    with_cel_stack(|| authz::condition_free_variables(&condition)).map_err(error)
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -729,20 +750,9 @@ fn start_object_store_operation<'a>(
             let request_ref = request_ref.encode(env);
             let result = match result {
                 Ok(object_store::Outcome::Done) => atoms::ok().encode(env),
-                Ok(object_store::Outcome::Bytes(buffer)) => match binary_from_buf(buffer) {
-                    Some(binary) => (atoms::ok(), binary.release(env)).encode(env),
-                    None => (
-                        atoms::error(),
-                        encode_object_store_error(
-                            env,
-                            &object_store::StoreError {
-                                code: "allocation_failed",
-                                message: "failed to allocate the object binary".to_string(),
-                            },
-                        ),
-                    )
-                        .encode(env),
-                },
+                Ok(object_store::Outcome::Bytes(buffer)) => {
+                    (atoms::ok(), binary_from_buf(buffer).release(env)).encode(env)
+                }
                 Err(reason) => {
                     (atoms::error(), encode_object_store_error(env, &reason)).encode(env)
                 }
@@ -842,23 +852,6 @@ pub fn jwt_verify_jwk_nif(
     let validation = decode_string(validation, "validation")?;
 
     common::jwt_verify_jwk(&token, &jwk, &validation).map_err(error)
-}
-
-/// Hashes a password with Argon2id and returns a PHC-format string.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn argon2id_hash(password: Term<'_>) -> NIFResult<String> {
-    let password = decode_string(password, "password")?;
-
-    common::argon2id_hash(&password).map_err(error)
-}
-
-/// Verifies a password against a PHC-format Argon2id hash string.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn argon2id_verify(password: Term<'_>, phc_hash: Term<'_>) -> NIFResult<bool> {
-    let password = decode_string(password, "password")?;
-    let phc_hash = decode_string(phc_hash, "phc_hash")?;
-
-    common::argon2id_verify(&password, &phc_hash).map_err(error)
 }
 
 #[derive(rustler::NifMap)]
@@ -967,17 +960,13 @@ pub fn uuid_expand(value: Term<'_>) -> NIFResult<String> {
 /// integers. `OwnedBinary` keeps the Elixir API binary-safe and matches caller
 /// expectations for decrypted and decoded payloads.
 fn binary_from_vec(bytes: Vec<u8>) -> NIFResult<OwnedBinary> {
-    let mut binary =
-        OwnedBinary::new(bytes.len()).ok_or_else(|| error_message("failed to allocate binary"))?;
-    binary.as_mut_slice().copy_from_slice(&bytes);
-
-    Ok(binary)
+    Ok(OwnedBinary::from_slice(&bytes))
 }
 
-fn binary_from_buf(mut buffer: impl bytes::Buf) -> Option<OwnedBinary> {
-    let mut binary = OwnedBinary::new(buffer.remaining())?;
+fn binary_from_buf(mut buffer: impl bytes::Buf) -> OwnedBinary {
+    let mut binary = OwnedBinary::new(buffer.remaining());
     buffer.copy_to_slice(binary.as_mut_slice());
-    Some(binary)
+    binary
 }
 
 /// The error text stays stable and does not use Rustler's conversion wording.
@@ -1050,31 +1039,15 @@ fn send_universal_ai_client_event(
                     universal_ai_client::ChunkOrigin::Provider => atoms::provider(),
                     universal_ai_client::ChunkOrigin::Client => atoms::client(),
                 };
-                match binary_term(env, bytes) {
-                    Ok(binary) => (
-                        atoms::universal_ai_client(),
-                        stream_ref,
-                        atoms::chunk(),
-                        seq,
-                        origin,
-                        binary,
-                    )
-                        .encode(env),
-                    Err(reason) => (
-                        atoms::universal_ai_client(),
-                        stream_ref,
-                        atoms::error(),
-                        encode_json_value(
-                            env,
-                            &serde_json::json!({
-                                "code": "chunk_encoding_failed",
-                                "stage": "beam",
-                                "message": reason
-                            }),
-                        ),
-                    )
-                        .encode(env),
-                }
+                (
+                    atoms::universal_ai_client(),
+                    stream_ref,
+                    atoms::chunk(),
+                    seq,
+                    origin,
+                    binary_term(env, bytes),
+                )
+                    .encode(env)
             }
             universal_ai_client::StreamEvent::Done(summary) => (
                 atoms::universal_ai_client(),
@@ -1097,13 +1070,8 @@ fn send_universal_ai_client_event(
     });
 }
 
-fn binary_term<'a>(env: Env<'a>, bytes: Vec<u8>) -> Result<Term<'a>, String> {
-    let Some(mut binary) = OwnedBinary::new(bytes.len()) else {
-        return Err("failed to allocate universal AI client chunk binary".to_string());
-    };
-
-    binary.as_mut_slice().copy_from_slice(&bytes);
-    Ok(binary.release(env).encode(env))
+fn binary_term<'a>(env: Env<'a>, bytes: Vec<u8>) -> Term<'a> {
+    OwnedBinary::from_slice(&bytes).release(env).encode(env)
 }
 
 fn encode_json_value<'a>(env: Env<'a>, value: &JSONValue) -> Term<'a> {

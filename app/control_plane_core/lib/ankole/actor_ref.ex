@@ -10,6 +10,8 @@ defmodule Ankole.ActorRef do
 
   @type t :: %__MODULE__{tenant_id: Ecto.UUID.t(), uid: String.t()}
 
+  def from_actor(%Ankole.AuthZ.Actor{principal: principal}), do: from_principal(principal)
+
   def from_principal(%{tenant_id: tenant_id, uid: uid}) do
     {:ok, reference} = cast(%__MODULE__{tenant_id: tenant_id, uid: uid})
     reference

@@ -16,7 +16,7 @@ defmodule Ankole.Tenants.Jobs.Delete do
   # PostgreSQL foreign keys; Agent and Worker rows use their lifecycle owner.
   @tables ~w(
     db_records db_views db_fields db_tables
-    page_user_states page_changes page_contents pages
+    page_user_states page_changes page_contents permission_grants pages
     external_message_refs conversation_messages conversation_participants
     cron_schedules session_ambient_judgments scheduled_events
     sessions agent_computer_worker_envs drive_files
@@ -27,11 +27,11 @@ defmodule Ankole.Tenants.Jobs.Delete do
     brain_contradictions brain_links brain_merge_suggestions brain_object_aliases
     brain_object_versions brain_timelines brain_slug_aliases brain_tags brain_schema_suggestions
     brain_schema_calibration_domains brain_schema_link_types brain_schema_types
-    brain_sources browser_pod_authentications browser_authentications browser_login_transactions session_tool_receipts session_round_states
-    human_access_events human_access_restrictions human_user_local_credentials
+    brain_sources authn_challenges browser_pod_authentications browser_authentications browser_login_transactions session_tool_receipts session_round_states
+    human_access_events human_access_restrictions principal_site_credentials pod_invitations
     identity_directory_events identity_directory_states identity_mapping_requests
     oidc_authorization_codes oidc_client_groups oidc_refresh_tokens oidc_refresh_token_families oidc_logout_requests
-    oidc_logout_deliveries permission_grants principal_external_identities
+    oidc_logout_deliveries principal_external_identities
     principal_group_external_bindings principal_group_memberships deliveries
     conversation_inbound_batches conversation_input_tombstones signal_bindings
     workflow_agent_calls delivery_previews signals ai_gateway_messages automation_jobs

@@ -52,8 +52,11 @@ defmodule AnkoleWeb.AuthController do
          redirect_uri <-
            Login.oidc_redirect_uri(AnkoleWeb.Plugs.RequestHost.origin(conn), provider_id),
          {:ok, authorization_url} <-
-           Login.authorization_url(
-             provider_id,
+           Ankole.Authn.Info.run(
+             Ankole.Principals.ExternalIdentity,
+             :enterprise,
+             :authorize,
+             %{provider_id: provider_id},
              Keyword.merge(LoginPolicy.upstream_options(%{transaction | upstream_state: state}),
                redirect_uri: redirect_uri,
                state: state
@@ -97,26 +100,38 @@ defmodule AnkoleWeb.AuthController do
            BrowserSessions.callback(WebSession.browser_reference(conn), provider_id, state),
          :ok <- Ankole.Repo.put_tenant_id(transaction.tenant_id),
          :ok <- LoginPolicy.authorize_login(transaction, provider_id),
-         {:ok, login} <-
-           Login.complete_oidc_login(
-             provider_id,
-             code,
-             Keyword.put(
-               LoginPolicy.upstream_options(transaction),
-               :redirect_uri,
-               transaction.redirect_uri
-             )
-           ),
-         auth <- %{
-           "principal_uid" => login.principal_uid,
-           "provider_id" => login.provider_id,
-           "external_id" => login.external_id,
-           "access_version" => login.access_version,
-           "auth_time" => login.auth_time
-         },
-         :ok <- LoginPolicy.completed_authentication_allowed?(auth, transaction.request),
-         {:ok, conn, transaction} <- WebSession.complete_login(conn, transaction.id, auth) do
-      redirect(conn, to: return_to(transaction))
+         {:ok, %{browser: browser, authentication: authentication, transaction: completed}} <-
+           Ankole.Authn.Info.run(
+             Ankole.Principals.ExternalIdentity,
+             :enterprise,
+             :callback,
+             %{provider_id: provider_id, code: code},
+             LoginPolicy.upstream_options(transaction)
+             |> Keyword.put(:redirect_uri, transaction.redirect_uri)
+             |> Keyword.put(:invitation_id, transaction.request["invitation_id"])
+             |> Keyword.put(:browser_reference, WebSession.browser_reference(conn))
+             |> Keyword.put(:complete, fn login ->
+               auth = %{
+                 "principal_uid" => login.principal_uid,
+                 "provider_id" => login.provider_id,
+                 "external_id" => login.external_id,
+                 "access_version" => login.access_version,
+                 "auth_time" => login.auth_time
+               }
+
+               with :ok <-
+                      LoginPolicy.completed_authentication_allowed?(auth, transaction.request),
+                    do:
+                      BrowserSessions.complete_login_in_tx(
+                        WebSession.browser_reference(conn),
+                        transaction.id,
+                        auth,
+                        fn -> :ok end
+                      )
+             end)
+           ) do
+      conn = WebSession.put_authentication(conn, browser, authentication)
+      redirect(conn, to: return_to(completed))
     else
       {:error, reason} -> login_error(conn, reason)
     end
@@ -127,7 +142,11 @@ defmodule AnkoleWeb.AuthController do
 
     with {:ok, false} <- SetupConfig.completed?(),
          {:ok, login} <-
-           Login.complete_oidc_login(provider_id, code,
+           Ankole.Authn.Info.run(
+             Ankole.Principals.ExternalIdentity,
+             :enterprise,
+             :callback,
+             %{provider_id: provider_id, code: code},
              redirect_uri: oidc_state["redirect_uri"],
              nonce: oidc_state["state"]
            ),
@@ -166,19 +185,8 @@ defmodule AnkoleWeb.AuthController do
 
   def return_to(transaction), do: WebSession.safe_return_to(transaction.request["return_to"])
 
-  defp login_error(conn, {:retry_locked, seconds}),
-    do: conn |> put_status(429) |> json(%{error: "retry_locked", retryAfterSeconds: seconds})
-
-  defp login_error(conn, {:retry_busy, seconds}),
-    do:
-      conn
-      |> put_resp_header("retry-after", Integer.to_string(seconds))
-      |> put_status(429)
-      |> json(%{error: "retry_busy", retryAfterSeconds: seconds})
-
   defp login_error(conn, {:missing, key}), do: error(conn, 422, "#{key} is required")
   defp login_error(conn, :invalid_credentials), do: error(conn, 401, "invalid_credentials")
-  defp login_error(conn, :no_local_provider), do: error(conn, 404, "no_local_provider")
 
   defp login_error(conn, reason) when reason in [:account_disabled, :human_access_revoked],
     do: error(conn, 403, "account_disabled")
@@ -187,13 +195,11 @@ defmodule AnkoleWeb.AuthController do
 
   defp login_error(conn, :not_an_admin), do: error(conn, 403, "not_an_admin")
 
+  defp login_error(conn, :login_subject_mismatch), do: error(conn, 400, "login_subject_mismatch")
+
   defp login_error(conn, reason) when reason in [:login_expired, :browser_session_expired],
     do: error(conn, 401, "login_expired")
 
-  defp login_error(conn, :password_change_not_required),
-    do: error(conn, 401, "change_ticket_expired")
-
-  defp login_error(conn, :password_too_short), do: error(conn, 422, "password_too_short")
   defp login_error(conn, reason), do: error(conn, 400, reason)
 
   defp error(conn, status, reason) do

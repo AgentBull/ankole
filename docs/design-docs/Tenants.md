@@ -7,7 +7,7 @@ another tenant's data without changing their own identity or authorization.
 
 Private SaaS builds present a tenant as a Pod. Self-service creation composes
 `Tenants.create/1`, Human creation, an explicit external identity binding, and
-the browser access proof in one transaction. The creator is an ordinary member.
+the browser access proof in one transaction. The creator is a member of the Pod and its built-in `pod_admin` group.
 The site administration assignment and AuthZ roles belong to their domain
 owners. SaaS databases enforce the reserved-slug constraint; FOSS databases
 use the public slug contract.
@@ -175,7 +175,7 @@ Console operations under `/api/v2` and native Agent file transfers accept
 `x-ankole-tenant`; without it they use the operator's tenant. `/api/v2/site`
 operations manage site resources and ignore that header. The v2 routers give
 the selected tenant of `Ankole.Repo` to the Ash action
-(`AnkoleWeb.JSONAPI.Policy`); a v2 site route gets no tenant. An
+(`AnkoleWeb.JSONAPI.Context`); a v2 site route gets no tenant. An
 unknown or deleting selected tenant returns `data_tenant_unavailable`. The
 Console clears an obsolete selection and reloads. Switching tenants reloads the
 Console so drafts and cached results cannot move to another tenant. The URL
@@ -190,8 +190,23 @@ Creation installs the tenant scaffold and chosen Brain schema packs in
 one transaction. Privilege transfer requires an active target Human, moves the
 built-in group and grants, and leaves one privileged tenant. The transfer locks
 the assignment row and target tenant in the same order as other administration
-operations. The privileged
-tenant cannot be suspended or deleted; transfer its role first.
+operations. It deletes the old site administrator group's grants and refreshes
+the affected Page anchors and inheriting descendants in the same transaction.
+The privileged tenant cannot be suspended or deleted; transfer its role first.
+
+## Pod administration
+
+Each tenant has a built-in `pod_admin` group. It grants `tenant_console:**`
+operations in that Pod. Its members must be active human members. Guest and
+Agent Principals cannot join it. A manual removal, membership change, or exit
+must preserve one active human administrator. The first FOSS administrator joins
+both administrator groups. A SaaS Pod creator joins the new Pod's `pod_admin`.
+
+Pod settings owns the display name, Guest admission, login policy, members,
+credential assistance, invitations, and enterprise provider configuration.
+Personal account settings owns verified login method changes and unmanaged
+member exit. A directory-managed member uses organization offboarding.
+[Authentication](Authentication.md) defines those admission and policy checks.
 
 ## Pod work entry
 
@@ -209,8 +224,7 @@ pin their authentication and tenant on API requests; a conflicting tenant hint
 cannot override the Host. The site shares its browser group and independent
 account proof cookies across Pod subdomains. Login flows, API authorization and
 the realtime socket check the target tenant. A page keeps its pinned
-authentication after another tab selects an account. The private SaaS entry
-uses its one-use handoff for entry without a shared proof.
+authentication after another tab selects an account. A Pod entry starts its core login ceremony directly on that Pod host.
 
 Any active Human can sign in through their tenant's configured providers and use
 the Conversation participant contract. No siteadmin gate applies to work entry,

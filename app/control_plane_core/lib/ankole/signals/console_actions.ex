@@ -14,8 +14,8 @@ defmodule Ankole.Signals.ConsoleActions do
 
     if is_binary(target) and target != source do
       [
-        {"agent:#{source}:signal_bindings", "delete"},
-        {"agent:#{target}:signal_bindings", "update"}
+        {"site_console:agent:#{source}:signal_bindings", "delete"},
+        {"site_console:agent:#{target}:signal_bindings", "update"}
       ]
     else
       [{default_resource, default_action}]

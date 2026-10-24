@@ -1398,7 +1398,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert user_id_subject.uid == open_id_subject.uid
     end
 
-    test "message normalization uses email as the primary external id" do
+    test "message normalization keeps stable Lark IDs separate from contact email" do
       %{principal: agent} = agent_fixture()
       consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
 
@@ -1408,11 +1408,10 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
 
-      assert normalized.author["id"] == "alice.readable@example.com"
-      assert normalized.author["platform_subject"] == "alice.readable@example.com"
+      assert normalized.author["id"] == "ou_alice"
+      assert normalized.author["platform_subject"] == "ou_alice"
 
       assert normalized.author["platform_subject_alternates"] == [
-               "ou_alice",
                "onion_alice",
                "ou_open_alice"
              ]
@@ -2343,7 +2342,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert principal.display_name == "Alice"
     end
 
-    test "hydrated email becomes the primary external id and retains every Lark alias" do
+    test "hydration binds stable Lark IDs separately from the contact email" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
       config = chat_config()
@@ -2376,7 +2375,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                Inbound.handle_message_receive("im.message.receive_v1", receive_event(), [consumer])
 
       external_ids = [
-        "alice.readable@example.com",
         "ou_alice",
         "onion_alice",
         "ou_open_alice"
@@ -2391,6 +2389,10 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         end)
 
       assert [principal_uid] = Enum.uniq(principal_uids)
+
+      assert {:error, :not_found} =
+               Principals.resolve_platform_subject("lark-main", "alice.readable@example.com")
+
       assert {:ok, ^principal_uid} = Ecto.UUID.cast(principal_uid)
 
       assert Repo.get!(Ankole.Principals.HumanUser, principal_uid).email ==
@@ -2590,9 +2592,9 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                "answer" => "Additional context"
              }
 
-      assert input.data["action"]["operator_id"] == "card.alice@example.com"
+      assert input.data["action"]["operator_id"] == "ou_alice"
 
-      assert {:ok, email_subject} =
+      assert {:error, :not_found} =
                Principals.resolve_platform_subject("lark-main", "card.alice@example.com")
 
       assert {:ok, user_id_subject} =
@@ -2604,7 +2606,9 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:ok, open_id_subject} =
                Principals.resolve_platform_subject("lark-main", "ou_alice_open")
 
-      assert email_subject.uid == user_id_subject.uid
+      assert Repo.get!(Ankole.Principals.HumanUser, user_id_subject.uid).email ==
+               "card.alice@example.com"
+
       assert user_id_subject.uid == union_id_subject.uid
       assert user_id_subject.uid == open_id_subject.uid
     end
@@ -3071,7 +3075,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert observed.human_user.email == "bob@example.com"
       assert observed.human_user.mobile == "+8613800000000"
       assert observed.identity.provider == "lark-main"
-      assert observed.identity.external_id == "bob@example.com"
+      assert observed.identity.external_id == "ou_bob"
       assert observed.identity.metadata["user_id"] == "ou_bob"
       assert observed.identity.metadata["open_id"] == "ou_open_bob"
 
@@ -3414,14 +3418,14 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:ok, _} = Ankole.IdentityProviders.DirectoryAccess.begin_sync("lark-main", changed)
     end
 
-    test "directory upsert follows email, user_id, union_id, then open_id" do
+    test "directory upsert follows user_id, union_id, then open_id" do
       cases = [
         {%{
            "email" => "Priority.Email@Example.com",
            "user_id" => "priority_user_id",
            "union_id" => "priority_union_id",
            "open_id" => "priority_open_id"
-         }, "priority.email@example.com"},
+         }, "priority_user_id"},
         {%{
            "user_id" => "fallback_user_id",
            "union_id" => "fallback_union_after_user",
@@ -3463,7 +3467,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                ])
 
       assert "ou_contact_incremental" in ids
-      assert "contact.incremental@example.com" in ids
+      refute "contact.incremental@example.com" in ids
 
       assert {:error, :not_found} =
                Ankole.Principals.resolve_platform_subject("lark-main", "ou_contact_incremental")

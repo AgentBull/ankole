@@ -35,6 +35,11 @@ Examples include:
 - plugin setup values
 - chat and identity-provider settings that are not bootstrap requirements
 
+`Ankole.Pod.Config` declares the tenant key `pod.allow_external_guests` with
+value `true` by default. A false value rejects guest invitations, new guest
+shares, and Pod access by existing Guests. The setting does not change a
+Principal's stored membership.
+
 AIGateway stores provider credentials in `ai_gateway_providers`. Agent model
 preferences belong in `agents.options`.
 

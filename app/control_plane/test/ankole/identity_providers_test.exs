@@ -31,9 +31,7 @@ defmodule Ankole.IdentityProvidersTest do
   test "adapter catalog hides active plugins removed from the next-start enable list" do
     assert Enum.any?(IdentityProviders.list_adapters(), &(&1.plugin_id == "lark-adapter"))
     assert {:ok, []} = PluginConfig.put_enabled_ids([])
-    # The built-in local adapter is part of the control plane, not a plugin,
-    # so the enable list does not remove it.
-    assert Enum.map(IdentityProviders.list_adapters(), & &1.adapter_id) == ["local"]
+    assert Enum.map(IdentityProviders.list_adapters(), & &1.adapter_id) == []
   end
 
   test "adapter catalog fails closed when the enable list cannot be decoded" do
@@ -49,7 +47,7 @@ defmodule Ankole.IdentityProvidersTest do
     })
 
     Cache.clear_for_test()
-    assert Enum.map(IdentityProviders.list_adapters(), & &1.adapter_id) == ["local"]
+    assert Enum.map(IdentityProviders.list_adapters(), & &1.adapter_id) == []
   end
 
   test "saving an enabled provider enqueues the first full sync" do
@@ -71,21 +69,6 @@ defmodule Ankole.IdentityProvidersTest do
         "source" => "setup"
       }
     )
-  end
-
-  test "a second local provider instance is rejected" do
-    assert {:ok, _provider} = IdentityProviders.save_provider("local-main", "local", %{}, true)
-
-    # Saving the same instance again stays an upsert.
-    assert {:ok, _provider} = IdentityProviders.save_provider("local-main", "local", %{}, true)
-
-    assert {:error, {:local_provider_exists, "local-main"}} =
-             IdentityProviders.save_provider("local-2", "local", %{}, true)
-
-    refute Repo.get_by(SiteConfig,
-             scope: "global",
-             key: "principals.identity_providers.local.local-2"
-           )
   end
 
   test "saving a websocket-enabled provider reconciles realtime directory listeners immediately" do

@@ -204,6 +204,7 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
              Principals.upsert_platform_subject_human(%{
                provider: "lark-main",
                external_id: "ou_stranger",
+               uid: human.uid,
                email: user.email,
                metadata: %{"source" => "b18-baseline"}
              })
@@ -298,12 +299,19 @@ defmodule Ankole.Conversations.IdentityAdmissionTest do
     assert Repo.aggregate(Intent, :count) == 1
   end
 
-  test "a sender that matches an existing principal by email is admitted and bound" do
+  test "a shared contact requires explicit mapping before an enterprise sender is admitted" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "lark-adm", :ignore, unmatched_sender_policy: :manual_review)
     %{principal: human, human_user: human_user} = human_fixture()
 
     author = stranger_author(%{email: human_user.email})
+
+    assert {:ok, %{status: :held_unmapped_sender}} =
+             Observe.emit_entry(agent.uid, "lark-adm", dm_entry(author))
+
+    assert {:error, :not_found} = Principals.resolve_platform_subject("lark-main", "ou_stranger")
+    [request] = Repo.all(MappingRequest)
+    assert {:ok, _} = Principals.MappingRequests.bind_request(request.id, human.uid)
 
     assert {:ok, %{status: :accepted}} =
              Observe.emit_entry(agent.uid, "lark-adm", dm_entry(author))

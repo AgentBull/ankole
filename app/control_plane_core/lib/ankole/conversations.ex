@@ -55,7 +55,9 @@ defmodule Ankole.Conversations do
     end
   end
 
-  defdelegate agents(), to: Native
+  defdelegate agents(human_uid), to: Native
+  defdelegate model_profiles(human_uid, agent_uid), to: Native
+  defdelegate request_context(signal), to: Native
   defdelegate visible_native_conversation(human_uid, id), to: Native
   defdelegate model_preferences(human_uid, id), to: Native
   defdelegate set_model_profile(human_uid, id, profile), to: Native

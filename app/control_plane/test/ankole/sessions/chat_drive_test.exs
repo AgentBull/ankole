@@ -58,6 +58,14 @@ defmodule Ankole.Sessions.ChatDriveTest do
 
     # The Agent can read its whole drive. The channel restriction applies at delivery.
     assert {:ok, _file, "Bob report"} = Files.read(agent.uid, foreign)
+
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: input.human_uid,
+        resource_pattern: "agent:#{agent.uid}:tool:reply_attachment",
+        action: "invoke"
+      })
+
     {run, call} = response_call(run, "reply_attachment", %{"drive_path" => foreign})
     assert {:ok, tool, args} = Tools.prepare(run, call)
     assert tool.executor == Ankole.Sessions.Presentation
@@ -91,6 +99,13 @@ defmodule Ankole.Sessions.ChatDriveTest do
     run = prepare_run(input)
     path = Files.chat_path(input.conversation_id, "report.txt")
     drive_file_fixture(agent.uid, path, "Alice report")
+
+    {:ok, _} =
+      Ankole.AuthZ.create_permission_grant(%{
+        principal_uid: input.human_uid,
+        resource_pattern: "agent:#{agent.uid}:tool:send_message",
+        action: "invoke"
+      })
 
     {run, call} =
       response_call(run, "send_message", %{

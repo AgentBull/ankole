@@ -10,6 +10,7 @@ defmodule Ankole.Pod.PageUserState do
     type("pod_page_user_state")
     derive_filter?(false)
     derive_sort?(false)
+
     primary_key do
       keys([:principal_uid, :page_id])
     end
@@ -29,7 +30,12 @@ defmodule Ankole.Pod.PageUserState do
       allow_nil?: false
     )
 
-    attribute(:page_id, Ankole.Ash.Types.UUIDv7, public?: true, primary_key?: true, allow_nil?: false)
+    attribute(:page_id, Ankole.Ash.Types.UUIDv7,
+      public?: true,
+      primary_key?: true,
+      allow_nil?: false
+    )
+
     attribute(:favorited_at, :utc_datetime_usec, public?: true)
     attribute(:visited_at, :utc_datetime_usec, public?: true)
   end

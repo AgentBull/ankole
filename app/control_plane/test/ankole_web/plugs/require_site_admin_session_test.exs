@@ -92,5 +92,6 @@ defmodule AnkoleWeb.Plugs.RequireSiteAdminSessionTest do
   defp add_second_admin do
     %{principal: principal} = Ankole.PrincipalsFixtures.human_fixture()
     assert {:ok, _} = AuthZ.add_principal_to_group(principal.uid, "siteadmin")
+    assert {:ok, _} = AuthZ.add_principal_to_group(principal.uid, "pod_admin")
   end
 end

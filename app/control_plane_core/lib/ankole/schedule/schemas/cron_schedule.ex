@@ -8,9 +8,23 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   """
 
   use Ankole.Ash.Resource,
-    extensions: [AshStateMachine, AshJsonApi.Resource],
+    authorizers: [Ankole.AuthZ.Authorizer],
+    extensions: [Ankole.AuthZ.Extension, AshStateMachine, AshJsonApi.Resource],
     tenancy: :tenant,
     domain: Ankole.Schedule
+
+  authz do
+    scope(:site_console)
+    resolve_param(:agent_uid, :principal_key)
+    allow(:console_list, resource: "site_console:schedules", action: "read")
+    allow(:console_create, resource: "site_console:agent:{agent_uid}:schedules", action: "update")
+    allow(:read, resource: "site_console:agent:{agent_uid}:schedules", action: "read")
+    allow(:console_update, resource: "site_console:agent:{agent_uid}:schedules", action: "update")
+    allow(:console_pause, resource: "site_console:agent:{agent_uid}:schedules", action: "update")
+    allow(:console_resume, resource: "site_console:agent:{agent_uid}:schedules", action: "update")
+    allow(:console_remove, resource: "site_console:agent:{agent_uid}:schedules", action: "delete")
+    allow(:console_run, resource: "site_console:agent:{agent_uid}:schedules", action: "update")
+  end
 
   use Ankole.Work.Provenance,
     owner_session?: true,
@@ -203,7 +217,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
 
     # A manual fire. The idempotency key makes a repeated request one fire.
     action :console_run, :struct do
-      constraints(instance_of: Ankole.Schedule.Schemas.ScheduledEvent)
+      constraints(struct_constraints(Ankole.Schedule.Schemas.ScheduledEvent))
       argument(:agent_uid, Ankole.Ash.Types.PrincipalKey, allow_nil?: false)
       argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
       argument(:idempotency_key, :string, allow_nil?: false)

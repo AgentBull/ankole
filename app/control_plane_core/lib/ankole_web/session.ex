@@ -10,43 +10,6 @@ defmodule AnkoleWeb.Session do
   @browser_key :browser_session
   @setup_ttl 24 * 60 * 60
   @state_ttl 10 * 60
-  @secure Application.compile_env(:ankole, :secure_cookies, false)
-  @handoff_prefix if(@secure, do: "__Host-ankole-handoff-", else: "_ankole-handoff-")
-
-  def put_handoff_state(conn, state, payload) do
-    opts = SessionCookieStore.init(key_context: "browser.handoff", log: false)
-    value = SessionCookieStore.put(cookie_conn(conn), nil, payload, opts)
-
-    put_resp_cookie(conn, @handoff_prefix <> state, value,
-      secure: @secure,
-      http_only: true,
-      same_site: "Lax",
-      path: "/",
-      max_age: @state_ttl
-    )
-  end
-
-  def handoff_state(conn, state) do
-    if name = handoff_cookie_name(state) do
-      conn = fetch_cookies(conn)
-      opts = SessionCookieStore.init(key_context: "browser.handoff", log: false)
-      {_, payload} = SessionCookieStore.get(cookie_conn(conn), conn.req_cookies[name], opts)
-      payload
-    end
-  end
-
-  def clear_handoff_state(conn, state) do
-    if name = handoff_cookie_name(state),
-      do: delete_resp_cookie(conn, name, secure: @secure, path: "/"),
-      else: conn
-  end
-
-  defp handoff_cookie_name(state) when is_binary(state) do
-    if Regex.match?(~r/\A[A-Za-z0-9_-]{43}\z/, state), do: @handoff_prefix <> state
-  end
-
-  defp handoff_cookie_name(_), do: nil
-
   def browser_reference(conn), do: get_session(conn, @browser_key)
 
   def ensure_browser(conn) do
@@ -101,7 +64,7 @@ defmodule AnkoleWeb.Session do
     end
   end
 
-  @doc "Writes a verified authentication after login or one-use host handoff."
+  @doc "Writes a verified authentication after login."
   def put_authentication(
         conn,
         %BrowserSessions.Session{} = browser,
@@ -139,6 +102,15 @@ defmodule AnkoleWeb.Session do
     end
   end
 
+  @doc "Writes the verified site proof that completed first-administrator setup."
+  def put_site_admin_session(
+        conn,
+        %BrowserSessions.Session{} = browser,
+        %BrowserSessions.Authentication{purpose: :site, console_authenticated: true} =
+          authentication
+      ),
+      do: put_authentication(conn, browser, authentication)
+
   def authentication_references(conn) do
     conn = fetch_cookies(conn)
 
@@ -171,6 +143,8 @@ defmodule AnkoleWeb.Session do
     candidate = authentication_candidate(conn)
     if authentication_proven?(conn, candidate), do: candidate
   end
+
+  def invalid_authentication_selection?(conn), do: authentication_candidate(conn) == :invalid
 
   defp authentication_candidate(conn) do
     case get_req_header(conn, "x-ankole-authentication") do
@@ -344,7 +318,12 @@ defmodule AnkoleWeb.Session do
   end
 
   def csrf_state(conn) do
-    flow = param(conn, "flow")
+    # Setup owns its activation session and keeps that form's browser CSRF
+    # state while its internal login transaction verifies the first operator.
+    flow =
+      if String.starts_with?(conn.request_path, "/api/v2/browser/setup/"),
+        do: nil,
+        else: param(conn, "flow")
 
     case if(is_binary(flow), do: BrowserSessions.transaction_csrf(browser_reference(conn), flow)) do
       state when is_binary(state) ->

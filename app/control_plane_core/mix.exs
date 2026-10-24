@@ -1,3 +1,5 @@
+Code.require_file("patches/dependency_patches.exs", __DIR__)
+
 defmodule AnkoleCore.MixProject do
   use Mix.Project
 
@@ -12,6 +14,7 @@ defmodule AnkoleCore.MixProject do
       lockfile: "../control_plane/mix.lock",
       elixirc_paths:
         if(Mix.env() == :test, do: ["lib", "test/support"], else: ["lib"]) ++ internal_paths(),
+      aliases: Ankole.Mix.DependencyPatches.aliases(),
       deps: deps()
     ]
   end

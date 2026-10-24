@@ -1,9 +1,27 @@
 defmodule AnkoleWeb.BrowserSetup do
   @moduledoc "Typed setup actions for the first administrator and installation configuration."
-  use Ash.Resource,
+  use Ankole.Ash.OperationResource,
+    authorizers: [Ankole.AuthZ.Authorizer],
     data_layer: Ash.DataLayer.Simple,
     domain: AnkoleWeb.BrowserAPI,
-    extensions: [AshJsonApi.Resource]
+    extensions: [Ankole.AuthZ.Extension, AshJsonApi.Resource]
+
+  authz do
+    scope(:public)
+    allow(:state, check: :public)
+    allow(:create_session, check: :public)
+    allow(:delete_session, check: :public)
+    allow(:create_activation_code_log_entry, check: :public)
+    allow(:plugins, check: :public)
+    allow(:update_plugins, check: :public)
+    allow(:identity_provider_adapters, check: :public)
+    allow(:put_identity_provider, check: :public)
+    allow(:oidc_authorization, check: :public)
+    allow(:brain_packs, check: :public)
+    allow(:put_brain_packs, check: :public)
+    allow(:request_email_setup, check: :public)
+    allow(:verify_email_setup, check: :public)
+  end
 
   alias Ankole.Ash.Types.JSONMap
   alias AnkoleWeb.BrowserAPI
@@ -191,28 +209,39 @@ defmodule AnkoleWeb.BrowserSetup do
       end)
     end
 
-    action :create_local_admin, :map do
-      constraints(fields: [returnTo: [type: :string, allow_nil?: false]])
-      argument(:email, :string, allow_nil?: false)
-
-      argument(:password, :string,
-        allow_nil?: false,
-        sensitive?: true,
-        constraints: [trim?: false]
+    action :request_email_setup, :map do
+      constraints(
+        fields: [
+          flow: [type: Ankole.Ash.Types.UUIDv7, allow_nil?: false],
+          challengeID: [type: Ankole.Ash.Types.UUIDv7, allow_nil?: false]
+        ]
       )
 
+      argument(:email, :string, allow_nil?: false)
+      argument(:mail, JSONMap, allow_nil?: false, sensitive?: true)
       argument(:display_name, :string, constraints: [max_length: 120])
+      transaction?(false)
 
       run(fn input, _context ->
-        perform_create_local_admin(input.context.conn, Ankole.JSON.plain(input.arguments))
+        perform_request_email_setup(input.context.conn, Ankole.JSON.plain(input.arguments))
+      end)
+    end
+
+    action :verify_email_setup, :map do
+      constraints(fields: [returnTo: [type: :string, allow_nil?: false]])
+      argument(:flow, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:challengeID, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:code, :string, allow_nil?: false, sensitive?: true, constraints: [trim?: false])
+      transaction?(false)
+
+      run(fn input, _context ->
+        perform_verify_email_setup(input.context.conn, Ankole.JSON.plain(input.arguments))
       end)
     end
   end
 
   alias Ankole.I18n
-  alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Principals
-  alias Ankole.Principals.HumanUser
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Setup.Bootstrap
   alias Ankole.Plugins
@@ -353,7 +382,11 @@ defmodule AnkoleWeb.BrowserSetup do
          redirect_uri <-
            Login.oidc_redirect_uri(AnkoleWeb.Plugs.RequestHost.origin(conn), provider_id),
          {:ok, authorization_url} <-
-           Login.authorization_url(provider_id,
+           Ankole.Authn.Info.run(
+             Ankole.Principals.ExternalIdentity,
+             :enterprise,
+             :authorize,
+             %{provider_id: provider_id},
              redirect_uri: redirect_uri,
              nonce: state,
              state: state
@@ -431,31 +464,104 @@ defmodule AnkoleWeb.BrowserSetup do
       else: {:error, "packs must be a list of pack names"}
   end
 
-  defp perform_create_local_admin(conn, params) do
+  defp perform_request_email_setup(conn, params) do
     with :ok <- require_setup_session(conn),
-         {:ok, email} <- validate_local_admin_email(params["email"]),
-         :ok <- validate_local_admin_password(params["password"]),
-         # The session is the single owner of the pack selection; both
-         # identity paths (this one and the setup OIDC callback) read it.
-         brain_packs = WebSession.setup_brain_packs(conn),
-         {:ok, provider} <- require_local_provider(),
-         {:ok, display_name} <- validate_local_admin_display_name(params["display_name"]),
-         {:ok, principal_uid} <-
-           ensure_local_admin_account(email, display_name, params["password"]),
-         {:ok, _root} <-
-           SetupCompletion.complete_with_first_site_admin(principal_uid, brain_packs) do
+         {:ok, conn, transaction} <- WebSession.begin_login(conn, :console, %{}),
+         browser = WebSession.browser_reference(conn),
+         {:ok, cipher} <-
+           Ankole.SecretKeyBase.seal(Ankole.JSON.encode!(params["mail"]), "authn.setup", [
+             browser["id"],
+             transaction.id
+           ]),
+         {:ok, sent} <-
+           Ankole.Authn.Info.run(
+             Ankole.Principals.SiteCredential,
+             :email_otp,
+             :request,
+             %{
+               browser: browser,
+               flow: transaction.id,
+               email: params["email"],
+               source: to_string(:inet.ntoa(conn.remote_ip))
+             },
+             purpose: "setup",
+             mail: params["mail"],
+             ceremony_context: %{"mail" => cipher, "display_name" => params["display_name"]}
+           ) do
+      BrowserAPI.ok(conn, %{flow: transaction.id, challengeID: sent.challenge_id})
+    else
+      {:error, status, reason} -> error(conn, status, reason)
+      {:error, reason} -> AnkoleWeb.BrowserAPI.Error.login(reason)
+    end
+  end
+
+  defp perform_verify_email_setup(conn, params) do
+    browser = WebSession.browser_reference(conn)
+
+    with :ok <- require_setup_session(conn),
+         {:ok, %{purpose: :console}} <- WebSession.login_transaction(conn, params["flow"]),
+         {:ok, completed} <-
+           Ankole.Authn.Info.run(
+             Ankole.Principals.SiteCredential,
+             :email_otp,
+             :verify,
+             %{
+               browser: browser,
+               flow: params["flow"],
+               challenge_id: params["challengeID"],
+               code: params["code"],
+               source: to_string(:inet.ntoa(conn.remote_ip))
+             },
+             complete: fn challenge -> complete_email_setup_in_tx(conn, challenge) end
+           ),
+         {:ok, _} <- Ankole.AppConfigure.cache_committed_write(completed.mail_write),
+         {:ok, _} <- Ankole.AppConfigure.cache_committed_write(completed.completed_write),
+         :ok <- SetupConfig.delete_bootstrap_activation_code() do
       conn
       |> WebSession.clear_setup_session()
-      |> WebSession.put_admin_session(%{
-        principal_uid: principal_uid,
-        provider_id: provider["provider_id"],
-        external_id: email,
-        auth_time: System.system_time(:second)
-      })
+      |> WebSession.put_site_admin_session(completed.browser, completed.authentication)
       |> BrowserAPI.ok(%{returnTo: AnkoleWeb.SiteAdminConsole.path()})
     else
       {:error, status, reason} -> error(conn, status, reason)
-      {:error, reason} -> error(conn, 400, reason)
+      {:error, reason} -> AnkoleWeb.BrowserAPI.Error.login(reason)
+    end
+  end
+
+  defp complete_email_setup_in_tx(conn, %{purpose: "setup"} = challenge) do
+    browser = WebSession.browser_reference(conn)
+    proof = Ankole.Authn.Strategies.Otp.Actions.proof(challenge)
+
+    with {:ok, settings_json} <-
+           Ankole.SecretKeyBase.unseal(challenge.ceremony_context["mail"], "authn.setup", [
+             browser["id"],
+             challenge.login_transaction_id
+           ]),
+         {:ok, settings} <- Ankole.JSON.decode(settings_json),
+         {:ok, %{principal: principal}} <-
+           Principals.create_human_in_tx(%{
+             email: challenge.target,
+             display_name: challenge.ceremony_context["display_name"]
+           }),
+         {:ok, _} <- Principals.bind_site_credential_in_tx(principal.uid, proof),
+         {:ok, {_root, completed_write}} <-
+           SetupCompletion.complete_in_tx(
+             principal.uid,
+             WebSession.setup_brain_packs(conn)
+           ),
+         {:ok, mail_write} <-
+           Ankole.AppConfigure.put_global_by_key_in_tx("authn.email.mail", settings),
+         {:ok, completed} <-
+           Ankole.BrowserSessions.complete_site_login_in_tx(
+             browser,
+             challenge.login_transaction_id,
+             "email_otp",
+             %{
+               challenge_id: challenge.id,
+               browser_id: browser["id"],
+               flow: challenge.login_transaction_id
+             }
+           ) do
+      {:ok, Map.merge(completed, %{mail_write: mail_write, completed_write: completed_write})}
     end
   end
 
@@ -472,74 +578,6 @@ defmodule AnkoleWeb.BrowserSetup do
     else
       {:ok, true} -> {:error, 409, "setup already completed"}
       {:error, reason} -> {:error, 500, reason}
-    end
-  end
-
-  defp validate_local_admin_email(email) when is_binary(email) do
-    normalized = Principals.normalize_email(email) || ""
-
-    case Regex.match?(HumanUser.email_format(), normalized) do
-      true -> {:ok, normalized}
-      false -> {:error, 422, "email is invalid"}
-    end
-  end
-
-  defp validate_local_admin_email(_email), do: {:error, 422, "email is invalid"}
-
-  defp validate_local_admin_password(password) when is_binary(password) do
-    case String.length(password) >= LocalPassword.local_password_min_length() do
-      true -> :ok
-      false -> {:error, 422, password_too_short_message()}
-    end
-  end
-
-  defp validate_local_admin_password(_password), do: {:error, 422, password_too_short_message()}
-
-  defp password_too_short_message,
-    do: "password must be at least #{LocalPassword.local_password_min_length()} characters"
-
-  defp require_local_provider do
-    case LocalPassword.fetch_enabled_provider() do
-      {:ok, provider} -> {:ok, provider}
-      {:error, :no_local_provider} -> {:error, 409, "local identity provider is not configured"}
-    end
-  end
-
-  # The setup administrator picks their own password, so the credential never
-  # carries the must-change flag.
-  defp ensure_local_admin_account(email, display_name, password) do
-    case LocalPassword.fetch_local_login(email) do
-      {:ok, %{principal: principal}} ->
-        put_local_admin_password(principal.uid, password)
-
-      {:error, :not_found} ->
-        attrs = %{email: email}
-        attrs = if display_name, do: Map.put(attrs, :display_name, display_name), else: attrs
-
-        with {:ok, %{principal: principal}} <- Principals.create_human(attrs) do
-          put_local_admin_password(principal.uid, password)
-        end
-    end
-  end
-
-  # The display name is optional; a blank one leaves the profile at its
-  # email-derived default, and an over-long one is rejected like any other
-  # invalid field.
-  defp validate_local_admin_display_name(nil), do: {:ok, nil}
-
-  defp validate_local_admin_display_name(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> {:ok, nil}
-      name when byte_size(name) <= 120 -> {:ok, name}
-      _ -> {:error, 422, "display name is too long"}
-    end
-  end
-
-  defp validate_local_admin_display_name(_value), do: {:error, 422, "display name is invalid"}
-
-  defp put_local_admin_password(principal_uid, password) do
-    with {:ok, _credential} <- LocalPassword.set_local_password(principal_uid, password, false) do
-      {:ok, principal_uid}
     end
   end
 

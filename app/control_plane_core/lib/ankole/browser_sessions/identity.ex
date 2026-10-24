@@ -37,7 +37,22 @@ defmodule Ankole.BrowserSessions.Identity do
   def decode_reference(_), do: {:error, :invalid_authentication}
 
   def get(ref), do: fetch_browser(ref, false)
+
+  def lock_browser_in_tx(ref) do
+    in_transaction!(:lock_browser_in_tx)
+    fetch_browser(ref, true)
+  end
+
   def get_authentication(ref), do: fetch_authentication(ref)
+
+  def authentication_evidence(nil), do: %{}
+
+  def authentication_evidence(id) do
+    case read_authentication(id) do
+      nil -> %{}
+      authentication -> Map.from_struct(authentication)
+    end
+  end
 
   def current_reference(ref) do
     with {:ok, browser} <- get(ref),
@@ -82,6 +97,23 @@ defmodule Ankole.BrowserSessions.Identity do
 
   def identity(_, _), do: nil
 
+  def identities(ref) do
+    with {:ok, authentication} <- get_authentication(ref) do
+      PodAuthentication
+      |> Ash.Query.for_read(:lookup_across_tenants)
+      |> Ash.Query.filter(authentication_id == ^authentication.id)
+      |> Ankole.Ash.read_across_tenants!()
+      |> Enum.flat_map(fn proof ->
+        case identity_for_authentication(authentication, proof.tenant_id) do
+          nil -> []
+          identity -> [identity]
+        end
+      end)
+    else
+      _ -> []
+    end
+  end
+
   defp identity_for_authentication(authentication, tenant_id),
     do: Repo.with_tenant(tenant_id, fn -> identity_in_tenant(authentication) end)
 
@@ -92,7 +124,14 @@ defmodule Ankole.BrowserSessions.Identity do
            |> Ankole.Ash.read_one!(),
          :ok <- Ankole.Principals.HumanAccess.check(proof.principal_uid, proof.access_version),
          true <- Ankole.Tenants.accepting_work?(proof.tenant_id),
-         true <- current_binding?(authentication, proof) do
+         true <- current_binding?(authentication, proof),
+         {:ok, principal} <- Ankole.Principals.get_principal(proof.principal_uid),
+         true <-
+           Ankole.Principals.PodLoginPolicy.authentication_allowed?(
+             principal,
+             authentication.provider_id,
+             Map.from_struct(authentication)
+           ) do
       %{
         "authentication_id" => authentication.id,
         "authentication_revision" => authentication.revision,
@@ -103,6 +142,12 @@ defmodule Ankole.BrowserSessions.Identity do
         "provider_id" => authentication.provider_id,
         "external_id" => authentication.external_id,
         "auth_time" => authentication.auth_time,
+        "authenticated_at" => DateTime.to_unix(authentication.authenticated_at),
+        "provider_scope" => if(authentication.purpose == :site, do: "site", else: "tenant"),
+        "amr" => authentication.amr,
+        "challenge_started_at" => authentication.challenge_started_at,
+        "verified_email" => authentication.verified_email,
+        "verified_phone" => authentication.verified_phone,
         "expires_at" => DateTime.to_unix(authentication.expires_at),
         "purpose" => Atom.to_string(authentication.purpose)
       }
@@ -114,16 +159,11 @@ defmodule Ankole.BrowserSessions.Identity do
   @doc false
   def current_binding?(%Authentication{purpose: :site} = authentication, proof) do
     Ankole.IdentityProviders.SiteSources.registered?(authentication.provider_id) and
-      Ankole.Principals.list_external_identities!(
-        query: [
-          filter: [
-            provider: authentication.provider_id,
-            external_id: authentication.subject_id,
-            principal_uid: proof.principal_uid
-          ],
-          limit: 1
-        ]
-      ) != []
+      Ankole.Principals.site_credential_bound?(
+        proof.principal_uid,
+        authentication.provider_id,
+        authentication.subject_id
+      )
   end
 
   def current_binding?(authentication, proof),

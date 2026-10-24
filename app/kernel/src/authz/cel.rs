@@ -1,5 +1,7 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use cel::common::ast::{EntryExpr, Expr, IdedEntryExpr, IdedExpr};
 use cel::common::types::{self, CelBool};
 use cel::common::value::CowVal;
 use cel::{Context, Env, Program, Value as CelValue, functions};
@@ -14,7 +16,107 @@ pub enum BoolEvalError {
 }
 
 pub fn validate_condition_source(condition: &str) -> KernelResult<()> {
-    compile_condition(condition).map(|_| ())
+    let program = compile_condition(condition)?;
+    validate_program_variables(&program, &["principal", "resource", "action", "context"])
+}
+
+pub fn validate_pod_condition_source(condition: &str) -> KernelResult<()> {
+    let program = compile_condition(condition)?;
+    validate_pod_condition_program(&program)
+}
+
+pub(crate) fn validate_pod_condition_program(program: &Program) -> KernelResult<()> {
+    validate_program_variables(program, &["principal", "context"])
+}
+
+pub fn condition_free_variables(condition: &str) -> KernelResult<Vec<String>> {
+    let program = compile_condition(condition)?;
+    Ok(program_free_variables(&program))
+}
+
+fn validate_program_variables(program: &Program, allowed: &[&str]) -> KernelResult<()> {
+    let invalid: Vec<_> = program_free_variables(program)
+        .into_iter()
+        .filter(|name| !allowed.contains(&name.as_str()))
+        .collect();
+    if invalid.is_empty() {
+        Ok(())
+    } else {
+        Err(KernelError::new(format!(
+            "invalid cel condition free variables: {}",
+            invalid.join(", ")
+        )))
+    }
+}
+
+fn program_free_variables(program: &Program) -> Vec<String> {
+    let mut variables = BTreeSet::new();
+    collect_free_variables(program.expression(), &mut Vec::new(), &mut variables);
+    variables.into_iter().map(str::to_owned).collect()
+}
+
+fn collect_free_variables<'a>(
+    expression: &'a IdedExpr,
+    bindings: &mut Vec<&'a str>,
+    variables: &mut BTreeSet<&'a str>,
+) {
+    match &expression.expr {
+        Expr::Ident(name) => {
+            if !bindings.contains(&name.as_str()) {
+                variables.insert(name);
+            }
+        }
+        Expr::Call(call) => {
+            if let Some(target) = &call.target {
+                collect_free_variables(target, bindings, variables);
+            }
+            for argument in &call.args {
+                collect_free_variables(argument, bindings, variables);
+            }
+        }
+        Expr::Select(select) => collect_free_variables(&select.operand, bindings, variables),
+        Expr::List(list) => {
+            for element in &list.elements {
+                collect_free_variables(element, bindings, variables);
+            }
+        }
+        Expr::Map(map) => collect_entry_variables(&map.entries, bindings, variables),
+        Expr::Struct(structure) => collect_entry_variables(&structure.entries, bindings, variables),
+        Expr::Comprehension(comprehension) => {
+            collect_free_variables(&comprehension.iter_range, bindings, variables);
+            collect_free_variables(&comprehension.accu_init, bindings, variables);
+            let outer_scope = bindings.len();
+            bindings.push(&comprehension.accu_var);
+            bindings.push(&comprehension.iter_var);
+            if let Some(iter_var2) = &comprehension.iter_var2 {
+                bindings.push(iter_var2);
+            }
+            collect_free_variables(&comprehension.loop_cond, bindings, variables);
+            collect_free_variables(&comprehension.loop_step, bindings, variables);
+            bindings.truncate(outer_scope + 1);
+            collect_free_variables(&comprehension.result, bindings, variables);
+            bindings.truncate(outer_scope);
+        }
+        Expr::Unspecified | Expr::Literal(_) => {}
+    }
+}
+
+fn collect_entry_variables<'a>(
+    entries: &'a [IdedEntryExpr],
+    bindings: &mut Vec<&'a str>,
+    variables: &mut BTreeSet<&'a str>,
+) {
+    for entry in entries {
+        match &entry.expr {
+            EntryExpr::StructField(field) => {
+                collect_free_variables(&field.value, bindings, variables);
+            }
+            EntryExpr::MapEntry(entry) => {
+                collect_free_variables(&entry.key, bindings, variables);
+                collect_free_variables(&entry.value, bindings, variables);
+            }
+        }
+    }
 }
 
 /// Compiles a CEL condition used by computed groups or grants.
@@ -83,6 +185,85 @@ pub fn execute_bool(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn free_variables_follow_nested_and_shadowed_comprehension_scopes() {
+        for (source, expected) in [
+            ("[1].exists(resource, resource == 1)", vec![]),
+            ("resource.exists(resource, resource == 1)", vec!["resource"]),
+            ("[1].exists(x, [2].exists(x, x == 2) && x == 1)", vec![]),
+            (
+                "[1].exists(resource, [resource].all(action, action == resource)) && resource != ''",
+                vec!["resource"],
+            ),
+            (
+                "['10.0.0.1'].exists(ip, context.request.ip == ip) && principal.status == 'active'",
+                vec!["context", "principal"],
+            ),
+            (
+                "[1].map(resource, {resource: principal.uid}).exists(action, action[1] == principal.uid)",
+                vec!["principal"],
+            ),
+        ] {
+            assert_eq!(
+                condition_free_variables(source).unwrap(),
+                expected,
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn comprehension_initializers_and_result_use_their_own_scopes() {
+        use cel::common::ast::ComprehensionExpr;
+
+        let ident = |name: &str| IdedExpr {
+            id: 0,
+            expr: Expr::Ident(name.to_owned()),
+        };
+        let expression = IdedExpr {
+            id: 0,
+            expr: Expr::Comprehension(Box::new(ComprehensionExpr {
+                iter_var: "item".to_owned(),
+                iter_var2: Some("value".to_owned()),
+                accu_var: "accumulator".to_owned(),
+                iter_range: ident("item"),
+                accu_init: ident("accumulator"),
+                loop_cond: ident("item"),
+                loop_step: ident("value"),
+                result: ident("value"),
+            })),
+        };
+        let mut variables = BTreeSet::new();
+        collect_free_variables(&expression, &mut Vec::new(), &mut variables);
+        assert_eq!(variables, BTreeSet::from(["accumulator", "item", "value"]));
+    }
+
+    #[test]
+    fn authorization_validators_enforce_their_variable_contracts() {
+        assert!(
+            validate_condition_source(
+                "principal.uid != '' && resource != '' && action != '' && context.request.ip != ''"
+            )
+            .is_ok()
+        );
+        assert!(validate_condition_source("unknown == true").is_err());
+        assert!(
+            validate_pod_condition_source("['10.0.0.1'].exists(ip, context.request.ip == ip)")
+                .is_ok()
+        );
+        assert!(validate_pod_condition_source("[1].exists(resource, resource == 1)").is_ok());
+        for source in [
+            "resource == 'page'",
+            "action == 'page_view'",
+            "resource.exists(resource, resource == 1)",
+            "[1].exists(x, x == 1) && x == 1",
+            "[",
+        ] {
+            assert!(validate_pod_condition_source(source).is_err(), "{source}");
+        }
+        assert!(condition_free_variables("[").is_err());
+    }
 
     #[test]
     fn preserves_supported_functions_for_host_variables_and_literals() {

@@ -67,7 +67,10 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
     assert {:ok, envelope} = Task.await(task, 5_000)
     assert SessionsCase.rpc_error_payload!(envelope)["code"] == "run_closed"
     assert Repo.get!(Page, page.id).revision == 0
-    assert {:ok, %{content: %{plain_text: ""}}} = Pages.get(ctx.owner, page.id)
+
+    assert {:ok, %{content: %{plain_text: ""}}} =
+             Pages.get(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
+
     assert Repo.aggregate(PageChange, :count) == 0
     refute_receive {:page_committed, _id}, 100
   end
@@ -109,19 +112,35 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
     assert SessionsCase.rpc_error_payload!(envelope)["code"] ==
              "background_agent_job_attempt_changed"
 
-    assert {:ok, %{revision: 0, files: []}} = Files.manifest(ctx.owner, page.id)
+    assert {:ok, %{revision: 0, files: []}} =
+             Files.manifest(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), page.id)
+
     refute_receive {:page_committed, _id}, 100
   end
 
   test "every Pod RPC write retains its final transaction fence", ctx do
     database = shared_page(ctx, "database")
-    {:ok, table} = Ankole.Pod.Database.create_table(ctx.owner, database.id, %{name: "Shared"})
+
+    {:ok, table} =
+      Ankole.Pod.Database.create_table(
+        Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+        database.id,
+        %{name: "Shared"}
+      )
 
     {:ok, field} =
-      Ankole.Pod.Database.create_field(ctx.owner, table.id, %{type: "text", name: "Value"})
+      Ankole.Pod.Database.create_field(
+        Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+        table.id,
+        %{type: "text", name: "Value"}
+      )
 
     {:ok, view} =
-      Ankole.Pod.Database.create_view(ctx.owner, table.id, %{type: "grid", name: "Grid 2"})
+      Ankole.Pod.Database.create_view(
+        Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+        table.id,
+        %{type: "grid", name: "Grid 2"}
+      )
 
     applet = shared_page(ctx, "applet")
 
@@ -160,11 +179,22 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
     assert Repo.aggregate(Page, :count) == 2
     assert Repo.get!(Page, database.id).title == "Shared"
     assert Repo.aggregate(DbRecord, :count) == 0
-    assert {:ok, _} = Documents.write(ctx.owner, shared_page(ctx, "doc").id, 0, "<page />")
+
+    assert {:ok, _} =
+             Documents.write(
+               Ankole.PrincipalsFixtures.actor_fixture(ctx.owner),
+               shared_page(ctx, "doc").id,
+               0,
+               "<page />"
+             )
   end
 
   defp shared_page(ctx, type) do
-    {:ok, page} = Pages.create(ctx.owner, %{type: type, title: "Shared"})
+    {:ok, page} =
+      Pages.create(Ankole.PrincipalsFixtures.actor_fixture(ctx.owner), %{
+        type: type,
+        title: "Shared"
+      })
 
     {:ok, _} =
       Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, page.id, %{

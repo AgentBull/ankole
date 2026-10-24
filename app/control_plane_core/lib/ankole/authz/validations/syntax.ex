@@ -9,9 +9,16 @@ defmodule Ankole.AuthZ.Validations.Syntax do
 
     result =
       case {value, Keyword.fetch!(opts, :kind)} do
-        {nil, _kind} -> :ok
-        {value, :condition} -> Ankole.AuthZ.Input.validate_condition_syntax(value)
-        {value, :resource_pattern} -> Ankole.AuthZ.Input.validate_resource_pattern_syntax(value)
+        {nil, _kind} ->
+          :ok
+
+        {value, :condition} ->
+          if Ash.Changeset.get_attribute(changeset, :action) in ~w(page_view page_edit page_manage),
+            do: Ankole.AuthZ.Input.validate_pod_condition_source(value),
+            else: Ankole.AuthZ.Input.validate_condition_syntax(value)
+
+        {value, :resource_pattern} ->
+          Ankole.AuthZ.Input.validate_resource_pattern_syntax(value)
       end
 
     case result do
